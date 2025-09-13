@@ -4,16 +4,15 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 // ReplacementConfig contains information for replacing a source config with centian proxy
 type ReplacementConfig struct {
-	SourcePath    string   // Path to original config file
-	SourceType    string   // Type: "claude-desktop", "vscode-mcp", "vscode-settings"
+	SourcePath      string   // Path to original config file
+	SourceType      string   // Type: "claude-desktop", "vscode-mcp", "vscode-settings"
 	OriginalServers []string // Names of servers being replaced
-	ProxyConfig   string   // Replacement config snippet
+	ProxyConfig     string   // Replacement config snippet
 }
 
 // DiscoveryUI provides user interface functions for the discovery system
@@ -44,7 +43,9 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 		return []DiscoveredServer{}, nil
 	}
 
-	fmt.Printf("🔍 Found %d MCP server(s) in existing configurations:\n\n", len(result.Servers))
+	StreamPrint(10, "🔍 Found %d MCP server(s) in existing configurations:\n\n", len(result.Servers))
+
+	// TODO: if more than X servers are found we should add option to skip print or show all
 
 	// Display discovered servers
 	for i, server := range result.Servers {
@@ -68,7 +69,7 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 		if len(server.Env) > 0 {
 			fmt.Printf("     Environment: %d variables\n", len(server.Env))
 		}
-		fmt.Println()
+		StreamPrint(1, "  \n")
 	}
 
 	// Show any errors
@@ -86,20 +87,13 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 
 // promptForImport asks the user which servers to import and offers proxy replacement
 func (ui *DiscoveryUI) promptForImport(servers []DiscoveredServer) ([]DiscoveredServer, error) {
-	fmt.Printf("Import these servers into centian configuration?
-")
-	fmt.Printf("Options:
-")
-	fmt.Printf("  [a]ll     - Import all servers (default)
-")
-	fmt.Printf("  [s]elect  - Choose specific servers to import
-")
-	fmt.Printf("  [r]eplace - Replace discovered configs with centian proxy
-")
-	fmt.Printf("  [n]one    - Skip import
-")
-	fmt.Printf("
-Choice [a/s/r/n]: ")
+	fmt.Printf("Import these servers into centian configuration?\n")
+	fmt.Printf("Options:\n")
+	fmt.Printf("  [a]ll     - Import all servers (default)\n")
+	fmt.Printf("  [s]elect  - Choose specific servers to import\n")
+	fmt.Printf("  [r]eplace - Replace discovered configs with centian proxy\n")
+	fmt.Printf("  [n]one    - Skip import\n")
+	fmt.Printf("Choice [a/s/r/n]: ")
 
 	response, err := ui.reader.ReadString('\n')
 	if err != nil {
@@ -118,8 +112,7 @@ Choice [a/s/r/n]: ")
 	case "n", "none":
 		return []DiscoveredServer{}, nil
 	default:
-		fmt.Printf("Invalid choice. Skipping import.
-")
+		fmt.Printf("Invalid choice. Skipping import.\n")
 		return []DiscoveredServer{}, nil
 	}
 }
@@ -174,38 +167,25 @@ func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredSe
 
 // promptForReplacement asks user about replacing discovered configs with centian proxy
 func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]DiscoveredServer, error) {
-	fmt.Printf("
-🔄 Configuration Replacement
-")
-	fmt.Printf("============================
-")
-	fmt.Printf("This will:
-")
-	fmt.Printf("  1. Import all discovered servers into centian
-")
-	fmt.Printf("  2. Generate replacement configs that use centian proxy
-")
-	fmt.Printf("  3. Show you the replacement configs (you'll apply them manually)
+	fmt.Printf("🔄 Configuration Replacement\n")
+	fmt.Printf("============================\n")
+	fmt.Printf("This will:\n")
+	fmt.Printf("  1. Import all discovered servers into centian\n")
+	fmt.Printf("  2. Generate replacement configs that use centian proxy\n")
+	fmt.Printf("  3. Show you the replacement configs (you'll apply them manually)\n")
 
-")
-	
-	fmt.Printf("⚠️  You will need to manually update your original config files.
-")
-	fmt.Printf("💡 This centralizes MCP management through centian.
+	fmt.Printf("⚠️  You will need to manually update your original config files.\n")
+	fmt.Printf("💡 This centralizes MCP management through centian.\n")
 
-")
-	
 	fmt.Printf("Proceed with replacement config generation? (y/N): ")
-	response, err := ui.reader.ReadString('
-')
+	response, err := ui.reader.ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("failed to read input: %w", err)
 	}
 
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response != "y" && response != "yes" {
-		fmt.Printf("Replacement cancelled.
-")
+		fmt.Printf("Replacement cancelled.\n")
 		return []DiscoveredServer{}, nil
 	}
 
@@ -250,14 +230,13 @@ func ImportServers(servers []DiscoveredServer, config *GlobalConfig) int {
 
 		config.AddServer(discovered.Name, mcpServer)
 		imported++
-		
+
 		if discovered.ReplacementMode {
 			// Track replacement config
 			replacementConfigs = append(replacementConfigs, generateReplacementConfig(discovered))
 		}
-		
-		fmt.Printf("✅ Imported: %s (from %s)
-", discovered.Name, discovered.SourcePath)
+
+		fmt.Printf("✅ Imported: %s (from %s)\n", discovered.Name, discovered.SourcePath)
 	}
 
 	// Show replacement configs if any were requested
@@ -285,5 +264,101 @@ func ShowImportSummary(imported int, total int) {
 	fmt.Printf("  2. Start the proxy:\n")
 	fmt.Printf("     centian start\n\n")
 	fmt.Printf("  3. Manage servers:\n")
-	fmt.Printf("     centian config server --help\n\n")
+	fmt.Printf("     centian config server --help\n")
+}
+
+// generateReplacementConfig creates replacement configuration for a discovered server
+func generateReplacementConfig(server DiscoveredServer) ReplacementConfig {
+	var sourceType string
+	var proxyConfig string
+
+	// Determine source type from path
+	if strings.Contains(server.SourcePath, "claude_desktop_config.json") {
+		sourceType = "claude-desktop"
+		proxyConfig = generateClaudeDesktopReplacement()
+	} else if strings.Contains(server.SourcePath, ".vscode/mcp.json") {
+		sourceType = "vscode-mcp"
+		proxyConfig = generateVSCodeMCPReplacement()
+	} else if strings.Contains(server.SourcePath, "settings.json") {
+		sourceType = "vscode-settings"
+		proxyConfig = generateVSCodeSettingsReplacement()
+	}
+
+	return ReplacementConfig{
+		SourcePath:      server.SourcePath,
+		SourceType:      sourceType,
+		OriginalServers: []string{server.Name},
+		ProxyConfig:     proxyConfig,
+	}
+}
+
+// generateClaudeDesktopReplacement creates Claude Desktop config replacement
+func generateClaudeDesktopReplacement() string {
+	return `{
+  "mcpServers": {
+    "centian": {
+      "command": "centian",
+      "args": ["start"]
+    }
+  }
+}`
+}
+
+// generateVSCodeMCPReplacement creates VS Code mcp.json replacement
+func generateVSCodeMCPReplacement() string {
+	return `{
+  "servers": {
+    "centian": {
+      "command": "centian",
+      "args": ["start"]
+    }
+  }
+}`
+}
+
+// generateVSCodeSettingsReplacement creates VS Code settings.json replacement
+func generateVSCodeSettingsReplacement() string {
+	return `{
+  "servers": {
+    "centian": {
+      "command": "centian",
+      "args": ["start"]
+    }
+  }
+}`
+}
+
+// showReplacementConfigs displays the replacement configurations to the user
+func showReplacementConfigs(configs []ReplacementConfig) {
+	fmt.Printf("🔄 Replacement Configuration Instructions\n")
+	fmt.Printf("========================================\n")
+
+	fmt.Printf("Your servers have been imported into centian. To complete the setup,\n")
+	fmt.Printf("replace your original configurations with the following:\n")
+
+	// Group configs by source file
+	configGroups := make(map[string][]ReplacementConfig)
+	for _, config := range configs {
+		configGroups[config.SourcePath] = append(configGroups[config.SourcePath], config)
+	}
+
+	for sourcePath, groupConfigs := range configGroups {
+		fmt.Printf("📁 %s\n", sourcePath)
+		fmt.Printf("   Replace the entire file content with:\n")
+
+		// Use the first config's proxy config (they should be the same for same source type)
+		fmt.Printf("```json%s```\n", groupConfigs[0].ProxyConfig)
+
+		fmt.Printf("   This replaces %d server(s): ", len(groupConfigs))
+		var serverNames []string
+		for _, config := range groupConfigs {
+			serverNames = append(serverNames, config.OriginalServers...)
+		}
+		fmt.Printf("%s\n", strings.Join(serverNames, ", "))
+	}
+
+	fmt.Printf("⚠️  Important:\n")
+	fmt.Printf("  - Make sure centian is in your PATH or use full path to binary\n")
+	fmt.Printf("  - Restart Claude Desktop / VS Code after making changes\n")
+	fmt.Printf("  - Run 'centian start' to test the proxy before restarting applications\n")
 }

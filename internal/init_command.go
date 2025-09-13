@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/urfave/cli/v3"
 )
@@ -85,7 +86,8 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 
 // runAutoDiscovery performs MCP server auto-discovery and handles user interaction
 func runAutoDiscovery(config *GlobalConfig) int {
-	fmt.Printf("🔍 Scanning for existing MCP configurations...\n")
+	StreamPrint(10, "🔍 Scanning for existing MCP configurations...\n")
+	time.Sleep(1 * time.Second)
 
 	// Create discovery manager and run discovery
 	dm := NewDiscoveryManager()
