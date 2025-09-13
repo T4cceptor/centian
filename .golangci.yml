@@ -1,0 +1,82 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - gofmt
+    - goimports
+    - gocritic
+    - gocyclo
+    - godot
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+  revive:
+    rules:
+      - name: exported
+        disabled: false
+        arguments:
+          - checkPrivateReceivers
+          - sayRepetitiveInsteadOfStutters
+
+issues:
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+    # Exclude known false positives
+    - text: "Use of weak random number generator"
+      linters:
+        - gosec
+    # Ignore shadow declarations in short variable declarations
+    - text: "shadow: declaration of"
+      linters:
+        - govet
+    # Ignore godot comment period requirements (cosmetic)
+    - text: "Comment should end in a period"
+      linters:
+        - godot
+    # Ignore revive naming suggestions for OpenAPI types (deliberate naming for clarity)
+    - text: "type name will be used as openapi\\."
+      linters:
+        - revive
+    # Ignore gocritic parameter combination suggestions (readability preference)
+    - text: "paramTypeCombine:"
+      linters:
+        - gocritic
+    # Ignore gocritic TODO detail requirements (TODOs are intentionally brief)
+    - text: "todoCommentWithoutDetail:"
+      linters:
+        - gocritic
+    # Ignore unnamed result suggestions (return types are clear from context)
+    - text: "unnamedResult:"
+      linters:
+        - gocritic
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
