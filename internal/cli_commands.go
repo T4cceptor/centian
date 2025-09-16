@@ -25,13 +25,6 @@ var Start cli.Command = cli.Command{
 	Usage:       "start -t http -p 8080",
 	Description: "Starts an MCP proxy given the specified arguments.",
 	Action:      initializeMcpProxy,
-	// Flags: []cli.Flag{
-	// 	&cli.BoolFlag{
-	// 		Name:  "",
-	// 		Value: true,
-	// 		Usage: "Determins if config is overwritten using provided cli flags. Note: only provided flags will be overwritten.",
-	// 	},
-	// },
 }
 
 // handleLoadCommand handles the load command to start server from config file.

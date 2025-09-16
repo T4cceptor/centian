@@ -13,56 +13,56 @@ import (
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, lifecycle hooks, and additional metadata.
 type GlobalConfig struct {
-	Version    string                `json:"version"`              // Config schema version
-	Servers    map[string]*MCPServer `json:"servers"`              // Named MCP servers
-	Proxy      *ProxySettings        `json:"proxy,omitempty"`      // Proxy-level settings
-	Hooks      *HookSettings         `json:"hooks,omitempty"`      // Lifecycle hooks
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`   // Additional metadata
+	Version  string                 `json:"version"`            // Config schema version
+	Servers  map[string]*MCPServer  `json:"servers"`            // Named MCP servers
+	Proxy    *ProxySettings         `json:"proxy,omitempty"`    // Proxy-level settings
+	Hooks    *HookSettings          `json:"hooks,omitempty"`    // Lifecycle hooks
+	Metadata map[string]interface{} `json:"metadata,omitempty"` // Additional metadata
 }
 
 // MCPServer represents a single MCP server configuration.
 // Each server defines how to start and connect to an MCP server process,
 // including command, arguments, environment variables, and metadata.
 type MCPServer struct {
-	Name        string            `json:"name"`                    // Display name
-	Command     string            `json:"command,omitempty"`       // Executable command (for stdio/process transport)
-	Args        []string          `json:"args,omitempty"`          // Command arguments
-	Env         map[string]string `json:"env,omitempty"`          // Environment variables
-	URL         string            `json:"url,omitempty"`           // HTTP/WebSocket URL (for http/ws transport)
-	Transport   string            `json:"transport,omitempty"`     // Transport type: stdio, http, websocket
-	Enabled     bool              `json:"enabled"`                 // Whether server is active
-	Description string            `json:"description,omitempty"`   // Human readable description
-	Source      string            `json:"source,omitempty"`        // Source file path for auto-discovered servers
-	Config      map[string]interface{} `json:"config,omitempty"`   // Server-specific config
+	Name        string                 `json:"name"`                  // Display name
+	Command     string                 `json:"command,omitempty"`     // Executable command (for stdio/process transport)
+	Args        []string               `json:"args,omitempty"`        // Command arguments
+	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
+	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/ws transport)
+	Transport   string                 `json:"transport,omitempty"`   // Transport type: stdio, http, websocket
+	Enabled     bool                   `json:"enabled"`               // Whether server is active
+	Description string                 `json:"description,omitempty"` // Human readable description
+	Source      string                 `json:"source,omitempty"`      // Source file path for auto-discovered servers
+	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
 }
 
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Port         int    `json:"port,omitempty"`          // HTTP proxy port (if enabled)
-	Transport    string `json:"transport"`               // stdio, http, websocket
-	LogLevel     string `json:"logLevel,omitempty"`      // debug, info, warn, error
-	LogFile      string `json:"logFile,omitempty"`       // Log file path
-	Timeout      int    `json:"timeout,omitempty"`       // Request timeout in seconds
+	Port      int    `json:"port,omitempty"`     // HTTP proxy port (if enabled)
+	Transport string `json:"transport"`          // stdio, http, websocket
+	LogLevel  string `json:"logLevel,omitempty"` // debug, info, warn, error
+	LogFile   string `json:"logFile,omitempty"`  // Log file path
+	Timeout   int    `json:"timeout,omitempty"`  // Request timeout in seconds
 }
 
 // HookSettings contains lifecycle hook configurations that define custom
 // commands or HTTP endpoints to execute at various points in the MCP request/response cycle.
 type HookSettings struct {
-	PreRequest  *HookConfig `json:"preRequest,omitempty"`   // Before forwarding request
-	PostRequest *HookConfig `json:"postRequest,omitempty"`  // After receiving response
-	OnConnect   *HookConfig `json:"onConnect,omitempty"`    // When server connects
+	PreRequest   *HookConfig `json:"preRequest,omitempty"`   // Before forwarding request
+	PostRequest  *HookConfig `json:"postRequest,omitempty"`  // After receiving response
+	OnConnect    *HookConfig `json:"onConnect,omitempty"`    // When server connects
 	OnDisconnect *HookConfig `json:"onDisconnect,omitempty"` // When server disconnects
 }
 
 // HookConfig defines a single hook that can execute either a shell command
 // or make an HTTP POST request when triggered by lifecycle events.
 type HookConfig struct {
-	Command string            `json:"command"`              // Command to execute
-	Args    []string          `json:"args,omitempty"`       // Command arguments
-	Env     map[string]string `json:"env,omitempty"`        // Environment variables
-	Timeout int               `json:"timeout,omitempty"`    // Hook timeout in seconds
-	URL     string            `json:"url,omitempty"`        // HTTP endpoint to POST to
+	Command string            `json:"command"`           // Command to execute
+	Args    []string          `json:"args,omitempty"`    // Command arguments
+	Env     map[string]string `json:"env,omitempty"`     // Environment variables
+	Timeout int               `json:"timeout,omitempty"` // Hook timeout in seconds
+	URL     string            `json:"url,omitempty"`     // HTTP endpoint to POST to
 }
 
 // DefaultConfig returns a default configuration
@@ -75,7 +75,7 @@ func DefaultConfig() *GlobalConfig {
 			LogLevel:  "info",
 			Timeout:   30,
 		},
-		Hooks: &HookSettings{},
+		Hooks:    &HookSettings{},
 		Metadata: make(map[string]interface{}),
 	}
 }
@@ -104,7 +104,7 @@ func EnsureConfigDir() error {
 	if err != nil {
 		return err
 	}
-	
+
 	return os.MkdirAll(configDir, 0755)
 }
 
@@ -181,7 +181,7 @@ func ValidateConfig(config *GlobalConfig) error {
 		if config.Proxy.Transport == "" {
 			return fmt.Errorf("proxy.transport is required")
 		}
-		
+
 		validTransports := []string{"stdio", "http", "websocket"}
 		valid := false
 		for _, t := range validTransports {
@@ -200,7 +200,7 @@ func ValidateConfig(config *GlobalConfig) error {
 		if server.Name == "" {
 			server.Name = name // Use key as name if not specified
 		}
-		
+
 		// Set default transport if not specified
 		if server.Transport == "" {
 			if server.URL != "" {
@@ -209,7 +209,7 @@ func ValidateConfig(config *GlobalConfig) error {
 				server.Transport = "stdio" // Default to stdio for command-based servers
 			}
 		}
-		
+
 		// Validate based on transport type
 		switch server.Transport {
 		case "stdio", "process":
@@ -251,15 +251,6 @@ func (c *GlobalConfig) AddServer(name string, server *MCPServer) {
 // RemoveServer removes a server configuration
 func (c *GlobalConfig) RemoveServer(name string) {
 	delete(c.Servers, name)
-}
-
-// ListServers returns all server names
-func (c *GlobalConfig) ListServers() []string {
-	var names []string
-	for name := range c.Servers {
-		names = append(names, name)
-	}
-	return names
 }
 
 // ListEnabledServers returns names of enabled servers only

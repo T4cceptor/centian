@@ -1,0 +1,14 @@
+{
+  "inputs": [],
+  "mcpServers": {},
+  "servers": {
+    "centian": {
+      "args": [
+        "start",
+        "--path",
+        "test_configs/vscode_mcp.json"
+      ],
+      "command": "centian"
+    }
+  }
+}

@@ -47,6 +47,28 @@ type ConfigDiscoverer interface {
 	IsAvailable() bool
 }
 
+// RegexDiscoverer represents a regex-based pattern for discovering MCP configs
+type RegexDiscoverer struct {
+	DiscovererName        string
+	DiscovererDescription string
+	Patterns              []DiscoveryPattern
+	SearchPaths           []string
+	MaxDepth              int
+	Enabled               bool
+}
+
+// DiscoveryPattern defines how to find and parse a specific type of config file
+type DiscoveryPattern struct {
+	FileRegex     string              `json:"fileRegex"`     // Regex pattern for file path/name
+	ContentRegex  []string            `json:"contentRegex"`  // Content must match these patterns
+	Parser        string              `json:"parser"`        // Parser function name
+	SourceType    string              `json:"sourceType"`    // For replacement logic
+	Priority      int                 `json:"priority"`      // Higher = search first
+}
+
+// ConfigParserFunc is a function that parses config data and extracts MCP servers
+type ConfigParserFunc func(data []byte, filePath string) ([]DiscoveredServer, error)
+
 // DiscoveryManager manages multiple config discoverers
 type DiscoveryManager struct {
 	discoverers []ConfigDiscoverer
@@ -61,6 +83,7 @@ func NewDiscoveryManager() *DiscoveryManager {
 	// Register built-in discoverers
 	dm.RegisterDiscoverer(&ClaudeDesktopDiscoverer{})
 	dm.RegisterDiscoverer(&VSCodeDiscoverer{})
+	dm.RegisterDiscoverer(GetDefaultRegexDiscoverer())
 	
 	return dm
 }
@@ -169,6 +192,14 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 			Args    []string `json:"args"`
 			Env     map[string]string `json:"env"`
 		} `json:"mcpServers"`
+		Servers map[string]struct {
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
+			Env     map[string]string `json:"env"`
+			URL     string            `json:"url"`
+			Type    string            `json:"type"`
+			Headers map[string]string `json:"headers"`
+		} `json:"servers"`
 	}
 	
 	if err := json.Unmarshal(data, &config); err != nil {
@@ -176,6 +207,8 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 	}
 	
 	var servers []DiscoveredServer
+	
+	// Parse mcpServers section (stdio-based servers)
 	for name, serverConfig := range config.MCPServers {
 		// Determine transport type
 		transport := "stdio" // Default for Claude Desktop is stdio
@@ -188,6 +221,34 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 			Command:     serverConfig.Command,
 			Args:        serverConfig.Args,
 			Env:         serverConfig.Env,
+			Transport:   transport,
+			Description: fmt.Sprintf("Imported from Claude Desktop (%s)", name),
+			Source:      "Claude Desktop",
+			SourcePath:  ensureAbsolutePath(configPath),
+		}
+		servers = append(servers, server)
+	}
+	
+	// Parse servers section (HTTP-based servers)
+	for name, serverConfig := range config.Servers {
+		// Determine transport and set appropriate fields
+		transport := "stdio" // default
+		var url string
+		
+		// Check for URL field in config (for HTTP-based servers)
+		if serverConfig.URL != "" {
+			transport = "http"
+			url = serverConfig.URL
+		} else if serverConfig.Command == "" {
+			continue // Skip servers without command or URL
+		}
+		
+		server := DiscoveredServer{
+			Name:        name,
+			Command:     serverConfig.Command,
+			Args:        serverConfig.Args,
+			Env:         serverConfig.Env,
+			URL:         url,
 			Transport:   transport,
 			Description: fmt.Sprintf("Imported from Claude Desktop (%s)", name),
 			Source:      "Claude Desktop",
@@ -326,7 +387,7 @@ func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]Disco
 			Transport:   transport,
 			Description: fmt.Sprintf("Imported from VS Code MCP config (%s)", name),
 			Source:      "VS Code MCP",
-			SourcePath:  sourcePath,
+			SourcePath:  ensureAbsolutePath(sourcePath),
 		}
 		servers = append(servers, server)
 	}
@@ -369,7 +430,7 @@ func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[stri
 		Env:         make(map[string]string),
 		Description: fmt.Sprintf("Imported from VS Code settings (%s)", name),
 		Source:      "VS Code Settings",
-		SourcePath:  sourcePath,
+		SourcePath:  ensureAbsolutePath(sourcePath),
 		Transport:   "stdio", // default
 	}
 	
@@ -406,4 +467,133 @@ func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[stri
 	}
 	
 	return server
+}
+
+// RegexDiscoverer implementation
+func (r *RegexDiscoverer) Name() string {
+	return r.DiscovererName
+}
+
+func (r *RegexDiscoverer) Description() string {
+	return r.DiscovererDescription
+}
+
+func (r *RegexDiscoverer) IsAvailable() bool {
+	return r.Enabled
+}
+
+func (r *RegexDiscoverer) Discover() ([]DiscoveredServer, error) {
+	if !r.Enabled {
+		return []DiscoveredServer{}, nil
+	}
+
+	var allServers []DiscoveredServer
+	
+	// Search each configured path
+	for _, searchPath := range r.SearchPaths {
+		expandedPath := expandPath(searchPath)
+		servers, err := r.scanPath(expandedPath, 0)
+		if err != nil {
+			// Log error but continue with other paths
+			continue
+		}
+		allServers = append(allServers, servers...)
+	}
+	
+	return allServers, nil
+}
+
+// scanPath recursively scans a directory for config files matching patterns
+func (r *RegexDiscoverer) scanPath(path string, depth int) ([]DiscoveredServer, error) {
+	if depth > r.MaxDepth {
+		return []DiscoveredServer{}, nil
+	}
+	
+	// Check if path exists
+	info, err := os.Stat(path)
+	if err != nil {
+		return []DiscoveredServer{}, nil // Path doesn't exist, not an error
+	}
+	
+	var servers []DiscoveredServer
+	
+	if info.IsDir() {
+		// Scan directory contents
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return []DiscoveredServer{}, err
+		}
+		
+		for _, entry := range entries {
+			entryPath := filepath.Join(path, entry.Name())
+			entryServers, err := r.scanPath(entryPath, depth+1)
+			if err != nil {
+				continue // Skip errors in subdirectories
+			}
+			servers = append(servers, entryServers...)
+		}
+	} else {
+		// Check if file matches any pattern
+		fileServers, err := r.processFile(path)
+		if err != nil {
+			return []DiscoveredServer{}, err
+		}
+		servers = append(servers, fileServers...)
+	}
+	
+	return servers, nil
+}
+
+// processFile checks if a file matches patterns and extracts servers
+func (r *RegexDiscoverer) processFile(filePath string) ([]DiscoveredServer, error) {
+	// Sort patterns by priority (higher first)
+	patterns := make([]DiscoveryPattern, len(r.Patterns))
+	copy(patterns, r.Patterns)
+	
+	// Simple bubble sort by priority
+	for i := 0; i < len(patterns); i++ {
+		for j := 0; j < len(patterns)-1-i; j++ {
+			if patterns[j].Priority < patterns[j+1].Priority {
+				patterns[j], patterns[j+1] = patterns[j+1], patterns[j]
+			}
+		}
+	}
+	
+	// Try each pattern in priority order
+	for _, pattern := range patterns {
+		matches, err := r.matchesPattern(filePath, pattern)
+		if err != nil {
+			continue
+		}
+		
+		if matches {
+			return r.parseFile(filePath, pattern)
+		}
+	}
+	
+	return []DiscoveredServer{}, nil
+}
+
+// expandPath expands ~ and environment variables in paths
+func expandPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[2:])
+		}
+	}
+	return os.ExpandEnv(path)
+}
+
+// ensureAbsolutePath converts a file path to absolute path
+func ensureAbsolutePath(filePath string) string {
+	if filepath.IsAbs(filePath) {
+		return filePath
+	}
+	
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		return filePath // Return original if conversion fails
+	}
+	
+	return absPath
 }

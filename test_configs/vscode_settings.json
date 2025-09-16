@@ -1,0 +1,16 @@
+{
+  "editor.fontSize": 14,
+  "editor.tabSize": 2,
+  "workbench.colorTheme": "Dark+",
+  "mcp.servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Documents"]
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"]
+    }
+  },
+  "extensions.autoUpdate": false
+}

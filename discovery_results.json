@@ -1,0 +1,103 @@
+{
+  "servers": [
+    {
+      "name": "mcp_proxy-stdio",
+      "command": "centian",
+      "args": [
+        "start"
+      ],
+      "env": null,
+      "url": "",
+      "transport": "stdio",
+      "description": "Imported from VS Code MCP config (mcp_proxy-stdio)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/.vscode/mcp.json",
+      "replacementMode": false
+    },
+    {
+      "name": "mcp-proxy",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "http://localhost:8001/",
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/.vscode/mcp.json",
+      "replacementMode": false
+    },
+    {
+      "name": "mcp-proxy-2",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "http://localhost:8001",
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-2)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/.vscode/mcp.json",
+      "replacementMode": false
+    },
+    {
+      "name": "mcp-proxy-3",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "https://mcp.deepwiki.com/mcp",
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-3)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/.vscode/mcp.json",
+      "replacementMode": false
+    },
+    {
+      "name": "postgres",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://user:password@localhost/db"
+      ],
+      "env": null,
+      "url": "",
+      "transport": "stdio",
+      "description": "Imported from Claude Desktop (postgres)",
+      "source": "Claude Desktop",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/claude_desktop_config.json",
+      "replacementMode": false
+    },
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/allowed/files"
+      ],
+      "env": null,
+      "url": "",
+      "transport": "stdio",
+      "description": "Imported from Claude Desktop (filesystem)",
+      "source": "Claude Desktop",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/claude_desktop_config.json",
+      "replacementMode": false
+    },
+    {
+      "name": "git",
+      "command": "uvx",
+      "args": [
+        "mcp-server-git",
+        "--repository",
+        "/path/to/git/repo"
+      ],
+      "env": null,
+      "url": "",
+      "transport": "stdio",
+      "description": "Imported from Claude Desktop (git)",
+      "source": "Claude Desktop",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/claude_desktop_config.json",
+      "replacementMode": false
+    }
+  ],
+  "errors": []
+}
