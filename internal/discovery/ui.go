@@ -1,4 +1,4 @@
-package internal
+package discovery
 
 import (
 	"bufio"
@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/CentianAI/centian-cli/internal/config"
 )
 
 // ReplacementConfig contains information for replacing a source config with centian proxy
@@ -44,7 +47,7 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 		return []DiscoveredServer{}, nil
 	}
 
-	StreamPrint(10, "🔍 Found %d MCP server(s) in existing configurations:\n\n", len(result.Servers))
+	common.StreamPrint(10, "🔍 Found %d MCP server(s) in existing configurations:\n\n", len(result.Servers))
 
 	// TODO: if more than X servers are found we should add option to skip print or show all
 	// Display discovered servers
@@ -63,13 +66,10 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 		if server.SourcePath != "" {
 			fmt.Printf("     Source: %s\n", server.SourcePath)
 		}
-		if server.Description != "" {
-			fmt.Printf("     Description: %s\n", server.Description)
-		}
 		if len(server.Env) > 0 {
 			fmt.Printf("     Environment: %d variables\n", len(server.Env))
 		}
-		StreamPrint(1, "  \n")
+		common.StreamPrint(1, "  \n")
 	}
 
 	// Show any errors
@@ -271,15 +271,15 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 
 // promptForReplacement asks user about replacing discovered configs with centian proxy
 func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]DiscoveredServer, error) {
-	StreamPrint(8, "🔄 Configuration Replacement\n")
-	StreamPrint(10, "============================\n")
-	StreamPrint(8, "💡 This centralizes MCP management through centian.\n")
+	common.StreamPrint(8, "🔄 Configuration Replacement\n")
+	common.StreamPrint(10, "============================\n")
+	common.StreamPrint(8, "💡 This centralizes MCP management through centian.\n")
 
-	StreamPrint(8, "Performed steps:\n")
-	StreamPrint(7, "  1. Import all discovered servers into centian\n")
-	StreamPrint(8, "  2. Automatically replace MCP configs with Centian proxy (and create a backup file for the old config just in case)\n")
+	common.StreamPrint(8, "Performed steps:\n")
+	common.StreamPrint(7, "  1. Import all discovered servers into centian\n")
+	common.StreamPrint(8, "  2. Automatically replace MCP configs with Centian proxy (and create a backup file for the old config just in case)\n")
 
-	StreamPrint(10, "Proceed with replacement config generation? (y/N): ")
+	common.StreamPrint(10, "Proceed with replacement config generation? (y/N): ")
 	response, err := ui.reader.ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("failed to read input: %w", err)
@@ -300,25 +300,31 @@ func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]Disco
 }
 
 // ImportServers converts discovered servers to MCPServer configs and adds them to the global config
-func ImportServers(servers []DiscoveredServer, config *GlobalConfig) int {
+func ImportServers(servers []DiscoveredServer, globalConfig *config.GlobalConfig) int {
+	common.LogInfo("Starting import of %d discovered servers", len(servers))
+
 	imported := 0
 	var replacementConfigs []ReplacementConfig
 
 	for _, discovered := range servers {
+		common.LogDebug("Processing server: %s (from %s)", discovered.Name, discovered.SourcePath)
+
 		// Skip servers that have neither command nor URL
 		if discovered.Command == "" && discovered.URL == "" {
+			common.LogWarn("Skipping server '%s': no command or URL specified", discovered.Name)
 			fmt.Printf("⚠️  Skipping '%s': no command or URL specified\n", discovered.Name)
 			continue
 		}
 
 		// Check if server already exists
-		if _, exists := config.Servers[discovered.Name]; exists {
+		if _, exists := globalConfig.Servers[discovered.Name]; exists {
+			common.LogWarn("Server '%s' already exists in config, skipping", discovered.Name)
 			fmt.Printf("⚠️  Server '%s' already exists, skipping\n", discovered.Name)
 			continue
 		}
 
 		// Convert to MCPServer
-		mcpServer := &MCPServer{
+		mcpServer := &config.MCPServer{
 			Name:        discovered.Name,
 			Command:     discovered.Command,
 			Args:        discovered.Args,
@@ -330,12 +336,14 @@ func ImportServers(servers []DiscoveredServer, config *GlobalConfig) int {
 			Source:      discovered.SourcePath,
 		}
 
-		config.AddServer(discovered.Name, mcpServer)
+		globalConfig.AddServer(discovered.Name, mcpServer)
 		imported++
+		common.LogInfo("Imported server: %s (transport: %s, source: %s)", discovered.Name, discovered.Transport, discovered.SourcePath)
 
 		if discovered.ReplacementMode {
 			// Track replacement config
 			replacementConfigs = append(replacementConfigs, generateReplacementConfig(discovered))
+			common.LogDebug("Server '%s' marked for config replacement", discovered.Name)
 		}
 
 		fmt.Printf("✅ Imported: %s (from %s)\n", discovered.Name, discovered.SourcePath)
@@ -343,9 +351,11 @@ func ImportServers(servers []DiscoveredServer, config *GlobalConfig) int {
 
 	// Apply replacement configs if any were requested
 	if len(replacementConfigs) > 0 {
+		common.LogInfo("Applying %d replacement configs", len(replacementConfigs))
 		applyReplacementConfigs(replacementConfigs)
 	}
 
+	common.LogInfo("Import completed: %d servers imported successfully", imported)
 	return imported
 }
 
@@ -384,6 +394,14 @@ func generateReplacementConfig(server DiscoveredServer) ReplacementConfig {
 	} else if strings.Contains(server.SourcePath, "settings.json") {
 		sourceType = "vscode-settings"
 		proxyConfig = generateVSCodeSettingsReplacement()
+	} else if strings.Contains(server.SourcePath, ".mcp.json") {
+		// Generic .mcp.json files - use mcpServers structure like Claude Desktop
+		sourceType = "generic-mcp"
+		proxyConfig = generateGenericMCPReplacement()
+	} else {
+		// Default fallback for unknown file types
+		sourceType = "generic-mcp"
+		proxyConfig = generateGenericMCPReplacement()
 	}
 
 	return ReplacementConfig{
@@ -430,10 +448,22 @@ func generateVSCodeSettingsReplacement() string {
 }`
 }
 
+// generateGenericMCPReplacement creates generic .mcp.json replacement
+func generateGenericMCPReplacement() string {
+	return `{
+  "mcpServers": {
+    "centian": {
+      "command": "centian",
+      "args": ["start"]
+    }
+  }
+}`
+}
+
 // showReplacementConfigs displays the replacement configurations to the user
 func applyReplacementConfigs(configs []ReplacementConfig) {
-	StreamPrint(10, "🔄 Updating Configuration Files\n")
-	StreamPrint(15, "===============================\n")
+	common.StreamPrint(10, "🔄 Updating Configuration Files\n")
+	common.StreamPrint(15, "===============================\n")
 
 	// Group configs by source file
 	configGroups := make(map[string][]ReplacementConfig)
@@ -500,17 +530,23 @@ func applyReplacementConfigs(configs []ReplacementConfig) {
 
 // updateConfigFile modifies the config file to replace MCP servers with centian proxy
 func updateConfigFile(filePath, sourceType string) error {
+	common.LogInfo("Updating config file: %s (type: %s)", filePath, sourceType)
+
 	// Read current file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
+		common.LogError("Failed to read config file %s: %v", filePath, err)
 		return fmt.Errorf("failed to read file: %w", err)
 	}
+	common.LogDebug("Read config file %s (%d bytes)", filePath, len(data))
 
 	// Parse JSON
 	var config map[string]interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
+		common.LogError("Failed to parse JSON in %s: %v", filePath, err)
 		return fmt.Errorf("failed to parse JSON: %w", err)
 	}
+	common.LogDebug("Parsed JSON config successfully")
 
 	// Prepare centian server config with current config file path
 	centianConfig := map[string]interface{}{
@@ -519,51 +555,66 @@ func updateConfigFile(filePath, sourceType string) error {
 	}
 
 	// Replace MCP servers section based on source type
+	var serversReplaced int
 	switch sourceType {
-	case "claude-desktop":
+	case "claude-desktop", "generic-mcp":
+		if existingServers, ok := config["mcpServers"].(map[string]interface{}); ok {
+			serversReplaced = len(existingServers)
+		}
 		config["mcpServers"] = map[string]interface{}{
 			"centian": centianConfig,
 		}
+		common.LogDebug("Replaced mcpServers section (%d servers -> 1 centian proxy)", serversReplaced)
 	case "vscode-mcp":
 		if config["servers"] == nil {
 			config["servers"] = make(map[string]interface{})
 		}
 		servers := config["servers"].(map[string]interface{})
+		serversReplaced = len(servers)
 		// Clear existing servers and add centian
 		for key := range servers {
 			delete(servers, key)
 		}
 		servers["centian"] = centianConfig
+		common.LogDebug("Replaced servers section (%d servers -> 1 centian proxy)", serversReplaced)
 	case "vscode-settings":
 		if config["mcp.servers"] == nil {
 			config["mcp.servers"] = make(map[string]interface{})
 		}
 		mcpServers := config["mcp.servers"].(map[string]interface{})
+		serversReplaced = len(mcpServers)
 		// Clear existing servers and add centian
 		for key := range mcpServers {
 			delete(mcpServers, key)
 		}
 		mcpServers["centian"] = centianConfig
+		common.LogDebug("Replaced mcp.servers section (%d servers -> 1 centian proxy)", serversReplaced)
 	default:
+		common.LogError("Unsupported source type: %s", sourceType)
 		return fmt.Errorf("unsupported source type: %s", sourceType)
 	}
 
 	// Write back to file with proper formatting
 	newData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
+		common.LogError("Failed to marshal JSON for %s: %v", filePath, err)
 		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
 
 	// Create backup
 	backupPath := filePath + ".centian-backup"
 	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+		common.LogError("Failed to create backup %s: %v", backupPath, err)
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
+	common.LogInfo("Created backup: %s", backupPath)
 
 	// Write new config
 	if err := os.WriteFile(filePath, newData, 0644); err != nil {
+		common.LogError("Failed to write updated config %s: %v", filePath, err)
 		return fmt.Errorf("failed to write updated config: %w", err)
 	}
 
+	common.LogInfo("Successfully updated config file %s (replaced %d servers with centian proxy)", filePath, serversReplaced)
 	return nil
 }

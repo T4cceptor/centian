@@ -1,7 +1,7 @@
 // Package internal provides MCP server auto-discovery functionality.
 // This system scans common configuration locations to automatically import
 // existing MCP server configurations into centian.
-package internal
+package discovery
 
 import (
 	"encoding/json"
@@ -10,16 +10,18 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
 // DiscoveredServer represents an MCP server found during auto-discovery
 type DiscoveredServer struct {
-	Name        string            `json:"name"`        // Server name
-	Command     string            `json:"command"`     // Executable command (for stdio transport)
-	Args        []string          `json:"args"`        // Command arguments
-	Env         map[string]string `json:"env"`         // Environment variables
-	URL         string            `json:"url"`         // HTTP/WebSocket URL (for http/ws transport)
-	Transport   string            `json:"transport"`   // Transport type: stdio, http, websocket
+	Name            string            `json:"name"`            // Server name
+	Command         string            `json:"command"`         // Executable command (for stdio transport)
+	Args            []string          `json:"args"`            // Command arguments
+	Env             map[string]string `json:"env"`             // Environment variables
+	URL             string            `json:"url"`             // HTTP/WebSocket URL (for http/ws transport)
+	Transport       string            `json:"transport"`       // Transport type: stdio, http, websocket
 	Description     string            `json:"description"`     // Human readable description
 	Source          string            `json:"source"`          // Where it was discovered from
 	SourcePath      string            `json:"sourcePath"`      // Full path to source file
@@ -36,13 +38,13 @@ type DiscoveryResult struct {
 type ConfigDiscoverer interface {
 	// Name returns the human-readable name of this discoverer
 	Name() string
-	
+
 	// Description returns a description of what this discoverer searches for
 	Description() string
-	
+
 	// Discover scans for and parses MCP server configurations
 	Discover() ([]DiscoveredServer, error)
-	
+
 	// IsAvailable checks if this discoverer can run on the current system
 	IsAvailable() bool
 }
@@ -59,11 +61,11 @@ type RegexDiscoverer struct {
 
 // DiscoveryPattern defines how to find and parse a specific type of config file
 type DiscoveryPattern struct {
-	FileRegex     string              `json:"fileRegex"`     // Regex pattern for file path/name
-	ContentRegex  []string            `json:"contentRegex"`  // Content must match these patterns
-	Parser        string              `json:"parser"`        // Parser function name
-	SourceType    string              `json:"sourceType"`    // For replacement logic
-	Priority      int                 `json:"priority"`      // Higher = search first
+	FileRegex    string   `json:"fileRegex"`    // Regex pattern for file path/name
+	ContentRegex []string `json:"contentRegex"` // Content must match these patterns
+	Parser       string   `json:"parser"`       // Parser function name
+	SourceType   string   `json:"sourceType"`   // For replacement logic
+	Priority     int      `json:"priority"`     // Higher = search first
 }
 
 // ConfigParserFunc is a function that parses config data and extracts MCP servers
@@ -79,12 +81,12 @@ func NewDiscoveryManager() *DiscoveryManager {
 	dm := &DiscoveryManager{
 		discoverers: []ConfigDiscoverer{},
 	}
-	
+
 	// Register built-in discoverers
 	dm.RegisterDiscoverer(&ClaudeDesktopDiscoverer{})
 	dm.RegisterDiscoverer(&VSCodeDiscoverer{})
 	dm.RegisterDiscoverer(GetDefaultRegexDiscoverer())
-	
+
 	return dm
 }
 
@@ -95,29 +97,43 @@ func (dm *DiscoveryManager) RegisterDiscoverer(discoverer ConfigDiscoverer) {
 
 // DiscoverAll runs all available discoverers and aggregates results
 func (dm *DiscoveryManager) DiscoverAll() *DiscoveryResult {
+	common.LogInfo("Starting MCP server discovery")
+
 	result := &DiscoveryResult{
 		Servers: []DiscoveredServer{},
 		Errors:  []string{},
 	}
-	
+
+	common.LogDebug("Checking %d registered discoverers", len(dm.discoverers))
+
 	for _, discoverer := range dm.discoverers {
 		if !discoverer.IsAvailable() {
+			common.LogDebug("Skipping unavailable discoverer: %s", discoverer.Name())
 			continue
 		}
-		
+
+		common.LogDebug("Running discoverer: %s", discoverer.Name())
 		servers, err := discoverer.Discover()
 		if err != nil {
-			result.Errors = append(result.Errors, 
-				fmt.Sprintf("%s: %v", discoverer.Name(), err))
+			errMsg := fmt.Sprintf("%s: %v", discoverer.Name(), err)
+			common.LogError("Discovery failed: %s", errMsg)
+			result.Errors = append(result.Errors, errMsg)
 			continue
 		}
-		
+
+		common.LogInfo("Discoverer '%s' found %d server(s)", discoverer.Name(), len(servers))
 		result.Servers = append(result.Servers, servers...)
 	}
-	
+
 	// Deduplicate servers by name
+	originalCount := len(result.Servers)
 	result.Servers = deduplicateServers(result.Servers)
-	
+	if originalCount != len(result.Servers) {
+		common.LogInfo("Deduplicated servers: %d -> %d", originalCount, len(result.Servers))
+	}
+
+	common.LogInfo("Discovery completed: found %d unique server(s), %d error(s)", len(result.Servers), len(result.Errors))
+
 	return result
 }
 
@@ -138,7 +154,7 @@ func (dm *DiscoveryManager) ListDiscoverers() []map[string]string {
 func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
 	seen := make(map[string]int) // name -> index
 	var result []DiscoveredServer
-	
+
 	for _, server := range servers {
 		if idx, exists := seen[server.Name]; exists {
 			// Replace existing server with newer one
@@ -149,7 +165,7 @@ func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
 			result = append(result, server)
 		}
 	}
-	
+
 	return result
 }
 
@@ -174,22 +190,22 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 	if configPath == "" {
 		return nil, fmt.Errorf("claude desktop config path not found")
 	}
-	
+
 	// Check if config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return []DiscoveredServer{}, nil // No config found, not an error
 	}
-	
+
 	// Read and parse config
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
-	
+
 	var config struct {
 		MCPServers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
 			Env     map[string]string `json:"env"`
 		} `json:"mcpServers"`
 		Servers map[string]struct {
@@ -201,13 +217,13 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 			Headers map[string]string `json:"headers"`
 		} `json:"servers"`
 	}
-	
+
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
-	
+
 	var servers []DiscoveredServer
-	
+
 	// Parse mcpServers section (stdio-based servers)
 	for name, serverConfig := range config.MCPServers {
 		// Determine transport type
@@ -217,24 +233,23 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 		}
 
 		server := DiscoveredServer{
-			Name:        name,
-			Command:     serverConfig.Command,
-			Args:        serverConfig.Args,
-			Env:         serverConfig.Env,
-			Transport:   transport,
-			Description: fmt.Sprintf("Imported from Claude Desktop (%s)", name),
-			Source:      "Claude Desktop",
-			SourcePath:  ensureAbsolutePath(configPath),
+			Name:       name,
+			Command:    serverConfig.Command,
+			Args:       serverConfig.Args,
+			Env:        serverConfig.Env,
+			Transport:  transport,
+			Source:     "Claude Desktop",
+			SourcePath: ensureAbsolutePath(configPath),
 		}
 		servers = append(servers, server)
 	}
-	
+
 	// Parse servers section (HTTP-based servers)
 	for name, serverConfig := range config.Servers {
 		// Determine transport and set appropriate fields
 		transport := "stdio" // default
 		var url string
-		
+
 		// Check for URL field in config (for HTTP-based servers)
 		if serverConfig.URL != "" {
 			transport = "http"
@@ -242,21 +257,20 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 		} else if serverConfig.Command == "" {
 			continue // Skip servers without command or URL
 		}
-		
+
 		server := DiscoveredServer{
-			Name:        name,
-			Command:     serverConfig.Command,
-			Args:        serverConfig.Args,
-			Env:         serverConfig.Env,
-			URL:         url,
-			Transport:   transport,
-			Description: fmt.Sprintf("Imported from Claude Desktop (%s)", name),
-			Source:      "Claude Desktop",
-			SourcePath:  configPath,
+			Name:       name,
+			Command:    serverConfig.Command,
+			Args:       serverConfig.Args,
+			Env:        serverConfig.Env,
+			URL:        url,
+			Transport:  transport,
+			Source:     "Claude Desktop",
+			SourcePath: configPath,
 		}
 		servers = append(servers, server)
 	}
-	
+
 	return servers, nil
 }
 
@@ -291,10 +305,10 @@ func (v *VSCodeDiscoverer) IsAvailable() bool {
 
 func (v *VSCodeDiscoverer) Discover() ([]DiscoveredServer, error) {
 	var allServers []DiscoveredServer
-	
+
 	// Search common VS Code config locations
 	searchPaths := v.getSearchPaths()
-	
+
 	for _, searchPath := range searchPaths {
 		servers, err := v.scanPath(searchPath)
 		if err != nil {
@@ -303,19 +317,19 @@ func (v *VSCodeDiscoverer) Discover() ([]DiscoveredServer, error) {
 		}
 		allServers = append(allServers, servers...)
 	}
-	
+
 	return allServers, nil
 }
 
 func (v *VSCodeDiscoverer) getSearchPaths() []string {
 	homeDir, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
-	
+
 	paths := []string{
 		filepath.Join(cwd, ".vscode", "mcp.json"),
 		filepath.Join(cwd, ".vscode", "settings.json"),
 	}
-	
+
 	// Add user settings path based on OS
 	switch runtime.GOOS {
 	case "darwin":
@@ -328,7 +342,7 @@ func (v *VSCodeDiscoverer) getSearchPaths() []string {
 			paths = append(paths, filepath.Join(appData, "Code", "User", "settings.json"))
 		}
 	}
-	
+
 	return paths
 }
 
@@ -336,78 +350,77 @@ func (v *VSCodeDiscoverer) scanPath(configPath string) ([]DiscoveredServer, erro
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return []DiscoveredServer{}, nil
 	}
-	
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Try to parse as different config formats
 	if strings.HasSuffix(configPath, "mcp.json") {
 		return v.parseMCPJson(data, configPath)
 	} else if strings.HasSuffix(configPath, "settings.json") {
 		return v.parseSettingsJson(data, configPath)
 	}
-	
+
 	return []DiscoveredServer{}, nil
 }
 
 func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]DiscoveredServer, error) {
 	var config struct {
 		Servers map[string]struct {
-			Command string   `json:"command"`
-			Args    []string `json:"args"`
+			Command string            `json:"command"`
+			Args    []string          `json:"args"`
 			Env     map[string]string `json:"env"`
-			URL     string   `json:"url"`
+			URL     string            `json:"url"`
 		} `json:"servers"`
 	}
-	
+
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
-	
+
 	var servers []DiscoveredServer
 	for name, serverConfig := range config.Servers {
 		// Determine transport and set appropriate fields
 		transport := "stdio" // default
 		var url string
-		
+
 		// Check for URL field in config (for HTTP-based servers)
 		if serverConfig.URL != "" {
 			transport = "http"
 			url = serverConfig.URL
 		}
-		
+
 		server := DiscoveredServer{
-			Name:        name,
-			Command:     serverConfig.Command,
-			Args:        serverConfig.Args,
-			Env:         serverConfig.Env,
-			URL:         url,
-			Transport:   transport,
-			Description: fmt.Sprintf("Imported from VS Code MCP config (%s)", name),
-			Source:      "VS Code MCP",
-			SourcePath:  ensureAbsolutePath(sourcePath),
+			Name:       name,
+			Command:    serverConfig.Command,
+			Args:       serverConfig.Args,
+			Env:        serverConfig.Env,
+			URL:        url,
+			Transport:  transport,
+			Source:     "VS Code MCP",
+			SourcePath: ensureAbsolutePath(sourcePath),
 		}
 		servers = append(servers, server)
 	}
-	
+
 	return servers, nil
 }
 
 func (v *VSCodeDiscoverer) parseSettingsJson(data []byte, sourcePath string) ([]DiscoveredServer, error) {
 	var config map[string]interface{}
-	
+
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
-	
+
 	var servers []DiscoveredServer
-	
+
 	// Look for MCP-related settings in various extensions
 	// This is a placeholder - specific extensions would need specific parsing
 	// For now, we'll look for common MCP extension patterns
-	
+
 	if mcpConfig, exists := config["mcp.servers"]; exists {
 		if serversMap, ok := mcpConfig.(map[string]interface{}); ok {
 			for name, serverData := range serversMap {
@@ -420,36 +433,35 @@ func (v *VSCodeDiscoverer) parseSettingsJson(data []byte, sourcePath string) ([]
 			}
 		}
 	}
-	
+
 	return servers, nil
 }
 
 func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[string]interface{}, sourcePath string) *DiscoveredServer {
 	server := &DiscoveredServer{
-		Name:        name,
-		Env:         make(map[string]string),
-		Description: fmt.Sprintf("Imported from VS Code settings (%s)", name),
-		Source:      "VS Code Settings",
-		SourcePath:  ensureAbsolutePath(sourcePath),
-		Transport:   "stdio", // default
+		Name:       name,
+		Env:        make(map[string]string),
+		Source:     "VS Code Settings",
+		SourcePath: ensureAbsolutePath(sourcePath),
+		Transport:  "stdio", // default
 	}
-	
+
 	// Check for command (stdio transport)
 	if cmd, ok := serverInfo["command"].(string); ok {
 		server.Command = cmd
 	}
-	
+
 	// Check for URL (http transport)
 	if url, ok := serverInfo["url"].(string); ok {
 		server.URL = url
 		server.Transport = "http"
 	}
-	
+
 	// Require either command or URL
 	if server.Command == "" && server.URL == "" {
 		return nil
 	}
-	
+
 	if args, ok := serverInfo["args"].([]interface{}); ok {
 		for _, arg := range args {
 			if argStr, ok := arg.(string); ok {
@@ -457,7 +469,7 @@ func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[stri
 			}
 		}
 	}
-	
+
 	if env, ok := serverInfo["env"].(map[string]interface{}); ok {
 		for key, value := range env {
 			if valueStr, ok := value.(string); ok {
@@ -465,7 +477,7 @@ func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[stri
 			}
 		}
 	}
-	
+
 	return server
 }
 
@@ -488,7 +500,7 @@ func (r *RegexDiscoverer) Discover() ([]DiscoveredServer, error) {
 	}
 
 	var allServers []DiscoveredServer
-	
+
 	// Search each configured path
 	for _, searchPath := range r.SearchPaths {
 		expandedPath := expandPath(searchPath)
@@ -499,7 +511,7 @@ func (r *RegexDiscoverer) Discover() ([]DiscoveredServer, error) {
 		}
 		allServers = append(allServers, servers...)
 	}
-	
+
 	return allServers, nil
 }
 
@@ -508,22 +520,27 @@ func (r *RegexDiscoverer) scanPath(path string, depth int) ([]DiscoveredServer, 
 	if depth > r.MaxDepth {
 		return []DiscoveredServer{}, nil
 	}
-	
+
 	// Check if path exists
 	info, err := os.Stat(path)
 	if err != nil {
 		return []DiscoveredServer{}, nil // Path doesn't exist, not an error
 	}
-	
+
 	var servers []DiscoveredServer
-	
+
 	if info.IsDir() {
+		// Skip common directories that are unlikely to contain MCP configs
+		if shouldSkipDirectory(path) {
+			return []DiscoveredServer{}, nil
+		}
+
 		// Scan directory contents
 		entries, err := os.ReadDir(path)
 		if err != nil {
 			return []DiscoveredServer{}, err
 		}
-		
+
 		for _, entry := range entries {
 			entryPath := filepath.Join(path, entry.Name())
 			entryServers, err := r.scanPath(entryPath, depth+1)
@@ -540,7 +557,7 @@ func (r *RegexDiscoverer) scanPath(path string, depth int) ([]DiscoveredServer, 
 		}
 		servers = append(servers, fileServers...)
 	}
-	
+
 	return servers, nil
 }
 
@@ -549,7 +566,7 @@ func (r *RegexDiscoverer) processFile(filePath string) ([]DiscoveredServer, erro
 	// Sort patterns by priority (higher first)
 	patterns := make([]DiscoveryPattern, len(r.Patterns))
 	copy(patterns, r.Patterns)
-	
+
 	// Simple bubble sort by priority
 	for i := 0; i < len(patterns); i++ {
 		for j := 0; j < len(patterns)-1-i; j++ {
@@ -558,19 +575,19 @@ func (r *RegexDiscoverer) processFile(filePath string) ([]DiscoveredServer, erro
 			}
 		}
 	}
-	
+
 	// Try each pattern in priority order
 	for _, pattern := range patterns {
 		matches, err := r.matchesPattern(filePath, pattern)
 		if err != nil {
 			continue
 		}
-		
+
 		if matches {
 			return r.parseFile(filePath, pattern)
 		}
 	}
-	
+
 	return []DiscoveredServer{}, nil
 }
 
@@ -589,11 +606,77 @@ func ensureAbsolutePath(filePath string) string {
 	if filepath.IsAbs(filePath) {
 		return filePath
 	}
-	
+
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return filePath // Return original if conversion fails
 	}
-	
+
 	return absPath
+}
+
+// shouldSkipDirectory determines if a directory should be skipped during discovery
+// to improve performance by avoiding large directories unlikely to contain MCP configs
+func shouldSkipDirectory(fullPath string) bool {
+	// Get platform-specific excluded directories
+	excludedDirs := getExcludedDirectories()
+
+	// Check directory name against excluded patterns
+	dirName := filepath.Base(fullPath)
+
+	// Standard exclusions that apply regardless of platform
+	standardExclusions := map[string]bool{
+		// Version control
+		".git": true,
+		".svn": true,
+		".hg":  true,
+
+		// Package managers and dependencies
+		"node_modules": true,
+		"vendor":       true,
+		"venv":         true,
+		".venv":        true,
+		"env":          true,
+		"__pycache__":  true,
+		".npm":         true,
+		".yarn":        true,
+		"target":       true, // Rust/Java
+		"build":        true,
+		"dist":         true,
+		"out":          true,
+
+		// IDE and editor files
+		".idea":    true,
+		".eclipse": true,
+		".vs":      true,
+
+		// Docker and containers
+		".docker": true,
+		"docker":  true,
+		".podman": true,
+	}
+
+	// Check standard exclusions by directory name
+	if standardExclusions[dirName] {
+		return true
+	}
+
+	// Check platform-specific exclusions by path patterns
+	homeDir, _ := os.UserHomeDir()
+	for _, excludedPattern := range excludedDirs {
+		// Convert pattern to full path if not absolute
+		var checkPath string
+		if strings.HasPrefix(excludedPattern, "/") {
+			checkPath = excludedPattern
+		} else {
+			checkPath = filepath.Join(homeDir, excludedPattern)
+		}
+
+		// Check if current path contains the excluded pattern
+		if strings.Contains(fullPath, excludedPattern) || strings.Contains(fullPath, checkPath) {
+			return true
+		}
+	}
+
+	return false
 }

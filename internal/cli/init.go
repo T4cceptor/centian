@@ -1,10 +1,13 @@
-package internal
+package cli
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/CentianAI/centian-cli/internal/discovery"
 	"github.com/urfave/cli/v3"
 )
 
@@ -31,14 +34,14 @@ var InitCommand = &cli.Command{
 // initCentian initializes the centian configuration and provides setup guidance.
 // This is the main entry point for new users to get started with centian.
 func initCentian(ctx context.Context, cmd *cli.Command) error {
-	configPath, err := GetConfigPath()
+	configPath, err := config.GetConfigPath()
 	if err != nil {
 		return fmt.Errorf("failed to determine config path: %w", err)
 	}
 
 	// Check if config already exists
 	if !cmd.Bool("force") {
-		if _, err := LoadConfig(); err == nil {
+		if _, err := config.LoadConfig(); err == nil {
 			fmt.Printf("✅ Configuration already exists at %s\n", configPath)
 			fmt.Printf("💡 Use 'centian config show' to view current configuration\n")
 			fmt.Printf("💡 Use 'centian init --force' to overwrite existing configuration\n")
@@ -47,16 +50,16 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// Create default config
-	config := DefaultConfig()
+	cfg := config.DefaultConfig()
 
 	// Run auto-discovery unless disabled
 	var imported int
 	if !cmd.Bool("no-discovery") {
-		imported = runAutoDiscovery(config)
+		imported = runAutoDiscovery(cfg)
 	}
 
 	// Save config (either default or with discovered servers)
-	if err := SaveConfig(config); err != nil {
+	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
@@ -85,16 +88,16 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 }
 
 // runAutoDiscovery performs MCP server auto-discovery and handles user interaction
-func runAutoDiscovery(config *GlobalConfig) int {
-	StreamPrint(10, "🔍 Scanning for existing MCP configurations...\n")
+func runAutoDiscovery(cfg *config.GlobalConfig) int {
+	common.StreamPrint(10, "🔍 Scanning for existing MCP configurations...\n")
 	time.Sleep(1 * time.Second)
 
 	// Create discovery manager and run discovery
-	dm := NewDiscoveryManager()
+	dm := discovery.NewDiscoveryManager()
 	result := dm.DiscoverAll()
 
 	// Show results and get user consent
-	ui := NewDiscoveryUI()
+	ui := discovery.NewDiscoveryUI()
 	selectedServers, err := ui.ShowDiscoveryResults(result)
 	if err != nil {
 		fmt.Printf("⚠️  Error during discovery UI: %v", err)
@@ -106,10 +109,10 @@ func runAutoDiscovery(config *GlobalConfig) int {
 	}
 
 	// Import selected servers
-	imported := ImportServers(selectedServers, config)
+	imported := discovery.ImportServers(selectedServers, cfg)
 
 	// Show import summary
-	ShowImportSummary(imported, len(selectedServers))
+	discovery.ShowImportSummary(imported, len(selectedServers))
 
 	return imported
 }

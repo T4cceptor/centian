@@ -1,4 +1,4 @@
-package internal
+package proxy
 
 import (
 	"bufio"
@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+
+	"github.com/CentianAI/centian-cli/internal/config"
 )
 
 // Basic MCP message structures
@@ -318,13 +320,13 @@ func (p *MCPProxy) Close() error {
 
 func StartCentianProxy() error {
 	// Check if config exists first
-	configPath, err := GetConfigPath()
+	configPath, err := config.GetConfigPath()
 	if err != nil {
 		return fmt.Errorf("failed to determine config path: %w", err)
 	}
 
 	// Load global configuration
-	config, err := LoadConfig()
+	globalConfig, err := config.LoadConfig()
 	if err != nil {
 		// Check if it's a missing config file specifically
 		if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
@@ -345,7 +347,7 @@ For help: centian init --help`, configPath)
 
 	// For now, use the first enabled server
 	// TODO: Add server selection logic
-	enabledServers := config.ListEnabledServers()
+	enabledServers := globalConfig.ListEnabledServers()
 	if len(enabledServers) == 0 {
 		return fmt.Errorf(`❌ No enabled MCP servers found!
 
@@ -362,7 +364,7 @@ To enable an existing server:
 	}
 
 	serverName := enabledServers[0] // TODO: this should be changed
-	server, err := config.GetServer(serverName)
+	server, err := globalConfig.GetServer(serverName)
 	if err != nil {
 		return fmt.Errorf("failed to get server configuration: %w", err)
 	}

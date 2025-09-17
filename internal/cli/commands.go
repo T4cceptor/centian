@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package cli
 
 import (
 	"context"
 
+	"github.com/CentianAI/centian-cli/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
 
@@ -29,5 +30,5 @@ var Start cli.Command = cli.Command{
 
 // handleLoadCommand handles the load command to start server from config file.
 func initializeMcpProxy(ctx context.Context, cmd *cli.Command) error {
-	return StartCentianProxy()
+	return proxy.StartCentianProxy()
 }

@@ -1,4 +1,4 @@
-package internal
+package discovery
 
 import (
 	"os"
@@ -13,7 +13,7 @@ func GetDefaultRegexDiscoverer() *RegexDiscoverer {
 		DiscovererDescription: "Discovers MCP configurations using flexible regex patterns",
 		Patterns:              GetDefaultPatterns(),
 		SearchPaths:           GetDefaultSearchPaths(),
-		MaxDepth:              3,
+		MaxDepth:              7,
 		Enabled:               true,
 	}
 }
@@ -43,7 +43,7 @@ func GetDefaultPatterns() []DiscoveryPattern {
 			SourceType:   "vscode-settings",
 			Priority:     90,
 		},
-		
+
 		// Medium-priority MCP-specific patterns
 		{
 			FileRegex:    `.*mcp.*\.json$`,
@@ -66,7 +66,7 @@ func GetDefaultPatterns() []DiscoveryPattern {
 			SourceType:   "continue-dev",
 			Priority:     70,
 		},
-		
+
 		// Claude Code specific patterns
 		{
 			FileRegex:    `CLAUDE\.md$`,
@@ -75,7 +75,7 @@ func GetDefaultPatterns() []DiscoveryPattern {
 			SourceType:   "claude-code-markdown",
 			Priority:     65,
 		},
-		
+
 		// Editor-specific patterns
 		{
 			FileRegex:    `.*/Zed/settings\.json$`,
@@ -91,7 +91,7 @@ func GetDefaultPatterns() []DiscoveryPattern {
 			SourceType:   "cursor",
 			Priority:     55,
 		},
-		
+
 		// Generic config patterns with content filtering
 		{
 			FileRegex:    `.*config\.json$`,
@@ -107,7 +107,7 @@ func GetDefaultPatterns() []DiscoveryPattern {
 			SourceType:   "auto-detect",
 			Priority:     30,
 		},
-		
+
 		// Lower priority broad patterns
 		{
 			FileRegex:    `\.mcp/.*\.json$`,
@@ -119,8 +119,41 @@ func GetDefaultPatterns() []DiscoveryPattern {
 	}
 }
 
+// getExcludedDirectories returns directories to exclude from search to avoid permission issues
+func getExcludedDirectories() []string {
+	switch runtime.GOOS {
+	case "darwin": // macOS
+		return []string{
+			"Library/Caches", "Library/Logs", "Library/Mail", "Library/Safari",
+			"Library/Keychains", "Library/Group Containers", "Library/Containers",
+			"Library/Application Support/com.apple.", "Library/Application Support/AddressBook",
+			"Library/Application Support/CallHistoryDB", "Library/Application Support/com.crashlytics",
+			"Movies", "Music", "Pictures", // Large media directories
+			".Trash", ".cache", ".npm/_cacache", "node_modules", // Cache directories
+			"Applications", "System", "private", "usr", "bin", "sbin", "etc", // System directories
+		}
+	case "linux":
+		return []string{
+			".cache", ".npm/_cacache", "node_modules", // Cache directories
+			".local/share/Trash", ".gvfs", ".dbus", // System directories
+			"snap", ".snap", ".mozilla", ".thunderbird", // App data
+			"/proc", "/sys", "/dev", "/run", "/tmp", // System mount points
+		}
+	case "windows":
+		return []string{
+			"AppData/Local/Temp", "AppData/Local/Microsoft", "AppData/Local/Google",
+			"AppData/Roaming/Microsoft", "AppData/Local/Packages",
+			"ntuser.dat", "NTUSER.DAT", // Windows user registry files
+		}
+	default:
+		return []string{}
+	}
+}
+
 // GetDefaultSearchPaths returns the default paths to search for MCP configurations
 func GetDefaultSearchPaths() []string {
+	homeDir, _ := os.UserHomeDir()
+
 	paths := []string{
 		// Current directory and common project locations
 		"./",
@@ -128,13 +161,12 @@ func GetDefaultSearchPaths() []string {
 		"./.claude",
 		"./.continue",
 		"./.mcp",
-		
-		// User config directories (platform-specific)
+
+		// Search entire home directory (exclusions handled in shouldSkipDirectory)
+		homeDir,
 	}
-	
-	// Add platform-specific user directories
-	homeDir, _ := os.UserHomeDir()
-	
+
+	// Add platform-specific config directories
 	switch runtime.GOOS {
 	case "darwin": // macOS
 		paths = append(paths,
@@ -180,14 +212,14 @@ func GetDefaultSearchPaths() []string {
 			)
 		}
 	}
-	
+
 	return paths
 }
 
 // GetPriorityPatterns returns patterns sorted by priority (highest first)
 func GetPriorityPatterns() []DiscoveryPattern {
 	patterns := GetDefaultPatterns()
-	
+
 	// Sort by priority (higher first)
 	for i := 0; i < len(patterns); i++ {
 		for j := 0; j < len(patterns)-1-i; j++ {
@@ -196,7 +228,7 @@ func GetPriorityPatterns() []DiscoveryPattern {
 			}
 		}
 	}
-	
+
 	return patterns
 }
 
@@ -205,7 +237,7 @@ func CreateCustomRegexDiscoverer(name, description string, patterns []DiscoveryP
 	if len(searchPaths) == 0 {
 		searchPaths = GetDefaultSearchPaths()
 	}
-	
+
 	return &RegexDiscoverer{
 		DiscovererName:        name,
 		DiscovererDescription: description,

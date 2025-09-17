@@ -1,6 +1,6 @@
 // Package internal provides configuration management and MCP proxy functionality
 // for the Centian CLI tool.
-package internal
+package config
 
 import (
 	"encoding/json"

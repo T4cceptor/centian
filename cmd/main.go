@@ -19,8 +19,10 @@ import (
 	"log"
 	"os"
 
-	"github.com/CentianAI/centian-cli/internal"
-	"github.com/urfave/cli/v3"
+	"github.com/CentianAI/centian-cli/internal/cli"
+	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/CentianAI/centian-cli/internal/proxy"
+	urfavecli "github.com/urfave/cli/v3"
 )
 
 // version is set by build flags during release.
@@ -28,16 +30,23 @@ var version = "dev"
 
 func main() {
 	// Create CLI app
-	app := &cli.Command{
+	app := &urfavecli.Command{
 		Name:                  "centian",
 		Description:           "Proxy and modify your MCP server and tools.",
 		Usage:                 "centian start",
 		Version:               version,
 		EnableShellCompletion: true,
-		Commands: []*cli.Command{
-			internal.InitCommand,
-			&internal.Start,
-			internal.ConfigCommand,
+		Commands: []*urfavecli.Command{
+			cli.InitCommand,
+			{
+				Name:        "start",
+				Usage:       "Start the MCP proxy",
+				Description: "Starts the Centian MCP proxy server",
+				Action: func(ctx context.Context, cmd *urfavecli.Command) error {
+					return proxy.StartCentianProxy()
+				},
+			},
+			config.ConfigCommand,
 		},
 	}
 

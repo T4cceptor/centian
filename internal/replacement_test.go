@@ -1,9 +1,10 @@
-package main
+package internal
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"testing"
 )
 
 // Test the current updateConfigFile function logic
@@ -31,6 +32,10 @@ func testCurrentLogic(filePath, sourceType string) error {
 		if mcpServers, ok := config["mcpServers"].(map[string]interface{}); ok {
 			originalMCPServers = mcpServers
 		}
+	case "vscode-mcp":
+		if servers, ok := config["servers"].(map[string]interface{}); ok {
+			originalMCPServers = servers
+		}
 	case "vscode-settings":
 		if mcpSection, ok := config["mcp.servers"].(map[string]interface{}); ok {
 			originalMCPServers = mcpSection
@@ -39,13 +44,10 @@ func testCurrentLogic(filePath, sourceType string) error {
 
 	fmt.Printf("Original MCP servers found: %v\n", getServerNames(originalMCPServers))
 
-	// Mock config path for testing
-	configPath := "/Users/username/.centian/config.jsonc"
-
-	// Prepare centian server config with proper config path
+	// Prepare centian server config with current config file path
 	centianConfig := map[string]interface{}{
 		"command": "centian",
-		"args":    []string{"start", "--config", configPath},
+		"args":    []string{"start", "--path", filePath},
 	}
 
 	// Apply current logic
@@ -101,20 +103,20 @@ func getServerNames(servers map[string]interface{}) []string {
 	return names
 }
 
-func main() {
+func TestReplacement(t *testing.T) {
 	// Test with Claude Desktop config
 	if err := testCurrentLogic("test_configs/claude_desktop_config.json", "claude-desktop"); err != nil {
 		fmt.Printf("Error testing Claude Desktop config: %v\n", err)
 	}
 
-	fmt.Println("=" + string(make([]byte, 50)) + "=")
+	fmt.Println("================================================================================")
 
 	// Test with VS Code mcp.json
 	if err := testCurrentLogic("test_configs/vscode_mcp.json", "vscode-mcp"); err != nil {
 		fmt.Printf("Error testing VS Code mcp.json: %v\n", err)
 	}
 
-	fmt.Println("=" + string(make([]byte, 50)) + "=")
+	fmt.Println("================================================================================")
 
 	// Test with VS Code settings
 	if err := testCurrentLogic("test_configs/vscode_settings.json", "vscode-settings"); err != nil {

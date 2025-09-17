@@ -1,4 +1,4 @@
-package internal
+package discovery
 
 import (
 	"encoding/json"

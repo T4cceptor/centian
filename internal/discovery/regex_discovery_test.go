@@ -1,13 +1,14 @@
-package internal
+package discovery
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"testing"
 )
 
-func testRegexDiscovery() {
+func TestRegexDiscovery(t *testing.T) {
 	fmt.Println("Testing Regex MCP Discovery System")
 	fmt.Println("===================================")
 
@@ -19,6 +20,13 @@ func testRegexDiscovery() {
 	fmt.Printf("Available discoverers: %d\n", len(discoverers))
 	for i, d := range discoverers {
 		fmt.Printf("  %d. %s - %s (available: %s)\n", i+1, d["name"], d["description"], d["available"])
+	}
+
+	// Debug: Show search paths being used
+	discoverer := GetDefaultRegexDiscoverer()
+	fmt.Printf("\nSearch paths being used:\n")
+	for i, path := range discoverer.SearchPaths {
+		fmt.Printf("  %d. %s\n", i+1, path)
 	}
 
 	fmt.Println("\nRunning discovery...")
