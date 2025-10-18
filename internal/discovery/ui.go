@@ -47,39 +47,42 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 		return []DiscoveredServer{}, nil
 	}
 
-	common.StreamPrint(10, "🔍 Found %d MCP server(s) in existing configurations:\n\n", len(result.Servers))
+	// Group the results by source file
+	grouped := GroupDiscoveryResults(result)
+	
+	common.StreamPrint(10, "🔍 Found MCP configurations in %d file(s):\n\n", len(grouped.Groups))
 
-	// TODO: if more than X servers are found we should add option to skip print or show all
-	// Display discovered servers
-	for i, server := range result.Servers {
-		fmt.Printf("  %d. %s\n", i+1, server.Name)
-
-		if server.Command != "" {
-			fmt.Printf("     Command: %s\n", server.Command)
+	// Display grouped servers
+	for _, group := range grouped.Groups {
+		fmt.Printf("📁 %s\n", group.SourcePath)
+		fmt.Printf("   📊 %d servers", group.TotalCount)
+		
+		if group.StdioCount > 0 || group.HTTPCount > 0 {
+			fmt.Printf(" (stdio: %d, http: %d)", group.StdioCount, group.HTTPCount)
 		}
-		if server.URL != "" {
-			fmt.Printf("     URL: %s\n", server.URL)
+		
+		if group.DuplicatesFound > 0 {
+			plural := ""
+			if group.DuplicatesFound > 1 {
+				plural = "s"
+			}
+			fmt.Printf(" [🔄 %d duplicate%s merged]", group.DuplicatesFound, plural)
 		}
-		if len(server.Args) > 0 {
-			fmt.Printf("     Args: %v\n", server.Args)
-		}
-		if server.SourcePath != "" {
-			fmt.Printf("     Source: %s\n", server.SourcePath)
-		}
-		if len(server.Env) > 0 {
-			fmt.Printf("     Environment: %d variables\n", len(server.Env))
-		}
-		common.StreamPrint(1, "  \n")
+		
+		fmt.Printf("\n\n")
 	}
 
 	// Show any errors
-	if len(result.Errors) > 0 {
+	if len(grouped.Errors) > 0 {
 		fmt.Printf("⚠️  Some locations couldn't be scanned:\n")
-		for _, err := range result.Errors {
+		for _, err := range grouped.Errors {
 			fmt.Printf("   - %s\n", err)
 		}
 		fmt.Printf("\n")
 	}
+
+	// Add option to show detailed view
+	fmt.Printf("💡 To see individual servers, run: centian discovery --details\n\n")
 
 	// Prompt for consent
 	return ui.promptForImport(result.Servers)

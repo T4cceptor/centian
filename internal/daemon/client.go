@@ -1,0 +1,142 @@
+// Copyright 2025 CentianCLI Contributors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package daemon
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// DaemonClient represents a client for communicating with the daemon
+type DaemonClient struct {
+	port    int
+	timeout time.Duration
+}
+
+// PidInfo represents the information stored in the PID file
+type PidInfo struct {
+	PID  int   `json:"pid"`
+	Port int   `json:"port"`
+	Time int64 `json:"time"`
+}
+
+// NewDaemonClient creates a new daemon client
+func NewDaemonClient() (*DaemonClient, error) {
+	port, err := GetDaemonPort()
+	if err != nil {
+		return nil, err
+	}
+	
+	return &DaemonClient{
+		port:    port,
+		timeout: 30 * time.Second,
+	}, nil
+}
+
+// GetDaemonPort reads the daemon port from the PID file
+func GetDaemonPort() (int, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get home directory: %w", err)
+	}
+	
+	pidFile := filepath.Join(homeDir, ".centian", "daemon.pid")
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, fmt.Errorf("daemon not running (no PID file): %w", err)
+	}
+	
+	var pidInfo PidInfo
+	if err := json.Unmarshal(data, &pidInfo); err != nil {
+		return 0, fmt.Errorf("failed to parse PID file: %w", err)
+	}
+	
+	return pidInfo.Port, nil
+}
+
+// IsDaemonRunning checks if the daemon is running
+func IsDaemonRunning() bool {
+	client, err := NewDaemonClient()
+	if err != nil {
+		return false
+	}
+	
+	_, err = client.Status()
+	return err == nil
+}
+
+// SendRequest sends a request to the daemon
+func (c *DaemonClient) SendRequest(req *DaemonRequest) (*DaemonResponse, error) {
+	// Connect to daemon
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", c.port), c.timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+	defer conn.Close()
+	
+	// Set timeout
+	conn.SetDeadline(time.Now().Add(c.timeout))
+	
+	// Send request
+	encoder := json.NewEncoder(conn)
+	if err := encoder.Encode(req); err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	
+	// Read response
+	decoder := json.NewDecoder(conn)
+	var response DaemonResponse
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+	
+	return &response, nil
+}
+
+// StartStdioProxy starts a stdio proxy via the daemon
+func (c *DaemonClient) StartStdioProxy(command string, args []string) (*DaemonResponse, error) {
+	req := &DaemonRequest{
+		Type:    "stdio",
+		Command: command,
+		Args:    args,
+		ID:      fmt.Sprintf("stdio_%d", time.Now().UnixNano()),
+	}
+	
+	return c.SendRequest(req)
+}
+
+// Status gets the daemon status
+func (c *DaemonClient) Status() (*DaemonResponse, error) {
+	req := &DaemonRequest{
+		Type: "status",
+		ID:   fmt.Sprintf("status_%d", time.Now().UnixNano()),
+	}
+	
+	return c.SendRequest(req)
+}
+
+// Stop stops the daemon
+func (c *DaemonClient) Stop() (*DaemonResponse, error) {
+	req := &DaemonRequest{
+		Type: "stop",
+		ID:   fmt.Sprintf("stop_%d", time.Now().UnixNano()),
+	}
+	
+	return c.SendRequest(req)
+}

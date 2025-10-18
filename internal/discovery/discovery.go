@@ -21,17 +21,109 @@ type DiscoveredServer struct {
 	Args            []string          `json:"args"`            // Command arguments
 	Env             map[string]string `json:"env"`             // Environment variables
 	URL             string            `json:"url"`             // HTTP/WebSocket URL (for http/ws transport)
+	Headers         map[string]string `json:"headers"`         // HTTP headers (for http transport)
 	Transport       string            `json:"transport"`       // Transport type: stdio, http, websocket
 	Description     string            `json:"description"`     // Human readable description
 	Source          string            `json:"source"`          // Where it was discovered from
 	SourcePath      string            `json:"sourcePath"`      // Full path to source file
 	ReplacementMode bool              `json:"replacementMode"` // Whether to generate replacement configs
+	DuplicatesFound int               `json:"duplicatesFound"` // Number of identical configs found and merged
 }
 
 // DiscoveryResult contains the results of auto-discovery scan
 type DiscoveryResult struct {
 	Servers []DiscoveredServer `json:"servers"`
 	Errors  []string           `json:"errors"` // Non-fatal errors during discovery
+}
+
+// ConfigFileGroup represents servers grouped by their source config file
+type ConfigFileGroup struct {
+	SourcePath      string            `json:"sourcePath"`      // Absolute path to config file
+	Servers         []DiscoveredServer `json:"servers"`         // Servers found in this file
+	StdioCount      int               `json:"stdioCount"`      // Number of stdio servers
+	HTTPCount       int               `json:"httpCount"`       // Number of http servers
+	TotalCount      int               `json:"totalCount"`      // Total number of servers
+	DuplicatesFound int               `json:"duplicatesFound"` // Total number of duplicate configs merged
+}
+
+// GroupedDiscoveryResult contains servers grouped by source file
+type GroupedDiscoveryResult struct {
+	Groups []ConfigFileGroup `json:"groups"`
+	Errors []string          `json:"errors"` // Non-fatal errors during discovery
+}
+
+// GroupDiscoveryResults groups servers by their source config file
+func GroupDiscoveryResults(result *DiscoveryResult) *GroupedDiscoveryResult {
+	// Count duplicates per file BEFORE any deduplication
+	duplicateCounts := countDuplicatesPerFile(result.Servers)
+	
+	// Group servers by source path
+	groupMap := make(map[string][]DiscoveredServer)
+	for _, server := range result.Servers {
+		groupMap[server.SourcePath] = append(groupMap[server.SourcePath], server)
+	}
+
+	// Create groups with transport counts and per-file duplicate counts
+	var groups []ConfigFileGroup
+	for sourcePath, servers := range groupMap {
+		stdioCount := 0
+		httpCount := 0
+
+		for _, server := range servers {
+			switch server.Transport {
+			case "stdio":
+				stdioCount++
+			case "http":
+				httpCount++
+			}
+		}
+
+		group := ConfigFileGroup{
+			SourcePath:      sourcePath,
+			Servers:         servers,
+			StdioCount:      stdioCount,
+			HTTPCount:       httpCount,
+			TotalCount:      len(servers),
+			DuplicatesFound: duplicateCounts[sourcePath], // Use per-file duplicate count
+		}
+		groups = append(groups, group)
+	}
+
+	return &GroupedDiscoveryResult{
+		Groups: groups,
+		Errors: result.Errors,
+	}
+}
+
+// countDuplicatesPerFile counts how many servers in each file have duplicates in other files
+func countDuplicatesPerFile(allServers []DiscoveredServer) map[string]int {
+	// Create a map of config signature -> list of source paths
+	configToSources := make(map[string][]string)
+
+	for _, server := range allServers {
+		// Create config signature (same as in deduplicateServers)
+		configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
+			server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
+
+		configToSources[configSig] = append(configToSources[configSig], server.SourcePath)
+	}
+
+	// Count duplicates per file
+	duplicatesPerFile := make(map[string]int)
+
+	for _, server := range allServers {
+		configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
+			server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
+
+		sources := configToSources[configSig]
+
+		// If this config appears in multiple files, it's a duplicate
+		if len(sources) > 1 {
+			duplicatesPerFile[server.SourcePath]++
+		}
+	}
+
+	return duplicatesPerFile
 }
 
 // ConfigDiscoverer defines the interface for config file discoverers
@@ -152,17 +244,57 @@ func (dm *DiscoveryManager) ListDiscoverers() []map[string]string {
 
 // deduplicateServers removes duplicate servers, preferring later entries
 func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
-	seen := make(map[string]int) // name -> index
+	seen := make(map[string][]DiscoveredServer) // name -> list of servers with that name
 	var result []DiscoveredServer
 
+	// Group servers by name
 	for _, server := range servers {
-		if idx, exists := seen[server.Name]; exists {
-			// Replace existing server with newer one
-			result[idx] = server
-		} else {
-			// Add new server
-			seen[server.Name] = len(result)
-			result = append(result, server)
+		seen[server.Name] = append(seen[server.Name], server)
+	}
+
+	// Process each group
+	for originalName, serverGroup := range seen {
+		if len(serverGroup) == 1 {
+			// Only one server with this name, add it directly
+			result = append(result, serverGroup[0])
+			continue
+		}
+
+		// Multiple servers with same name - check for duplicates
+		uniqueConfigs := make(map[string][]DiscoveredServer) // config hash -> list of servers with identical config
+		
+		for _, server := range serverGroup {
+			// Create a config signature for comparison (excluding name and source path)
+			configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v", 
+				server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
+			
+			uniqueConfigs[configSig] = append(uniqueConfigs[configSig], server)
+		}
+
+		// Add unique configs with counter suffixes if needed
+		counter := 1
+		for _, duplicateGroup := range uniqueConfigs {
+			// Choose the best representative from identical configs
+			bestServer := duplicateGroup[0]
+			for _, server := range duplicateGroup[1:] {
+				// Prefer the one with more specific source info
+				if len(server.SourcePath) > len(bestServer.SourcePath) {
+					bestServer = server
+				}
+			}
+			
+			// Set the duplicates count (total found - 1 = number of duplicates)
+			bestServer.DuplicatesFound = len(duplicateGroup) - 1
+			
+			if len(uniqueConfigs) == 1 {
+				// Only one unique config, keep original name
+				result = append(result, bestServer)
+			} else {
+				// Multiple unique configs, add counter suffix
+				bestServer.Name = fmt.Sprintf("%s-%d", originalName, counter)
+				result = append(result, bestServer)
+				counter++
+			}
 		}
 	}
 

@@ -17,7 +17,6 @@ package cli
 import (
 	"context"
 
-	"github.com/CentianAI/centian-cli/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
 
@@ -30,5 +29,6 @@ var Start cli.Command = cli.Command{
 
 // handleLoadCommand handles the load command to start server from config file.
 func initializeMcpProxy(ctx context.Context, cmd *cli.Command) error {
-	return proxy.StartCentianProxy()
+	// TODO: add actual MCP proxy
+	return nil
 }

@@ -196,12 +196,12 @@ func parseClaudeDesktopConfig(data []byte, filePath string) ([]DiscoveredServer,
 func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error) {
 	var config struct {
 		Servers map[string]struct {
-			Command string            `json:"command"`
-			Args    []string          `json:"args"`
-			Env     map[string]string `json:"env"`
-			URL     string            `json:"url"`
-			Type    string            `json:"type"`
-			Headers map[string]string `json:"headers"`
+			Type    string            `json:"type"`    // Required: "stdio" or "http"
+			Command string            `json:"command"` // Required for stdio type
+			Args    []string          `json:"args"`    // Optional for stdio type
+			Env     map[string]string `json:"env"`     // Optional for stdio type
+			URL     string            `json:"url"`     // Required for http type
+			Headers map[string]string `json:"headers"` // Optional for http type
 		} `json:"servers"`
 	}
 	
@@ -211,14 +211,28 @@ func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error)
 	
 	var servers []DiscoveredServer
 	for name, serverConfig := range config.Servers {
-		transport := "stdio"
+		// Validate based on type field
+		switch serverConfig.Type {
+		case "stdio":
+			// For stdio type, command is required
+			if serverConfig.Command == "" {
+				continue // Skip invalid stdio servers
+			}
+		case "http":
+			// For http type, url is required
+			if serverConfig.URL == "" {
+				continue // Skip invalid http servers
+			}
+		default:
+			// Skip servers with unknown or missing type
+			continue
+		}
+
+		// Set transport and url based on type
+		transport := serverConfig.Type
 		var url string
-		
-		if serverConfig.URL != "" {
-			transport = "http"
+		if serverConfig.Type == "http" {
 			url = serverConfig.URL
-		} else if serverConfig.Command == "" {
-			continue // Skip servers without command or URL
 		}
 		
 		server := DiscoveredServer{
@@ -228,6 +242,7 @@ func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error)
 			Env:         serverConfig.Env,
 			URL:         url,
 			Transport:   transport,
+			Headers:     serverConfig.Headers,
 			Description: fmt.Sprintf("Imported from VS Code MCP config (%s)", name),
 			Source:      "VS Code MCP",
 			SourcePath:  ensureAbsolutePath(filePath),
