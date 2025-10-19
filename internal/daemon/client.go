@@ -42,7 +42,7 @@ func NewDaemonClient() (*DaemonClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &DaemonClient{
 		port:    port,
 		timeout: 30 * time.Second,
@@ -55,18 +55,18 @@ func GetDaemonPort() (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("failed to get home directory: %w", err)
 	}
-	
+
 	pidFile := filepath.Join(homeDir, ".centian", "daemon.pid")
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
 		return 0, fmt.Errorf("daemon not running (no PID file): %w", err)
 	}
-	
+
 	var pidInfo PidInfo
 	if err := json.Unmarshal(data, &pidInfo); err != nil {
 		return 0, fmt.Errorf("failed to parse PID file: %w", err)
 	}
-	
+
 	return pidInfo.Port, nil
 }
 
@@ -76,7 +76,7 @@ func IsDaemonRunning() bool {
 	if err != nil {
 		return false
 	}
-	
+
 	_, err = client.Status()
 	return err == nil
 }
@@ -89,23 +89,23 @@ func (c *DaemonClient) SendRequest(req *DaemonRequest) (*DaemonResponse, error) 
 		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
 	}
 	defer conn.Close()
-	
+
 	// Set timeout
 	conn.SetDeadline(time.Now().Add(c.timeout))
-	
+
 	// Send request
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	
+
 	// Read response
 	decoder := json.NewDecoder(conn)
 	var response DaemonResponse
 	if err := decoder.Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
-	
+
 	return &response, nil
 }
 
@@ -117,7 +117,7 @@ func (c *DaemonClient) StartStdioProxy(command string, args []string) (*DaemonRe
 		Args:    args,
 		ID:      fmt.Sprintf("stdio_%d", time.Now().UnixNano()),
 	}
-	
+
 	return c.SendRequest(req)
 }
 
@@ -127,7 +127,7 @@ func (c *DaemonClient) Status() (*DaemonResponse, error) {
 		Type: "status",
 		ID:   fmt.Sprintf("status_%d", time.Now().UnixNano()),
 	}
-	
+
 	return c.SendRequest(req)
 }
 
@@ -137,6 +137,6 @@ func (c *DaemonClient) Stop() (*DaemonResponse, error) {
 		Type: "stop",
 		ID:   fmt.Sprintf("stop_%d", time.Now().UnixNano()),
 	}
-	
+
 	return c.SendRequest(req)
 }

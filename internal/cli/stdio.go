@@ -29,14 +29,16 @@ import (
 // StdioCommand provides stdio transport proxy functionality
 var StdioCommand = &cli.Command{
 	Name:      "stdio",
-	Usage:     "centian stdio [--cmd <command>] <args...>",
+	Usage:     "centian stdio [--cmd <command>] [-- <args...>]",
 	Description: `Proxy MCP server using stdio transport.
 
 Examples:
   centian stdio @modelcontextprotocol/server-memory
-  centian stdio --cmd npx @modelcontextprotocol/server-memory  
-  centian stdio --cmd python -m my_mcp_server --config config.json
-  centian stdio --cmd cat`,
+  centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
+  centian stdio --cmd python -- -m my_mcp_server --config config.json
+  centian stdio --cmd cat
+
+Note: Use '--' to separate centian flags from command arguments that start with '-'`,
 	Action: handleStdioCommand,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
@@ -45,44 +47,25 @@ Examples:
 			Value:   "npx",
 		},
 	},
+	UseShortOptionHandling: true,
 }
 
 // handleStdioCommand handles the stdio proxy command
 func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args().Slice()
-	
+
 	// Get command from flag or default
 	command := cmd.String("cmd")
-	
+
 	// For commands like "cat" that don't need args, this is fine
-	// Only require args if no --cmd was explicitly provided AND no args given
+	// Only require args if using default npx AND no args given
 	if len(args) == 0 && command == "npx" {
 		return fmt.Errorf("no MCP server arguments provided\n\nUsage: %s", cmd.Usage)
 	}
-	
-	// Parse command and arguments
-	var cmdArgs []string
-	
-	// Check if --cmd was explicitly used in the raw arguments
-	rawArgs := os.Args[2:] // Skip "centian stdio"
-	cmdFlagUsed := false
-	
-	for i, arg := range rawArgs {
-		if arg == "--cmd" {
-			cmdFlagUsed = true
-			// Skip --cmd and the command itself, use remaining args
-			if i+2 < len(rawArgs) {
-				cmdArgs = rawArgs[i+2:]
-			}
-			break
-		}
-	}
-	
-	// If --cmd flag wasn't used, all args go to the MCP server
-	if !cmdFlagUsed {
-		cmdArgs = args
-	}
-	
+
+	// All remaining args after parsing go to the command
+	cmdArgs := args
+
 	// Check if daemon is running and use it if available
 	if daemon.IsDaemonRunning() {
 		fmt.Fprintf(os.Stderr, "[CENTIAN] Using daemon for MCP proxy: %s %v\n", command, cmdArgs)
@@ -127,7 +110,7 @@ func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 }
 
 // useDaemonProxy uses the daemon to handle the MCP proxy
-func useDaemonProxy(ctx context.Context, command string, args []string) error {
+func useDaemonProxy(_ context.Context, command string, args []string) error {
 	client, err := daemon.NewDaemonClient()
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon: %w", err)

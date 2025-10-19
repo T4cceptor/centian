@@ -24,6 +24,9 @@ echo '{"method":"ping"}' | npx @modelcontextprotocol/server-memory
 # Centian approach (same functionality + logging)
 echo '{"method":"ping"}' | centian stdio @modelcontextprotocol/server-memory
 
+# With npx flags (use -- to separate centian flags from npx flags)
+echo '{"method":"ping"}' | centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
+
 # Custom command
 echo 'test message' | centian stdio --cmd cat
 ```
@@ -76,8 +79,11 @@ Proxy MCP servers using stdio transport with comprehensive logging.
 # Basic usage (defaults to npx)
 centian stdio @modelcontextprotocol/server-memory
 
-# Custom command
-centian stdio --cmd python -m my_mcp_server --config config.json
+# Custom command with flags (use -- to separate flags)
+centian stdio --cmd python -- -m my_mcp_server --config config.json
+
+# With npx flags
+centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
 
 # Simple commands (no additional args needed)
 centian stdio --cmd cat
