@@ -35,7 +35,8 @@ var StdioCommand = &cli.Command{
 Examples:
   centian stdio @modelcontextprotocol/server-memory
   centian stdio --cmd npx @modelcontextprotocol/server-memory  
-  centian stdio --cmd python -m my_mcp_server --config config.json`,
+  centian stdio --cmd python -m my_mcp_server --config config.json
+  centian stdio --cmd cat`,
 	Action: handleStdioCommand,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
@@ -50,13 +51,14 @@ Examples:
 func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args().Slice()
 	
-	// If no arguments provided, show usage
-	if len(args) == 0 {
-		return fmt.Errorf("no MCP server arguments provided\n\nUsage: %s", cmd.Usage)
-	}
-	
 	// Get command from flag or default
 	command := cmd.String("cmd")
+	
+	// For commands like "cat" that don't need args, this is fine
+	// Only require args if no --cmd was explicitly provided AND no args given
+	if len(args) == 0 && command == "npx" {
+		return fmt.Errorf("no MCP server arguments provided\n\nUsage: %s", cmd.Usage)
+	}
 	
 	// Parse command and arguments
 	var cmdArgs []string

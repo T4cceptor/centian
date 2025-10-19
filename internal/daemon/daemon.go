@@ -105,6 +105,11 @@ func (d *Daemon) Start() error {
 		return fmt.Errorf("daemon already running")
 	}
 	
+	// Check if another daemon is already running
+	if IsDaemonRunning() {
+		return fmt.Errorf("daemon already running (another instance detected)")
+	}
+	
 	// Write PID and port info
 	if err := d.writePidFile(); err != nil {
 		return fmt.Errorf("failed to write PID file: %w", err)

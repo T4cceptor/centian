@@ -1,6 +1,38 @@
 {
   "servers": [
     {
+      "name": "mcp-proxy-2",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "http://localhost:8001",
+      "headers": {
+        "centian-url": "https://mcp.deepwiki.com/mcp"
+      },
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-2)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-platform/.vscode/mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
+      "name": "playwright",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "env": null,
+      "url": "",
+      "headers": null,
+      "transport": "stdio",
+      "description": "Imported from Claude Desktop (playwright)",
+      "source": "generic",
+      "sourcePath": "/Users/brb/_devspace/centian_website/.mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
       "name": "fetch",
       "command": "uvx",
       "args": [
@@ -13,7 +45,8 @@
       "description": "Imported from Claude Desktop (fetch)",
       "source": "generic",
       "sourcePath": "/Users/brb/.kiro/settings/mcp.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
       "name": "auravectors",
@@ -28,65 +61,8 @@
       "description": "Imported from VS Code MCP config (auravectors)",
       "source": "VS Code MCP",
       "sourcePath": "/Users/brb/_devspace/auravectors/.vscode/mcp.json",
-      "replacementMode": false
-    },
-    {
-      "name": "mcp-proxy-2",
-      "command": "",
-      "args": null,
-      "env": null,
-      "url": "http://localhost:8001",
-      "headers": {
-        "centian-url": "https://mcp.deepwiki.com/mcp"
-      },
-      "transport": "http",
-      "description": "Imported from VS Code MCP config (mcp-proxy-2)",
-      "source": "VS Code MCP",
-      "sourcePath": "/Users/brb/_devspace/centian-platform/.vscode/mcp.json",
-      "replacementMode": false
-    },
-    {
-      "name": "mcp-proxy-3",
-      "command": "",
-      "args": null,
-      "env": null,
-      "url": "https://mcp.deepwiki.com/mcp",
-      "headers": null,
-      "transport": "http",
-      "description": "Imported from VS Code MCP config (mcp-proxy-3)",
-      "source": "VS Code MCP",
-      "sourcePath": "/Users/brb/_devspace/centian-platform/.vscode/mcp.json",
-      "replacementMode": false
-    },
-    {
-      "name": "mcp_proxy-stdio",
-      "command": "centian",
-      "args": [
-        "start"
-      ],
-      "env": null,
-      "url": "",
-      "headers": null,
-      "transport": "stdio",
-      "description": "Imported from VS Code MCP config (mcp_proxy-stdio)",
-      "source": "generic",
-      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/current_project_mcp.json",
-      "replacementMode": false
-    },
-    {
-      "name": "mcp-proxy",
-      "command": "",
-      "args": null,
-      "env": null,
-      "url": "http://localhost:8001/",
-      "headers": {
-        "CONTEXT7_API_KEY": "ctx7sk-579d7ca0-4646-4a4d-b8b9-a45b321fc845"
-      },
-      "transport": "http",
-      "description": "Imported from VS Code MCP config (mcp-proxy)",
-      "source": "VS Code MCP",
-      "sourcePath": "/Users/brb/_devspace/centian-platform/.vscode/mcp.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
       "name": "filesystem",
@@ -103,7 +79,8 @@
       "description": "Imported from Claude Desktop (filesystem)",
       "source": "Claude Desktop",
       "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/claude_desktop_config.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
       "name": "git",
@@ -120,7 +97,8 @@
       "description": "Imported from Claude Desktop (git)",
       "source": "Claude Desktop",
       "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/claude_desktop_config.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
       "name": "postgres",
@@ -137,38 +115,70 @@
       "description": "Imported from Claude Desktop (postgres)",
       "source": "Claude Desktop",
       "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/claude_desktop_config.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
-      "name": "sequential-thinking",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-sequential-thinking"
-      ],
+      "name": "mcp-proxy-1",
+      "command": "",
+      "args": null,
       "env": null,
-      "url": "",
-      "headers": null,
-      "transport": "stdio",
-      "description": "Imported from Claude Desktop (sequential-thinking)",
+      "url": "http://localhost:8001/",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-00000000-0000-0000-0000-000000000000"
+      },
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-1)",
       "source": "generic",
-      "sourcePath": "/Users/brb/_devspace/centian_website/.mcp.json",
-      "replacementMode": false
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/current_project_mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
-      "name": "playwright",
-      "command": "npx",
-      "args": [
-        "@playwright/mcp@latest"
-      ],
+      "name": "mcp-proxy-2-2",
+      "command": "",
+      "args": null,
       "env": null,
-      "url": "",
-      "headers": null,
-      "transport": "stdio",
-      "description": "Imported from Claude Desktop (playwright)",
+      "url": "http://localhost:8001",
+      "headers": {
+        "centian-url": "https://mcp.deepwiki.com/mcp"
+      },
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-2-2)",
       "source": "generic",
-      "sourcePath": "/Users/brb/_devspace/centian_website/.mcp.json",
-      "replacementMode": false
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/current_project_mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
+      "name": "mcp-proxy-3-3",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "https://mcp.deepwiki.com/mcp",
+      "headers": null,
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-3-3)",
+      "source": "generic",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/current_project_mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
+      "name": "mcp-proxy",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "http://localhost:8001/",
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-579d7ca0-4646-4a4d-b8b9-a45b321fc845"
+      },
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-platform/.vscode/mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
       "name": "serena",
@@ -186,7 +196,38 @@
       "description": "Imported from Claude Desktop (serena)",
       "source": "generic",
       "sourcePath": "/Users/brb/_devspace/centian_website/.mcp.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
+      "name": "mcp_proxy-stdio-4",
+      "command": "centian",
+      "args": [
+        "start"
+      ],
+      "env": null,
+      "url": "",
+      "headers": null,
+      "transport": "stdio",
+      "description": "Imported from VS Code MCP config (mcp_proxy-stdio-4)",
+      "source": "generic",
+      "sourcePath": "/Users/brb/_devspace/centian-cli/test_configs/current_project_mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
+      "name": "mcp-proxy-3",
+      "command": "",
+      "args": null,
+      "env": null,
+      "url": "https://mcp.deepwiki.com/mcp",
+      "headers": null,
+      "transport": "http",
+      "description": "Imported from VS Code MCP config (mcp-proxy-3)",
+      "source": "VS Code MCP",
+      "sourcePath": "/Users/brb/_devspace/centian-platform/.vscode/mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
     },
     {
       "name": "context7",
@@ -202,7 +243,25 @@
       "description": "Imported from Claude Desktop (context7)",
       "source": "generic",
       "sourcePath": "/Users/brb/_devspace/centian_website/.mcp.json",
-      "replacementMode": false
+      "replacementMode": false,
+      "duplicatesFound": 0
+    },
+    {
+      "name": "sequential-thinking",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "env": null,
+      "url": "",
+      "headers": null,
+      "transport": "stdio",
+      "description": "Imported from Claude Desktop (sequential-thinking)",
+      "source": "generic",
+      "sourcePath": "/Users/brb/_devspace/centian_website/.mcp.json",
+      "replacementMode": false,
+      "duplicatesFound": 0
     }
   ],
   "errors": []

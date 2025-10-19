@@ -29,14 +29,19 @@ import (
 
 // StdioProxy represents a proxy for MCP servers using stdio transport
 type StdioProxy struct {
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
-	stderr  io.ReadCloser
-	running bool
-	mu      sync.RWMutex
-	ctx     context.Context
-	cancel  context.CancelFunc
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.ReadCloser
+	stderr    io.ReadCloser
+	running   bool
+	mu        sync.RWMutex
+	ctx       context.Context
+	cancel    context.CancelFunc
+	logger    *logging.Logger
+	sessionID string
+	serverID  string
+	command   string
+	args      []string
 }
 
 // NewStdioProxy creates a new stdio proxy for the given command and arguments
@@ -65,14 +70,30 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
+	// Create logger
+	logger, err := logging.NewLogger()
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	// Generate session and server IDs
+	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
+	serverID := fmt.Sprintf("stdio_%s_%d", command, time.Now().UnixNano())
+
 	return &StdioProxy{
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  stdout,
-		stderr:  stderr,
-		running: false,
-		ctx:     proxyCtx,
-		cancel:  cancel,
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		stderr:    stderr,
+		running:   false,
+		ctx:       proxyCtx,
+		cancel:    cancel,
+		logger:    logger,
+		sessionID: sessionID,
+		serverID:  serverID,
+		command:   command,
+		args:      args,
 	}, nil
 }
 
@@ -91,6 +112,11 @@ func (p *StdioProxy) Start() error {
 	}
 
 	p.running = true
+
+	// Log proxy start
+	if p.logger != nil {
+		p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
+	}
 
 	// Start goroutines to handle I/O
 	go p.handleStdout()
@@ -111,6 +137,12 @@ func (p *StdioProxy) Stop() error {
 
 	p.cancel()
 	p.running = false
+
+	// Log proxy stop
+	if p.logger != nil {
+		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
+		p.logger.Close()
+	}
 
 	// Close pipes
 	if p.stdin != nil {
@@ -142,7 +174,11 @@ func (p *StdioProxy) handleStdout() {
 		default:
 			line := scanner.Text()
 
-			// Log the MCP response (for now just to stderr for debugging)
+			// Log the MCP response to file and stderr for debugging
+			if p.logger != nil {
+				requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
+				p.logger.LogResponse(requestID, p.sessionID, p.command, p.args, p.serverID, line, true, "")
+			}
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 
 			// Forward to client
@@ -170,7 +206,7 @@ func (p *StdioProxy) handleStderr() {
 			return
 		default:
 			line := scanner.Text()
-			fmt.Fprintf(os.Stderr, "[MCP-STDERR] %s\n", line)
+			fmt.Fprintf(os.Stderr, "[SERVER-STDERR] %s\n", line)
 		}
 	}
 
@@ -195,7 +231,11 @@ func (p *StdioProxy) handleStdin() {
 		default:
 			line := scanner.Text()
 
-			// Log the client request (for now just to stderr for debugging)
+			// Log the client request to file and stderr for debugging
+			if p.logger != nil {
+				requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+				p.logger.LogRequest(requestID, p.sessionID, p.command, p.args, p.serverID, line)
+			}
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)
 
 			// Forward to MCP server
