@@ -110,83 +110,6 @@ func TestStdioProxyWithInvalidCommand(t *testing.T) {
 	}
 }
 
-// TestParseCommand tests the command parsing functionality
-func TestParseCommand(t *testing.T) {
-	testCases := []struct {
-		name            string
-		args            []string
-		expectedCommand string
-		expectedArgs    []string
-		expectError     bool
-	}{
-		{
-			name:            "No arguments",
-			args:            []string{},
-			expectedCommand: "",
-			expectedArgs:    nil,
-			expectError:     true,
-		},
-		{
-			name:            "Default npx command",
-			args:            []string{"@modelcontextprotocol/server-memory"},
-			expectedCommand: "npx",
-			expectedArgs:    []string{"@modelcontextprotocol/server-memory"},
-			expectError:     false,
-		},
-		{
-			name:            "Custom command with args",
-			args:            []string{"--cmd", "python", "-m", "my_server"},
-			expectedCommand: "python",
-			expectedArgs:    []string{"-m", "my_server"},
-			expectError:     false,
-		},
-		{
-			name:            "Custom command without args",
-			args:            []string{"--cmd", "cat"},
-			expectedCommand: "cat",
-			expectedArgs:    []string{},
-			expectError:     false,
-		},
-		{
-			name:            "Command flag without value",
-			args:            []string{"--cmd"},
-			expectedCommand: "",
-			expectedArgs:    nil,
-			expectError:     true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// When: parsing the command
-			command, args, err := ParseCommand(tc.args)
-
-			// Then: the result should match expectations
-			if tc.expectError && err == nil {
-				t.Error("Expected error but got none")
-			}
-
-			if !tc.expectError && err != nil {
-				t.Errorf("Unexpected error: %v", err)
-			}
-
-			if command != tc.expectedCommand {
-				t.Errorf("Expected command %s, got %s", tc.expectedCommand, command)
-			}
-
-			if len(args) != len(tc.expectedArgs) {
-				t.Errorf("Expected %d args, got %d", len(tc.expectedArgs), len(args))
-			}
-
-			for i, expected := range tc.expectedArgs {
-				if i >= len(args) || args[i] != expected {
-					t.Errorf("Expected arg[%d] %s, got %s", i, expected, args[i])
-				}
-			}
-		})
-	}
-}
-
 // TestStdioProxySessionIDs tests that session and server IDs are unique
 func TestStdioProxySessionIDs(t *testing.T) {
 	// Given: multiple stdio proxies
@@ -313,5 +236,77 @@ func TestStdioProxyLoggerIntegration(t *testing.T) {
 	// Cleanup
 	if proxy.logger != nil {
 		proxy.logger.Close()
+	}
+}
+
+// TestStdioProxyRapidStartStop tests for race conditions and deadlocks
+// when rapidly starting and stopping proxies
+func TestStdioProxyRapidStartStop(t *testing.T) {
+	// Setup: create temporary directory for logs
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	// Given: multiple rapid start/stop cycles
+	for i := 0; i < 10; i++ {
+		ctx := context.Background()
+		proxy, err := NewStdioProxy(ctx, "sleep", []string{"0.1"})
+		if err != nil {
+			t.Fatalf("Failed to create proxy %d: %v", i, err)
+		}
+
+		// When: starting and immediately stopping the proxy
+		err = proxy.Start()
+		if err != nil {
+			t.Fatalf("Failed to start proxy %d: %v", i, err)
+		}
+
+		// Stop immediately without waiting
+		err = proxy.Stop()
+		if err != nil {
+			t.Errorf("Failed to stop proxy %d: %v", i, err)
+		}
+	}
+
+	// Then: all proxies should have stopped without hanging or race conditions
+	// (This test will fail with -race if there are race conditions)
+}
+
+// TestStdioProxyStopTimeout tests that Stop doesn't hang indefinitely
+func TestStdioProxyStopTimeout(t *testing.T) {
+	// Setup: create temporary directory for logs
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	// Given: a proxy with a long-running command
+	ctx := context.Background()
+	proxy, err := NewStdioProxy(ctx, "sleep", []string{"10"})
+	if err != nil {
+		t.Fatalf("Failed to create proxy: %v", err)
+	}
+
+	// When: starting the proxy
+	err = proxy.Start()
+	if err != nil {
+		t.Fatalf("Failed to start proxy: %v", err)
+	}
+
+	// Create a channel to signal Stop completion
+	done := make(chan error, 1)
+	go func() {
+		done <- proxy.Stop()
+	}()
+
+	// Then: Stop should complete within a reasonable timeout (e.g., 10 seconds)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Stop failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Stop() hung and did not complete within timeout")
 	}
 }

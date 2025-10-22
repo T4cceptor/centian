@@ -28,8 +28,8 @@ import (
 
 // StdioCommand provides stdio transport proxy functionality
 var StdioCommand = &cli.Command{
-	Name:      "stdio",
-	Usage:     "centian stdio [--cmd <command>] [-- <args...>]",
+	Name:  "stdio",
+	Usage: "centian stdio [--cmd <command>] [-- <args...>]",
 	Description: `Proxy MCP server using stdio transport.
 
 Examples:
@@ -42,9 +42,9 @@ Note: Use '--' to separate centian flags from command arguments that start with 
 	Action: handleStdioCommand,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name:    "cmd",
-			Usage:   "Command to execute (defaults to 'npx')",
-			Value:   "npx",
+			Name:  "cmd",
+			Usage: "Command to execute",
+			Value: "npx",
 		},
 	},
 	UseShortOptionHandling: true,
@@ -71,33 +71,33 @@ func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(os.Stderr, "[CENTIAN] Using daemon for MCP proxy: %s %v\n", command, cmdArgs)
 		return useDaemonProxy(ctx, command, cmdArgs)
 	}
-	
+
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting direct MCP proxy: %s %v\n", command, cmdArgs)
-	
+
 	// Create and start the stdio proxy directly
 	stdioProxy, err := proxy.NewStdioProxy(ctx, command, cmdArgs)
 	if err != nil {
 		return fmt.Errorf("failed to create stdio proxy: %w", err)
 	}
-	
+
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	
+
 	// Start the proxy
 	if err := stdioProxy.Start(); err != nil {
 		return fmt.Errorf("failed to start stdio proxy: %w", err)
 	}
-	
+
 	fmt.Fprintf(os.Stderr, "[CENTIAN] MCP proxy started successfully\n")
-	
+
 	// Wait for either signal or proxy to finish
 	go func() {
 		<-sigChan
 		fmt.Fprintf(os.Stderr, "[CENTIAN] Received shutdown signal, stopping proxy...\n")
 		stdioProxy.Stop()
 	}()
-	
+
 	// Wait for the proxy to finish
 	err = stdioProxy.Wait()
 	if err != nil {
@@ -105,7 +105,7 @@ func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 	} else {
 		fmt.Fprintf(os.Stderr, "[CENTIAN] MCP proxy exited successfully\n")
 	}
-	
+
 	return err
 }
 
@@ -115,18 +115,18 @@ func useDaemonProxy(_ context.Context, command string, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon: %w", err)
 	}
-	
+
 	response, err := client.StartStdioProxy(command, args)
 	if err != nil {
 		return fmt.Errorf("failed to start stdio proxy via daemon: %w", err)
 	}
-	
+
 	if !response.Success {
 		return fmt.Errorf("daemon failed to start stdio proxy: %s", response.Error)
 	}
-	
+
 	fmt.Fprintf(os.Stderr, "[CENTIAN] MCP proxy started via daemon (Server ID: %s)\n", response.ServerID)
-	
+
 	// For now, just return success. In a full implementation, we would
 	// set up bidirectional communication with the daemon-managed server
 	return nil

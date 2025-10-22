@@ -39,6 +39,7 @@ func main() {
 			cli.InitCommand,
 			cli.StdioCommand,
 			cli.DaemonCommand,
+			cli.LogsCommand,
 			config.ConfigCommand,
 		},
 	}

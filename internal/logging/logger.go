@@ -22,22 +22,59 @@ import (
 	"time"
 )
 
-// LogEntry represents a single log entry
+// LogEntry represents a single log entry for MCP proxy operations.
+// Each entry captures comprehensive information about requests, responses,
+// and proxy lifecycle events. Entries are serialized to JSON format for
+// structured logging and analysis.
 type LogEntry struct {
-	Timestamp     time.Time         `json:"timestamp"`
-	RequestID     string            `json:"request_id"`
-	SessionID     string            `json:"session_id,omitempty"`
-	Direction     string            `json:"direction"`     // "request" or "response"
-	Command       string            `json:"command"`       // Command being proxied
-	Args          []string          `json:"args"`          // Command arguments
-	ProjectPath   string            `json:"project_path"`  // Working directory
-	ConfigSource  string            `json:"config_source"` // global|project|profile
-	ServerID      string            `json:"server_id,omitempty"`
-	Message       string            `json:"message"`       // The actual MCP message
-	MessageType   string            `json:"message_type"`  // request, response, error
-	Success       bool              `json:"success"`
-	Error         string            `json:"error,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+	// Timestamp is the exact time when the log entry was created
+	Timestamp time.Time `json:"timestamp"`
+
+	// RequestID uniquely identifies a single request/response pair
+	RequestID string `json:"request_id"`
+
+	// SessionID groups multiple requests within the same proxy session
+	SessionID string `json:"session_id,omitempty"`
+
+	// Direction indicates the communication flow perspective:
+	// "request" (client→server),
+	// "response" (server→client), or
+	// "system" (proxy lifecycle events).
+	// This field remains stable regardless of success/failure status.
+	Direction string `json:"direction"`
+
+	// Command is the executable being proxied (e.g., "npx", "python")
+	Command string `json:"command"`
+
+	// Args are the command-line arguments passed to the command
+	Args []string `json:"args"`
+
+	// ProjectPath is the working directory where the command executes
+	ProjectPath string `json:"project_path"`
+
+	// ConfigSource indicates where configuration originated: "global", "project", or "profile"
+	ConfigSource string `json:"config_source"`
+
+	// ServerID uniquely identifies the MCP server instance handling this request
+	ServerID string `json:"server_id,omitempty"`
+
+	// Message contains the actual MCP protocol message content
+	Message string `json:"message"`
+
+	// MessageType categorizes the content/outcome: "request", "response", "error", or "system".
+	// Unlike Direction, this changes to "error" for failed responses, enabling filtering
+	// by operational status (e.g., "all errors" vs "all responses regardless of success").
+	// This orthogonal design supports both flow analysis (Direction) and status monitoring (MessageType).
+	MessageType string `json:"message_type"`
+
+	// Success indicates whether the operation completed successfully
+	Success bool `json:"success"`
+
+	// Error contains error details if Success is false
+	Error string `json:"error,omitempty"`
+
+	// Metadata holds additional context-specific key-value pairs
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // Logger handles logging of MCP proxy operations
@@ -48,28 +85,26 @@ type Logger struct {
 
 // NewLogger creates a new logger instance
 func NewLogger() (*Logger, error) {
-	// Get home directory
-	homeDir, err := os.UserHomeDir()
+	// Resolve logs directory location
+	logsDir, err := GetLogsDirectory()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
+		return nil, err
 	}
-	
-	// Create logs directory
-	logsDir := filepath.Join(homeDir, ".centian", "logs")
+
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory: %w", err)
 	}
-	
+
 	// Create log file with current date
 	logFileName := fmt.Sprintf("requests_%s.jsonl", time.Now().Format("2006-01-02"))
 	logPath := filepath.Join(logsDir, logFileName)
-	
+
 	// Open log file in append mode
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
-	
+
 	return &Logger{
 		logFile: logFile,
 		logPath: logPath,
@@ -116,12 +151,12 @@ func (l *Logger) LogResponse(requestID, sessionID, command string, args []string
 		MessageType: "response",
 		Success:     success,
 	}
-	
+
 	if !success {
 		entry.Error = errorMsg
 		entry.MessageType = "error"
 	}
-	
+
 	return l.logEntry(entry)
 }
 
@@ -157,11 +192,11 @@ func (l *Logger) LogProxyStop(sessionID, command string, args []string, serverID
 		MessageType: "system",
 		Success:     success,
 	}
-	
+
 	if !success {
 		entry.Error = errorMsg
 	}
-	
+
 	return l.logEntry(entry)
 }
 
@@ -170,22 +205,22 @@ func (l *Logger) logEntry(entry LogEntry) error {
 	if l.logFile == nil {
 		return fmt.Errorf("logger not initialized")
 	}
-	
+
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("failed to marshal log entry: %w", err)
 	}
-	
+
 	// Write JSON line
 	if _, err := l.logFile.Write(data); err != nil {
 		return fmt.Errorf("failed to write log entry: %w", err)
 	}
-	
+
 	// Write newline
 	if _, err := l.logFile.WriteString("\n"); err != nil {
 		return fmt.Errorf("failed to write newline: %w", err)
 	}
-	
+
 	// Sync to disk
 	return l.logFile.Sync()
 }
@@ -199,7 +234,12 @@ func getCurrentWorkingDir() string {
 	return pwd
 }
 
-// GetLogPath returns the path to the current log file
+// GetLogPath returns the absolute path to the current log file.
+// This method can be used by external callers to:
+//   - Display log location to users for debugging
+//   - Access logs programmatically for analysis or monitoring
+//   - Integrate with external log aggregation tools
+//   - Provide log file paths in status/diagnostic outputs
 func (l *Logger) GetLogPath() string {
 	return l.logPath
 }

@@ -22,26 +22,57 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/CentianAI/centian-cli/internal/logging"
 )
 
-// StdioProxy represents a proxy for MCP servers using stdio transport
+// StdioProxy represents a proxy for MCP servers using stdio transport.
+// It manages the lifecycle of an MCP server process and handles bidirectional
+// communication between the client and server.
 type StdioProxy struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stdout    io.ReadCloser
-	stderr    io.ReadCloser
-	running   bool
-	mu        sync.RWMutex
-	ctx       context.Context
-	cancel    context.CancelFunc
-	logger    *logging.Logger
+	// cmd is the command being executed for the MCP server
+	cmd *exec.Cmd
+
+	// stdin is the pipe to write data to the MCP server's stdin
+	stdin io.WriteCloser
+
+	// stdout is the pipe to read data from the MCP server's stdout
+	stdout io.ReadCloser
+
+	// stderr is the pipe to read data from the MCP server's stderr
+	stderr io.ReadCloser
+
+	// running indicates whether the proxy is currently active
+	running bool
+
+	// mu provides thread-safe access to the running state
+	mu sync.RWMutex
+
+	// wg tracks active I/O handler goroutines to ensure clean shutdown
+	wg sync.WaitGroup
+
+	// ctx manages the proxy lifecycle and cancellation
+	ctx context.Context
+
+	// cancel stops the proxy by canceling the context
+	cancel context.CancelFunc
+
+	// logger records proxy activity for debugging and monitoring
+	logger *logging.Logger
+
+	// sessionID is a unique identifier for this proxy session (format: "session_<timestamp>")
 	sessionID string
-	serverID  string
-	command   string
-	args      []string
+
+	// serverID is a unique identifier for the MCP server instance (format: "stdio_<command>_<timestamp>")
+	serverID string
+
+	// command is the executable name being run (e.g., "npx", "python")
+	command string
+
+	// args are the arguments passed to the command
+	args []string
 }
 
 // NewStdioProxy creates a new stdio proxy for the given command and arguments
@@ -118,15 +149,16 @@ func (p *StdioProxy) Start() error {
 		p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
 	}
 
-	// Start goroutines to handle I/O
-	go p.handleStdout()
-	go p.handleStderr()
-	go p.handleStdin()
+	// Start goroutines to handle I/O with WaitGroup tracking
+	p.wg.Add(3)
+	go func() { defer p.wg.Done(); p.handleStdout() }()
+	go func() { defer p.wg.Done(); p.handleStderr() }()
+	go func() { defer p.wg.Done(); p.handleStdin() }()
 
 	return nil
 }
 
-// Stop stops the MCP server process and proxy
+// Stop stops the MCP server process and proxy with graceful shutdown
 func (p *StdioProxy) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -135,24 +167,47 @@ func (p *StdioProxy) Stop() error {
 		return nil
 	}
 
+	// Cancel context to signal goroutines to stop
 	p.cancel()
 	p.running = false
 
-	// Log proxy stop
-	if p.logger != nil {
-		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
-		p.logger.Close()
-	}
-
-	// Close pipes
+	// Close stdin pipe to signal no more input
 	if p.stdin != nil {
 		p.stdin.Close()
 	}
 
-	// Wait for process to finish or kill it
+	// Attempt graceful shutdown with SIGTERM first
 	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
-		p.cmd.Wait()
+		// Send SIGTERM for graceful shutdown
+		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			// If SIGTERM fails, process might already be dead
+			fmt.Fprintf(os.Stderr, "Failed to send SIGTERM: %v\n", err)
+		}
+
+		// Wait with timeout for graceful shutdown
+		waitDone := make(chan error, 1)
+		go func() {
+			waitDone <- p.cmd.Wait()
+		}()
+
+		select {
+		case <-time.After(5 * time.Second): // TODO: make timeout configurable
+			// Timeout - escalate to SIGKILL
+			fmt.Fprintf(os.Stderr, "Process did not exit gracefully, sending SIGKILL\n")
+			p.cmd.Process.Kill()
+			<-waitDone // Wait for process to be killed
+		case <-waitDone:
+			// Process exited gracefully
+		}
+	}
+
+	// Wait for all I/O handler goroutines to finish
+	p.wg.Wait()
+
+	// Now safe to close logger after all goroutines have finished
+	if p.logger != nil {
+		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
+		p.logger.Close()
 	}
 
 	return nil
@@ -223,13 +278,33 @@ func (p *StdioProxy) handleStdin() {
 		}
 	}()
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
+	// Use a channel to make stdin reading cancellable
+	lines := make(chan string)
+	scanErr := make(chan error, 1)
+
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		if err := scanner.Err(); err != nil {
+			scanErr <- err
+		}
+		close(lines)
+	}()
+
+	for {
 		select {
 		case <-p.ctx.Done():
 			return
-		default:
-			line := scanner.Text()
+		case err := <-scanErr:
+			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
+			return
+		case line, ok := <-lines:
+			if !ok {
+				// stdin closed
+				return
+			}
 
 			// Log the client request to file and stderr for debugging
 			if p.logger != nil {
@@ -247,13 +322,13 @@ func (p *StdioProxy) handleStdin() {
 			}
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
-	}
 }
 
-// IsRunning returns whether the proxy is currently running
+// IsRunning returns whether the proxy is currently running.
+// This method is thread-safe and can be used by external callers
+// (e.g., daemon, status endpoints, lifecycle hooks) to check proxy state.
+// It's particularly useful for health checks and preventing operations
+// on stopped proxies.
 func (p *StdioProxy) IsRunning() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -263,43 +338,4 @@ func (p *StdioProxy) IsRunning() bool {
 // Wait waits for the MCP server process to finish
 func (p *StdioProxy) Wait() error {
 	return p.cmd.Wait()
-}
-
-// ParseCommand parses a command string with the --cmd flag
-func ParseCommand(args []string) (string, []string, error) {
-	if len(args) == 0 {
-		return "", nil, fmt.Errorf("no arguments provided")
-	}
-
-	// Check for --cmd flag
-	cmdIndex := -1
-	for i, arg := range args {
-		if arg == "--cmd" {
-			cmdIndex = i
-			break
-		}
-	}
-
-	var command string
-	var cmdArgs []string
-
-	if cmdIndex >= 0 {
-		// --cmd flag found
-		if cmdIndex+1 >= len(args) {
-			return "", nil, fmt.Errorf("--cmd flag requires a command argument")
-		}
-
-		command = args[cmdIndex+1]
-
-		// Collect remaining args after --cmd <command>
-		if cmdIndex+2 < len(args) {
-			cmdArgs = args[cmdIndex+2:]
-		}
-	} else {
-		// No --cmd flag, default to npx
-		command = "npx"
-		cmdArgs = args
-	}
-
-	return command, cmdArgs, nil
 }
