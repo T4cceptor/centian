@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/CentianAI/centian-cli/internal/logging"
@@ -148,10 +149,11 @@ func (p *StdioProxy) Start() error {
 		p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
 	}
 
-	// Start goroutines to handle I/O
-	go p.handleStdout()
-	go p.handleStderr()
-	go p.handleStdin()
+	// Start goroutines to handle I/O with WaitGroup tracking
+	p.wg.Add(3)
+	go func() { defer p.wg.Done(); p.handleStdout() }()
+	go func() { defer p.wg.Done(); p.handleStderr() }()
+	go func() { defer p.wg.Done(); p.handleStdin() }()
 
 	return nil
 }
@@ -165,24 +167,45 @@ func (p *StdioProxy) Stop() error {
 		return nil
 	}
 
+	// Cancel context to signal goroutines to stop
 	p.cancel()
 	p.running = false
 
-	// Log proxy stop
-	if p.logger != nil {
-		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
-		p.logger.Close()
-	}
-
-	// Close pipes
+	// Close stdin pipe to signal no more input
 	if p.stdin != nil {
 		p.stdin.Close()
 	}
 
-	// Wait for process to finish or kill it
+	// Attempt graceful shutdown with SIGTERM first
 	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
-		p.cmd.Wait()
+		// Send SIGTERM for graceful shutdown
+		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+			// If SIGTERM fails, process might already be dead
+			fmt.Fprintf(os.Stderr, "Failed to send SIGTERM: %v\n", err)
+		}
+
+		// Give process time to exit gracefully after SIGTERM
+		time.Sleep(5 * time.Second)
+		
+		// If still running, escalate to SIGKILL
+		// Note: We check the process, not call Wait() to avoid race with monitoring goroutine
+		if p.cmd.Process != nil {
+			// Attempt SIGKILL if process is still alive
+			if err := p.cmd.Process.Signal(syscall.Signal(0)); err == nil {
+				// Process is still alive, send SIGKILL
+				fmt.Fprintf(os.Stderr, "Process did not exit gracefully, sending SIGKILL\n")
+				p.cmd.Process.Kill()
+			}
+		}
+	}
+
+	// Wait for all I/O handler goroutines to finish
+	p.wg.Wait()
+
+	// Now safe to close logger after all goroutines have finished
+	if p.logger != nil {
+		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
+		p.logger.Close()
 	}
 
 	return nil
