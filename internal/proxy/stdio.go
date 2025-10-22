@@ -22,7 +22,6 @@ import (
 	"os"
 	"os/exec"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/CentianAI/centian-cli/internal/logging"
@@ -149,16 +148,15 @@ func (p *StdioProxy) Start() error {
 		p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
 	}
 
-	// Start goroutines to handle I/O with WaitGroup tracking
-	p.wg.Add(3)
-	go func() { defer p.wg.Done(); p.handleStdout() }()
-	go func() { defer p.wg.Done(); p.handleStderr() }()
-	go func() { defer p.wg.Done(); p.handleStdin() }()
+	// Start goroutines to handle I/O
+	go p.handleStdout()
+	go p.handleStderr()
+	go p.handleStdin()
 
 	return nil
 }
 
-// Stop stops the MCP server process and proxy with graceful shutdown
+// Stop stops the MCP server process and proxy
 func (p *StdioProxy) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -167,47 +165,24 @@ func (p *StdioProxy) Stop() error {
 		return nil
 	}
 
-	// Cancel context to signal goroutines to stop
 	p.cancel()
 	p.running = false
 
-	// Close stdin pipe to signal no more input
+	// Log proxy stop
+	if p.logger != nil {
+		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
+		p.logger.Close()
+	}
+
+	// Close pipes
 	if p.stdin != nil {
 		p.stdin.Close()
 	}
 
-	// Attempt graceful shutdown with SIGTERM first
+	// Wait for process to finish or kill it
 	if p.cmd.Process != nil {
-		// Send SIGTERM for graceful shutdown
-		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-			// If SIGTERM fails, process might already be dead
-			fmt.Fprintf(os.Stderr, "Failed to send SIGTERM: %v\n", err)
-		}
-
-		// Wait with timeout for graceful shutdown
-		waitDone := make(chan error, 1)
-		go func() {
-			waitDone <- p.cmd.Wait()
-		}()
-
-		select {
-		case <-time.After(5 * time.Second): // TODO: make timeout configurable
-			// Timeout - escalate to SIGKILL
-			fmt.Fprintf(os.Stderr, "Process did not exit gracefully, sending SIGKILL\n")
-			p.cmd.Process.Kill()
-			<-waitDone // Wait for process to be killed
-		case <-waitDone:
-			// Process exited gracefully
-		}
-	}
-
-	// Wait for all I/O handler goroutines to finish
-	p.wg.Wait()
-
-	// Now safe to close logger after all goroutines have finished
-	if p.logger != nil {
-		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
-		p.logger.Close()
+		p.cmd.Process.Kill()
+		p.cmd.Wait()
 	}
 
 	return nil
@@ -278,33 +253,13 @@ func (p *StdioProxy) handleStdin() {
 		}
 	}()
 
-	// Use a channel to make stdin reading cancellable
-	lines := make(chan string)
-	scanErr := make(chan error, 1)
-
-	go func() {
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			lines <- scanner.Text()
-		}
-		if err := scanner.Err(); err != nil {
-			scanErr <- err
-		}
-		close(lines)
-	}()
-
-	for {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
 		select {
 		case <-p.ctx.Done():
 			return
-		case err := <-scanErr:
-			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
-			return
-		case line, ok := <-lines:
-			if !ok {
-				// stdin closed
-				return
-			}
+		default:
+			line := scanner.Text()
 
 			// Log the client request to file and stderr for debugging
 			if p.logger != nil {
@@ -322,13 +277,13 @@ func (p *StdioProxy) handleStdin() {
 			}
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
+	}
 }
 
-// IsRunning returns whether the proxy is currently running.
-// This method is thread-safe and can be used by external callers
-// (e.g., daemon, status endpoints, lifecycle hooks) to check proxy state.
-// It's particularly useful for health checks and preventing operations
-// on stopped proxies.
+// IsRunning returns whether the proxy is currently running
 func (p *StdioProxy) IsRunning() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
