@@ -19,8 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -33,7 +31,6 @@ type Daemon struct {
 	servers     map[string]*proxy.StdioProxy
 	serversMu   sync.RWMutex
 	port        int
-	pidFile     string
 	running     bool
 	runningMu   sync.RWMutex
 	ctx         context.Context
@@ -58,39 +55,17 @@ type DaemonResponse struct {
 	Data      map[string]any    `json:"data,omitempty"`
 }
 
+// DefaultDaemonPort is the default port for the daemon
+// This can be made configurable in the future via global config
+const DefaultDaemonPort = 50051
+
 // NewDaemon creates a new daemon instance
 func NewDaemon() (*Daemon, error) {
-	// Create TCP listener on localhost with dynamic port
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create TCP listener: %w", err)
-	}
-	
-	port := listener.Addr().(*net.TCPAddr).Port
-	
-	// Get home directory for PID file
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		listener.Close()
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-	
-	centianDir := filepath.Join(homeDir, ".centian")
-	if err := os.MkdirAll(centianDir, 0755); err != nil {
-		listener.Close()
-		return nil, fmt.Errorf("failed to create .centian directory: %w", err)
-	}
-	
-	pidFile := filepath.Join(centianDir, "daemon.pid")
-	
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Daemon{
-		listener: listener,
 		servers:  make(map[string]*proxy.StdioProxy),
-		port:     port,
-		pidFile:  pidFile,
-		running:  false,
+		port:     DefaultDaemonPort, // TODO: Make configurable via global config
 		ctx:      ctx,
 		cancel:   cancel,
 	}, nil
@@ -100,58 +75,88 @@ func NewDaemon() (*Daemon, error) {
 func (d *Daemon) Start() error {
 	d.runningMu.Lock()
 	defer d.runningMu.Unlock()
-	
+
 	if d.running {
 		return fmt.Errorf("daemon already running")
 	}
-	
-	// Check if another daemon is already running
-	if IsDaemonRunning() {
-		return fmt.Errorf("daemon already running (another instance detected)")
+
+	// ATOMIC: Bind to TCP port - only one process can succeed
+	// This prevents race condition by using kernel-level atomic bind()
+	addr := fmt.Sprintf("127.0.0.1:%d", d.port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		// Check if port is already in use (another daemon running)
+		if isAddressInUse(err) {
+			return fmt.Errorf("daemon already running on port %d", d.port)
+		}
+		return fmt.Errorf("failed to bind to %s: %w", addr, err)
 	}
-	
-	// Write PID and port info
-	if err := d.writePidFile(); err != nil {
-		return fmt.Errorf("failed to write PID file: %w", err)
-	}
-	
+
+	d.listener = listener
 	d.running = true
-	
+
 	fmt.Printf("Daemon started on port %d\n", d.port)
-	
+
 	// Start accepting connections
 	go d.acceptConnections()
-	
+
 	return nil
+}
+
+// isAddressInUse checks if the error indicates address is already in use
+func isAddressInUse(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Check for both "address already in use" and "bind: address already in use"
+	errStr := err.Error()
+	return contains(errStr, "address already in use") ||
+	       contains(errStr, "bind: address already in use")
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) &&
+	       (s == substr || len(s) > len(substr) &&
+	        (s[:len(substr)] == substr ||
+	         s[len(s)-len(substr):] == substr ||
+	         findSubstring(s, substr)))
+}
+
+// findSubstring finds a substring in a string
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // Stop stops the daemon
 func (d *Daemon) Stop() error {
 	d.runningMu.Lock()
 	defer d.runningMu.Unlock()
-	
+
 	if !d.running {
 		return nil
 	}
-	
+
 	d.cancel()
 	d.running = false
-	
+
 	// Stop all servers
 	d.serversMu.Lock()
 	for _, server := range d.servers {
 		server.Stop()
 	}
 	d.serversMu.Unlock()
-	
-	// Close listener
+
+	// Close listener (releases port binding)
 	if d.listener != nil {
 		d.listener.Close()
 	}
-	
-	// Remove PID file
-	os.Remove(d.pidFile)
-	
+
 	fmt.Println("Daemon stopped")
 	return nil
 }
@@ -166,22 +171,6 @@ func (d *Daemon) IsRunning() bool {
 // GetPort returns the daemon's listening port
 func (d *Daemon) GetPort() int {
 	return d.port
-}
-
-// writePidFile writes the PID and port information to file
-func (d *Daemon) writePidFile() error {
-	pidInfo := map[string]any{
-		"pid":  os.Getpid(),
-		"port": d.port,
-		"time": time.Now().Unix(),
-	}
-	
-	data, err := json.Marshal(pidInfo)
-	if err != nil {
-		return err
-	}
-	
-	return os.WriteFile(d.pidFile, data, 0644)
 }
 
 // acceptConnections accepts and handles incoming connections

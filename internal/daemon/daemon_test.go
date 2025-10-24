@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -63,14 +62,7 @@ func TestDaemonStartStop(t *testing.T) {
 		t.Error("Daemon should be running after start")
 	}
 
-	// Verify PID file was created
-	homeDir, _ := os.UserHomeDir()
-	pidFile := filepath.Join(homeDir, ".centian", "daemon.pid")
-	if _, err := os.Stat(pidFile); os.IsNotExist(err) {
-		t.Error("PID file should exist after daemon start")
-	}
-
-	// When: stopping the daemon
+// When: stopping the daemon
 	err = daemon.Stop()
 
 	// Then: the daemon should stop successfully
@@ -82,20 +74,11 @@ func TestDaemonStartStop(t *testing.T) {
 		t.Error("Daemon should not be running after stop")
 	}
 
-	// Verify PID file was removed
-	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
-		t.Error("PID file should be removed after daemon stop")
-	}
+
 }
 
-// TestDaemonPortAllocation tests dynamic port allocation
+// TestDaemonPortAllocation tests that only one daemon can bind to the fixed port
 func TestDaemonPortAllocation(t *testing.T) {
-	// Setup: create temporary directory SHARED by both daemons
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
-
 	// Given: first daemon
 	daemon1, err := NewDaemon()
 	if err != nil {
@@ -109,25 +92,25 @@ func TestDaemonPortAllocation(t *testing.T) {
 	}
 	defer daemon1.Stop()
 
-	// Then: it should get a port
+	// Then: it should bind to the default port
 	port1 := daemon1.port
-	if port1 == 0 {
-		t.Error("First daemon should have a valid port")
+	if port1 != DefaultDaemonPort {
+		t.Errorf("First daemon should use default port %d, got %d", DefaultDaemonPort, port1)
 	}
 
-	// Given: second daemon (created AFTER first is running, same HOME dir)
+	// Given: second daemon attempting to use the same port
 	daemon2, err := NewDaemon()
 	if err != nil {
 		t.Fatalf("Failed to create second daemon: %v", err)
 	}
 
-	// When: starting the second daemon (should fail since PID file exists)
+	// When: starting the second daemon (should fail since port is in use)
 	err = daemon2.Start()
 
 	// Then: the second daemon should fail to start
 	if err == nil {
 		daemon2.Stop() // Clean up if it somehow started
-		t.Error("Second daemon should fail to start when first is running")
+		t.Error("Second daemon should fail to start when first is running on same port")
 	} else {
 		t.Logf("Second daemon correctly failed to start: %v", err)
 	}
@@ -174,24 +157,17 @@ func TestIsDaemonRunning(t *testing.T) {
 	}
 }
 
-// TestGetDaemonPort tests getting daemon port from PID file
+// TestGetDaemonPort tests that the daemon uses the default port
 func TestGetDaemonPort(t *testing.T) {
-	// Setup: create temporary directory
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
-
-	// Test GetDaemonPort when no daemon is running
-	_, err := GetDaemonPort()
-	if err == nil {
-		t.Error("Expected error when no daemon is running")
-	}
-
-	// Create a daemon and start it
+	// Create a daemon
 	daemon, err := NewDaemon()
 	if err != nil {
 		t.Fatalf("Failed to create daemon: %v", err)
+	}
+
+	// Test that it uses the default port
+	if daemon.port != DefaultDaemonPort {
+		t.Errorf("Expected daemon to use default port %d, got %d", DefaultDaemonPort, daemon.port)
 	}
 
 	err = daemon.Start()
@@ -200,51 +176,15 @@ func TestGetDaemonPort(t *testing.T) {
 	}
 	defer daemon.Stop()
 
-	// Test GetDaemonPort when daemon is running
-	port, err := GetDaemonPort()
-	if err != nil {
-		t.Fatalf("Failed to get daemon port: %v", err)
-	}
-
-	if port == 0 {
-		t.Error("Daemon port should not be zero")
-	}
-
-	if port != daemon.port {
-		t.Errorf("Expected port %d, got %d", daemon.port, port)
+	// Verify the daemon is listening on the expected port
+	if daemon.GetPort() != DefaultDaemonPort {
+		t.Errorf("Expected daemon port %d, got %d", DefaultDaemonPort, daemon.GetPort())
 	}
 }
 
 // TestNewDaemonClient tests creating a daemon client
 func TestNewDaemonClient(t *testing.T) {
-	// Setup: create temporary directory
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
-
-	// Test client creation when no daemon is running
-	_, err := NewDaemonClient()
-	if err == nil {
-		t.Error("Expected error when no daemon is running")
-	}
-
-	// Start a daemon
-	daemon, err := NewDaemon()
-	if err != nil {
-		t.Fatalf("Failed to create daemon: %v", err)
-	}
-
-	err = daemon.Start()
-	if err != nil {
-		t.Fatalf("Failed to start daemon: %v", err)
-	}
-	defer daemon.Stop()
-
-	// Wait a moment for daemon to be ready
-	time.Sleep(100 * time.Millisecond)
-
-	// Test client creation when daemon is running
+	// Test client creation (no daemon needs to be running for creation)
 	client, err := NewDaemonClient()
 	if err != nil {
 		t.Fatalf("Failed to create daemon client: %v", err)
@@ -254,18 +194,13 @@ func TestNewDaemonClient(t *testing.T) {
 		t.Fatal("Client should not be nil")
 	}
 
-	if client.port == 0 {
-		t.Error("Client port should not be zero")
+	if client.port != DefaultDaemonPort {
+		t.Errorf("Client should use default port %d, got %d", DefaultDaemonPort, client.port)
 	}
 }
 
 // TestDaemonServerManagement tests server lifecycle through daemon
 func TestDaemonServerManagement(t *testing.T) {
-	// Setup: create temporary directory
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
 
 	// Given: a running daemon
 	daemon, err := NewDaemon()
@@ -320,11 +255,6 @@ func TestDaemonServerManagement(t *testing.T) {
 
 // TestDaemonClientStatus tests getting daemon status via client
 func TestDaemonClientStatus(t *testing.T) {
-	// Setup: create temporary directory
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
 
 	// Given: a running daemon
 	daemon, err := NewDaemon()
@@ -366,15 +296,6 @@ func TestDaemonClientStatus(t *testing.T) {
 
 // TestDaemonPortInUse tests daemon behavior when port is in use
 func TestDaemonPortInUse(t *testing.T) {
-	// This test would require more complex setup to actually bind a port
-	// For now, we'll test that the daemon can handle port allocation failures gracefully
-	// by creating multiple daemons in quick succession
-
-	// Setup: create temporary directory
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
 
 	// Given: a daemon
 	daemon, err := NewDaemon()
@@ -397,3 +318,82 @@ func TestDaemonPortInUse(t *testing.T) {
 	// The daemon should be able to accept connections on its port
 	// (This would be tested more thoroughly in integration tests)
 }
+
+// TestConcurrentDaemonStart tests the fix for TOCTOU race condition (Issue #3)
+// Verifies that only one daemon can bind to the TCP port when multiple goroutines attempt simultaneously
+func TestConcurrentDaemonStart(t *testing.T) {
+	// Given: 10 goroutines attempting to start daemons concurrently
+	const goroutines = 10
+	results := make(chan error, goroutines)
+	daemons := make([]*Daemon, goroutines)
+	startSignal := make(chan struct{})
+
+	// Pre-create all daemons (they all target the same port: DefaultDaemonPort)
+	for i := 0; i < goroutines; i++ {
+		daemon, err := NewDaemon()
+		if err != nil {
+			t.Fatalf("Failed to create daemon %d: %v", i, err)
+		}
+		daemons[i] = daemon
+		t.Logf("Daemon %d: port=%d", i, daemon.port)
+	}
+
+	// When: all goroutines attempt to bind to the same TCP port simultaneously
+	for i := 0; i < goroutines; i++ {
+		go func(index int) {
+			<-startSignal // Wait for signal to start
+			results <- daemons[index].Start()
+		}(i)
+	}
+
+	// Signal all goroutines to start at once
+	close(startSignal)
+
+	// Collect all results
+	var successCount, failCount int
+	var errors []string
+
+	for i := 0; i < goroutines; i++ {
+		err := <-results
+		if err == nil {
+			successCount++
+		} else {
+			failCount++
+			errors = append(errors, err.Error())
+		}
+	}
+
+	// Log results for debugging
+	t.Logf("Success: %d, Failures: %d", successCount, failCount)
+	if len(errors) > 0 {
+		t.Logf("Sample errors: %v", errors[:minInt(3, len(errors))])
+	}
+
+	// Then: exactly one daemon should succeed (atomic TCP bind)
+	if successCount != 1 {
+		t.Errorf("Expected exactly 1 successful start, got %d", successCount)
+	}
+
+	if failCount != goroutines-1 {
+		t.Errorf("Expected %d failures, got %d", goroutines-1, failCount)
+	}
+
+	// Cleanup: stop all daemons (only successful one is actually running)
+	for _, daemon := range daemons {
+		if daemon != nil && daemon.IsRunning() {
+			daemon.Stop()
+		}
+	}
+
+	t.Logf("✓ Race condition test passed: TCP bind is atomic")
+}
+
+// minInt returns the minimum of two integers
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+

@@ -18,8 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -29,56 +27,24 @@ type DaemonClient struct {
 	timeout time.Duration
 }
 
-// PidInfo represents the information stored in the PID file
-type PidInfo struct {
-	PID  int   `json:"pid"`
-	Port int   `json:"port"`
-	Time int64 `json:"time"`
-}
-
 // NewDaemonClient creates a new daemon client
+// Uses the default daemon port (can be made configurable in the future)
 func NewDaemonClient() (*DaemonClient, error) {
-	port, err := GetDaemonPort()
-	if err != nil {
-		return nil, err
-	}
-
 	return &DaemonClient{
-		port:    port,
+		port:    DefaultDaemonPort, // Use fixed port from daemon.go
 		timeout: 30 * time.Second,
 	}, nil
 }
 
-// GetDaemonPort reads the daemon port from the PID file
-func GetDaemonPort() (int, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	pidFile := filepath.Join(homeDir, ".centian", "daemon.pid")
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return 0, fmt.Errorf("daemon not running (no PID file): %w", err)
-	}
-
-	var pidInfo PidInfo
-	if err := json.Unmarshal(data, &pidInfo); err != nil {
-		return 0, fmt.Errorf("failed to parse PID file: %w", err)
-	}
-
-	return pidInfo.Port, nil
-}
-
-// IsDaemonRunning checks if the daemon is running
+// IsDaemonRunning checks if the daemon is running by attempting to connect
 func IsDaemonRunning() bool {
-	client, err := NewDaemonClient()
+	// Try to connect to the daemon port
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", DefaultDaemonPort), 1*time.Second)
 	if err != nil {
 		return false
 	}
-
-	_, err = client.Status()
-	return err == nil
+	conn.Close()
+	return true
 }
 
 // SendRequest sends a request to the daemon
