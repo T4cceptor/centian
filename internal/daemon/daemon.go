@@ -25,34 +25,39 @@ import (
 	"github.com/CentianAI/centian-cli/internal/proxy"
 )
 
-// Daemon represents the persistent MCP proxy daemon
+// Daemon represents the persistent MCP proxy daemon that manages multiple
+// stdio-based MCP server connections. It listens on a TCP port for incoming
+// requests to create, monitor, and stop MCP server proxies.
 type Daemon struct {
-	listener    net.Listener
-	servers     map[string]*proxy.StdioProxy
-	serversMu   sync.RWMutex
-	port        int
-	running     bool
-	runningMu   sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
+	listener  net.Listener                 // TCP listener for incoming client connections
+	servers   map[string]*proxy.StdioProxy // Map of server ID to active stdio proxy instances
+	serversMu sync.RWMutex                 // Protects concurrent access to servers map
+	port      int                          // TCP port the daemon listens on
+	running   bool                         // Indicates whether the daemon is currently running
+	runningMu sync.RWMutex                 // TODO: is this required? // Protects concurrent access to running state
+	ctx       context.Context              // Context for managing daemon lifecycle
+	cancel    context.CancelFunc           // Function to cancel the daemon context
 }
 
-// DaemonRequest represents a request to the daemon
+// DaemonRequest represents a request sent to the daemon over TCP.
+// Clients encode this struct as JSON and send it to the daemon's listening port.
 type DaemonRequest struct {
-	Type      string            `json:"type"`       // "stdio", "status", "stop"
-	Command   string            `json:"command"`    // Command to execute
-	Args      []string          `json:"args"`       // Command arguments
-	ID        string            `json:"id"`         // Unique request ID
-	Metadata  map[string]string `json:"metadata"`   // Additional metadata
+	Type     string            `json:"type"`     // Request type: "stdio" (create proxy), "status" (get daemon status), "stop" (shutdown daemon)
+	Command  string            `json:"command"`  // Command to execute for stdio proxy requests (e.g., "npx", "python")
+	Args     []string          `json:"args"`     // Command-line arguments for the command
+	ID       string            `json:"id"`       // Unique identifier for tracking this request
+	Metadata map[string]string `json:"metadata"` // Additional key-value metadata for extensibility
 }
 
-// DaemonResponse represents a response from the daemon
+// DaemonResponse represents a response sent back to clients from the daemon.
+// The daemon encodes this struct as JSON and sends it over the TCP connection
+// after processing a DaemonRequest.
 type DaemonResponse struct {
-	Success   bool              `json:"success"`
-	ServerID  string            `json:"server_id,omitempty"`
-	Port      int               `json:"port,omitempty"`
-	Error     string            `json:"error,omitempty"`
-	Data      map[string]any    `json:"data,omitempty"`
+	Success  bool           `json:"success"`             // Indicates whether the request was processed successfully
+	ServerID string         `json:"server_id,omitempty"` // ID of the created server (for stdio requests only)
+	Port     int            `json:"port,omitempty"`      // Port number (currently unused, reserved for future use)
+	Error    string         `json:"error,omitempty"`     // Error message if Success is false
+	Data     map[string]any `json:"data,omitempty"`      // Additional response data (e.g., status info, command details)
 }
 
 // DefaultDaemonPort is the default port for the daemon
@@ -64,10 +69,10 @@ func NewDaemon() (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Daemon{
-		servers:  make(map[string]*proxy.StdioProxy),
-		port:     DefaultDaemonPort, // TODO: Make configurable via global config
-		ctx:      ctx,
-		cancel:   cancel,
+		servers: make(map[string]*proxy.StdioProxy),
+		port:    DefaultDaemonPort, // TODO: Make configurable via global config
+		ctx:     ctx,
+		cancel:  cancel,
 	}, nil
 }
 
@@ -111,16 +116,16 @@ func isAddressInUse(err error) bool {
 	// Check for both "address already in use" and "bind: address already in use"
 	errStr := err.Error()
 	return contains(errStr, "address already in use") ||
-	       contains(errStr, "bind: address already in use")
+		contains(errStr, "bind: address already in use")
 }
 
 // contains checks if a string contains a substring (case-insensitive)
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) &&
-	       (s == substr || len(s) > len(substr) &&
-	        (s[:len(substr)] == substr ||
-	         s[len(s)-len(substr):] == substr ||
-	         findSubstring(s, substr)))
+		(s == substr || len(s) > len(substr) &&
+			(s[:len(substr)] == substr ||
+				s[len(s)-len(substr):] == substr ||
+				findSubstring(s, substr)))
 }
 
 // findSubstring finds a substring in a string
@@ -187,7 +192,7 @@ func (d *Daemon) acceptConnections() {
 				}
 				continue
 			}
-			
+
 			go d.handleConnection(conn)
 		}
 	}
@@ -196,10 +201,10 @@ func (d *Daemon) acceptConnections() {
 // handleConnection handles a single client connection
 func (d *Daemon) handleConnection(conn net.Conn) {
 	defer conn.Close()
-	
+
 	decoder := json.NewDecoder(conn)
 	encoder := json.NewEncoder(conn)
-	
+
 	var req DaemonRequest
 	if err := decoder.Decode(&req); err != nil {
 		response := DaemonResponse{
@@ -209,7 +214,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 		encoder.Encode(response)
 		return
 	}
-	
+
 	response := d.handleRequest(&req)
 	encoder.Encode(response)
 }
@@ -234,7 +239,7 @@ func (d *Daemon) handleRequest(req *DaemonRequest) DaemonResponse {
 // handleStdioRequest handles a stdio proxy request
 func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 	serverID := fmt.Sprintf("stdio_%s_%d", req.Command, time.Now().UnixNano())
-	
+
 	// Create stdio proxy
 	stdioProxy, err := proxy.NewStdioProxy(d.ctx, req.Command, req.Args)
 	if err != nil {
@@ -243,7 +248,7 @@ func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 			Error:   fmt.Sprintf("failed to create stdio proxy: %v", err),
 		}
 	}
-	
+
 	// Start the proxy
 	if err := stdioProxy.Start(); err != nil {
 		return DaemonResponse{
@@ -251,12 +256,12 @@ func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 			Error:   fmt.Sprintf("failed to start stdio proxy: %v", err),
 		}
 	}
-	
+
 	// Store the server
 	d.serversMu.Lock()
 	d.servers[serverID] = stdioProxy
 	d.serversMu.Unlock()
-	
+
 	// Monitor the server and clean up when it stops
 	go func() {
 		stdioProxy.Wait()
@@ -264,7 +269,7 @@ func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 		delete(d.servers, serverID)
 		d.serversMu.Unlock()
 	}()
-	
+
 	return DaemonResponse{
 		Success:  true,
 		ServerID: serverID,
@@ -280,7 +285,7 @@ func (d *Daemon) handleStatusRequest(req *DaemonRequest) DaemonResponse {
 	d.serversMu.RLock()
 	serverCount := len(d.servers)
 	d.serversMu.RUnlock()
-	
+
 	return DaemonResponse{
 		Success: true,
 		Data: map[string]any{
@@ -298,7 +303,7 @@ func (d *Daemon) handleStopRequest(req *DaemonRequest) DaemonResponse {
 		time.Sleep(100 * time.Millisecond) // Give time to send response
 		d.Stop()
 	}()
-	
+
 	return DaemonResponse{
 		Success: true,
 		Data: map[string]any{
