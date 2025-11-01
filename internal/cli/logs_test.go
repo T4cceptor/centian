@@ -21,6 +21,7 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	}()
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
 
+	// Given: a log file with a log entry
 	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []logging.LogEntry{
 		{
 			Timestamp:   time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
@@ -37,6 +38,7 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
 
+	// Given: a urfavecli.Command to be run with handleLogsCommand
 	cmd := &urfavecli.Command{
 		Writer:    outBuf,
 		ErrWriter: errBuf,
@@ -48,18 +50,19 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 		},
 	}
 
+	// When: running handleLogsCommand
 	if err := handleLogsCommand(context.Background(), cmd); err != nil {
 		t.Fatalf("handleLogsCommand returned error: %v", err)
 	}
 
 	output := outBuf.String()
+	// Then: the file containing expected data
 	if !strings.Contains(output, "Log directory") {
 		t.Fatalf("expected log directory header in output, got: %s", output)
 	}
 	if !strings.Contains(output, "sess-123") {
 		t.Fatalf("expected session ID in output, got: %s", output)
 	}
-
 	if errBuf.Len() != 0 {
 		t.Fatalf("expected no error output, got: %s", errBuf.String())
 	}
