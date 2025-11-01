@@ -62,7 +62,7 @@ func TestDaemonStartStop(t *testing.T) {
 		t.Error("Daemon should be running after start")
 	}
 
-// When: stopping the daemon
+	// When: stopping the daemon
 	err = daemon.Stop()
 
 	// Then: the daemon should stop successfully
@@ -73,7 +73,6 @@ func TestDaemonStartStop(t *testing.T) {
 	if daemon.IsRunning() {
 		t.Error("Daemon should not be running after stop")
 	}
-
 
 }
 
@@ -395,5 +394,3 @@ func minInt(a, b int) int {
 	}
 	return b
 }
-
-
