@@ -11,6 +11,7 @@ import (
 )
 
 func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
+	// Given: two log files with entries having different timestamps
 	tempDir := t.TempDir()
 	original := os.Getenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
@@ -29,11 +30,13 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 		{Timestamp: time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC), RequestID: "req-newer", Direction: "response", Command: "npx", Args: []string{"pkg"}, Message: "newer", Success: true},
 	})
 
+	// When: loading all recent log entries with no limit
 	entries, err := LoadRecentLogEntries(0)
 	if err != nil {
 		t.Fatalf("LoadRecentLogEntries returned error: %v", err)
 	}
 
+	// Then: entries are sorted by timestamp with newest first
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
@@ -44,6 +47,7 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 }
 
 func TestLoadRecentLogEntriesLimit(t *testing.T) {
+	// Given: a log file with 2 entries
 	tempDir := t.TempDir()
 	original := os.Getenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
@@ -60,11 +64,13 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 		{Timestamp: time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC), RequestID: "req-4", Direction: "request", MessageType: "request", Command: "npx", Message: "latest", Success: true},
 	})
 
+	// When: loading recent entries with limit=1
 	entries, err := LoadRecentLogEntries(1)
 	if err != nil {
 		t.Fatalf("LoadRecentLogEntries returned error: %v", err)
 	}
 
+	// Then: only the most recent entry is returned
 	if len(entries) != 1 {
 		t.Fatalf("expected limit to return 1 entry, got %d", len(entries))
 	}
@@ -75,6 +81,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 }
 
 func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
+	// Given: a log directory that doesn't exist
 	tempDir := filepath.Join(t.TempDir(), "missing")
 	original := os.Getenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
@@ -86,7 +93,10 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
+	// When: attempting to load log entries
 	_, err := LoadRecentLogEntries(0)
+
+	// Then: ErrLogsDirNotFound is returned
 	if err == nil {
 		t.Fatal("expected error for missing directory")
 	}
@@ -96,6 +106,7 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 }
 
 func TestFormatDisplayLine(t *testing.T) {
+	// Given: an annotated log entry with session ID and command details
 	entry := AnnotatedLogEntry{
 		LogEntry: LogEntry{
 			Timestamp:   time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
@@ -110,7 +121,10 @@ func TestFormatDisplayLine(t *testing.T) {
 		SourceFile: "/tmp/log",
 	}
 
+	// When: formatting the entry for display
 	line := FormatDisplayLine(entry)
+
+	// Then: the formatted line contains session ID and command
 	if !strings.Contains(line, "sess-1") {
 		t.Fatalf("expected session ID in formatted line: %s", line)
 	}
