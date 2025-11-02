@@ -56,7 +56,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 	}()
 
 	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []LogEntry{
-		{Timestamp: time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC), RequestID: "req-3", Direction: "system", MessageType: "system", Command: "daemon", Message: "up", Success: true},
+		{Timestamp: time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC), RequestID: "req-3", Direction: "system", MessageType: "system", Command: "test", Message: "up", Success: true},
 		{Timestamp: time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC), RequestID: "req-4", Direction: "request", MessageType: "request", Command: "npx", Message: "latest", Success: true},
 	})
 
