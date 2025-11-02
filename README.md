@@ -42,7 +42,7 @@ centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
 centian stdio --cmd python -- -m my_mcp_server --config config.json
 ```
 
-Note: running a MCP server proxy command (`centian stdio` or `centian http`) starts the centian daemon process, which runs in the background and centralizes MCP connections. See below how to work with the daemon process most effectively.
+Note: running a MCP server proxy command (`centian stdio` or `centian http`) starts the centian daemon process, which runs in the background and centralizes MCP connections. Further calls to `centian stdio` will NOT start another daemon, but register the provided arguments at the already running process. See below how to work with the daemon process most effectively.
 
 The CLI provides several additional commands:
 - `centian daemon` - Daemon lifecycle management
