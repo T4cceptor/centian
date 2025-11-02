@@ -12,8 +12,29 @@ A comprehensive MCP (Model Context Protocol) proxy that provides centralized con
 
 ### Installation
 
-#### Via Script
-Coming soon...
+#### Via Script (Recommended)
+
+Download and run the installation script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CentianAI/centian-cli/main/scripts/install.sh | bash
+```
+
+**Custom Installation Directory:**
+
+```bash
+# Install to user directory (no sudo required)
+curl -fsSL https://raw.githubusercontent.com/CentianAI/centian-cli/main/scripts/install.sh | bash -s -- --install-dir ~/.local/bin
+
+# Or download and run with custom directory
+INSTALL_DIR=~/bin bash install.sh
+```
+
+The script will:
+- Detect your OS and architecture automatically
+- Download the latest release from GitHub
+- Install to `/usr/local/bin` (or custom directory)
+- Verify the installation
 
 #### Homebrew
 Coming soon...
