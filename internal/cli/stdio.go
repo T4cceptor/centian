@@ -36,7 +36,6 @@ Examples:
   centian stdio @modelcontextprotocol/server-memory
   centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
   centian stdio --cmd python -- -m my_mcp_server --config config.json
-  centian stdio --cmd cat
 
 Note: Use '--' to separate centian flags from command arguments that start with '-'`,
 	Action: handleStdioCommand,

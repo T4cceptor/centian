@@ -39,9 +39,9 @@ type Daemon struct {
 	cancel    context.CancelFunc           // Function to cancel the daemon context
 }
 
-// DaemonRequest represents a request sent to the daemon over TCP.
+// Request represents a request sent to the daemon over TCP.
 // Clients encode this struct as JSON and send it to the daemon's listening port.
-type DaemonRequest struct {
+type Request struct {
 	Type     string            `json:"type"`     // Request type: "stdio" (create proxy), "status" (get daemon status), "stop" (shutdown daemon)
 	Command  string            `json:"command"`  // Command to execute for stdio proxy requests (e.g., "npx", "python")
 	Args     []string          `json:"args"`     // Command-line arguments for the command
@@ -49,10 +49,10 @@ type DaemonRequest struct {
 	Metadata map[string]string `json:"metadata"` // Additional key-value metadata for extensibility
 }
 
-// DaemonResponse represents a response sent back to clients from the daemon.
+// Response represents a response sent back to clients from the daemon.
 // The daemon encodes this struct as JSON and sends it over the TCP connection
-// after processing a DaemonRequest.
-type DaemonResponse struct {
+// after processing a Request.
+type Response struct {
 	Success  bool           `json:"success"`             // Indicates whether the request was processed successfully
 	ServerID string         `json:"server_id,omitempty"` // ID of the created server (for stdio requests only)
 	Port     int            `json:"port,omitempty"`      // Port number (currently unused, reserved for future use)
@@ -205,9 +205,9 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 	decoder := json.NewDecoder(conn)
 	encoder := json.NewEncoder(conn)
 
-	var req DaemonRequest
+	var req Request
 	if err := decoder.Decode(&req); err != nil {
-		response := DaemonResponse{
+		response := Response{
 			Success: false,
 			Error:   fmt.Sprintf("failed to decode request: %v", err),
 		}
@@ -220,7 +220,7 @@ func (d *Daemon) handleConnection(conn net.Conn) {
 }
 
 // handleRequest processes a daemon request
-func (d *Daemon) handleRequest(req *DaemonRequest) DaemonResponse {
+func (d *Daemon) handleRequest(req *Request) Response {
 	switch req.Type {
 	case "stdio":
 		return d.handleStdioRequest(req)
@@ -229,7 +229,7 @@ func (d *Daemon) handleRequest(req *DaemonRequest) DaemonResponse {
 	case "stop":
 		return d.handleStopRequest(req)
 	default:
-		return DaemonResponse{
+		return Response{
 			Success: false,
 			Error:   fmt.Sprintf("unknown request type: %s", req.Type),
 		}
@@ -237,13 +237,13 @@ func (d *Daemon) handleRequest(req *DaemonRequest) DaemonResponse {
 }
 
 // handleStdioRequest handles a stdio proxy request
-func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
+func (d *Daemon) handleStdioRequest(req *Request) Response {
 	serverID := fmt.Sprintf("stdio_%s_%d", req.Command, time.Now().UnixNano())
 
 	// Create stdio proxy
 	stdioProxy, err := proxy.NewStdioProxy(d.ctx, req.Command, req.Args)
 	if err != nil {
-		return DaemonResponse{
+		return Response{
 			Success: false,
 			Error:   fmt.Sprintf("failed to create stdio proxy: %v", err),
 		}
@@ -251,7 +251,7 @@ func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 
 	// Start the proxy
 	if err := stdioProxy.Start(); err != nil {
-		return DaemonResponse{
+		return Response{
 			Success: false,
 			Error:   fmt.Sprintf("failed to start stdio proxy: %v", err),
 		}
@@ -270,7 +270,7 @@ func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 		d.serversMu.Unlock()
 	}()
 
-	return DaemonResponse{
+	return Response{
 		Success:  true,
 		ServerID: serverID,
 		Data: map[string]any{
@@ -281,12 +281,12 @@ func (d *Daemon) handleStdioRequest(req *DaemonRequest) DaemonResponse {
 }
 
 // handleStatusRequest handles a status request
-func (d *Daemon) handleStatusRequest(req *DaemonRequest) DaemonResponse {
+func (d *Daemon) handleStatusRequest(req *Request) Response {
 	d.serversMu.RLock()
 	serverCount := len(d.servers)
 	d.serversMu.RUnlock()
 
-	return DaemonResponse{
+	return Response{
 		Success: true,
 		Data: map[string]any{
 			"running":      d.IsRunning(),
@@ -298,13 +298,13 @@ func (d *Daemon) handleStatusRequest(req *DaemonRequest) DaemonResponse {
 }
 
 // handleStopRequest handles a stop request
-func (d *Daemon) handleStopRequest(req *DaemonRequest) DaemonResponse {
+func (d *Daemon) handleStopRequest(req *Request) Response {
 	go func() {
 		time.Sleep(100 * time.Millisecond) // Give time to send response
 		d.Stop()
 	}()
 
-	return DaemonResponse{
+	return Response{
 		Success: true,
 		Data: map[string]any{
 			"message": "daemon stopping",

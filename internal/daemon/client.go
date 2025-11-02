@@ -48,7 +48,7 @@ func IsDaemonRunning() bool {
 }
 
 // SendRequest sends a request to the daemon
-func (c *DaemonClient) SendRequest(req *DaemonRequest) (*DaemonResponse, error) {
+func (c *DaemonClient) SendRequest(req *Request) (*Response, error) {
 	// Connect to daemon
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", c.port), c.timeout)
 	if err != nil {
@@ -67,7 +67,7 @@ func (c *DaemonClient) SendRequest(req *DaemonRequest) (*DaemonResponse, error) 
 
 	// Read response
 	decoder := json.NewDecoder(conn)
-	var response DaemonResponse
+	var response Response
 	if err := decoder.Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -76,8 +76,8 @@ func (c *DaemonClient) SendRequest(req *DaemonRequest) (*DaemonResponse, error) 
 }
 
 // StartStdioProxy starts a stdio proxy via the daemon
-func (c *DaemonClient) StartStdioProxy(command string, args []string) (*DaemonResponse, error) {
-	req := &DaemonRequest{
+func (c *DaemonClient) StartStdioProxy(command string, args []string) (*Response, error) {
+	req := &Request{
 		Type:    "stdio",
 		Command: command,
 		Args:    args,
@@ -88,8 +88,8 @@ func (c *DaemonClient) StartStdioProxy(command string, args []string) (*DaemonRe
 }
 
 // Status gets the daemon status
-func (c *DaemonClient) Status() (*DaemonResponse, error) {
-	req := &DaemonRequest{
+func (c *DaemonClient) Status() (*Response, error) {
+	req := &Request{
 		Type: "status",
 		ID:   fmt.Sprintf("status_%d", time.Now().UnixNano()),
 	}
@@ -98,8 +98,8 @@ func (c *DaemonClient) Status() (*DaemonResponse, error) {
 }
 
 // Stop stops the daemon
-func (c *DaemonClient) Stop() (*DaemonResponse, error) {
-	req := &DaemonRequest{
+func (c *DaemonClient) Stop() (*Response, error) {
+	req := &Request{
 		Type: "stop",
 		ID:   fmt.Sprintf("stop_%d", time.Now().UnixNano()),
 	}
