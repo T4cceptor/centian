@@ -38,7 +38,6 @@ func main() {
 		Commands: []*urfavecli.Command{
 			cli.InitCommand,
 			cli.StdioCommand,
-			cli.DaemonCommand,
 			cli.LogsCommand,
 			config.ConfigCommand,
 		},

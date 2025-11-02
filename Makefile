@@ -62,12 +62,6 @@ dev: clean fmt vet test build ## Run full development workflow
 
 install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
-	@# Stop daemon if running to prevent binary overwrite issues
-	@if nc -z 127.0.0.1 50051 2>/dev/null; then \
-		echo "Stopping running daemon..."; \
-		$(shell go env GOPATH)/bin/$(BINARY_NAME) daemon stop 2>/dev/null || true; \
-		sleep 1; \
-	fi
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/$(BINARY_NAME)
 	@echo "Installed $(BINARY_NAME) to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 

@@ -21,7 +21,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/CentianAI/centian-cli/internal/daemon"
 	"github.com/CentianAI/centian-cli/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
@@ -52,29 +51,12 @@ Note: Use '--' to separate centian flags from command arguments that start with 
 // handleStdioCommand handles the stdio proxy command
 func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args().Slice()
-
-	// Get command from flag or default
 	command := cmd.String("cmd")
 
-	// For commands like "cat" that don't need args, this is fine
-	// Only require args if using default npx AND no args given
-	if len(args) == 0 && command == "npx" {
-		return fmt.Errorf("no MCP server arguments provided\n\nUsage: %s", cmd.Usage)
-	}
-
-	// All remaining args after parsing go to the command
-	cmdArgs := args
-
-	// Check if daemon is running and use it if available
-	if daemon.IsDaemonRunning() {
-		fmt.Fprintf(os.Stderr, "[CENTIAN] Using daemon for MCP proxy: %s %v\n", command, cmdArgs)
-		return useDaemonProxy(ctx, command, cmdArgs)
-	}
-
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting direct MCP proxy: %s %v\n", command, cmdArgs)
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting direct MCP proxy: %s %v\n", command, args)
 
 	// Create and start the stdio proxy directly
-	stdioProxy, err := proxy.NewStdioProxy(ctx, command, cmdArgs)
+	stdioProxy, err := proxy.NewStdioProxy(ctx, command, args)
 	if err != nil {
 		return fmt.Errorf("failed to create stdio proxy: %w", err)
 	}
@@ -106,27 +88,4 @@ func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return err
-}
-
-// useDaemonProxy uses the daemon to handle the MCP proxy
-func useDaemonProxy(_ context.Context, command string, args []string) error {
-	client, err := daemon.NewDaemonClient()
-	if err != nil {
-		return fmt.Errorf("failed to connect to daemon: %w", err)
-	}
-
-	response, err := client.StartStdioProxy(command, args)
-	if err != nil {
-		return fmt.Errorf("failed to start stdio proxy via daemon: %w", err)
-	}
-
-	if !response.Success {
-		return fmt.Errorf("daemon failed to start stdio proxy: %s", response.Error)
-	}
-
-	fmt.Fprintf(os.Stderr, "[CENTIAN] MCP proxy started via daemon (Server ID: %s)\n", response.ServerID)
-
-	// For now, just return success. In a full implementation, we would
-	// set up bidirectional communication with the daemon-managed server
-	return nil
 }

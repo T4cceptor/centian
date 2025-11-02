@@ -1,6 +1,6 @@
 # Centian CLI
 
-A comprehensive MCP (Model Context Protocol) proxy that provides centralized configuration, lifecycle hooks, and performance optimization for MCP servers.
+A lightweight MCP (Model Context Protocol) proxy that provides logging and lifecycle hooks for all MCP server communications.
 
 ## Features
 
@@ -49,53 +49,92 @@ go build -o build/centian ./cmd/main.go
 
 ### Usage
 
-- To get started run `centian init` and allow the initialization wizard
-- Alternatively, use `centian stdio` as a drop-in replacement for `npx` (or other MCP server commands) with MCP servers:
+Use `centian stdio` as a drop-in replacement for `npx` (or other MCP server commands):
 
 ```bash
 # Basic usage (defaults to npx)
 centian stdio -- -y @modelcontextprotocol/server-memory
 
-# With npx
+# With explicit npx
 centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
 
 # Custom command with flags (use -- to separate flags)
 centian stdio --cmd python -- -m my_mcp_server --config config.json
+
+# Direct node command
+centian stdio --cmd node -- /path/to/mcp-server.js
 ```
 
-Note: running a MCP server proxy command (`centian stdio` or `centian http`) starts the centian daemon process, which runs in the background and centralizes MCP connections. Further calls to `centian stdio` will NOT start another daemon, but register the provided arguments at the already running process. See below how to work with the daemon process most effectively.
+### Configuration in MCP Clients
 
-The CLI provides several additional commands:
-- `centian daemon` - Daemon lifecycle management
-- `centian config` - Configuration management
-- `centian logs` - Shows the latest MCP logs from the centian daemon
+Replace your MCP server commands in your MCP client configuration:
+
+**Before:**
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  }
+}
+```
+
+**After:**
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "centian",
+      "args": ["stdio", "--", "-y", "@modelcontextprotocol/server-memory"]
+    }
+  }
+}
+```
 
 ## Commands
 
-### Daemon Commands
+### `centian stdio`
 
-#### `centian daemon start`
-Start the persistent daemon process in the background.
+Proxy MCP server using stdio transport with logging.
 
-#### `centian daemon stop`
-Stop the running daemon process.
+**Syntax:**
+```bash
+centian stdio [--cmd <command>] [-- <args...>]
+```
 
-#### `centian daemon status`
-Show current daemon status and process information.
+**Options:**
+- `--cmd`: Command to execute (default: `npx`)
 
-#### `centian daemon restart`
-Restart the daemon process.
+**Examples:**
+```bash
+# NPX-based MCP server
+centian stdio -- -y @modelcontextprotocol/server-filesystem /path/to/directory
 
-### Configuration Commands
+# Python MCP server
+centian stdio --cmd python -- -m my_mcp_server
+
+# Node.js MCP server
+centian stdio --cmd node -- ./server.js
+```
+
+### `centian config`
+
+Configuration management commands.
 
 #### `centian config init`
-Initialize default configuration file.
+Initialize default configuration file at `~/.centian/config.jsonc`.
 
 #### `centian config show`
 Display current configuration.
 
 #### `centian config validate`
 Validate configuration file syntax.
+
+### `centian logs`
+
+Show recent MCP logs from `~/.centian/logs/`.
 
 ## Logging
 
@@ -104,19 +143,19 @@ Centian automatically logs all MCP interactions to provide complete audit trails
 **Log Location:** `~/.centian/logs/`
 
 **Log Files:**
-- `requests.jsonl` - All MCP requests and responses
-- `proxy_operations.jsonl` - Proxy lifecycle events
+- `requests.jsonl` - All MCP requests with timestamps and session IDs
+- `proxy_operations.jsonl` - Proxy lifecycle events (start/stop)
+
 
 ## Development
 
-- Most frequently used commands are available via Makefile:
+Most frequently used commands are available via Makefile:
+
 ```bash
-
-make build # builds the binary at "build/centian"
-
-make install # stop daemon (if running) and installs the binary locally
-
-make test # runs Go tests
+make build   # Build the binary at "build/centian"
+make install # Install the binary locally at ~/.local/bin/centian
+make test    # Run Go tests
+make dev     # Run full development loop (clean, fmt, vet, test, build)
 ```
 
 ### Project Structure
@@ -126,8 +165,7 @@ make test # runs Go tests
 ├── internal/
 │   ├── cli/              # CLI command handlers
 │   ├── common/           # Shared code
-│   ├── daemon/           # Persistent daemon implementation
-│   ├── proxy/            # MCP proxy logic
+│   ├── proxy/            # MCP stdio proxy logic
 │   ├── logging/          # Request/response logging
 │   └── config/           # Configuration management
 └── docs/                 # Architecture documentation
@@ -135,11 +173,11 @@ make test # runs Go tests
 
 ## Roadmap
 
-- **🔧 Lifecycle Hooks**: Pre/post request processing
-- **🌐 HTTP Transport**: Full HTTP MCP server support
-- **📋 Profile Management**: Multi-server configurations
-- **🛡️ Security Integration**: External evaluation engine
-- **📊 Analytics**: Request metrics and performance monitoring
+- **🌐 HTTP Transport**: Support for HTTP-based MCP servers
+- **🔧 Lifecycle Hooks**: Pre/post request processing for security and transformation
+- **📋 Profile Management**: Multi-server configuration profiles
+- **🛡️ Security Integration**: External security evaluation engine
+- **📊 Analytics Dashboard**: Web UI for metrics and performance monitoring
 
 ## Contributing
 
