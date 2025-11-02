@@ -64,6 +64,7 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		return nil, err
 	}
 
+	// Read directory contents, returning specific error for missing dir
 	fileInfos, err := os.ReadDir(logDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -76,47 +77,21 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		return nil, ErrNoLogEntries
 	}
 
-	type fileMeta struct {
-		path string
-		mod  time.Time
-	}
-
-	var files []fileMeta
+	// Read and annotate entries from all files
+	var entries []AnnotatedLogEntry
 	for _, entry := range fileInfos {
 		if entry.IsDir() {
 			continue
 		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read log metadata: %w", err)
-		}
-
-		files = append(files, fileMeta{
-			path: filepath.Join(logDir, entry.Name()),
-			mod:  info.ModTime(),
-		})
-	}
-
-	if len(files) == 0 {
-		return nil, ErrNoLogEntries
-	}
-
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].mod.After(files[j].mod)
-	})
-
-	var entries []AnnotatedLogEntry
-	for _, file := range files {
-		fileEntries, err := readLogFile(file.path)
+		filePath := filepath.Join(logDir, entry.Name())
+		fileEntries, err := readLogFile(filePath)
 		if err != nil {
 			return nil, err
 		}
-
-		for _, entry := range fileEntries {
+		for _, logEntry := range fileEntries {
 			entries = append(entries, AnnotatedLogEntry{
-				LogEntry:   entry,
-				SourceFile: file.path,
+				LogEntry:   logEntry,
+				SourceFile: filePath,
 			})
 		}
 	}
@@ -125,10 +100,12 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		return nil, ErrNoLogEntries
 	}
 
+	// Sort by timestamp (newest first) for chronological accuracy across files
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Timestamp.After(entries[j].Timestamp)
 	})
 
+	// Apply limit if specified (0 = no limit)
 	if limit > 0 && len(entries) > limit {
 		return entries[:limit], nil
 	}
@@ -170,6 +147,9 @@ func FormatDisplayLine(entry AnnotatedLogEntry) string {
 	)
 }
 
+// readLogFile reads and parses a JSONL log file, returning all valid entries.
+// Returns empty slice (not error) if file doesn't exist. Skips malformed lines.
+// Supports log lines up to 10MB.
 func readLogFile(path string) ([]LogEntry, error) {
 	file, err := os.Open(path)
 	if err != nil {
