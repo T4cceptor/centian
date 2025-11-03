@@ -186,7 +186,7 @@ func (p *StdioProxy) Stop() error {
 
 		// Give process time to exit gracefully after SIGTERM
 		time.Sleep(5 * time.Second)
-		
+
 		// If still running, escalate to SIGKILL
 		// Note: We check the process, not call Wait() to avoid race with monitoring goroutine
 		if p.cmd.Process != nil {

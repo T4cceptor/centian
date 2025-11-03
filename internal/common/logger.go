@@ -76,16 +76,16 @@ func (l *Logger) Warn(message string, args ...interface{}) {
 func (l *Logger) LogOperation(operation string, fn func() error) error {
 	l.Info("Starting operation: %s", operation)
 	start := time.Now()
-	
+
 	err := fn()
 	duration := time.Since(start)
-	
+
 	if err != nil {
 		l.Error("Operation failed: %s (duration: %v) - %v", operation, duration, err)
 	} else {
 		l.Info("Operation completed: %s (duration: %v)", operation, duration)
 	}
-	
+
 	return err
 }
 

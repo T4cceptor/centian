@@ -11,7 +11,7 @@ import (
 func TestConfigLifecycle(t *testing.T) {
 	// Setup - create temporary directory for testing
 	tempDir := t.TempDir()
-	
+
 	// Override home directory for testing
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "testhome")
@@ -23,7 +23,7 @@ func TestConfigLifecycle(t *testing.T) {
 	if config == nil {
 		t.Fatal("DefaultConfig returned nil")
 	}
-	
+
 	// Verify default config structure
 	if config.Version != "1.0.0" {
 		t.Errorf("Expected version 1.0.0, got %s", config.Version)
@@ -49,7 +49,7 @@ func TestConfigLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetConfigPath failed: %v", err)
 	}
-	
+
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Fatalf("Config file was not created at %s", configPath)
 	}
@@ -214,18 +214,18 @@ func TestConcurrentConfigAccess(t *testing.T) {
 
 	// Test concurrent reads
 	done := make(chan bool, 3)
-	
+
 	for i := 0; i < 3; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			for j := 0; j < 5; j++ {
 				cfg, err := LoadConfig()
 				if err != nil {
 					t.Errorf("Concurrent load %d-%d failed: %v", id, j, err)
 					return
 				}
-				
+
 				if len(cfg.Servers) != 1 {
 					t.Errorf("Concurrent load %d-%d got wrong server count: %d", id, j, len(cfg.Servers))
 					return

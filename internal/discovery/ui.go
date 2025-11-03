@@ -49,18 +49,18 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 
 	// Group the results by source file
 	grouped := GroupDiscoveryResults(result)
-	
+
 	common.StreamPrint(10, "🔍 Found MCP configurations in %d file(s):\n\n", len(grouped.Groups))
 
 	// Display grouped servers
 	for _, group := range grouped.Groups {
 		fmt.Printf("📁 %s\n", group.SourcePath)
 		fmt.Printf("   📊 %d servers", group.TotalCount)
-		
+
 		if group.StdioCount > 0 || group.HTTPCount > 0 {
 			fmt.Printf(" (stdio: %d, http: %d)", group.StdioCount, group.HTTPCount)
 		}
-		
+
 		if group.DuplicatesFound > 0 {
 			plural := ""
 			if group.DuplicatesFound > 1 {
@@ -68,7 +68,7 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 			}
 			fmt.Printf(" [🔄 %d duplicate%s merged]", group.DuplicatesFound, plural)
 		}
-		
+
 		fmt.Printf("\n\n")
 	}
 

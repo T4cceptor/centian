@@ -38,12 +38,12 @@ type DiscoveryResult struct {
 
 // ConfigFileGroup represents servers grouped by their source config file
 type ConfigFileGroup struct {
-	SourcePath      string            `json:"sourcePath"`      // Absolute path to config file
+	SourcePath      string             `json:"sourcePath"`      // Absolute path to config file
 	Servers         []DiscoveredServer `json:"servers"`         // Servers found in this file
-	StdioCount      int               `json:"stdioCount"`      // Number of stdio servers
-	HTTPCount       int               `json:"httpCount"`       // Number of http servers
-	TotalCount      int               `json:"totalCount"`      // Total number of servers
-	DuplicatesFound int               `json:"duplicatesFound"` // Total number of duplicate configs merged
+	StdioCount      int                `json:"stdioCount"`      // Number of stdio servers
+	HTTPCount       int                `json:"httpCount"`       // Number of http servers
+	TotalCount      int                `json:"totalCount"`      // Total number of servers
+	DuplicatesFound int                `json:"duplicatesFound"` // Total number of duplicate configs merged
 }
 
 // GroupedDiscoveryResult contains servers grouped by source file
@@ -56,7 +56,7 @@ type GroupedDiscoveryResult struct {
 func GroupDiscoveryResults(result *DiscoveryResult) *GroupedDiscoveryResult {
 	// Count duplicates per file BEFORE any deduplication
 	duplicateCounts := countDuplicatesPerFile(result.Servers)
-	
+
 	// Group servers by source path
 	groupMap := make(map[string][]DiscoveredServer)
 	for _, server := range result.Servers {
@@ -262,12 +262,12 @@ func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
 
 		// Multiple servers with same name - check for duplicates
 		uniqueConfigs := make(map[string][]DiscoveredServer) // config hash -> list of servers with identical config
-		
+
 		for _, server := range serverGroup {
 			// Create a config signature for comparison (excluding name and source path)
-			configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v", 
+			configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
 				server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
-			
+
 			uniqueConfigs[configSig] = append(uniqueConfigs[configSig], server)
 		}
 
@@ -282,10 +282,10 @@ func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
 					bestServer = server
 				}
 			}
-			
+
 			// Set the duplicates count (total found - 1 = number of duplicates)
 			bestServer.DuplicatesFound = len(duplicateGroup) - 1
-			
+
 			if len(uniqueConfigs) == 1 {
 				// Only one unique config, keep original name
 				result = append(result, bestServer)
