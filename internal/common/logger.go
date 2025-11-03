@@ -24,13 +24,13 @@ func NewLogger() (*Logger, error) {
 
 	// Create .centian directory if it doesn't exist
 	centianDir := filepath.Join(homeDir, ".centian")
-	if err := os.MkdirAll(centianDir, 0755); err != nil {
+	if err := os.MkdirAll(centianDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create .centian directory: %w", err)
 	}
 
 	// Open log file (create if doesn't exist, append if exists)
 	logPath := filepath.Join(centianDir, "centian.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}

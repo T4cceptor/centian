@@ -161,7 +161,7 @@ func TestCompletionFileOperations(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// Create test home directory
-	err := os.MkdirAll(testHome, 0755)
+	err := os.MkdirAll(testHome, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create test home directory: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestCompletionFileOperations(t *testing.T) {
 	// Create test RC file with proper escaped string
 	testRCFile := filepath.Join(testHome, ".testrc")
 	testContent := "# Test RC file\nexport TEST_VAR=1\n"
-	err = os.WriteFile(testRCFile, []byte(testContent), 0644)
+	err = os.WriteFile(testRCFile, []byte(testContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create test RC file: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestCompletionFileOperations(t *testing.T) {
 	}
 
 	// Add completion line
-	file, err := os.OpenFile(testRCFile, os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(testRCFile, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatalf("Failed to open RC file for append: %v", err)
 	}

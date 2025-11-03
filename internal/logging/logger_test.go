@@ -446,12 +446,12 @@ func TestLoggerWithInvalidDirectory(t *testing.T) {
 	restrictedDir := filepath.Join(tempDir, "restricted")
 
 	// Create directory and remove write permissions
-	err := os.MkdirAll(restrictedDir, 0755)
+	err := os.MkdirAll(restrictedDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create restricted directory: %v", err)
 	}
 
-	err = os.Chmod(restrictedDir, 0555) // Read and execute only
+	err = os.Chmod(restrictedDir, 0o555) // Read and execute only
 	if err != nil {
 		t.Fatalf("Failed to set restricted permissions: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestLoggerWithInvalidDirectory(t *testing.T) {
 	os.Setenv("HOME", restrictedDir)
 	defer func() {
 		os.Setenv("HOME", originalHome)
-		os.Chmod(restrictedDir, 0755) // Restore permissions for cleanup
+		os.Chmod(restrictedDir, 0o755) // Restore permissions for cleanup
 	}()
 
 	// When: trying to create a logger in restricted directory

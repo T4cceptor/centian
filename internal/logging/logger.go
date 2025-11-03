@@ -91,7 +91,7 @@ func NewLogger() (*Logger, error) {
 		return nil, err
 	}
 
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory: %w", err)
 	}
 
@@ -100,7 +100,7 @@ func NewLogger() (*Logger, error) {
 	logPath := filepath.Join(logsDir, logFileName)
 
 	// Open log file in append mode
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}

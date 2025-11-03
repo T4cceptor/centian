@@ -152,7 +152,7 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 	}
 
 	// Add completion line
-	file, err := os.OpenFile(shellInfo.RCFile, os.O_APPEND|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(shellInfo.RCFile, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open RC file: %w", err)
 	}
@@ -179,7 +179,7 @@ func setupFishCompletion(completionFile string) error {
 
 	// Create completions directory if it doesn't exist
 	completionDir := filepath.Dir(completionFile)
-	if err := os.MkdirAll(completionDir, 0755); err != nil {
+	if err := os.MkdirAll(completionDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create completions directory: %w", err)
 	}
 
@@ -192,7 +192,7 @@ func setupFishCompletion(completionFile string) error {
 complete -c centian -f -a "(centian --generate-shell-completion)"
 `
 
-	if err := os.WriteFile(completionFile, []byte(fishScript), 0644); err != nil {
+	if err := os.WriteFile(completionFile, []byte(fishScript), 0o644); err != nil {
 		return fmt.Errorf("failed to write fish completion file: %w", err)
 	}
 

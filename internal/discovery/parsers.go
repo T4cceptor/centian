@@ -10,7 +10,7 @@ import (
 )
 
 // matchesPattern checks if a file matches a discovery pattern
-func (r *RegexDiscoverer) matchesPattern(filePath string, pattern DiscoveryPattern) (bool, error) {
+func (r *RegexDiscoverer) matchesPattern(filePath string, pattern Pattern) (bool, error) {
 	// Check file path regex
 	matched, err := regexp.MatchString(pattern.FileRegex, filePath)
 	if err != nil {
@@ -64,7 +64,7 @@ func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns [
 }
 
 // parseFile extracts MCP servers from a matched file
-func (r *RegexDiscoverer) parseFile(filePath string, pattern DiscoveryPattern) ([]DiscoveredServer, error) {
+func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -129,7 +129,7 @@ func detectSourceType(filePath string) string {
 // Parser implementations
 
 // detectAndParseConfig automatically detects config format and parses appropriately
-func detectAndParseConfig(data []byte, filePath string) ([]DiscoveredServer, error) {
+func detectAndParseConfig(data []byte, filePath string) ([]Server, error) {
 	// Try to parse as JSON first
 	var config map[string]interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
@@ -157,7 +157,7 @@ func detectAndParseConfig(data []byte, filePath string) ([]DiscoveredServer, err
 }
 
 // parseClaudeDesktopConfig parses Claude Desktop configuration format
-func parseClaudeDesktopConfig(data []byte, filePath string) ([]DiscoveredServer, error) {
+func parseClaudeDesktopConfig(data []byte, filePath string) ([]Server, error) {
 	var config struct {
 		MCPServers map[string]struct {
 			Command string            `json:"command"`
@@ -170,13 +170,13 @@ func parseClaudeDesktopConfig(data []byte, filePath string) ([]DiscoveredServer,
 		return nil, err
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 	for name, serverConfig := range config.MCPServers {
 		if serverConfig.Command == "" {
 			continue // Skip servers without commands
 		}
 
-		server := DiscoveredServer{
+		server := Server{
 			Name:        name,
 			Command:     serverConfig.Command,
 			Args:        serverConfig.Args,
@@ -193,7 +193,7 @@ func parseClaudeDesktopConfig(data []byte, filePath string) ([]DiscoveredServer,
 }
 
 // parseVSCodeConfig parses VS Code MCP configuration format
-func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error) {
+func parseVSCodeConfig(data []byte, filePath string) ([]Server, error) {
 	var config struct {
 		Servers map[string]struct {
 			Type    string            `json:"type"`    // Required: "stdio" or "http"
@@ -209,7 +209,7 @@ func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error)
 		return nil, err
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 	for name, serverConfig := range config.Servers {
 		// Validate based on type field
 		switch serverConfig.Type {
@@ -235,7 +235,7 @@ func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error)
 			url = serverConfig.URL
 		}
 
-		server := DiscoveredServer{
+		server := Server{
 			Name:        name,
 			Command:     serverConfig.Command,
 			Args:        serverConfig.Args,
@@ -254,14 +254,14 @@ func parseVSCodeConfig(data []byte, filePath string) ([]DiscoveredServer, error)
 }
 
 // parseSettingsConfig parses VS Code settings.json MCP configuration
-func parseSettingsConfig(data []byte, filePath string) ([]DiscoveredServer, error) {
+func parseSettingsConfig(data []byte, filePath string) ([]Server, error) {
 	var config map[string]interface{}
 
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 
 	// Look for MCP-related settings
 	if mcpConfig, exists := config["mcp.servers"]; exists {
@@ -281,14 +281,14 @@ func parseSettingsConfig(data []byte, filePath string) ([]DiscoveredServer, erro
 }
 
 // parseGenericConfig attempts to parse unknown configuration formats
-func parseGenericConfig(data []byte, filePath string) ([]DiscoveredServer, error) {
+func parseGenericConfig(data []byte, filePath string) ([]Server, error) {
 	var config map[string]interface{}
 
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 
 	// Look for common patterns that might indicate MCP servers
 	commonKeys := []string{"servers", "mcpServers", "mcp", "tools", "services"}
@@ -312,8 +312,8 @@ func parseGenericConfig(data []byte, filePath string) ([]DiscoveredServer, error
 }
 
 // Helper function to extract server from settings format
-func extractServerFromSettings(name string, serverInfo map[string]interface{}, sourcePath string) *DiscoveredServer {
-	server := &DiscoveredServer{
+func extractServerFromSettings(name string, serverInfo map[string]interface{}, sourcePath string) *Server {
+	server := &Server{
 		Name:        name,
 		Env:         make(map[string]string),
 		Description: fmt.Sprintf("Imported from settings (%s)", name),
@@ -362,8 +362,8 @@ func extractServerFromSettings(name string, serverInfo map[string]interface{}, s
 }
 
 // Helper function to extract server from generic format
-func extractServerFromGeneric(name string, serverInfo map[string]interface{}, sourcePath string, section string) *DiscoveredServer {
-	server := &DiscoveredServer{
+func extractServerFromGeneric(name string, serverInfo map[string]interface{}, sourcePath string, section string) *Server {
+	server := &Server{
 		Name:        name,
 		Env:         make(map[string]string),
 		Description: fmt.Sprintf("Imported from %s (%s.%s)", filepath.Base(sourcePath), section, name),

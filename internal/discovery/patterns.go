@@ -19,8 +19,8 @@ func GetDefaultRegexDiscoverer() *RegexDiscoverer {
 }
 
 // GetDefaultPatterns returns the default discovery patterns for common MCP config files
-func GetDefaultPatterns() []DiscoveryPattern {
-	return []DiscoveryPattern{
+func GetDefaultPatterns() []Pattern {
+	return []Pattern{
 		// High-priority specific patterns
 		{
 			FileRegex:    `claude_desktop_config\.json$`,
@@ -217,7 +217,7 @@ func GetDefaultSearchPaths() []string {
 }
 
 // GetPriorityPatterns returns patterns sorted by priority (highest first)
-func GetPriorityPatterns() []DiscoveryPattern {
+func GetPriorityPatterns() []Pattern {
 	patterns := GetDefaultPatterns()
 
 	// Sort by priority (higher first)
@@ -233,7 +233,7 @@ func GetPriorityPatterns() []DiscoveryPattern {
 }
 
 // CreateCustomRegexDiscoverer creates a RegexDiscoverer with custom patterns
-func CreateCustomRegexDiscoverer(name, description string, patterns []DiscoveryPattern, searchPaths []string) *RegexDiscoverer {
+func CreateCustomRegexDiscoverer(name, description string, patterns []Pattern, searchPaths []string) *RegexDiscoverer {
 	if len(searchPaths) == 0 {
 		searchPaths = GetDefaultSearchPaths()
 	}

@@ -23,9 +23,7 @@ import (
 func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	// Given: a temporary logs directory
 	tempDir := t.TempDir()
-	defer func() {
-		os.Unsetenv("CENTIAN_LOG_DIR")
-	}()
+	defer os.Unsetenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
 
 	// Given: a log file with a log entry
@@ -85,9 +83,7 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 func TestHandleLogsCommandNoDirectory(t *testing.T) {
 	// Given: a non-existent logs directory path
 	tempDir := filepath.Join(t.TempDir(), "missing")
-	defer func() {
-		os.Unsetenv("CENTIAN_LOG_DIR")
-	}()
+	defer os.Unsetenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
 
 	// Given: output buffers to capture command output

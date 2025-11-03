@@ -32,7 +32,7 @@ func NewDiscoveryUI() *DiscoveryUI {
 }
 
 // ShowDiscoveryResults displays discovered servers and prompts for user consent
-func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) ShowDiscoveryResults(result *Result) ([]Server, error) {
 	if len(result.Servers) == 0 {
 		if len(result.Errors) > 0 {
 			fmt.Printf("🔍 Searched for existing MCP configurations but found none.\n")
@@ -44,7 +44,7 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 			fmt.Printf("🔍 No existing MCP configurations found.\n")
 		}
 		fmt.Printf("💡 You'll need to add servers manually using 'centian config server add'\n\n")
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Group the results by source file
@@ -89,7 +89,7 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 }
 
 // promptForImport asks the user which servers to import and offers proxy replacement
-func (ui *DiscoveryUI) promptForImport(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) promptForImport(servers []Server) ([]Server, error) {
 	fmt.Printf("Import these servers into centian configuration?\n")
 	fmt.Printf("Options:\n")
 	fmt.Printf("  [a]ll      - Import all servers (default)\n")
@@ -116,15 +116,15 @@ func (ui *DiscoveryUI) promptForImport(servers []DiscoveredServer) ([]Discovered
 	case "sr":
 		return ui.selectAndReplace(servers)
 	case "n", "none":
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	default:
 		fmt.Printf("Invalid choice. Skipping import.\n")
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 }
 
 // selectServers allows user to pick specific servers to import
-func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) selectServers(servers []Server) ([]Server, error) {
 	fmt.Printf("\nSelect servers to import (comma-separated numbers, e.g., 1,3,4):\n")
 
 	for i, server := range servers {
@@ -139,12 +139,12 @@ func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredSe
 
 	response = strings.TrimSpace(response)
 	if response == "" {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Parse selection
 	selections := strings.Split(response, ",")
-	var selectedServers []DiscoveredServer
+	var selectedServers []Server
 
 	for _, sel := range selections {
 		sel = strings.TrimSpace(sel)
@@ -172,9 +172,9 @@ func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredSe
 }
 
 // selectAndReplace allows user to pick specific configs to replace with centian proxy
-func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) selectAndReplace(servers []Server) ([]Server, error) {
 	// Group servers by source file for better display
-	configGroups := make(map[string][]DiscoveredServer)
+	configGroups := make(map[string][]Server)
 	for _, server := range servers {
 		configGroups[server.SourcePath] = append(configGroups[server.SourcePath], server)
 	}
@@ -185,7 +185,7 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 
 	// Display grouped configs with indices
 	var configOptions []string
-	var configServers [][]DiscoveredServer
+	var configServers [][]Server
 	index := 1
 
 	for sourcePath, groupServers := range configGroups {
@@ -213,12 +213,12 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 
 	response = strings.TrimSpace(response)
 	if response == "" {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Parse selection
 	selections := strings.Split(response, ",")
-	var allSelectedServers []DiscoveredServer
+	var allSelectedServers []Server
 
 	for _, sel := range selections {
 		sel = strings.TrimSpace(sel)
@@ -273,7 +273,7 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 }
 
 // promptForReplacement asks user about replacing discovered configs with centian proxy
-func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) promptForReplacement(servers []Server) ([]Server, error) {
 	common.StreamPrint(8, "🔄 Configuration Replacement\n")
 	common.StreamPrint(10, "============================\n")
 	common.StreamPrint(8, "💡 This centralizes MCP management through centian.\n")
@@ -291,7 +291,7 @@ func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]Disco
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response != "y" && response != "yes" {
 		fmt.Printf("Replacement cancelled.\n")
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Mark servers for replacement processing
@@ -303,7 +303,7 @@ func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]Disco
 }
 
 // ImportServers converts discovered servers to MCPServer configs and adds them to the global config
-func ImportServers(servers []DiscoveredServer, globalConfig *config.GlobalConfig) int {
+func ImportServers(servers []Server, globalConfig *config.GlobalConfig) int {
 	common.LogInfo("Starting import of %d discovered servers", len(servers))
 
 	imported := 0
@@ -383,7 +383,7 @@ func ShowImportSummary(imported int, total int) {
 }
 
 // generateReplacementConfig creates replacement configuration for a discovered server
-func generateReplacementConfig(server DiscoveredServer) ReplacementConfig {
+func generateReplacementConfig(server Server) ReplacementConfig {
 	var sourceType string
 	var proxyConfig string
 
@@ -606,14 +606,14 @@ func updateConfigFile(filePath, sourceType string) error {
 
 	// Create backup
 	backupPath := filePath + ".centian-backup"
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 		common.LogError("Failed to create backup %s: %v", backupPath, err)
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 	common.LogInfo("Created backup: %s", backupPath)
 
 	// Write new config
-	if err := os.WriteFile(filePath, newData, 0644); err != nil {
+	if err := os.WriteFile(filePath, newData, 0o644); err != nil {
 		common.LogError("Failed to write updated config %s: %v", filePath, err)
 		return fmt.Errorf("failed to write updated config: %w", err)
 	}
