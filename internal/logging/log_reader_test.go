@@ -122,7 +122,7 @@ func TestFormatDisplayLine(t *testing.T) {
 	}
 
 	// When: formatting the entry for display
-	line := FormatDisplayLine(entry)
+	line := FormatDisplayLine(&entry)
 
 	// Then: the formatted line contains session ID and command
 	if !strings.Contains(line, "sess-1") {
@@ -148,8 +148,8 @@ func writeLogFile(t *testing.T, dir, name string, entries []LogEntry) {
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
-	for _, entry := range entries {
-		if err := encoder.Encode(entry); err != nil {
+	for i := range entries {
+		if err := encoder.Encode(entries[i]); err != nil {
 			t.Fatalf("failed to encode log entry: %v", err)
 		}
 	}

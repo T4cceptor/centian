@@ -137,8 +137,8 @@ func writeTestLogFile(t *testing.T, path string, entries []logging.LogEntry) {
 
 	// Write each entry as a JSON line
 	encoder := json.NewEncoder(file)
-	for _, entry := range entries {
-		if err := encoder.Encode(entry); err != nil {
+	for i := range entries {
+		if err := encoder.Encode(entries[i]); err != nil {
 			t.Fatalf("failed to encode log entry: %v", err)
 		}
 	}

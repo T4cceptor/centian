@@ -37,7 +37,7 @@ func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns [
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Read up to 10KB
 	buffer := make([]byte, 10240)
@@ -113,13 +113,17 @@ func detectSourceType(filePath string) string {
 
 	if strings.Contains(path, "claude_desktop_config.json") {
 		return "claude-desktop"
-	} else if strings.Contains(path, ".vscode/mcp.json") {
+	}
+	if strings.Contains(path, ".vscode/mcp.json") {
 		return "vscode-mcp"
-	} else if strings.Contains(path, "settings.json") {
+	}
+	if strings.Contains(path, "settings.json") {
 		return "vscode-settings"
-	} else if strings.Contains(path, ".claude") {
+	}
+	if strings.Contains(path, ".claude") {
 		return "claude-code"
-	} else if strings.Contains(path, ".continue") {
+	}
+	if strings.Contains(path, ".continue") {
 		return "continue-dev"
 	}
 

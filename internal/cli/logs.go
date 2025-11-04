@@ -66,21 +66,21 @@ func handleLogsCommand(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, logging.ErrLogsDirNotFound):
-			fmt.Fprintf(errOut, "No logs found. Expected directory: %s\n", logDir)
+			_, _ = fmt.Fprintf(errOut, "No logs found. Expected directory: %s\n", logDir)
 			return nil
 		case errors.Is(err, logging.ErrNoLogEntries):
-			fmt.Fprintf(errOut, "No log entries recorded yet in %s\n", logDir)
+			_, _ = fmt.Fprintf(errOut, "No log entries recorded yet in %s\n", logDir)
 			return nil
 		default:
 			return err
 		}
 	}
 
-	fmt.Fprintf(out, "Log directory: %s\n", logDir)
-	fmt.Fprintln(out, "TIMESTAMP            | DIRECTION | TYPE     | STAT | COMMAND                              | SESSION ID | DETAILS")
+	_, _ = fmt.Fprintf(out, "Log directory: %s\n", logDir)
+	_, _ = fmt.Fprintln(out, "TIMESTAMP            | DIRECTION | TYPE     | STAT | COMMAND                              | SESSION ID | DETAILS")
 
-	for _, entry := range entries {
-		fmt.Fprintln(out, logging.FormatDisplayLine(entry))
+	for i := range entries {
+		_, _ = fmt.Fprintln(out, logging.FormatDisplayLine(&(entries[i])))
 	}
 
 	return nil

@@ -59,8 +59,8 @@ func GroupDiscoveryResults(result *Result) *GroupedDiscoveryResult {
 
 	// Group servers by source path
 	groupMap := make(map[string][]Server)
-	for _, server := range result.Servers {
-		groupMap[server.SourcePath] = append(groupMap[server.SourcePath], server)
+	for i := range result.Servers {
+		groupMap[result.Servers[i].SourcePath] = append(groupMap[result.Servers[i].SourcePath], result.Servers[i])
 	}
 
 	// Create groups with transport counts and per-file duplicate counts
@@ -69,8 +69,8 @@ func GroupDiscoveryResults(result *Result) *GroupedDiscoveryResult {
 		stdioCount := 0
 		httpCount := 0
 
-		for _, server := range servers {
-			switch server.Transport {
+		for i := range servers {
+			switch servers[i].Transport {
 			case "stdio":
 				stdioCount++
 			case "http":
@@ -96,30 +96,41 @@ func GroupDiscoveryResults(result *Result) *GroupedDiscoveryResult {
 }
 
 // countDuplicatesPerFile counts how many servers in each file have duplicates in other files
-func countDuplicatesPerFile(allServers []Server) map[string]int {
+func countDuplicatesPerFile(servers []Server) map[string]int {
 	// Create a map of config signature -> list of source paths
 	configToSources := make(map[string][]string)
 
-	for _, server := range allServers {
+	for i := range servers {
 		// Create config signature (same as in deduplicateServers)
 		configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
-			server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
-
-		configToSources[configSig] = append(configToSources[configSig], server.SourcePath)
+			servers[i].Transport,
+			servers[i].Command,
+			servers[i].Args,
+			servers[i].Env,
+			servers[i].URL,
+			servers[i].Headers,
+		)
+		configToSources[configSig] = append(configToSources[configSig], servers[i].SourcePath)
 	}
 
 	// Count duplicates per file
 	duplicatesPerFile := make(map[string]int)
 
-	for _, server := range allServers {
+	for i := range servers {
 		configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
-			server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
+			servers[i].Transport,
+			servers[i].Command,
+			servers[i].Args,
+			servers[i].Env,
+			servers[i].URL,
+			servers[i].Headers,
+		)
 
 		sources := configToSources[configSig]
 
 		// If this config appears in multiple files, it's a duplicate
 		if len(sources) > 1 {
-			duplicatesPerFile[server.SourcePath]++
+			duplicatesPerFile[servers[i].SourcePath]++
 		}
 	}
 
@@ -248,8 +259,8 @@ func deduplicateServers(servers []Server) []Server {
 	var result []Server
 
 	// Group servers by name
-	for _, server := range servers {
-		seen[server.Name] = append(seen[server.Name], server)
+	for i := range servers {
+		seen[servers[i].Name] = append(seen[servers[i].Name], servers[i])
 	}
 
 	// Process each group
@@ -263,20 +274,26 @@ func deduplicateServers(servers []Server) []Server {
 		// Multiple servers with same name - check for duplicates
 		uniqueConfigs := make(map[string][]Server) // config hash -> list of servers with identical config
 
-		for _, server := range serverGroup {
+		for i := range serverGroup {
 			// Create a config signature for comparison (excluding name and source path)
 			configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
-				server.Transport, server.Command, server.Args, server.Env, server.URL, server.Headers)
+				serverGroup[i].Transport,
+				serverGroup[i].Command,
+				serverGroup[i].Args,
+				serverGroup[i].Env,
+				serverGroup[i].URL,
+				serverGroup[i].Headers,
+			)
 
-			uniqueConfigs[configSig] = append(uniqueConfigs[configSig], server)
+			uniqueConfigs[configSig] = append(uniqueConfigs[configSig], serverGroup[i])
 		}
 
 		// Add unique configs with counter suffixes if needed
 		counter := 1
-		for _, duplicateGroup := range uniqueConfigs {
+		for i := range uniqueConfigs {
 			// Choose the best representative from identical configs
-			bestServer := duplicateGroup[0]
-			for _, server := range duplicateGroup[1:] {
+			bestServer := uniqueConfigs[i][0]
+			for _, server := range uniqueConfigs[i][1:] {
 				// Prefer the one with more specific source info
 				if len(server.SourcePath) > len(bestServer.SourcePath) {
 					bestServer = server
@@ -284,7 +301,7 @@ func deduplicateServers(servers []Server) []Server {
 			}
 
 			// Set the duplicates count (total found - 1 = number of duplicates)
-			bestServer.DuplicatesFound = len(duplicateGroup) - 1
+			bestServer.DuplicatesFound = len(uniqueConfigs[i]) - 1
 
 			if len(uniqueConfigs) == 1 {
 				// Only one unique config, keep original name
@@ -304,19 +321,23 @@ func deduplicateServers(servers []Server) []Server {
 // ClaudeDesktopDiscoverer discovers MCP servers from Claude Desktop configuration
 type ClaudeDesktopDiscoverer struct{}
 
+// Name returns the name of the Claude Desktop discoverer.
 func (c *ClaudeDesktopDiscoverer) Name() string {
 	return "Claude Desktop"
 }
 
+// Description returns a description of what the Claude Desktop discoverer does.
 func (c *ClaudeDesktopDiscoverer) Description() string {
 	return "Scans Claude Desktop configuration for MCP servers"
 }
 
+// IsAvailable returns whether Claude Desktop discovery is available on the current platform.
 func (c *ClaudeDesktopDiscoverer) IsAvailable() bool {
 	// Claude Desktop is primarily available on macOS and Windows
 	return runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 }
 
+// Discover searches for MCP servers in Claude Desktop configuration files.
 func (c *ClaudeDesktopDiscoverer) Discover() ([]Server, error) {
 	configPath := c.getConfigPath()
 	if configPath == "" {
@@ -423,18 +444,22 @@ func (c *ClaudeDesktopDiscoverer) getConfigPath() string {
 // VSCodeDiscoverer discovers MCP servers from VS Code configurations
 type VSCodeDiscoverer struct{}
 
+// Name returns the name of the VS Code discoverer.
 func (v *VSCodeDiscoverer) Name() string {
 	return "VS Code"
 }
 
+// Description returns a description of what the VS Code discoverer does.
 func (v *VSCodeDiscoverer) Description() string {
 	return "Scans VS Code workspace and user settings for MCP configurations"
 }
 
+// IsAvailable returns whether VS Code discovery is available on the current platform.
 func (v *VSCodeDiscoverer) IsAvailable() bool {
 	return true // VS Code can be on any platform
 }
 
+// Discover searches for MCP servers in VS Code configuration files.
 func (v *VSCodeDiscoverer) Discover() ([]Server, error) {
 	var allServers []Server
 
@@ -613,19 +638,22 @@ func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[stri
 	return server
 }
 
-// RegexDiscoverer implementation
+// Name returns the name of the regex-based discoverer.
 func (r *RegexDiscoverer) Name() string {
 	return r.DiscovererName
 }
 
+// Description returns a description of what the regex-based discoverer does.
 func (r *RegexDiscoverer) Description() string {
 	return r.DiscovererDescription
 }
 
+// IsAvailable returns whether the regex-based discoverer is enabled.
 func (r *RegexDiscoverer) IsAvailable() bool {
 	return r.Enabled
 }
 
+// Discover searches for MCP servers using regex-based pattern matching.
 func (r *RegexDiscoverer) Discover() ([]Server, error) {
 	if !r.Enabled {
 		return []Server{}, nil

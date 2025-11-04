@@ -88,9 +88,9 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, logEntry := range fileEntries {
+		for i := range fileEntries {
 			entries = append(entries, AnnotatedLogEntry{
-				LogEntry:   logEntry,
+				LogEntry:   fileEntries[i],
 				SourceFile: filePath,
 			})
 		}
@@ -114,7 +114,7 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 }
 
 // FormatDisplayLine converts an AnnotatedLogEntry into a human-readable summary string.
-func FormatDisplayLine(entry AnnotatedLogEntry) string {
+func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 	status := "ok"
 	if !entry.Success {
 		status = "fail"
@@ -158,7 +158,7 @@ func readLogFile(path string) ([]LogEntry, error) {
 		}
 		return nil, fmt.Errorf("failed to open log file %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var entries []LogEntry
 

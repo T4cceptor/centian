@@ -127,8 +127,8 @@ func (ui *DiscoveryUI) promptForImport(servers []Server) ([]Server, error) {
 func (ui *DiscoveryUI) selectServers(servers []Server) ([]Server, error) {
 	fmt.Printf("\nSelect servers to import (comma-separated numbers, e.g., 1,3,4):\n")
 
-	for i, server := range servers {
-		fmt.Printf("  %d. %s (%s)\n", i+1, server.Name, server.SourcePath)
+	for i := range servers {
+		fmt.Printf("  %d. %s (%s)\n", i+1, servers[i].Name, servers[i].SourcePath)
 	}
 
 	fmt.Printf("\nServers to import: ")
@@ -175,8 +175,8 @@ func (ui *DiscoveryUI) selectServers(servers []Server) ([]Server, error) {
 func (ui *DiscoveryUI) selectAndReplace(servers []Server) ([]Server, error) {
 	// Group servers by source file for better display
 	configGroups := make(map[string][]Server)
-	for _, server := range servers {
-		configGroups[server.SourcePath] = append(configGroups[server.SourcePath], server)
+	for i := range servers {
+		configGroups[servers[i].SourcePath] = append(configGroups[servers[i].SourcePath], servers[i])
 	}
 
 	fmt.Printf("🔄 Select Configuration Files to Replace\n")
@@ -195,8 +195,8 @@ func (ui *DiscoveryUI) selectAndReplace(servers []Server) ([]Server, error) {
 		fmt.Printf("  %d. %s\n", index, sourcePath)
 		fmt.Printf("     Contains %d server(s): ", len(groupServers))
 		var serverNames []string
-		for _, server := range groupServers {
-			serverNames = append(serverNames, server.Name)
+		for i := range groupServers {
+			serverNames = append(serverNames, groupServers[i].Name)
 		}
 		fmt.Printf("%s\n", strings.Join(serverNames, ", "))
 		fmt.Printf("\n")
@@ -309,7 +309,8 @@ func ImportServers(servers []Server, globalConfig *config.GlobalConfig) int {
 	imported := 0
 	var replacementConfigs []ReplacementConfig
 
-	for _, discovered := range servers {
+	for i := range servers {
+		discovered := servers[i]
 		common.LogDebug("Processing server: %s (from %s)", discovered.Name, discovered.SourcePath)
 
 		// Skip servers that have neither command nor URL
@@ -399,6 +400,10 @@ func generateReplacementConfig(server Server) ReplacementConfig {
 		proxyConfig = generateVSCodeSettingsReplacement()
 	} else if strings.Contains(server.SourcePath, ".mcp.json") {
 		// Generic .mcp.json files - use mcpServers structure like Claude Desktop
+		sourceType = "generic-mcp"
+		proxyConfig = generateGenericMCPReplacement()
+	} else if sourceType == "" {
+		// Default fallback for unknown file types
 		sourceType = "generic-mcp"
 		proxyConfig = generateGenericMCPReplacement()
 	} else {

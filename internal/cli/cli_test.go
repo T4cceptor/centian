@@ -250,8 +250,7 @@ func TestCLICommandStructure(t *testing.T) {
 	flagNames := make(map[string]bool)
 
 	for _, flag := range InitCommand.Flags {
-		switch f := flag.(type) {
-		case *urfavecli.BoolFlag:
+		if f, ok := flag.(*urfavecli.BoolFlag); ok {
 			flagNames[f.Name] = true
 		}
 	}

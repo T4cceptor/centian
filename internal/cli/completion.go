@@ -148,7 +148,7 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 		if err != nil {
 			return fmt.Errorf("failed to create RC file: %w", err)
 		}
-		file.Close()
+		_ = file.Close()
 	}
 
 	// Add completion line
@@ -156,7 +156,7 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 	if err != nil {
 		return fmt.Errorf("failed to open RC file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	completionBlock := fmt.Sprintf("\n# Centian CLI completion\n%s\n", shellInfo.CompletionLine)
 	if _, err := file.WriteString(completionBlock); err != nil {
@@ -211,7 +211,7 @@ func completionExists(rcFile, completionLine string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {

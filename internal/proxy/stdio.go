@@ -146,7 +146,7 @@ func (p *StdioProxy) Start() error {
 
 	// Log proxy start
 	if p.logger != nil {
-		p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
+		_ = p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
 	}
 
 	// Start goroutines to handle I/O with WaitGroup tracking
@@ -173,7 +173,7 @@ func (p *StdioProxy) Stop() error {
 
 	// Close stdin pipe to signal no more input
 	if p.stdin != nil {
-		p.stdin.Close()
+		_ = p.stdin.Close()
 	}
 
 	// Attempt graceful shutdown with SIGTERM first
@@ -194,7 +194,7 @@ func (p *StdioProxy) Stop() error {
 			if err := p.cmd.Process.Signal(syscall.Signal(0)); err == nil {
 				// Process is still alive, send SIGKILL
 				fmt.Fprintf(os.Stderr, "Process did not exit gracefully, sending SIGKILL\n")
-				p.cmd.Process.Kill()
+				_ = p.cmd.Process.Kill()
 			}
 		}
 	}
@@ -204,8 +204,8 @@ func (p *StdioProxy) Stop() error {
 
 	// Now safe to close logger after all goroutines have finished
 	if p.logger != nil {
-		p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
-		p.logger.Close()
+		_ = p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
+		_ = p.logger.Close()
 	}
 
 	return nil
@@ -215,7 +215,7 @@ func (p *StdioProxy) Stop() error {
 func (p *StdioProxy) handleStdout() {
 	defer func() {
 		if p.stdout != nil {
-			p.stdout.Close()
+			_ = p.stdout.Close()
 		}
 	}()
 
@@ -230,7 +230,7 @@ func (p *StdioProxy) handleStdout() {
 			// Log the MCP response to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
-				p.logger.LogResponse(requestID, p.sessionID, p.command, p.args, p.serverID, line, true, "")
+				_ = p.logger.LogResponse(requestID, p.sessionID, p.command, p.args, p.serverID, line, true, "")
 			}
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 
@@ -248,7 +248,7 @@ func (p *StdioProxy) handleStdout() {
 func (p *StdioProxy) handleStderr() {
 	defer func() {
 		if p.stderr != nil {
-			p.stderr.Close()
+			_ = p.stderr.Close()
 		}
 	}()
 
@@ -272,7 +272,7 @@ func (p *StdioProxy) handleStderr() {
 func (p *StdioProxy) handleStdin() {
 	defer func() {
 		if p.stdin != nil {
-			p.stdin.Close()
+			_ = p.stdin.Close()
 		}
 	}()
 
@@ -287,7 +287,7 @@ func (p *StdioProxy) handleStdin() {
 			// Log the client request to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
-				p.logger.LogRequest(requestID, p.sessionID, p.command, p.args, p.serverID, line)
+				_ = p.logger.LogRequest(requestID, p.sessionID, p.command, p.args, p.serverID, line)
 			}
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)
 

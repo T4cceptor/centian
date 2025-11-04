@@ -121,7 +121,7 @@ func (l *Logger) Close() error {
 
 // LogRequest logs an MCP request
 func (l *Logger) LogRequest(requestID, sessionID, command string, args []string, serverID, message string) error {
-	return l.logEntry(LogEntry{
+	return l.logEntry(&LogEntry{
 		Timestamp:   time.Now(),
 		RequestID:   requestID,
 		SessionID:   sessionID,
@@ -157,12 +157,12 @@ func (l *Logger) LogResponse(requestID, sessionID, command string, args []string
 		entry.MessageType = "error"
 	}
 
-	return l.logEntry(entry)
+	return l.logEntry(&entry)
 }
 
 // LogProxyStart logs when a proxy starts
 func (l *Logger) LogProxyStart(sessionID, command string, args []string, serverID string) error {
-	return l.logEntry(LogEntry{
+	return l.logEntry(&LogEntry{
 		Timestamp:   time.Now(),
 		RequestID:   fmt.Sprintf("start_%d", time.Now().UnixNano()),
 		SessionID:   sessionID,
@@ -197,11 +197,11 @@ func (l *Logger) LogProxyStop(sessionID, command string, args []string, serverID
 		entry.Error = errorMsg
 	}
 
-	return l.logEntry(entry)
+	return l.logEntry(&entry)
 }
 
 // logEntry writes a log entry to the file
-func (l *Logger) logEntry(entry LogEntry) error {
+func (l *Logger) logEntry(entry *LogEntry) error {
 	if l.logFile == nil {
 		return fmt.Errorf("logger not initialized")
 	}

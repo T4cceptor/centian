@@ -76,7 +76,7 @@ func handleStdioCommand(ctx context.Context, cmd *cli.Command) error {
 	go func() {
 		<-sigChan
 		fmt.Fprintf(os.Stderr, "[CENTIAN] Received shutdown signal, stopping proxy...\n")
-		stdioProxy.Stop()
+		_ = stdioProxy.Stop()
 	}()
 
 	// Wait for the proxy to finish

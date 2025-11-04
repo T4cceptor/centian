@@ -170,10 +170,10 @@ func GetDefaultSearchPaths() []string {
 	switch runtime.GOOS {
 	case "darwin": // macOS
 		paths = append(paths,
-			filepath.Join(homeDir, "Library/Application Support/Claude"),
-			filepath.Join(homeDir, "Library/Application Support/Code/User"),
-			filepath.Join(homeDir, "Library/Application Support/Cursor/User"),
-			filepath.Join(homeDir, "Library/Application Support/Zed"),
+			filepath.Join(homeDir, "Library", "Application Support", "Claude"),
+			filepath.Join(homeDir, "Library", "Application Support", "Code", "User"),
+			filepath.Join(homeDir, "Library", "Application Support", "Cursor", "User"),
+			filepath.Join(homeDir, "Library", "Application Support", "Zed"),
 			filepath.Join(homeDir, ".claude"),
 			filepath.Join(homeDir, ".config"),
 			filepath.Join(homeDir, ".continue"),
@@ -181,10 +181,10 @@ func GetDefaultSearchPaths() []string {
 		)
 	case "linux":
 		paths = append(paths,
-			filepath.Join(homeDir, ".config/Code/User"),
-			filepath.Join(homeDir, ".config/Cursor/User"),
-			filepath.Join(homeDir, ".config/zed"),
-			filepath.Join(homeDir, ".config/claude"),
+			filepath.Join(homeDir, ".config", "Code", "User"),
+			filepath.Join(homeDir, ".config", "Cursor", "User"),
+			filepath.Join(homeDir, ".config", "zed"),
+			filepath.Join(homeDir, ".config", "claude"),
 			filepath.Join(homeDir, ".claude"),
 			filepath.Join(homeDir, ".continue"),
 			filepath.Join(homeDir, ".mcp"),
@@ -195,8 +195,8 @@ func GetDefaultSearchPaths() []string {
 		if appData != "" {
 			paths = append(paths,
 				filepath.Join(appData, "Claude"),
-				filepath.Join(appData, "Code/User"),
-				filepath.Join(appData, "Cursor/User"),
+				filepath.Join(appData, "Code", "User"),
+				filepath.Join(appData, "Cursor", "User"),
 			)
 		}
 		if localAppData != "" {
