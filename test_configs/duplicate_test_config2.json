@@ -1,0 +1,21 @@
+{
+  "inputs": [],
+  "servers": {
+    "server-a": {
+      "type": "http",
+      "url": "http://localhost:8001",
+      "headers": {
+        "API_KEY": "key-123"
+      }
+    },
+    "server-b": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "/path/to/files"]
+    },
+    "server-c": {
+      "type": "http",
+      "url": "http://localhost:9001"
+    }
+  }
+}

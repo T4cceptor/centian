@@ -2,6 +2,10 @@
 
 **Project Name:** Centian CLI
 
+**Repository:** https://github.com/CentianAI/centian-cli
+**Repo Owner:** CentianAI (Organization)
+**Repo Name:** centian-cli
+
 **Description:** A CLI tool to proxy MCP servers, collect and configure their configurations at a single place, and enable lifecycle hooks for tool requests and their responses.
 
 ## Purpose
@@ -44,3 +48,28 @@ The CLI tool is built in Go and provides a unified interface to interact with mu
   centian config server enable    # Enable server
   centian config server disable   # Disable server
 
+## Debugging
+
+General rules:
+- if a bug persists more than 2 edits, write a test case first, run the test case and make sure it FAILS (after all at this point the bug is not yet fixed), THEN start debugging
+- Start with an architecture analysis, instead of fixing symptoms check what the root cause might be and give an overview/approach first instead of making edits directly
+
+## Testing
+
+- Use "Given-when-then" structure
+- Example:
+```
+// Given: a VSCode Discoverer
+discoverer := VSCodeDiscoverer(config)
+
+// When: running the discovery process using the discoverer
+result, err := discoverer.discover()
+
+// Then: 2 config files are found in the given location, with 3 servers each, and 1 duplicate each
+<assert statements>
+```
+
+## General development
+
+- commit after finalizing a significant portion of the task (e.g. 20, 30, 50, 70, 90%)
+- call out edge cases in the code, but do not handle them immediately if they are unlikely or unexpected

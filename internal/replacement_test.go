@@ -85,7 +85,7 @@ func testCurrentLogic(filePath, sourceType string) error {
 	}
 
 	outputPath := filePath + ".result"
-	if err := os.WriteFile(outputPath, newData, 0644); err != nil {
+	if err := os.WriteFile(outputPath, newData, 0o644); err != nil {
 		return fmt.Errorf("failed to write result: %w", err)
 	}
 

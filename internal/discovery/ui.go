@@ -32,7 +32,7 @@ func NewDiscoveryUI() *DiscoveryUI {
 }
 
 // ShowDiscoveryResults displays discovered servers and prompts for user consent
-func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) ShowDiscoveryResults(result *Result) ([]Server, error) {
 	if len(result.Servers) == 0 {
 		if len(result.Errors) > 0 {
 			fmt.Printf("🔍 Searched for existing MCP configurations but found none.\n")
@@ -44,49 +44,52 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *DiscoveryResult) ([]Discover
 			fmt.Printf("🔍 No existing MCP configurations found.\n")
 		}
 		fmt.Printf("💡 You'll need to add servers manually using 'centian config server add'\n\n")
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
-	common.StreamPrint(10, "🔍 Found %d MCP server(s) in existing configurations:\n\n", len(result.Servers))
+	// Group the results by source file
+	grouped := GroupDiscoveryResults(result)
 
-	// TODO: if more than X servers are found we should add option to skip print or show all
-	// Display discovered servers
-	for i, server := range result.Servers {
-		fmt.Printf("  %d. %s\n", i+1, server.Name)
+	common.StreamPrint(10, "🔍 Found MCP configurations in %d file(s):\n\n", len(grouped.Groups))
 
-		if server.Command != "" {
-			fmt.Printf("     Command: %s\n", server.Command)
+	// Display grouped servers
+	for _, group := range grouped.Groups {
+		fmt.Printf("📁 %s\n", group.SourcePath)
+		fmt.Printf("   📊 %d servers", group.TotalCount)
+
+		if group.StdioCount > 0 || group.HTTPCount > 0 {
+			fmt.Printf(" (stdio: %d, http: %d)", group.StdioCount, group.HTTPCount)
 		}
-		if server.URL != "" {
-			fmt.Printf("     URL: %s\n", server.URL)
+
+		if group.DuplicatesFound > 0 {
+			plural := ""
+			if group.DuplicatesFound > 1 {
+				plural = "s"
+			}
+			fmt.Printf(" [🔄 %d duplicate%s merged]", group.DuplicatesFound, plural)
 		}
-		if len(server.Args) > 0 {
-			fmt.Printf("     Args: %v\n", server.Args)
-		}
-		if server.SourcePath != "" {
-			fmt.Printf("     Source: %s\n", server.SourcePath)
-		}
-		if len(server.Env) > 0 {
-			fmt.Printf("     Environment: %d variables\n", len(server.Env))
-		}
-		common.StreamPrint(1, "  \n")
+
+		fmt.Printf("\n\n")
 	}
 
 	// Show any errors
-	if len(result.Errors) > 0 {
+	if len(grouped.Errors) > 0 {
 		fmt.Printf("⚠️  Some locations couldn't be scanned:\n")
-		for _, err := range result.Errors {
+		for _, err := range grouped.Errors {
 			fmt.Printf("   - %s\n", err)
 		}
 		fmt.Printf("\n")
 	}
+
+	// Add option to show detailed view
+	fmt.Printf("💡 To see individual servers, run: centian discovery --details\n\n")
 
 	// Prompt for consent
 	return ui.promptForImport(result.Servers)
 }
 
 // promptForImport asks the user which servers to import and offers proxy replacement
-func (ui *DiscoveryUI) promptForImport(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) promptForImport(servers []Server) ([]Server, error) {
 	fmt.Printf("Import these servers into centian configuration?\n")
 	fmt.Printf("Options:\n")
 	fmt.Printf("  [a]ll      - Import all servers (default)\n")
@@ -113,19 +116,19 @@ func (ui *DiscoveryUI) promptForImport(servers []DiscoveredServer) ([]Discovered
 	case "sr":
 		return ui.selectAndReplace(servers)
 	case "n", "none":
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	default:
 		fmt.Printf("Invalid choice. Skipping import.\n")
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 }
 
 // selectServers allows user to pick specific servers to import
-func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) selectServers(servers []Server) ([]Server, error) {
 	fmt.Printf("\nSelect servers to import (comma-separated numbers, e.g., 1,3,4):\n")
 
-	for i, server := range servers {
-		fmt.Printf("  %d. %s (%s)\n", i+1, server.Name, server.SourcePath)
+	for i := range servers {
+		fmt.Printf("  %d. %s (%s)\n", i+1, servers[i].Name, servers[i].SourcePath)
 	}
 
 	fmt.Printf("\nServers to import: ")
@@ -136,12 +139,12 @@ func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredSe
 
 	response = strings.TrimSpace(response)
 	if response == "" {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Parse selection
 	selections := strings.Split(response, ",")
-	var selectedServers []DiscoveredServer
+	var selectedServers []Server
 
 	for _, sel := range selections {
 		sel = strings.TrimSpace(sel)
@@ -169,11 +172,11 @@ func (ui *DiscoveryUI) selectServers(servers []DiscoveredServer) ([]DiscoveredSe
 }
 
 // selectAndReplace allows user to pick specific configs to replace with centian proxy
-func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) selectAndReplace(servers []Server) ([]Server, error) {
 	// Group servers by source file for better display
-	configGroups := make(map[string][]DiscoveredServer)
-	for _, server := range servers {
-		configGroups[server.SourcePath] = append(configGroups[server.SourcePath], server)
+	configGroups := make(map[string][]Server)
+	for i := range servers {
+		configGroups[servers[i].SourcePath] = append(configGroups[servers[i].SourcePath], servers[i])
 	}
 
 	fmt.Printf("🔄 Select Configuration Files to Replace\n")
@@ -182,7 +185,7 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 
 	// Display grouped configs with indices
 	var configOptions []string
-	var configServers [][]DiscoveredServer
+	var configServers [][]Server
 	index := 1
 
 	for sourcePath, groupServers := range configGroups {
@@ -192,8 +195,8 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 		fmt.Printf("  %d. %s\n", index, sourcePath)
 		fmt.Printf("     Contains %d server(s): ", len(groupServers))
 		var serverNames []string
-		for _, server := range groupServers {
-			serverNames = append(serverNames, server.Name)
+		for i := range groupServers {
+			serverNames = append(serverNames, groupServers[i].Name)
 		}
 		fmt.Printf("%s\n", strings.Join(serverNames, ", "))
 		fmt.Printf("\n")
@@ -210,12 +213,12 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 
 	response = strings.TrimSpace(response)
 	if response == "" {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Parse selection
 	selections := strings.Split(response, ",")
-	var allSelectedServers []DiscoveredServer
+	var allSelectedServers []Server
 
 	for _, sel := range selections {
 		sel = strings.TrimSpace(sel)
@@ -270,7 +273,7 @@ func (ui *DiscoveryUI) selectAndReplace(servers []DiscoveredServer) ([]Discovere
 }
 
 // promptForReplacement asks user about replacing discovered configs with centian proxy
-func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]DiscoveredServer, error) {
+func (ui *DiscoveryUI) promptForReplacement(servers []Server) ([]Server, error) {
 	common.StreamPrint(8, "🔄 Configuration Replacement\n")
 	common.StreamPrint(10, "============================\n")
 	common.StreamPrint(8, "💡 This centralizes MCP management through centian.\n")
@@ -288,7 +291,7 @@ func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]Disco
 	response = strings.TrimSpace(strings.ToLower(response))
 	if response != "y" && response != "yes" {
 		fmt.Printf("Replacement cancelled.\n")
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Mark servers for replacement processing
@@ -300,13 +303,14 @@ func (ui *DiscoveryUI) promptForReplacement(servers []DiscoveredServer) ([]Disco
 }
 
 // ImportServers converts discovered servers to MCPServer configs and adds them to the global config
-func ImportServers(servers []DiscoveredServer, globalConfig *config.GlobalConfig) int {
+func ImportServers(servers []Server, globalConfig *config.GlobalConfig) int {
 	common.LogInfo("Starting import of %d discovered servers", len(servers))
 
 	imported := 0
 	var replacementConfigs []ReplacementConfig
 
-	for _, discovered := range servers {
+	for i := range servers {
+		discovered := servers[i]
 		common.LogDebug("Processing server: %s (from %s)", discovered.Name, discovered.SourcePath)
 
 		// Skip servers that have neither command nor URL
@@ -380,7 +384,7 @@ func ShowImportSummary(imported int, total int) {
 }
 
 // generateReplacementConfig creates replacement configuration for a discovered server
-func generateReplacementConfig(server DiscoveredServer) ReplacementConfig {
+func generateReplacementConfig(server Server) ReplacementConfig {
 	var sourceType string
 	var proxyConfig string
 
@@ -396,6 +400,10 @@ func generateReplacementConfig(server DiscoveredServer) ReplacementConfig {
 		proxyConfig = generateVSCodeSettingsReplacement()
 	} else if strings.Contains(server.SourcePath, ".mcp.json") {
 		// Generic .mcp.json files - use mcpServers structure like Claude Desktop
+		sourceType = "generic-mcp"
+		proxyConfig = generateGenericMCPReplacement()
+	} else if sourceType == "" {
+		// Default fallback for unknown file types
 		sourceType = "generic-mcp"
 		proxyConfig = generateGenericMCPReplacement()
 	} else {
@@ -603,14 +611,14 @@ func updateConfigFile(filePath, sourceType string) error {
 
 	// Create backup
 	backupPath := filePath + ".centian-backup"
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 		common.LogError("Failed to create backup %s: %v", backupPath, err)
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 	common.LogInfo("Created backup: %s", backupPath)
 
 	// Write new config
-	if err := os.WriteFile(filePath, newData, 0644); err != nil {
+	if err := os.WriteFile(filePath, newData, 0o644); err != nil {
 		common.LogError("Failed to write updated config %s: %v", filePath, err)
 		return fmt.Errorf("failed to write updated config: %w", err)
 	}

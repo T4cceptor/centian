@@ -41,6 +41,8 @@ linters-settings:
           - sayRepetitiveInsteadOfStutters
 
 issues:
+  exclude-dirs:
+    - "internal/discovery"
   exclude-rules:
     # Exclude some linters from running on tests files
     - path: _test\.go

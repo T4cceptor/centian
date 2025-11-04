@@ -21,7 +21,6 @@ import (
 
 	"github.com/CentianAI/centian-cli/internal/cli"
 	"github.com/CentianAI/centian-cli/internal/config"
-	"github.com/CentianAI/centian-cli/internal/proxy"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -38,14 +37,8 @@ func main() {
 		EnableShellCompletion: true,
 		Commands: []*urfavecli.Command{
 			cli.InitCommand,
-			{
-				Name:        "start",
-				Usage:       "Start the MCP proxy",
-				Description: "Starts the Centian MCP proxy server",
-				Action: func(ctx context.Context, cmd *urfavecli.Command) error {
-					return proxy.StartCentianProxy()
-				},
-			},
+			cli.StdioCommand,
+			cli.LogsCommand,
 			config.ConfigCommand,
 		},
 	}

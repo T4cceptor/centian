@@ -79,5 +79,3 @@ func TestLogging(t *testing.T) {
 	t.Logf("Log file created at: %s", logPath)
 	t.Logf("Log file size: %d bytes", len(logContent))
 }
-
-

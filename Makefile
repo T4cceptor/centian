@@ -2,6 +2,7 @@
 BINARY_NAME=centian
 BUILD_DIR=build
 MAIN_PATH=./cmd/main.go
+LOG_DIR=$(HOME)/.centian/logs
 
 # Version info
 VERSION ?= dev
@@ -63,6 +64,20 @@ install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/$(BINARY_NAME)
 	@echo "Installed $(BINARY_NAME) to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
+
+tail-log: ## Tail the latest Centian log file
+	@echo "Looking for latest log in $(LOG_DIR)..."
+	@if [ -d "$(LOG_DIR)" ]; then \
+		latest=$$(ls -t "$(LOG_DIR)"/* 2>/dev/null | head -n 1); \
+		if [ -n "$$latest" ]; then \
+			echo "Tailing $$latest"; \
+			tail -f "$$latest"; \
+		else \
+			echo "No log files found in $(LOG_DIR)"; \
+		fi; \
+	else \
+		echo "Log directory $(LOG_DIR) not found"; \
+	fi
 
 release: ## Create and push a new patch release
 	@echo "Creating new patch release..."

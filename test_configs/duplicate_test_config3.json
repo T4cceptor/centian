@@ -1,0 +1,17 @@
+{
+  "inputs": [],
+  "servers": {
+    "server-a": {
+      "type": "http",
+      "url": "http://localhost:8001",
+      "headers": {
+        "API_KEY": "key-123"
+      }
+    },
+    "server-b": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_server", "--port", "8080"]
+    }
+  }
+}

@@ -105,7 +105,7 @@ func EnsureConfigDir() error {
 		return err
 	}
 
-	return os.MkdirAll(configDir, 0755)
+	return os.MkdirAll(configDir, 0o755)
 }
 
 // LoadConfig loads the global configuration from ~/.centian/config.jsonc.
@@ -162,7 +162,7 @@ func SaveConfig(config *GlobalConfig) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 

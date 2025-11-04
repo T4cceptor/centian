@@ -14,24 +14,127 @@ import (
 	"github.com/CentianAI/centian-cli/internal/common"
 )
 
-// DiscoveredServer represents an MCP server found during auto-discovery
-type DiscoveredServer struct {
+// Server represents an MCP server found during auto-discovery
+type Server struct {
 	Name            string            `json:"name"`            // Server name
 	Command         string            `json:"command"`         // Executable command (for stdio transport)
 	Args            []string          `json:"args"`            // Command arguments
 	Env             map[string]string `json:"env"`             // Environment variables
 	URL             string            `json:"url"`             // HTTP/WebSocket URL (for http/ws transport)
+	Headers         map[string]string `json:"headers"`         // HTTP headers (for http transport)
 	Transport       string            `json:"transport"`       // Transport type: stdio, http, websocket
 	Description     string            `json:"description"`     // Human readable description
 	Source          string            `json:"source"`          // Where it was discovered from
 	SourcePath      string            `json:"sourcePath"`      // Full path to source file
 	ReplacementMode bool              `json:"replacementMode"` // Whether to generate replacement configs
+	DuplicatesFound int               `json:"duplicatesFound"` // Number of identical configs found and merged
 }
 
-// DiscoveryResult contains the results of auto-discovery scan
-type DiscoveryResult struct {
-	Servers []DiscoveredServer `json:"servers"`
-	Errors  []string           `json:"errors"` // Non-fatal errors during discovery
+// Result contains the results of auto-discovery scan
+type Result struct {
+	Servers []Server `json:"servers"`
+	Errors  []string `json:"errors"` // Non-fatal errors during discovery
+}
+
+// ConfigFileGroup represents servers grouped by their source config file
+type ConfigFileGroup struct {
+	SourcePath      string   `json:"sourcePath"`      // Absolute path to config file
+	Servers         []Server `json:"servers"`         // Servers found in this file
+	StdioCount      int      `json:"stdioCount"`      // Number of stdio servers
+	HTTPCount       int      `json:"httpCount"`       // Number of http servers
+	TotalCount      int      `json:"totalCount"`      // Total number of servers
+	DuplicatesFound int      `json:"duplicatesFound"` // Total number of duplicate configs merged
+}
+
+// GroupedDiscoveryResult contains servers grouped by source file
+type GroupedDiscoveryResult struct {
+	Groups []ConfigFileGroup `json:"groups"`
+	Errors []string          `json:"errors"` // Non-fatal errors during discovery
+}
+
+// GroupDiscoveryResults groups servers by their source config file
+func GroupDiscoveryResults(result *Result) *GroupedDiscoveryResult {
+	// Count duplicates per file BEFORE any deduplication
+	duplicateCounts := countDuplicatesPerFile(result.Servers)
+
+	// Group servers by source path
+	groupMap := make(map[string][]Server)
+	for i := range result.Servers {
+		groupMap[result.Servers[i].SourcePath] = append(groupMap[result.Servers[i].SourcePath], result.Servers[i])
+	}
+
+	// Create groups with transport counts and per-file duplicate counts
+	var groups []ConfigFileGroup
+	for sourcePath, servers := range groupMap {
+		stdioCount := 0
+		httpCount := 0
+
+		for i := range servers {
+			switch servers[i].Transport {
+			case "stdio":
+				stdioCount++
+			case "http":
+				httpCount++
+			}
+		}
+
+		group := ConfigFileGroup{
+			SourcePath:      sourcePath,
+			Servers:         servers,
+			StdioCount:      stdioCount,
+			HTTPCount:       httpCount,
+			TotalCount:      len(servers),
+			DuplicatesFound: duplicateCounts[sourcePath], // Use per-file duplicate count
+		}
+		groups = append(groups, group)
+	}
+
+	return &GroupedDiscoveryResult{
+		Groups: groups,
+		Errors: result.Errors,
+	}
+}
+
+// countDuplicatesPerFile counts how many servers in each file have duplicates in other files
+func countDuplicatesPerFile(servers []Server) map[string]int {
+	// Create a map of config signature -> list of source paths
+	configToSources := make(map[string][]string)
+
+	for i := range servers {
+		// Create config signature (same as in deduplicateServers)
+		configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
+			servers[i].Transport,
+			servers[i].Command,
+			servers[i].Args,
+			servers[i].Env,
+			servers[i].URL,
+			servers[i].Headers,
+		)
+		configToSources[configSig] = append(configToSources[configSig], servers[i].SourcePath)
+	}
+
+	// Count duplicates per file
+	duplicatesPerFile := make(map[string]int)
+
+	for i := range servers {
+		configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
+			servers[i].Transport,
+			servers[i].Command,
+			servers[i].Args,
+			servers[i].Env,
+			servers[i].URL,
+			servers[i].Headers,
+		)
+
+		sources := configToSources[configSig]
+
+		// If this config appears in multiple files, it's a duplicate
+		if len(sources) > 1 {
+			duplicatesPerFile[servers[i].SourcePath]++
+		}
+	}
+
+	return duplicatesPerFile
 }
 
 // ConfigDiscoverer defines the interface for config file discoverers
@@ -43,7 +146,7 @@ type ConfigDiscoverer interface {
 	Description() string
 
 	// Discover scans for and parses MCP server configurations
-	Discover() ([]DiscoveredServer, error)
+	Discover() ([]Server, error)
 
 	// IsAvailable checks if this discoverer can run on the current system
 	IsAvailable() bool
@@ -53,14 +156,14 @@ type ConfigDiscoverer interface {
 type RegexDiscoverer struct {
 	DiscovererName        string
 	DiscovererDescription string
-	Patterns              []DiscoveryPattern
+	Patterns              []Pattern
 	SearchPaths           []string
 	MaxDepth              int
 	Enabled               bool
 }
 
-// DiscoveryPattern defines how to find and parse a specific type of config file
-type DiscoveryPattern struct {
+// Pattern defines how to find and parse a specific type of config file
+type Pattern struct {
 	FileRegex    string   `json:"fileRegex"`    // Regex pattern for file path/name
 	ContentRegex []string `json:"contentRegex"` // Content must match these patterns
 	Parser       string   `json:"parser"`       // Parser function name
@@ -69,16 +172,16 @@ type DiscoveryPattern struct {
 }
 
 // ConfigParserFunc is a function that parses config data and extracts MCP servers
-type ConfigParserFunc func(data []byte, filePath string) ([]DiscoveredServer, error)
+type ConfigParserFunc func(data []byte, filePath string) ([]Server, error)
 
-// DiscoveryManager manages multiple config discoverers
-type DiscoveryManager struct {
+// Manager manages multiple config discoverers
+type Manager struct {
 	discoverers []ConfigDiscoverer
 }
 
 // NewDiscoveryManager creates a new discovery manager with default discoverers
-func NewDiscoveryManager() *DiscoveryManager {
-	dm := &DiscoveryManager{
+func NewDiscoveryManager() *Manager {
+	dm := &Manager{
 		discoverers: []ConfigDiscoverer{},
 	}
 
@@ -91,16 +194,16 @@ func NewDiscoveryManager() *DiscoveryManager {
 }
 
 // RegisterDiscoverer adds a new config discoverer
-func (dm *DiscoveryManager) RegisterDiscoverer(discoverer ConfigDiscoverer) {
+func (dm *Manager) RegisterDiscoverer(discoverer ConfigDiscoverer) {
 	dm.discoverers = append(dm.discoverers, discoverer)
 }
 
 // DiscoverAll runs all available discoverers and aggregates results
-func (dm *DiscoveryManager) DiscoverAll() *DiscoveryResult {
+func (dm *Manager) DiscoverAll() *Result {
 	common.LogInfo("Starting MCP server discovery")
 
-	result := &DiscoveryResult{
-		Servers: []DiscoveredServer{},
+	result := &Result{
+		Servers: []Server{},
 		Errors:  []string{},
 	}
 
@@ -138,7 +241,7 @@ func (dm *DiscoveryManager) DiscoverAll() *DiscoveryResult {
 }
 
 // ListDiscoverers returns information about available discoverers
-func (dm *DiscoveryManager) ListDiscoverers() []map[string]string {
+func (dm *Manager) ListDiscoverers() []map[string]string {
 	var discoverers []map[string]string
 	for _, d := range dm.discoverers {
 		discoverers = append(discoverers, map[string]string{
@@ -151,18 +254,64 @@ func (dm *DiscoveryManager) ListDiscoverers() []map[string]string {
 }
 
 // deduplicateServers removes duplicate servers, preferring later entries
-func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
-	seen := make(map[string]int) // name -> index
-	var result []DiscoveredServer
+func deduplicateServers(servers []Server) []Server {
+	seen := make(map[string][]Server) // name -> list of servers with that name
+	var result []Server
 
-	for _, server := range servers {
-		if idx, exists := seen[server.Name]; exists {
-			// Replace existing server with newer one
-			result[idx] = server
-		} else {
-			// Add new server
-			seen[server.Name] = len(result)
-			result = append(result, server)
+	// Group servers by name
+	for i := range servers {
+		seen[servers[i].Name] = append(seen[servers[i].Name], servers[i])
+	}
+
+	// Process each group
+	for originalName, serverGroup := range seen {
+		if len(serverGroup) == 1 {
+			// Only one server with this name, add it directly
+			result = append(result, serverGroup[0])
+			continue
+		}
+
+		// Multiple servers with same name - check for duplicates
+		uniqueConfigs := make(map[string][]Server) // config hash -> list of servers with identical config
+
+		for i := range serverGroup {
+			// Create a config signature for comparison (excluding name and source path)
+			configSig := fmt.Sprintf("%s|%s|%v|%v|%s|%v",
+				serverGroup[i].Transport,
+				serverGroup[i].Command,
+				serverGroup[i].Args,
+				serverGroup[i].Env,
+				serverGroup[i].URL,
+				serverGroup[i].Headers,
+			)
+
+			uniqueConfigs[configSig] = append(uniqueConfigs[configSig], serverGroup[i])
+		}
+
+		// Add unique configs with counter suffixes if needed
+		counter := 1
+		for i := range uniqueConfigs {
+			// Choose the best representative from identical configs
+			bestServer := uniqueConfigs[i][0]
+			for _, server := range uniqueConfigs[i][1:] {
+				// Prefer the one with more specific source info
+				if len(server.SourcePath) > len(bestServer.SourcePath) {
+					bestServer = server
+				}
+			}
+
+			// Set the duplicates count (total found - 1 = number of duplicates)
+			bestServer.DuplicatesFound = len(uniqueConfigs[i]) - 1
+
+			if len(uniqueConfigs) == 1 {
+				// Only one unique config, keep original name
+				result = append(result, bestServer)
+			} else {
+				// Multiple unique configs, add counter suffix
+				bestServer.Name = fmt.Sprintf("%s-%d", originalName, counter)
+				result = append(result, bestServer)
+				counter++
+			}
 		}
 	}
 
@@ -172,20 +321,24 @@ func deduplicateServers(servers []DiscoveredServer) []DiscoveredServer {
 // ClaudeDesktopDiscoverer discovers MCP servers from Claude Desktop configuration
 type ClaudeDesktopDiscoverer struct{}
 
+// Name returns the name of the Claude Desktop discoverer.
 func (c *ClaudeDesktopDiscoverer) Name() string {
 	return "Claude Desktop"
 }
 
+// Description returns a description of what the Claude Desktop discoverer does.
 func (c *ClaudeDesktopDiscoverer) Description() string {
 	return "Scans Claude Desktop configuration for MCP servers"
 }
 
+// IsAvailable returns whether Claude Desktop discovery is available on the current platform.
 func (c *ClaudeDesktopDiscoverer) IsAvailable() bool {
 	// Claude Desktop is primarily available on macOS and Windows
 	return runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 }
 
-func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
+// Discover searches for MCP servers in Claude Desktop configuration files.
+func (c *ClaudeDesktopDiscoverer) Discover() ([]Server, error) {
 	configPath := c.getConfigPath()
 	if configPath == "" {
 		return nil, fmt.Errorf("claude desktop config path not found")
@@ -193,7 +346,7 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 
 	// Check if config file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return []DiscoveredServer{}, nil // No config found, not an error
+		return []Server{}, nil // No config found, not an error
 	}
 
 	// Read and parse config
@@ -222,7 +375,7 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 
 	// Parse mcpServers section (stdio-based servers)
 	for name, serverConfig := range config.MCPServers {
@@ -232,7 +385,7 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 			continue // Skip servers without commands in Claude Desktop
 		}
 
-		server := DiscoveredServer{
+		server := Server{
 			Name:       name,
 			Command:    serverConfig.Command,
 			Args:       serverConfig.Args,
@@ -258,7 +411,7 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]DiscoveredServer, error) {
 			continue // Skip servers without command or URL
 		}
 
-		server := DiscoveredServer{
+		server := Server{
 			Name:       name,
 			Command:    serverConfig.Command,
 			Args:       serverConfig.Args,
@@ -291,20 +444,24 @@ func (c *ClaudeDesktopDiscoverer) getConfigPath() string {
 // VSCodeDiscoverer discovers MCP servers from VS Code configurations
 type VSCodeDiscoverer struct{}
 
+// Name returns the name of the VS Code discoverer.
 func (v *VSCodeDiscoverer) Name() string {
 	return "VS Code"
 }
 
+// Description returns a description of what the VS Code discoverer does.
 func (v *VSCodeDiscoverer) Description() string {
 	return "Scans VS Code workspace and user settings for MCP configurations"
 }
 
+// IsAvailable returns whether VS Code discovery is available on the current platform.
 func (v *VSCodeDiscoverer) IsAvailable() bool {
 	return true // VS Code can be on any platform
 }
 
-func (v *VSCodeDiscoverer) Discover() ([]DiscoveredServer, error) {
-	var allServers []DiscoveredServer
+// Discover searches for MCP servers in VS Code configuration files.
+func (v *VSCodeDiscoverer) Discover() ([]Server, error) {
+	var allServers []Server
 
 	// Search common VS Code config locations
 	searchPaths := v.getSearchPaths()
@@ -346,9 +503,9 @@ func (v *VSCodeDiscoverer) getSearchPaths() []string {
 	return paths
 }
 
-func (v *VSCodeDiscoverer) scanPath(configPath string) ([]DiscoveredServer, error) {
+func (v *VSCodeDiscoverer) scanPath(configPath string) ([]Server, error) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -363,10 +520,10 @@ func (v *VSCodeDiscoverer) scanPath(configPath string) ([]DiscoveredServer, erro
 		return v.parseSettingsJson(data, configPath)
 	}
 
-	return []DiscoveredServer{}, nil
+	return []Server{}, nil
 }
 
-func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]DiscoveredServer, error) {
+func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]Server, error) {
 	var config struct {
 		Servers map[string]struct {
 			Command string            `json:"command"`
@@ -380,7 +537,7 @@ func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]Disco
 		return nil, err
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 	for name, serverConfig := range config.Servers {
 		// Determine transport and set appropriate fields
 		transport := "stdio" // default
@@ -392,7 +549,7 @@ func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]Disco
 			url = serverConfig.URL
 		}
 
-		server := DiscoveredServer{
+		server := Server{
 			Name:       name,
 			Command:    serverConfig.Command,
 			Args:       serverConfig.Args,
@@ -408,14 +565,14 @@ func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]Disco
 	return servers, nil
 }
 
-func (v *VSCodeDiscoverer) parseSettingsJson(data []byte, sourcePath string) ([]DiscoveredServer, error) {
+func (v *VSCodeDiscoverer) parseSettingsJson(data []byte, sourcePath string) ([]Server, error) {
 	var config map[string]interface{}
 
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 
 	// Look for MCP-related settings in various extensions
 	// This is a placeholder - specific extensions would need specific parsing
@@ -437,8 +594,8 @@ func (v *VSCodeDiscoverer) parseSettingsJson(data []byte, sourcePath string) ([]
 	return servers, nil
 }
 
-func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[string]interface{}, sourcePath string) *DiscoveredServer {
-	server := &DiscoveredServer{
+func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[string]interface{}, sourcePath string) *Server {
+	server := &Server{
 		Name:       name,
 		Env:        make(map[string]string),
 		Source:     "VS Code Settings",
@@ -481,25 +638,28 @@ func (v *VSCodeDiscoverer) extractServerFromMap(name string, serverInfo map[stri
 	return server
 }
 
-// RegexDiscoverer implementation
+// Name returns the name of the regex-based discoverer.
 func (r *RegexDiscoverer) Name() string {
 	return r.DiscovererName
 }
 
+// Description returns a description of what the regex-based discoverer does.
 func (r *RegexDiscoverer) Description() string {
 	return r.DiscovererDescription
 }
 
+// IsAvailable returns whether the regex-based discoverer is enabled.
 func (r *RegexDiscoverer) IsAvailable() bool {
 	return r.Enabled
 }
 
-func (r *RegexDiscoverer) Discover() ([]DiscoveredServer, error) {
+// Discover searches for MCP servers using regex-based pattern matching.
+func (r *RegexDiscoverer) Discover() ([]Server, error) {
 	if !r.Enabled {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
-	var allServers []DiscoveredServer
+	var allServers []Server
 
 	// Search each configured path
 	for _, searchPath := range r.SearchPaths {
@@ -516,29 +676,29 @@ func (r *RegexDiscoverer) Discover() ([]DiscoveredServer, error) {
 }
 
 // scanPath recursively scans a directory for config files matching patterns
-func (r *RegexDiscoverer) scanPath(path string, depth int) ([]DiscoveredServer, error) {
+func (r *RegexDiscoverer) scanPath(path string, depth int) ([]Server, error) {
 	if depth > r.MaxDepth {
-		return []DiscoveredServer{}, nil
+		return []Server{}, nil
 	}
 
 	// Check if path exists
 	info, err := os.Stat(path)
 	if err != nil {
-		return []DiscoveredServer{}, nil // Path doesn't exist, not an error
+		return []Server{}, nil // Path doesn't exist, not an error
 	}
 
-	var servers []DiscoveredServer
+	var servers []Server
 
 	if info.IsDir() {
 		// Skip common directories that are unlikely to contain MCP configs
 		if shouldSkipDirectory(path) {
-			return []DiscoveredServer{}, nil
+			return []Server{}, nil
 		}
 
 		// Scan directory contents
 		entries, err := os.ReadDir(path)
 		if err != nil {
-			return []DiscoveredServer{}, err
+			return []Server{}, err
 		}
 
 		for _, entry := range entries {
@@ -553,7 +713,7 @@ func (r *RegexDiscoverer) scanPath(path string, depth int) ([]DiscoveredServer, 
 		// Check if file matches any pattern
 		fileServers, err := r.processFile(path)
 		if err != nil {
-			return []DiscoveredServer{}, err
+			return []Server{}, err
 		}
 		servers = append(servers, fileServers...)
 	}
@@ -562,9 +722,9 @@ func (r *RegexDiscoverer) scanPath(path string, depth int) ([]DiscoveredServer, 
 }
 
 // processFile checks if a file matches patterns and extracts servers
-func (r *RegexDiscoverer) processFile(filePath string) ([]DiscoveredServer, error) {
+func (r *RegexDiscoverer) processFile(filePath string) ([]Server, error) {
 	// Sort patterns by priority (higher first)
-	patterns := make([]DiscoveryPattern, len(r.Patterns))
+	patterns := make([]Pattern, len(r.Patterns))
 	copy(patterns, r.Patterns)
 
 	// Simple bubble sort by priority
@@ -588,7 +748,7 @@ func (r *RegexDiscoverer) processFile(filePath string) ([]DiscoveredServer, erro
 		}
 	}
 
-	return []DiscoveredServer{}, nil
+	return []Server{}, nil
 }
 
 // expandPath expands ~ and environment variables in paths
