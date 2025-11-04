@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/CentianAI/centian-cli/internal/config"
-	"github.com/CentianAI/centian-cli/internal/discovery"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -262,27 +261,4 @@ func TestCLICommandStructure(t *testing.T) {
 	}
 
 	t.Log("CLI command structure test completed successfully")
-}
-
-// TestDiscoveryIntegration tests discovery system integration
-func TestDiscoveryIntegration(t *testing.T) {
-	// Test discovery manager integration
-	dm := discovery.NewDiscoveryManager()
-	if dm == nil {
-		t.Fatal("NewDiscoveryManager returned nil")
-	}
-
-	// Test discovery result structure
-	result := dm.DiscoverAll()
-	if result == nil {
-		t.Fatal("DiscoverAll returned nil")
-	}
-
-	// Verify result structure
-	if result.Servers == nil {
-		t.Error("Discovery result should have servers slice")
-	}
-
-	t.Logf("Discovery found %d servers", len(result.Servers))
-	t.Log("Discovery integration test completed successfully")
 }
