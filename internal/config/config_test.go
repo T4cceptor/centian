@@ -34,8 +34,8 @@ func TestConfigLifecycle(t *testing.T) {
 	if config.Proxy == nil {
 		t.Fatal("Expected proxy settings to be initialized")
 	}
-	if config.Hooks == nil {
-		t.Fatal("Expected hooks settings to be initialized")
+	if config.Processors == nil {
+		t.Fatal("Expected processors to be initialized")
 	}
 
 	// Test 2: Save configuration
@@ -167,7 +167,7 @@ func TestConfigValidation(t *testing.T) {
 			Transport: "stdio",
 			LogLevel:  "info",
 		},
-		Hooks: &HookSettings{},
+		Processors: []*ProcessorConfig{},
 	}
 
 	// This would test validation if we had a validate function

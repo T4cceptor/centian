@@ -11,13 +11,13 @@ import (
 
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.jsonc.
 // This is the root configuration object that contains all settings for MCP servers,
-// proxy behavior, lifecycle hooks, and additional metadata.
+// proxy behavior, processors, and additional metadata.
 type GlobalConfig struct {
-	Version  string                 `json:"version"`            // Config schema version
-	Servers  map[string]*MCPServer  `json:"servers"`            // Named MCP servers
-	Proxy    *ProxySettings         `json:"proxy,omitempty"`    // Proxy-level settings
-	Hooks    *HookSettings          `json:"hooks,omitempty"`    // Lifecycle hooks
-	Metadata map[string]interface{} `json:"metadata,omitempty"` // Additional metadata
+	Version    string                 `json:"version"`              // Config schema version
+	Servers    map[string]*MCPServer  `json:"servers"`              // Named MCP servers
+	Proxy      *ProxySettings         `json:"proxy,omitempty"`      // Proxy-level settings
+	Processors []*ProcessorConfig     `json:"processors,omitempty"` // Processor chain
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`   // Additional metadata
 }
 
 // MCPServer represents a single MCP server configuration.
@@ -46,23 +46,66 @@ type ProxySettings struct {
 	Timeout   int    `json:"timeout,omitempty"`  // Request timeout in seconds
 }
 
-// HookSettings contains lifecycle hook configurations that define custom
-// commands or HTTP endpoints to execute at various points in the MCP request/response cycle.
-type HookSettings struct {
-	PreRequest   *HookConfig `json:"preRequest,omitempty"`   // Before forwarding request
-	PostRequest  *HookConfig `json:"postRequest,omitempty"`  // After receiving response
-	OnConnect    *HookConfig `json:"onConnect,omitempty"`    // When server connects
-	OnDisconnect *HookConfig `json:"onDisconnect,omitempty"` // When server disconnects
+// ProcessorConfig defines a single processor that executes during MCP request/response flow.
+// Processors are composable units that can inspect, modify, or reject MCP messages.
+//
+// TODO: move below documentation into a better place
+// Type-specific configuration (Config field):
+//
+// For "cli" type processors:
+//   - "command" (string, required): Executable command to run (e.g., "python", "bash", "node")
+//   - "args" (array of strings, optional): Command-line arguments (e.g., ["script.py", "--flag"])
+//
+// Example CLI processor:
+//
+//	{
+//	  "name": "security-validator",
+//	  "type": "cli",
+//	  "enabled": true,
+//	  "timeout": 20,
+//	  "config": {
+//	    "command": "python",
+//	    "args": ["~/processors/security.py", "--strict"]
+//	  }
+//	}
+type ProcessorConfig struct {
+	Name    string                 `json:"name"`              // Unique processor name
+	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
+	Enabled bool                   `json:"enabled"`           // Whether processor is active
+	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
+	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
 }
 
-// HookConfig defines a single hook that can execute either a shell command
-// or make an HTTP POST request when triggered by lifecycle events.
-type HookConfig struct {
-	Command string            `json:"command"`           // Command to execute
-	Args    []string          `json:"args,omitempty"`    // Command arguments
-	Env     map[string]string `json:"env,omitempty"`     // Environment variables
-	Timeout int               `json:"timeout,omitempty"` // Hook timeout in seconds
-	URL     string            `json:"url,omitempty"`     // HTTP endpoint to POST to
+// ProcessorInput represents the JSON input passed to processors via stdin.
+// This structure provides all context needed for the processor to make decisions.
+type ProcessorInput struct {
+	Type       string                 `json:"type"`       // "request" or "response"
+	Timestamp  string                 `json:"timestamp"`  // ISO 8601 timestamp
+	Connection ConnectionContext      `json:"connection"` // Connection metadata
+	Payload    map[string]interface{} `json:"payload"`    // MCP message payload
+	Metadata   ProcessorMetadata      `json:"metadata"`   // Additional context
+}
+
+// ConnectionContext provides connection-level metadata for processors.
+type ConnectionContext struct {
+	ServerName string `json:"server_name"` // Name of the MCP server
+	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
+	SessionID  string `json:"session_id"`  // Unique session identifier
+}
+
+// ProcessorMetadata contains additional context for processor execution.
+type ProcessorMetadata struct {
+	ProcessorChain  []string               `json:"processor_chain"`  // Names of processors already executed
+	OriginalPayload map[string]interface{} `json:"original_payload"` // Original unmodified payload
+}
+
+// ProcessorOutput represents the JSON output expected from processors via stdout.
+// Processors must return this structure to indicate their decision and any modifications.
+type ProcessorOutput struct {
+	Status   int                    `json:"status"`             // HTTP-style status: 200, 40x, 50x
+	Payload  map[string]interface{} `json:"payload"`            // Modified or original payload
+	Error    *string                `json:"error"`              // Error message if status >= 400, otherwise null
+	Metadata map[string]interface{} `json:"metadata,omitempty"` // Processor-specific metadata
 }
 
 // DefaultConfig returns a default configuration
@@ -75,8 +118,8 @@ func DefaultConfig() *GlobalConfig {
 			LogLevel:  "info",
 			Timeout:   30,
 		},
-		Hooks:    &HookSettings{},
-		Metadata: make(map[string]interface{}),
+		Processors: []*ProcessorConfig{}, // Empty processor list is valid (no-op)
+		Metadata:   make(map[string]interface{}),
 	}
 }
 
@@ -177,54 +220,156 @@ func ValidateConfig(config *GlobalConfig) error {
 		return fmt.Errorf("version field is required")
 	}
 
-	if config.Proxy != nil {
-		if config.Proxy.Transport == "" {
-			return fmt.Errorf("proxy.transport is required")
-		}
+	if err := validateProxy(config.Proxy); err != nil {
+		return err
+	}
 
-		validTransports := []string{"stdio", "http", "websocket"}
-		valid := false
-		for _, t := range validTransports {
-			if config.Proxy.Transport == t {
-				valid = true
-				break
-			}
+	if err := validateServers(config.Servers); err != nil {
+		return err
+	}
+
+	if err := validateProcessors(config.Processors); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateProxy validates proxy configuration
+func validateProxy(proxy *ProxySettings) error {
+	if proxy == nil {
+		return nil
+	}
+
+	if proxy.Transport == "" {
+		return fmt.Errorf("proxy.transport is required")
+	}
+
+	validTransports := []string{"stdio", "http", "websocket"}
+	valid := false
+	for _, t := range validTransports {
+		if proxy.Transport == t {
+			valid = true
+			break
 		}
-		if !valid {
-			return fmt.Errorf("proxy.transport must be one of: %v", validTransports)
+	}
+	if !valid {
+		return fmt.Errorf("proxy.transport must be one of: %v", validTransports)
+	}
+
+	return nil
+}
+
+// validateServers validates server configurations
+func validateServers(servers map[string]*MCPServer) error {
+	for name, server := range servers {
+		if err := validateServer(name, server); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateServer validates a single server configuration
+func validateServer(name string, server *MCPServer) error {
+	if server.Name == "" {
+		server.Name = name // Use key as name if not specified
+	}
+
+	// Set default transport if not specified
+	if server.Transport == "" {
+		if server.URL != "" {
+			server.Transport = "http" // Default to HTTP if URL is provided
+		} else {
+			server.Transport = "stdio" // Default to stdio for command-based servers
 		}
 	}
 
-	// Validate servers
-	for name, server := range config.Servers {
-		if server.Name == "" {
-			server.Name = name // Use key as name if not specified
+	// Validate based on transport type
+	switch server.Transport {
+	case "stdio", "process":
+		if server.Command == "" {
+			return fmt.Errorf("server '%s': command is required for %s transport", name, server.Transport)
 		}
-
-		// Set default transport if not specified
-		if server.Transport == "" {
-			if server.URL != "" {
-				server.Transport = "http" // Default to HTTP if URL is provided
-			} else {
-				server.Transport = "stdio" // Default to stdio for command-based servers
-			}
+	case "http", "https", "websocket", "ws":
+		if server.URL == "" {
+			return fmt.Errorf("server '%s': URL is required for %s transport", name, server.Transport)
 		}
-
-		// Validate based on transport type
-		switch server.Transport {
-		case "stdio", "process":
-			if server.Command == "" {
-				return fmt.Errorf("server '%s': command is required for %s transport", name, server.Transport)
-			}
-		case "http", "https", "websocket", "ws":
-			if server.URL == "" {
-				return fmt.Errorf("server '%s': URL is required for %s transport", name, server.Transport)
-			}
-		default:
-			return fmt.Errorf("server '%s': unsupported transport '%s' (supported: stdio, http, websocket)", name, server.Transport)
-		}
+	default:
+		return fmt.Errorf("server '%s': unsupported transport '%s' (supported: stdio, http, websocket)", name, server.Transport)
 	}
 
+	return nil
+}
+
+// validateProcessors validates processor configurations
+func validateProcessors(processors []*ProcessorConfig) error {
+	processorNames := make(map[string]bool)
+	for i, processor := range processors {
+		if err := validateProcessor(i, processor, processorNames); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateProcessor validates a single processor configuration
+func validateProcessor(index int, processor *ProcessorConfig, processorNames map[string]bool) error {
+	// Required fields
+	if processor.Name == "" {
+		return fmt.Errorf("processor[%d]: name is required", index)
+	}
+
+	// Check for duplicate processor names
+	if processorNames[processor.Name] {
+		return fmt.Errorf("processor '%s': duplicate processor name", processor.Name)
+	}
+	processorNames[processor.Name] = true
+
+	if processor.Type == "" {
+		return fmt.Errorf("processor '%s': type is required", processor.Name)
+	}
+
+	// Validate type
+	if processor.Type != "cli" {
+		return fmt.Errorf("processor '%s': unsupported type '%s' (v1 only supports 'cli')", processor.Name, processor.Type)
+	}
+
+	// Set default timeout if not specified
+	if processor.Timeout == 0 {
+		processor.Timeout = 15 // Default 15 seconds
+	}
+
+	// Validate config field is present
+	if processor.Config == nil {
+		return fmt.Errorf("processor '%s': config is required", processor.Name)
+	}
+
+	// Validate type-specific config
+	return validateProcessorTypeConfig(processor)
+}
+
+// validateProcessorTypeConfig validates type-specific processor configuration
+func validateProcessorTypeConfig(processor *ProcessorConfig) error {
+	//nolint:gocritic // switch used for future extensibility with additional processor types
+	switch processor.Type {
+	case "cli":
+		// CLI processors require command field in config
+		command, ok := processor.Config["command"]
+		if !ok {
+			return fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
+		}
+		if _, ok := command.(string); !ok {
+			return fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
+		}
+
+		// Args is optional but must be array if present
+		if args, exists := processor.Config["args"]; exists {
+			if _, ok := args.([]interface{}); !ok {
+				return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)
+			}
+		}
+	}
 	return nil
 }
 

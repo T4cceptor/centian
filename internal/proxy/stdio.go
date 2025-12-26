@@ -17,6 +17,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -25,7 +26,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/CentianAI/centian-cli/internal/logging"
+	"github.com/CentianAI/centian-cli/internal/processor"
 )
 
 // StdioProxy represents a proxy for MCP servers using stdio transport.
@@ -73,9 +76,13 @@ type StdioProxy struct {
 
 	// args are the arguments passed to the command
 	args []string
+
+	// processorChain executes processors on requests/responses (optional, nil-safe)
+	processorChain *processor.Chain
 }
 
-// NewStdioProxy creates a new stdio proxy for the given command and arguments
+// NewStdioProxy creates a new stdio proxy for the given command and arguments.
+// To enable processors, call SetProcessors after creation.
 func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioProxy, error) {
 	proxyCtx, cancel := context.WithCancel(ctx)
 
@@ -126,6 +133,23 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 		command:   command,
 		args:      args,
 	}, nil
+}
+
+// SetProcessors initializes the processor chain for this proxy.
+// Must be called before Start() to enable request/response processing.
+func (p *StdioProxy) SetProcessors(processors []*config.ProcessorConfig) error {
+	if len(processors) == 0 {
+		p.processorChain = nil
+		return nil
+	}
+
+	chain, err := processor.NewChain(processors, p.command, p.sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to create processor chain: %w", err)
+	}
+
+	p.processorChain = chain
+	return nil
 }
 
 // Start starts the MCP server process and begins proxying
@@ -234,8 +258,50 @@ func (p *StdioProxy) handleStdout() {
 			}
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 
+			// Execute processor chain if configured
+			outputLine := line
+			if p.processorChain != nil {
+				result, err := p.processorChain.ExecuteResponse(line)
+				switch {
+				case err != nil:
+					// Failed to execute processor chain
+					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute response processors: %v\n", err)
+					// Fall through and forward original response
+				case result.Status >= 400:
+					// Processor rejected or errored - send MCP error to client
+					fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Response rejected with status %d\n", result.Status)
+
+					// Extract request ID from original message
+					var msgData map[string]interface{}
+					if err := json.Unmarshal([]byte(line), &msgData); err != nil {
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to parse response JSON for error response: %v\n", err)
+						// Fall through and forward original response
+					} else {
+						// Format MCP error response
+						errorResponse, err := processor.FormatMCPError(result, msgData["id"])
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to format MCP error: %v\n", err)
+							// Fall through and forward original response
+						} else {
+							// Send error response to client instead of original response
+							outputLine = errorResponse
+						}
+					}
+				default:
+					// Status 200 - processor passed, use modified payload
+					modifiedJSON, err := json.Marshal(result.ModifiedPayload)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to marshal modified response: %v\n", err)
+						// Fall through and forward original response
+					} else {
+						outputLine = string(modifiedJSON)
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Response modified by processors\n")
+					}
+				}
+			}
+
 			// Forward to client
-			fmt.Println(line)
+			fmt.Println(outputLine)
 		}
 	}
 
@@ -291,9 +357,52 @@ func (p *StdioProxy) handleStdin() {
 			}
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)
 
+			// Execute processor chain if configured
+			outputLine := line
+			if p.processorChain != nil {
+				result, err := p.processorChain.ExecuteRequest(line)
+				switch {
+				case err != nil:
+					// Failed to execute processor chain
+					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute request processors: %v\n", err)
+					// Fall through and forward original request
+				case result.Status >= 400:
+					// Processor rejected or errored - send MCP error to client
+					fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Request rejected with status %d\n", result.Status)
+
+					// Extract request ID from original message
+					var msgData map[string]interface{}
+					if err := json.Unmarshal([]byte(line), &msgData); err != nil {
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to parse request JSON for error response: %v\n", err)
+						continue
+					}
+
+					// Format MCP error response
+					errorResponse, err := processor.FormatMCPError(result, msgData["id"])
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to format MCP error: %v\n", err)
+						continue
+					}
+
+					// Send error response to client (not to server)
+					fmt.Println(errorResponse)
+					continue // Don't forward to server
+				default:
+					// Status 200 - processor passed, use modified payload
+					modifiedJSON, err := json.Marshal(result.ModifiedPayload)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to marshal modified request: %v\n", err)
+						// Fall through and forward original request
+					} else {
+						outputLine = string(modifiedJSON)
+						fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Request modified by processors\n")
+					}
+				}
+			}
+
 			// Forward to MCP server
 			if p.stdin != nil {
-				if _, err := fmt.Fprintln(p.stdin, line); err != nil {
+				if _, err := fmt.Fprintln(p.stdin, outputLine); err != nil {
 					fmt.Fprintf(os.Stderr, "Error writing to MCP server stdin: %v\n", err)
 					return
 				}
