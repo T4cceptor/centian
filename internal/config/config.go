@@ -111,8 +111,8 @@ type ProcessorOutput struct {
 // DefaultConfig returns a default configuration
 func DefaultConfig() *GlobalConfig {
 	return &GlobalConfig{
-		Version:    "1.0.0",
-		Servers:    make(map[string]*MCPServer),
+		Version: "1.0.0",
+		Servers: make(map[string]*MCPServer),
 		Proxy: &ProxySettings{
 			Transport: "stdio",
 			LogLevel:  "info",
@@ -220,108 +220,156 @@ func ValidateConfig(config *GlobalConfig) error {
 		return fmt.Errorf("version field is required")
 	}
 
-	if config.Proxy != nil {
-		if config.Proxy.Transport == "" {
-			return fmt.Errorf("proxy.transport is required")
-		}
+	if err := validateProxy(config.Proxy); err != nil {
+		return err
+	}
 
-		validTransports := []string{"stdio", "http", "websocket"}
-		valid := false
-		for _, t := range validTransports {
-			if config.Proxy.Transport == t {
-				valid = true
-				break
-			}
+	if err := validateServers(config.Servers); err != nil {
+		return err
+	}
+
+	if err := validateProcessors(config.Processors); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateProxy validates proxy configuration
+func validateProxy(proxy *ProxySettings) error {
+	if proxy == nil {
+		return nil
+	}
+
+	if proxy.Transport == "" {
+		return fmt.Errorf("proxy.transport is required")
+	}
+
+	validTransports := []string{"stdio", "http", "websocket"}
+	valid := false
+	for _, t := range validTransports {
+		if proxy.Transport == t {
+			valid = true
+			break
 		}
-		if !valid {
-			return fmt.Errorf("proxy.transport must be one of: %v", validTransports)
+	}
+	if !valid {
+		return fmt.Errorf("proxy.transport must be one of: %v", validTransports)
+	}
+
+	return nil
+}
+
+// validateServers validates server configurations
+func validateServers(servers map[string]*MCPServer) error {
+	for name, server := range servers {
+		if err := validateServer(name, server); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateServer validates a single server configuration
+func validateServer(name string, server *MCPServer) error {
+	if server.Name == "" {
+		server.Name = name // Use key as name if not specified
+	}
+
+	// Set default transport if not specified
+	if server.Transport == "" {
+		if server.URL != "" {
+			server.Transport = "http" // Default to HTTP if URL is provided
+		} else {
+			server.Transport = "stdio" // Default to stdio for command-based servers
 		}
 	}
 
-	// Validate servers
-	for name, server := range config.Servers {
-		if server.Name == "" {
-			server.Name = name // Use key as name if not specified
+	// Validate based on transport type
+	switch server.Transport {
+	case "stdio", "process":
+		if server.Command == "" {
+			return fmt.Errorf("server '%s': command is required for %s transport", name, server.Transport)
 		}
-
-		// Set default transport if not specified
-		if server.Transport == "" {
-			if server.URL != "" {
-				server.Transport = "http" // Default to HTTP if URL is provided
-			} else {
-				server.Transport = "stdio" // Default to stdio for command-based servers
-			}
+	case "http", "https", "websocket", "ws":
+		if server.URL == "" {
+			return fmt.Errorf("server '%s': URL is required for %s transport", name, server.Transport)
 		}
-
-		// Validate based on transport type
-		switch server.Transport {
-		case "stdio", "process":
-			if server.Command == "" {
-				return fmt.Errorf("server '%s': command is required for %s transport", name, server.Transport)
-			}
-		case "http", "https", "websocket", "ws":
-			if server.URL == "" {
-				return fmt.Errorf("server '%s': URL is required for %s transport", name, server.Transport)
-			}
-		default:
-			return fmt.Errorf("server '%s': unsupported transport '%s' (supported: stdio, http, websocket)", name, server.Transport)
-		}
+	default:
+		return fmt.Errorf("server '%s': unsupported transport '%s' (supported: stdio, http, websocket)", name, server.Transport)
 	}
 
-	// Validate processors
+	return nil
+}
+
+// validateProcessors validates processor configurations
+func validateProcessors(processors []*ProcessorConfig) error {
 	processorNames := make(map[string]bool)
-	for i, processor := range config.Processors {
-		// Required fields
-		if processor.Name == "" {
-			return fmt.Errorf("processor[%d]: name is required", i)
+	for i, processor := range processors {
+		if err := validateProcessor(i, processor, processorNames); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateProcessor validates a single processor configuration
+func validateProcessor(index int, processor *ProcessorConfig, processorNames map[string]bool) error {
+	// Required fields
+	if processor.Name == "" {
+		return fmt.Errorf("processor[%d]: name is required", index)
+	}
+
+	// Check for duplicate processor names
+	if processorNames[processor.Name] {
+		return fmt.Errorf("processor '%s': duplicate processor name", processor.Name)
+	}
+	processorNames[processor.Name] = true
+
+	if processor.Type == "" {
+		return fmt.Errorf("processor '%s': type is required", processor.Name)
+	}
+
+	// Validate type
+	if processor.Type != "cli" {
+		return fmt.Errorf("processor '%s': unsupported type '%s' (v1 only supports 'cli')", processor.Name, processor.Type)
+	}
+
+	// Set default timeout if not specified
+	if processor.Timeout == 0 {
+		processor.Timeout = 15 // Default 15 seconds
+	}
+
+	// Validate config field is present
+	if processor.Config == nil {
+		return fmt.Errorf("processor '%s': config is required", processor.Name)
+	}
+
+	// Validate type-specific config
+	return validateProcessorTypeConfig(processor)
+}
+
+// validateProcessorTypeConfig validates type-specific processor configuration
+func validateProcessorTypeConfig(processor *ProcessorConfig) error {
+	//nolint:gocritic // switch used for future extensibility with additional processor types
+	switch processor.Type {
+	case "cli":
+		// CLI processors require command field in config
+		command, ok := processor.Config["command"]
+		if !ok {
+			return fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
+		}
+		if _, ok := command.(string); !ok {
+			return fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
 		}
 
-		// Check for duplicate processor names
-		if processorNames[processor.Name] {
-			return fmt.Errorf("processor '%s': duplicate processor name", processor.Name)
-		}
-		processorNames[processor.Name] = true
-
-		if processor.Type == "" {
-			return fmt.Errorf("processor '%s': type is required", processor.Name)
-		}
-
-		// Validate type
-		if processor.Type != "cli" {
-			return fmt.Errorf("processor '%s': unsupported type '%s' (v1 only supports 'cli')", processor.Name, processor.Type)
-		}
-
-		// Set default timeout if not specified
-		if processor.Timeout == 0 {
-			processor.Timeout = 15 // Default 15 seconds
-		}
-
-		// Validate config field is present
-		if processor.Config == nil {
-			return fmt.Errorf("processor '%s': config is required", processor.Name)
-		}
-
-		// Validate type-specific config
-		switch processor.Type {
-		case "cli":
-			// CLI processors require command field in config
-			command, ok := processor.Config["command"]
-			if !ok {
-				return fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
-			}
-			if _, ok := command.(string); !ok {
-				return fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
-			}
-
-			// Args is optional but must be array if present
-			if args, exists := processor.Config["args"]; exists {
-				if _, ok := args.([]interface{}); !ok {
-					return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)
-				}
+		// Args is optional but must be array if present
+		if args, exists := processor.Config["args"]; exists {
+			if _, ok := args.([]interface{}); !ok {
+				return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)
 			}
 		}
 	}
-
 	return nil
 }
 

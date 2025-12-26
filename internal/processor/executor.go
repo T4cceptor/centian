@@ -50,10 +50,25 @@ func (e *Executor) Execute(processorConfig *config.ProcessorConfig, input *confi
 
 // executeCLI executes a CLI processor with timeout and JSON I/O handling.
 func (e *Executor) executeCLI(processorConfig *config.ProcessorConfig, input *config.ProcessorInput) (*config.ProcessorOutput, error) {
+	// Extract command and args from config
+	command, args, err := extractCommandAndArgs(processorConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Execute the command with timeout
+	stdout, stderr, err := e.executeCommandWithTimeout(processorConfig, command, args, input)
+
+	// Handle execution result
+	return handleExecutionResult(processorConfig, input, stdout, stderr, err)
+}
+
+// extractCommandAndArgs extracts command and arguments from processor config
+func extractCommandAndArgs(processorConfig *config.ProcessorConfig) (string, []string, error) {
 	// Extract command from config
 	command, ok := processorConfig.Config["command"].(string)
 	if !ok {
-		return nil, fmt.Errorf("processor '%s': config.command must be a string", processorConfig.Name)
+		return "", nil, fmt.Errorf("processor '%s': config.command must be a string", processorConfig.Name)
 	}
 
 	// Extract args (optional)
@@ -61,18 +76,23 @@ func (e *Executor) executeCLI(processorConfig *config.ProcessorConfig, input *co
 	if argsInterface, exists := processorConfig.Config["args"]; exists {
 		argsArray, ok := argsInterface.([]interface{})
 		if !ok {
-			return nil, fmt.Errorf("processor '%s': config.args must be an array", processorConfig.Name)
+			return "", nil, fmt.Errorf("processor '%s': config.args must be an array", processorConfig.Name)
 		}
 		// Convert []interface{} to []string
 		for _, arg := range argsArray {
 			argStr, ok := arg.(string)
 			if !ok {
-				return nil, fmt.Errorf("processor '%s': config.args must contain only strings", processorConfig.Name)
+				return "", nil, fmt.Errorf("processor '%s': config.args must contain only strings", processorConfig.Name)
 			}
 			args = append(args, argStr)
 		}
 	}
 
+	return command, args, nil
+}
+
+// executeCommandWithTimeout executes a command with timeout and returns stdout, stderr, and error
+func (e *Executor) executeCommandWithTimeout(processorConfig *config.ProcessorConfig, command string, args []string, input *config.ProcessorInput) (bytes.Buffer, bytes.Buffer, error) {
 	// Set up timeout context
 	timeout := time.Duration(processorConfig.Timeout) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -85,7 +105,7 @@ func (e *Executor) executeCLI(processorConfig *config.ProcessorConfig, input *co
 	// Marshal input to JSON for stdin
 	inputJSON, err := json.Marshal(input)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal processor input: %w", err)
+		return bytes.Buffer{}, bytes.Buffer{}, fmt.Errorf("failed to marshal processor input: %w", err)
 	}
 
 	// Set up stdin, stdout, stderr buffers
@@ -97,12 +117,22 @@ func (e *Executor) executeCLI(processorConfig *config.ProcessorConfig, input *co
 	// Execute the command
 	err = cmd.Run()
 
-	// Handle timeout
+	// Return with context error if timeout occurred
 	if ctx.Err() == context.DeadlineExceeded {
+		return stdout, stderr, context.DeadlineExceeded
+	}
+
+	return stdout, stderr, err
+}
+
+// handleExecutionResult processes command execution result and returns ProcessorOutput
+func handleExecutionResult(processorConfig *config.ProcessorConfig, input *config.ProcessorInput, stdout, stderr bytes.Buffer, err error) (*config.ProcessorOutput, error) {
+	// Handle timeout
+	if err == context.DeadlineExceeded {
 		errorMsg := fmt.Sprintf("processor '%s' timed out after %d seconds", processorConfig.Name, processorConfig.Timeout)
 		return &config.ProcessorOutput{
 			Status:  500,
-			Payload: input.Payload, // Return original payload
+			Payload: input.Payload,
 			Error:   &errorMsg,
 		}, nil
 	}
@@ -115,11 +145,17 @@ func (e *Executor) executeCLI(processorConfig *config.ProcessorConfig, input *co
 		}
 		return &config.ProcessorOutput{
 			Status:  500,
-			Payload: input.Payload, // Return original payload
+			Payload: input.Payload,
 			Error:   &errorMsg,
 		}, nil
 	}
 
+	// Parse and validate output
+	return parseAndValidateOutput(processorConfig, input, stdout)
+}
+
+// parseAndValidateOutput parses stdout JSON and validates the output
+func parseAndValidateOutput(processorConfig *config.ProcessorConfig, input *config.ProcessorInput, stdout bytes.Buffer) (*config.ProcessorOutput, error) {
 	// Parse stdout JSON to ProcessorOutput
 	var output config.ProcessorOutput
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
@@ -129,7 +165,7 @@ func (e *Executor) executeCLI(processorConfig *config.ProcessorConfig, input *co
 		}
 		return &config.ProcessorOutput{
 			Status:  500,
-			Payload: input.Payload, // Return original payload
+			Payload: input.Payload,
 			Error:   &errorMsg,
 		}, nil
 	}

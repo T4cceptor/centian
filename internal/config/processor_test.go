@@ -338,8 +338,8 @@ func TestProcessorConfigPersistence(t *testing.T) {
 
 // Helper function to check if string contains substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && findSubstring(s, substr)))
+	return len(s) >= len(substr) && (s == substr || substr == "" ||
+		(s != "" && substr != "" && findSubstring(s, substr)))
 }
 
 func findSubstring(s, substr string) bool {

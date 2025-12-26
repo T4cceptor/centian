@@ -149,13 +149,14 @@ func FormatMCPError(result *ChainResult, requestID interface{}) (string, error) 
 	var errorCode int
 	var errorMessage string
 
-	if result.Status >= 500 {
+	switch {
+	case result.Status >= 500:
 		errorCode = -32603 // Internal error
 		errorMessage = "Request processing failed"
-	} else if result.Status >= 400 {
+	case result.Status >= 400:
 		errorCode = -32001 // Server error (custom code for processor rejection)
 		errorMessage = "Request rejected by processor"
-	} else {
+	default:
 		return "", fmt.Errorf("cannot format error for status %d (not an error)", result.Status)
 	}
 

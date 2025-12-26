@@ -262,11 +262,12 @@ func (p *StdioProxy) handleStdout() {
 			outputLine := line
 			if p.processorChain != nil {
 				result, err := p.processorChain.ExecuteResponse(line)
-				if err != nil {
+				switch {
+				case err != nil:
 					// Failed to execute processor chain
 					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute response processors: %v\n", err)
 					// Fall through and forward original response
-				} else if result.Status >= 400 {
+				case result.Status >= 400:
 					// Processor rejected or errored - send MCP error to client
 					fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Response rejected with status %d\n", result.Status)
 
@@ -286,7 +287,7 @@ func (p *StdioProxy) handleStdout() {
 							outputLine = errorResponse
 						}
 					}
-				} else {
+				default:
 					// Status 200 - processor passed, use modified payload
 					modifiedJSON, err := json.Marshal(result.ModifiedPayload)
 					if err != nil {
@@ -360,11 +361,12 @@ func (p *StdioProxy) handleStdin() {
 			outputLine := line
 			if p.processorChain != nil {
 				result, err := p.processorChain.ExecuteRequest(line)
-				if err != nil {
+				switch {
+				case err != nil:
 					// Failed to execute processor chain
 					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute request processors: %v\n", err)
 					// Fall through and forward original request
-				} else if result.Status >= 400 {
+				case result.Status >= 400:
 					// Processor rejected or errored - send MCP error to client
 					fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Request rejected with status %d\n", result.Status)
 
@@ -385,7 +387,7 @@ func (p *StdioProxy) handleStdin() {
 					// Send error response to client (not to server)
 					fmt.Println(errorResponse)
 					continue // Don't forward to server
-				} else {
+				default:
 					// Status 200 - processor passed, use modified payload
 					modifiedJSON, err := json.Marshal(result.ModifiedPayload)
 					if err != nil {
