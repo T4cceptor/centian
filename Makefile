@@ -12,7 +12,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test lint fmt vet tidy run dev
+.PHONY: help build clean test test-integration test-all lint fmt vet tidy run dev
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -29,9 +29,15 @@ clean: ## Clean build artifacts
 	@rm -rf $(BUILD_DIR)
 	@rm -f $(BINARY_NAME)
 
-test: ## Run tests
-	@echo "Running tests..."
-	go test -v -race ./...
+test: ## Run unit tests
+	@echo "Running unit tests..."
+	go test -v -race ./internal/... ./cmd/...
+
+test-integration: ## Run integration tests
+	@echo "Running integration tests..."
+	go test -v ./integration_tests/...
+
+test-all: test test-integration ## Run all tests (unit + integration)
 
 lint: ## Run linter (requires golangci-lint)
 	@echo "Running linter..."
@@ -58,7 +64,7 @@ start: build ## Build and start the MCP proxy server
 	@echo "Starting MCP proxy server..."
 	./$(BUILD_DIR)/$(BINARY_NAME) start
 
-dev: clean fmt vet test build ## Run full development workflow
+dev: clean fmt vet test-all build ## Run full development workflow (includes integration tests)
 
 install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
