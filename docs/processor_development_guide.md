@@ -28,6 +28,23 @@ A comprehensive guide to developing custom processors for Centian CLI.
 
 ## Quick Start
 
+### Prerequisites
+
+Before you start, ensure you have:
+
+1. **Centian CLI installed** - Download from [releases](https://github.com/CentianAI/centian-cli/releases) or build from source
+2. **Language runtime available in PATH**:
+   - **Python 3.x** (recommended) - `python3 --version`
+   - **Node.js** (for JavaScript/TypeScript) - `node --version`
+   - **Bash with `jq`** (for shell scripts) - `jq --version`
+3. **Text editor** - Any editor (VS Code, vim, nano, etc.)
+4. **Command line access** - Terminal or shell
+
+**Optional but recommended:**
+- `jq` - JSON validation and formatting tool
+- `chmod` - Make scripts executable (pre-installed on Unix-like systems)
+
+### Steps
 Quick-start to get a processor running in minutes:
 
 1. Generate a scaffold:
