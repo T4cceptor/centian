@@ -1,12 +1,12 @@
-# Processor Integration Tests
+# Integration Tests
 
-This directory contains end-to-end integration tests for the Centian processor system.
+This directory contains end-to-end integration tests for the Centian.
 
-## Overview
+## Processors
 
 Integration tests verify that real processor scripts work correctly with the processor execution engine. Unlike unit tests, these tests execute actual Python scripts and validate the complete request/response flow.
 
-## Directory Structure
+### Directory Structure
 
 ```
 integration_tests/
@@ -24,18 +24,18 @@ integration_tests/
     └── response_success.json     # Successful response
 ```
 
-## Test Coverage
+### Test Coverage
 
-### Processor Types
+#### Processor Types
 
-The integration tests cover all major processor patterns:
+The integration tests cover several major processor patterns:
 
 1. **Passthrough** - No-op processor for testing baseline functionality
 2. **Validator** - Accept/reject based on rules (security policies)
 3. **Logger** - Side effects with passthrough behavior
 4. **Transformer** - Payload modification
 
-### Test Scenarios
+#### Test Scenarios
 
 | Test | Description | Validates |
 |------|-------------|-----------|
@@ -48,9 +48,9 @@ The integration tests cover all major processor patterns:
 | `TestProcessorChain` | Multiple processors execute sequentially | Processor chaining |
 | `TestProcessorChainWithRejection` | Rejection stops the chain | Fail-fast behavior |
 
-## Running Tests
+### Running Tests
 
-### Run All Integration Tests
+#### Run All Integration Tests
 
 ```bash
 make test-integration
@@ -62,79 +62,79 @@ Or directly with Go:
 go test -v ./integration_tests/...
 ```
 
-### Run Specific Test
+#### Run Specific Test
 
 ```bash
 go test -v ./integration_tests -run TestPassthroughProcessor
 ```
 
-### Run with Coverage
+#### Run with Coverage
 
 ```bash
 go test -v -coverprofile=coverage.out ./integration_tests/...
 go tool cover -html=coverage.out
 ```
 
-## Test Processors
+### Test Processors
 
-### passthrough.py
+- **passthrough.py**
 
-**Purpose**: Returns the input payload unchanged.
+    **Purpose**: Returns the input payload unchanged.
 
-**Use Cases**:
-- Baseline functionality testing
-- Debugging processor chain flow
-- Template for new processors
+    **Use Cases**:
+    - Baseline functionality testing
+    - Debugging processor chain flow
+    - Template for new processors
 
-**Expected Behavior**:
-- Status: 200
-- Payload: Unchanged
-- Error: null
+    **Expected Behavior**:
+    - Status: 200
+    - Payload: Unchanged
+    - Error: null
 
-### security_validator.py
+- **security_validator.py**
 
-**Purpose**: Blocks requests containing "delete" in the method name.
+    **Purpose**: Blocks requests containing "delete" in the method name.
 
-**Use Cases**:
-- Security policy enforcement
-- Request validation
-- Testing rejection flow
+    **Use Cases**:
+    - Security policy enforcement
+    - Request validation
+    - Testing rejection flow
 
-**Expected Behavior**:
-- Normal requests: Status 200, payload unchanged
-- Delete requests: Status 403, error message, empty payload
+    **Expected Behavior**:
+    - Normal requests: Status 200, payload unchanged
+    - Delete requests: Status 403, error message, empty payload
 
-### request_logger.py
+- **request_logger.py**
 
-**Purpose**: Logs request metadata to a file and passes through.
+    **Purpose**: Logs request metadata to a file and passes through.
 
-**Use Cases**:
-- Audit logging
-- Monitoring
-- Side effect testing
+    **Use Cases**:
+    - Audit logging
+    - Monitoring
+    - Side effect testing
 
-**Expected Behavior**:
-- Status: 200
-- Payload: Unchanged
-- Side effect: Writes to `~/centian/logs/processor.log`
+    **Expected Behavior**:
+    - Status: 200
+    - Payload: Unchanged
+    - Side effect: Writes to `~/centian/logs/processor.log`
 
-### payload_transformer.py
+- **payload_transformer.py**
 
-**Purpose**: Adds custom `x-processor` header to request arguments.
+    **Purpose**: Adds custom `x-processor` header to request arguments.
 
-**Use Cases**:
-- Payload enrichment
-- Request modification
-- Header injection
+    **Use Cases**:
+    - Payload enrichment
+    - Request modification
+    - Header injection
 
-**Expected Behavior**:
-- Status: 200
-- Payload: Modified with `x-processor` header
-- Metadata: Lists modifications
+    **Expected Behavior**:
+    - Status: 200
+    - Payload: Modified with `x-processor` header
+    - Metadata: Lists modifications
 
-## Test Data Fixtures
+### Test Data Fixtures
 
-### request_normal.json
+#### request_normal.json
 
 Standard tool call request with safe parameters.
 
@@ -151,7 +151,7 @@ Standard tool call request with safe parameters.
 }
 ```
 
-### request_delete.json
+#### request_delete.json
 
 Request that should be blocked by security validator.
 
@@ -165,7 +165,7 @@ Request that should be blocked by security validator.
 }
 ```
 
-### response_success.json
+#### response_success.json
 
 Successful response from MCP server.
 
@@ -179,9 +179,9 @@ Successful response from MCP server.
 }
 ```
 
-## Adding New Tests
+### Adding a New Tests
 
-### 1. Create a Processor Script
+#### 1. Create a Processor Script
 
 Use the scaffold generator:
 
@@ -208,7 +208,7 @@ print(json.dumps({
 }))
 ```
 
-### 2. Create Test Fixture (if needed)
+#### 2. Create Test Fixture (if needed)
 
 Add to `testdata/`:
 
@@ -222,7 +222,7 @@ Add to `testdata/`:
 }
 ```
 
-### 3. Write Go Test
+#### 3. Write Go Test
 
 Add to `processor_test.go`:
 
@@ -244,17 +244,17 @@ func TestMyNewProcessor(t *testing.T) {
 }
 ```
 
-### 4. Run Tests
+#### 4. Run Tests
 
 ```bash
 go test -v ./integration_tests -run TestMyNewProcessor
 ```
 
-## Processor Contract
+### Processor Contract
 
 All processors must adhere to the processor contract:
 
-### Input (via stdin)
+#### Input (via stdin)
 
 ```json
 {
@@ -273,7 +273,7 @@ All processors must adhere to the processor contract:
 }
 ```
 
-### Output (via stdout)
+#### Output (via stdout)
 
 ```json
 {
@@ -287,63 +287,41 @@ All processors must adhere to the processor contract:
 }
 ```
 
-### Exit Codes
+#### Exit Codes
 
 - **0**: Processor executed successfully (check JSON status for decision)
 - **≠0**: Processor crashed (treated as 50x error)
 
-### Status Codes
+#### Status Codes
 
 - **200**: Success, continue to next processor
 - **40x**: Client error, reject request (403 = forbidden, 400 = bad request)
 - **50x**: Server error, internal processor failure
 
-## Troubleshooting
+### Processors: Troubleshooting
 
-### Test Fails with "permission denied"
+1. Test Fails with "permission denied"
+    - Ensure processor scripts are executable:
+      ```bash
+      chmod +x integration_tests/processors/*.py
+      ```
+2. Test Fails with "python3: command not found"
+    - Install Python 3 or update processor config to use correct interpreter path.
+3. Test Timeout
+    - Increase timeout in test or processor config:
+        ```go
+        processorConfig.Timeout = 30 // 30 seconds
+        ```
 
-Ensure processor scripts are executable:
-
-```bash
-chmod +x integration_tests/processors/*.py
-```
-
-### Test Fails with "python3: command not found"
-
-Install Python 3 or update processor config to use correct interpreter path.
-
-### Test Timeout
-
-Increase timeout in test or processor config:
-
-```go
-processorConfig.Timeout = 30 // 30 seconds
-```
-
-### Processor Not Found
-
-Ensure paths are correct. Integration tests use relative paths from the test directory:
-
-```go
-absPath, _ := filepath.Abs("processors/my_processor.py")
-```
-
-## CI/CD Integration
-
-These tests run in GitHub Actions on every PR and commit to main:
-
-```yaml
-- name: Run Integration Tests
-  run: make test-integration
-```
-
-Ensure all tests pass before merging.
+4. Processor Not Found
+    - Ensure paths are correct. Integration tests use relative paths from the test directory:
+        ```go
+        absPath, _ := filepath.Abs("processors/my_processor.py")
+        ```
 
 ## Reference Documentation
 
 - [Processor Development Guide](../docs/processor_development_guide.md)
-- [Processor Requirements](../.tmp/processor-system-requirements.md)
-- [Issue #16 - Processor System](https://github.com/CentianAI/centian-cli/issues/16)
 
 ## Contributing
 
