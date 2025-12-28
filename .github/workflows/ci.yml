@@ -23,14 +23,22 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Download dependencies
         run: go mod download
 
       - name: Verify dependencies
         run: go mod verify
 
-      - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+      - name: Run all tests (unit + integration)
+        run: make test-all
+
+      - name: Generate coverage
+        run: go test -coverprofile=coverage.out ./...
 
       - name: Generate coverage report
         run: go tool cover -html=coverage.out -o coverage.html
