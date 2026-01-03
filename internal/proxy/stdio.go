@@ -116,8 +116,9 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 	}
 
 	// Generate session and server IDs
-	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
-	serverID := fmt.Sprintf("stdio_%s_%d", command, time.Now().UnixNano())
+	timestamp := time.Now().UnixNano()
+	sessionID := fmt.Sprintf("session_%d", timestamp)
+	serverID := fmt.Sprintf("stdio_%s_%d", command, timestamp)
 
 	return &StdioProxy{
 		cmd:       cmd,
