@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
@@ -12,10 +14,30 @@ import (
 )
 
 // TestRawProxyWithSDKClient tests the raw proxy using MCP SDK client
-func TestBasicHTTPProxyWithSDKClient(t *testing.T) {
+func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
+	downstreamURL := "https://api.githubcopilot.com/mcp/"
+	githubPAT := os.Getenv("GITHUB_PAT")
+	if githubPAT == "" {
+		log.Fatal("GITHUB_PAT environment variable not set")
+	}
+	proxyConfig := NewDefaultProxyConfig()
+	proxyConfig.Port = "9000"
+	centianConfig := CentianConfig{
+		ProxyConfiguration: proxyConfig,
+		Gateways: []GatewayConfig{
+			{
+				Name: "my-test-gateway",
+				McpServers: map[string]HttpMcpServerConfig{
+					"my-test-mcp-1": NewHTTPProxyConfig(downstreamURL, map[string]any{
+						"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
+					}),
+				},
+			},
+		},
+	}
 	// Start raw proxy server in background
 	go func() {
-		RunBasicHTTPProxy()
+		StartCentianServer(&centianConfig)
 	}()
 
 	// Wait for server to start
@@ -31,7 +53,12 @@ func TestBasicHTTPProxyWithSDKClient(t *testing.T) {
 
 	// Connect to proxy server (NOT directly to GitHub!)
 	// This demonstrates that our raw proxy works with real MCP SDK clients
-	proxyURL := "http://localhost:9000"
+	proxyURL := fmt.Sprintf(
+		"http://localhost:%s/mcp/%s/%s",
+		proxyConfig.Port,
+		centianConfig.Gateways[0].Name,
+		"my-test-mcp-1",
+	)
 	log.Printf("Connecting to proxy server at %s", proxyURL)
 
 	session, err := client.Connect(
