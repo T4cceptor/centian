@@ -63,7 +63,7 @@ type StdioProxy struct {
 	cancel context.CancelFunc
 
 	// logger records proxy activity for debugging and monitoring
-	logger *logging.Logger
+	logger *logging.StdioLogger
 
 	// sessionID is a unique identifier for this proxy session (format: "session_<timestamp>")
 	sessionID string
@@ -108,17 +108,12 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Create logger
-	logger, err := logging.NewLogger()
+	// Create logger with immutable context (includes session/server IDs)
+	logger, err := logging.NewStdioLogger(command, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
-
-	// Generate session and server IDs
-	timestamp := time.Now().UnixNano()
-	sessionID := fmt.Sprintf("session_%d", timestamp)
-	serverID := fmt.Sprintf("stdio_%s_%d", command, timestamp)
 
 	return &StdioProxy{
 		cmd:       cmd,
@@ -129,8 +124,8 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 		ctx:       proxyCtx,
 		cancel:    cancel,
 		logger:    logger,
-		sessionID: sessionID,
-		serverID:  serverID,
+		sessionID: logger.SessionID(), // Get from logger
+		serverID:  logger.ServerID(),  // Get from logger
 		command:   command,
 		args:      args,
 	}, nil
@@ -171,7 +166,7 @@ func (p *StdioProxy) Start() error {
 
 	// Log proxy start
 	if p.logger != nil {
-		_ = p.logger.LogProxyStart(p.sessionID, p.command, p.args, p.serverID)
+		_ = p.logger.LogProxyStart()
 	}
 
 	// Start goroutines to handle I/O with WaitGroup tracking
@@ -229,7 +224,7 @@ func (p *StdioProxy) Stop() error {
 
 	// Now safe to close logger after all goroutines have finished
 	if p.logger != nil {
-		_ = p.logger.LogProxyStop(p.sessionID, p.command, p.args, p.serverID, true, "")
+		_ = p.logger.LogProxyStop(true, "")
 		_ = p.logger.Close()
 	}
 
@@ -255,7 +250,7 @@ func (p *StdioProxy) handleStdout() {
 			// Log the MCP response to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
-				_ = p.logger.LogResponse(requestID, p.sessionID, p.command, p.args, p.serverID, line, true, "")
+				_ = p.logger.LogResponse(requestID, line, true, "", nil)
 			}
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 
@@ -354,7 +349,7 @@ func (p *StdioProxy) handleStdin() {
 			// Log the client request to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
-				_ = p.logger.LogRequest(requestID, p.sessionID, p.command, p.args, p.serverID, line)
+				_ = p.logger.LogRequest(requestID, line, nil)
 			}
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)
 

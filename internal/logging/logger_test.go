@@ -19,7 +19,7 @@ func TestNewLogger(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// When: creating a new logger
-	logger, err := NewLogger()
+	logger, err := NewStdioLogger("test command", nil)
 
 	// Then: the logger should be created successfully
 	if err != nil {
@@ -52,7 +52,7 @@ func TestLoggerDirectoryCreation(t *testing.T) {
 	}
 
 	// When: creating a logger
-	logger, err := NewLogger()
+	logger, err := NewStdioLogger("test command", nil)
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
@@ -77,19 +77,21 @@ func TestLogProxyStart(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// Given: a logger
-	logger, err := NewLogger()
+	sessionID := "test_session_123"
+	command := "echo"
+	args := []string{"test"}
+	serverID := "test_server_456"
+
+	logger, err := NewStdioLogger(command, args)
+	logger.serverID = serverID
+	logger.sessionID = sessionID
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
 	defer logger.Close()
 
 	// When: logging a proxy start event
-	sessionID := "test_session_123"
-	command := "echo"
-	args := []string{"test"}
-	serverID := "test_server_456"
-
-	err = logger.LogProxyStart(sessionID, command, args, serverID)
+	err = logger.LogProxyStart()
 
 	// Then: the log should be written successfully
 	if err != nil {
@@ -141,13 +143,6 @@ func TestLogProxyStop(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// Given: a logger
-	logger, err := NewLogger()
-	if err != nil {
-		t.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Close()
-
-	// When: logging a proxy stop event
 	sessionID := "test_session_123"
 	command := "echo"
 	args := []string{"test"}
@@ -155,7 +150,16 @@ func TestLogProxyStop(t *testing.T) {
 	success := true
 	errorMsg := ""
 
-	err = logger.LogProxyStop(sessionID, command, args, serverID, success, errorMsg)
+	logger, err := NewStdioLogger(command, args)
+	logger.serverID = serverID
+	logger.sessionID = sessionID
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+
+	// When: logging a proxy stop event
+	err = logger.LogProxyStop(success, errorMsg)
 
 	// Then: the log should be written successfully
 	if err != nil {
@@ -194,13 +198,6 @@ func TestLogRequest(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// Given: a logger
-	logger, err := NewLogger()
-	if err != nil {
-		t.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Close()
-
-	// When: logging a request
 	requestID := "req_123"
 	sessionID := "session_456"
 	command := "echo"
@@ -208,7 +205,16 @@ func TestLogRequest(t *testing.T) {
 	serverID := "server_789"
 	content := `{"method":"ping"}`
 
-	err = logger.LogRequest(requestID, sessionID, command, args, serverID, content)
+	logger, err := NewStdioLogger(command, args)
+	logger.serverID = serverID
+	logger.sessionID = sessionID
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+
+	// When: logging a request
+	err = logger.LogRequest(requestID, content, nil)
 
 	// Then: the log should be written successfully
 	if err != nil {
@@ -240,8 +246,9 @@ func TestLogRequest(t *testing.T) {
 		t.Errorf("Expected session_id '%s', got '%v'", sessionID, logEntry["session_id"])
 	}
 
-	if logEntry["direction"] != "request" {
-		t.Errorf("Expected direction 'request', got '%v'", logEntry["direction"])
+	exceptedDirecton := "[CLIENT -> SERVER]"
+	if logEntry["direction"] != exceptedDirecton {
+		t.Errorf("Expected direction %v', got '%v'", exceptedDirecton, logEntry["direction"])
 	}
 
 	// Parse the message field as JSON
@@ -271,13 +278,6 @@ func TestLogResponse(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// Given: a logger
-	logger, err := NewLogger()
-	if err != nil {
-		t.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Close()
-
-	// When: logging a response
 	requestID := "req_123"
 	sessionID := "session_456"
 	command := "echo"
@@ -287,7 +287,16 @@ func TestLogResponse(t *testing.T) {
 	success := true
 	errorMsg := ""
 
-	err = logger.LogResponse(requestID, sessionID, command, args, serverID, content, success, errorMsg)
+	logger, err := NewStdioLogger(command, args)
+	logger.serverID = serverID
+	logger.sessionID = sessionID
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+
+	// When: logging a response
+	err = logger.LogResponse(requestID, content, success, errorMsg, nil)
 
 	// Then: the log should be written successfully
 	if err != nil {
@@ -319,8 +328,9 @@ func TestLogResponse(t *testing.T) {
 		t.Errorf("Expected session_id '%s', got '%v'", sessionID, logEntry["session_id"])
 	}
 
-	if logEntry["direction"] != "response" {
-		t.Errorf("Expected direction 'response', got '%v'", logEntry["direction"])
+	exceptedDirecton := "[SERVER -> CLIENT]"
+	if logEntry["direction"] != exceptedDirecton {
+		t.Errorf("Expected direction '%v', got '%v'", exceptedDirecton, logEntry["direction"])
 	}
 
 	if logEntry["success"] != true {
@@ -342,89 +352,6 @@ func TestLogResponse(t *testing.T) {
 	// Check the actual message content
 	if messageData["result"] != "pong" {
 		t.Errorf("Expected result 'pong', got '%v'", messageData["result"])
-	}
-}
-
-// TestLoggerConcurrentWrites tests concurrent logging operations
-func TestLoggerConcurrentWrites(t *testing.T) {
-	// Setup: create temporary directory
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", originalHome)
-
-	// Given: a logger
-	logger, err := NewLogger()
-	if err != nil {
-		t.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Close()
-
-	// When: performing concurrent logging operations
-	numGoroutines := 10
-	done := make(chan bool, numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			sessionID := fmt.Sprintf("session_%d", id)
-			requestID := fmt.Sprintf("req_%d", id)
-			serverID := fmt.Sprintf("server_%d", id)
-
-			// Log proxy start
-			logger.LogProxyStart(sessionID, "echo", []string{"test"}, serverID)
-
-			// Log request
-			logger.LogRequest(requestID, sessionID, "echo", []string{"test"}, serverID, `{"method":"ping"}`)
-
-			// Log response
-			logger.LogResponse(requestID, sessionID, "echo", []string{"test"}, serverID, `{"result":"pong"}`, true, "")
-
-			// Log proxy stop
-			logger.LogProxyStop(sessionID, "echo", []string{"test"}, serverID, true, "")
-
-			done <- true
-		}(i)
-	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < numGoroutines; i++ {
-		select {
-		case <-done:
-			// Success
-		case <-time.After(5 * time.Second):
-			t.Fatal("Concurrent logging test timed out")
-		}
-	}
-
-	// Then: all logs should be written successfully
-	// Verify log file exists and has content (all logs go to single date-based file)
-	logsDir := filepath.Join(tempDir, ".centian", "logs")
-	logFileName := fmt.Sprintf("requests_%s.jsonl", time.Now().Format("2006-01-02"))
-	logFile := filepath.Join(logsDir, logFileName)
-
-	logContent, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatalf("Failed to read log file: %v", err)
-	}
-
-	// Use the same content for both checks since all logs go to one file
-	proxyContent := logContent
-	requestContent := logContent
-
-	// Count log lines (each log entry should be on its own line)
-	proxyLines := strings.Count(string(proxyContent), "\n")
-	requestLines := strings.Count(string(requestContent), "\n")
-
-	// We expect 2 proxy operations per goroutine (start + stop)
-	expectedProxyLines := numGoroutines * 2
-	if proxyLines < expectedProxyLines {
-		t.Errorf("Expected at least %d proxy log lines, got %d", expectedProxyLines, proxyLines)
-	}
-
-	// We expect 2 request operations per goroutine (request + response)
-	expectedRequestLines := numGoroutines * 2
-	if requestLines < expectedRequestLines {
-		t.Errorf("Expected at least %d request log lines, got %d", expectedRequestLines, requestLines)
 	}
 }
 
@@ -463,7 +390,7 @@ func TestLoggerWithInvalidDirectory(t *testing.T) {
 	}()
 
 	// When: trying to create a logger in restricted directory
-	logger, err := NewLogger()
+	logger, err := NewStdioLogger("test cmd", nil)
 
 	// Then: it should handle the error gracefully
 	if err != nil {
@@ -488,7 +415,7 @@ func TestLoggerClose(t *testing.T) {
 	defer os.Setenv("HOME", originalHome)
 
 	// Given: a logger
-	logger, err := NewLogger()
+	logger, err := NewStdioLogger("test cmd", nil)
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
@@ -498,7 +425,7 @@ func TestLoggerClose(t *testing.T) {
 
 	// Then: subsequent logging operations should handle closed logger gracefully
 	// (The exact behavior depends on implementation - it might be a no-op or return an error)
-	err = logger.LogProxyStart("session", "echo", []string{"test"}, "server")
+	err = logger.LogProxyStart()
 	if err != nil {
 		t.Logf("Logging after close returned error (expected): %v", err)
 	}

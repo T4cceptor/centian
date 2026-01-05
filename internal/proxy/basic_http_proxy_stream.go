@@ -65,7 +65,7 @@ type CentianServer struct {
 	config         *CentianConfig
 	mux            *http.ServeMux
 	server         *http.Server
-	logger         *logging.Logger
+	logger         *logging.HttpLogger
 	processorChain *processor.Chain
 	serverID       string // used to uniquely identify this specific object instance
 }
@@ -83,12 +83,13 @@ func getSecondsFromInt(i int) time.Duration {
 }
 
 func getServerID(config *CentianConfig) string {
+	// TODO: better way of determining server ID
 	serverStr := "centian_server"
 	if config.Name != "" {
 		serverStr = config.Name
 	}
 	timestamp := time.Now().UnixNano()
-	return fmt.Sprintf("%s-%d", serverStr, timestamp)
+	return fmt.Sprintf("%s_%d", serverStr, timestamp)
 }
 
 func NewCentianHTTPProxy(config *CentianConfig) (*CentianServer, error) {
@@ -99,7 +100,10 @@ func NewCentianHTTPProxy(config *CentianConfig) (*CentianServer, error) {
 		ReadTimeout:  getSecondsFromInt(config.ProxyConfiguration.Timeout),
 		WriteTimeout: getSecondsFromInt(config.ProxyConfiguration.Timeout),
 	}
-	logger, err := logging.NewLogger()
+
+	// TODO: here we now have ONE logger for multiple endpoints - if we want to use this we
+	// have to have a better way to store the URL and headers, as they are endpoint specific!
+	logger, err := logging.NewHttpLogger("https://locahost:9000", nil)
 	if err != nil {
 		return nil, err
 	}
