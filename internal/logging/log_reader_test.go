@@ -23,11 +23,29 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []LogEntry{
-		{Timestamp: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC), RequestID: "req-older", Direction: "request", Command: "npx", Args: []string{"pkg"}, Message: "older"},
+	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []StdioLogEntry{
+		{
+			BaseLogEntry: BaseLogEntry{
+				Timestamp:  time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+				RequestID:  "req-older",
+				Direction:  "request",
+				RawMessage: "older",
+			},
+			Command: "npx",
+			Args:    []string{"pkg"},
+		},
 	})
-	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []LogEntry{
-		{Timestamp: time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC), RequestID: "req-newer", Direction: "response", Command: "npx", Args: []string{"pkg"}, Message: "newer", Success: true},
+	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []StdioLogEntry{
+		{
+			BaseLogEntry: BaseLogEntry{
+				Timestamp:  time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
+				RequestID:  "req-newer",
+				Direction:  "response",
+				RawMessage: "newer",
+				Success:    true,
+			},
+			Command: "npx", Args: []string{"pkg"},
+		},
 	})
 
 	// When: loading all recent log entries with no limit
@@ -59,9 +77,29 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []LogEntry{
-		{Timestamp: time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC), RequestID: "req-3", Direction: "system", MessageType: "system", Command: "test", Message: "up", Success: true},
-		{Timestamp: time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC), RequestID: "req-4", Direction: "request", MessageType: "request", Command: "npx", Message: "latest", Success: true},
+	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []StdioLogEntry{
+		{
+			BaseLogEntry: BaseLogEntry{
+				Timestamp:   time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC),
+				RequestID:   "req-3",
+				Direction:   "system",
+				MessageType: "system",
+				RawMessage:  "up",
+				Success:     true,
+			},
+			Command: "test",
+		},
+		{
+			BaseLogEntry: BaseLogEntry{
+				Timestamp:   time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC),
+				RequestID:   "req-4",
+				Direction:   "request",
+				MessageType: "request",
+				RawMessage:  "latest",
+				Success:     true,
+			},
+			Command: "npx",
+		},
 	})
 
 	// When: loading recent entries with limit=1
@@ -108,15 +146,17 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 func TestFormatDisplayLine(t *testing.T) {
 	// Given: an annotated log entry with session ID and command details
 	entry := AnnotatedLogEntry{
-		LogEntry: LogEntry{
-			Timestamp:   time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
-			Direction:   "request",
-			MessageType: "request",
-			Command:     "npx",
-			Args:        []string{"@mcp/server"},
-			SessionID:   "sess-1",
-			Message:     "ping",
-			Success:     true,
+		StdioLogEntry: StdioLogEntry{
+			BaseLogEntry: BaseLogEntry{
+				Timestamp:   time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
+				Direction:   "request",
+				MessageType: "request",
+				SessionID:   "sess-1",
+				RawMessage:  "ping",
+				Success:     true,
+			},
+			Command: "npx",
+			Args:    []string{"@mcp/server"},
 		},
 		SourceFile: "/tmp/log",
 	}
@@ -133,7 +173,7 @@ func TestFormatDisplayLine(t *testing.T) {
 	}
 }
 
-func writeLogFile(t *testing.T, dir, name string, entries []LogEntry) {
+func writeLogFile(t *testing.T, dir, name string, entries []StdioLogEntry) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)

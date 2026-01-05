@@ -36,7 +36,7 @@ var ErrNoLogEntries = errors.New("no log entries found")
 
 // AnnotatedLogEntry wraps a LogEntry with contextual metadata used for display.
 type AnnotatedLogEntry struct {
-	LogEntry
+	StdioLogEntry
 	SourceFile string
 }
 
@@ -90,8 +90,8 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		}
 		for i := range fileEntries {
 			entries = append(entries, AnnotatedLogEntry{
-				LogEntry:   fileEntries[i],
-				SourceFile: filePath,
+				StdioLogEntry: fileEntries[i],
+				SourceFile:    filePath,
 			})
 		}
 	}
@@ -125,7 +125,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 		command = fmt.Sprintf("%s %s", command, strings.Join(entry.Args, " "))
 	}
 
-	detail := entry.Message
+	detail := entry.RawMessage
 	if entry.Error != "" {
 		detail = entry.Error
 	}
@@ -150,7 +150,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 // readLogFile reads and parses a JSONL log file, returning all valid entries.
 // Returns empty slice (not error) if file doesn't exist. Skips malformed lines.
 // Supports log lines up to 10MB.
-func readLogFile(path string) ([]LogEntry, error) {
+func readLogFile(path string) ([]StdioLogEntry, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -160,7 +160,7 @@ func readLogFile(path string) ([]LogEntry, error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	var entries []LogEntry
+	var entries []StdioLogEntry
 
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)
@@ -172,7 +172,7 @@ func readLogFile(path string) ([]LogEntry, error) {
 			continue
 		}
 
-		var entry LogEntry
+		var entry StdioLogEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			// Skip malformed lines but continue processing the rest of the file.
 			continue

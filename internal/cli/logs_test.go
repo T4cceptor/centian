@@ -27,16 +27,18 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
 
 	// Given: a log file with a log entry
-	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []logging.LogEntry{
+	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []logging.StdioLogEntry{
 		{
-			Timestamp:   time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
-			Direction:   "request",
-			MessageType: "request",
-			Command:     "npx",
-			Args:        []string{"@server"},
-			SessionID:   "sess-123",
-			Message:     "ping",
-			Success:     true,
+			BaseLogEntry: logging.BaseLogEntry{
+				Timestamp:   time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
+				Direction:   "request",
+				MessageType: "request",
+				SessionID:   "sess-123",
+				RawMessage:  "ping",
+				Success:     true,
+			},
+			Command: "npx",
+			Args:    []string{"@server"},
 		},
 	})
 
@@ -120,7 +122,7 @@ func TestHandleLogsCommandNoDirectory(t *testing.T) {
 // writeTestLogFile creates a JSONL log file at the specified path with the given entries.
 // Each entry is encoded as a single JSON line, matching the format used by the logging system.
 // The function creates parent directories if needed and truncates any existing file.
-func writeTestLogFile(t *testing.T, path string, entries []logging.LogEntry) {
+func writeTestLogFile(t *testing.T, path string, entries []logging.StdioLogEntry) {
 	t.Helper()
 
 	// Create parent directories if they don't exist

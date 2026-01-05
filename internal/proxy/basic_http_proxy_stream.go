@@ -1,20 +1,24 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"time"
+
+	"github.com/CentianAI/centian-cli/internal/logging"
+	"github.com/CentianAI/centian-cli/internal/processor"
 )
 
 /*
 Full config example:
 
 	{
-		"gateways": [
-			{
-				"name": "my-gateway",
+		"gateways": {
+			"my-gateway": {
 				"mcpServers": {
 					"my-mcp-proxy-to-github": {
 						"url": "https://api.githubcopilot.com/mcp/",
@@ -24,17 +28,18 @@ Full config example:
 					}
 				}
 			}
-		]
+		}
 	}
 */
 type HttpMcpServerConfig struct {
-	URL     string          `json:"url"`
-	Headers *map[string]any `json:"headers"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
 }
 
 type GatewayConfig struct {
-	Name       string                         `json:"name"`
-	McpServers map[string]HttpMcpServerConfig `json:"mcpServers"`
+	AllowDynamicProxy    bool                           `json:"allowDynamic"`
+	AllowGatewayEndpoint bool                           `json:"setupGateway"`
+	McpServers           map[string]HttpMcpServerConfig `json:"mcpServers"`
 }
 
 type ProxyConfig struct {
@@ -51,60 +56,175 @@ func NewDefaultProxyConfig() ProxyConfig {
 }
 
 type CentianConfig struct {
-	ProxyConfiguration ProxyConfig     `json:"-"`
-	Gateways           []GatewayConfig `json:"gateways"`
+	Name               string                   `json:"server_name"` // currently only used for logging
+	ProxyConfiguration ProxyConfig              `json:"-"`
+	Gateways           map[string]GatewayConfig `json:"gateways"`
 }
 
-func NewHTTPProxyConfig(url string, headers map[string]any) HttpMcpServerConfig {
-	return HttpMcpServerConfig{
-		URL:     url,
-		Headers: &headers,
+type CentianServer struct {
+	config         *CentianConfig
+	mux            *http.ServeMux
+	server         *http.Server
+	logger         *logging.Logger
+	processorChain *processor.Chain
+	serverID       string // used to uniquely identify this specific object instance
+}
+
+func (pc *HttpMcpServerConfig) GetSubstitutedHeaders() map[string]string {
+	if pc.Headers == nil {
+		return make(map[string]string)
 	}
-}
-
-func (pc *HttpMcpServerConfig) GetSubstitutedHeaders() map[string]any {
 	// TODO: actually perform env var substitution on each header field
-	return *pc.Headers
+	return pc.Headers
 }
 
-func StartCentianServer(config *CentianConfig) {
-	// 1. Iterate through each gateway to create proxy endpoints
-	for _, gatewayConfig := range config.Gateways {
-		// Note: we are leaving out
-		// "Option A - single gateway endpoint with namespacing" for now
-		// For this we will likely need to collect all the Tools/Resources
-		// from the different servers first and indeed create our own MCP
-		// server from them
-		// Potentially we could handle this quite differently than originally planned:
-		// instead of recreating a new MCP server
-		// from all the tools/resources of configured MCP servers
-		// we have some logic that understands to which server we should forward a request
-		// this is VERY similar to using an endpoint, only that the client
-		// has a different way to provide the endpoint,
-		// e.g. through the tool name "<servername>__<actual_toolname>"
-		for serverName, serverConfig := range gatewayConfig.McpServers {
-			// create endpoint:
-			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayConfig.Name, serverName)
-			// TODO: add verification for both gatewayname and serverName to be used in a URL
+func getSecondsFromInt(i int) time.Duration {
+	return time.Duration(i) * time.Second
+}
 
+func getServerID(config *CentianConfig) string {
+	serverStr := "centian_server"
+	if config.Name != "" {
+		serverStr = config.Name
+	}
+	timestamp := time.Now().UnixNano()
+	return fmt.Sprintf("%s-%d", serverStr, timestamp)
+}
+
+func NewCentianHTTPProxy(config *CentianConfig) (*CentianServer, error) {
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:         ":" + config.ProxyConfiguration.Port,
+		Handler:      mux,
+		ReadTimeout:  getSecondsFromInt(config.ProxyConfiguration.Timeout),
+		WriteTimeout: getSecondsFromInt(config.ProxyConfiguration.Timeout),
+	}
+	logger, err := logging.NewLogger()
+	if err != nil {
+		return nil, err
+	}
+	// TODO: add processor chain -> TODO: check how the config needs to look like!
+	return &CentianServer{
+		config:   config,
+		mux:      mux,
+		server:   server,
+		logger:   logger,
+		serverID: getServerID(config),
+	}, nil
+}
+
+func (c *CentianServer) StartCentianServer() error {
+	config := c.config
+
+	// 1. Iterate through each gateway to create proxy endpoints
+	// Note: we are leaving out
+	// "Option A - single gateway endpoint with namespacing" for now
+	// For this we will likely need to collect all the Tools/Resources
+	// from the different servers first and indeed create our own MCP
+	// server from them
+	// Potentially we could handle this quite differently than originally planned:
+	// instead of recreating a new MCP server
+	// from all the tools/resources of configured MCP servers
+	// we have some logic that understands to which server we should forward a request
+	// this is VERY similar to using an endpoint, only that the client
+	// has a different way to provide the endpoint,
+	// e.g. through the tool name "<servername>__<actual_toolname>"
+	for gatewayName, gatewayConfig := range config.Gateways {
+		// 2. Iterate through each mcp server config for this gateway
+		for serverName, serverConfig := range gatewayConfig.McpServers {
+			// 3. create new endpoint for MCP server to be proxied
+			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+			// TODO: add verification for both gatewayname and serverName to be used in a URL
 			// TODO: add logging and processor logic
-			StartMCPProxy(endpoint, &serverConfig)
+			// 4. attach proxy endpoint
+			if err := c.RegisterProxy(endpoint, &serverConfig); err != nil {
+				log.Printf("Failed to register endpoint %s: %v", endpoint, err)
+				// Continue with other servers
+			}
+		}
+
+		if gatewayConfig.AllowDynamicProxy {
+			// TODO: register dynamic endpoint able to dynamically proxy MCP servers
+		}
+
+		if gatewayConfig.AllowGatewayEndpoint {
+			// TODO: setup endpoint for gateway proxying ALL MCP servers on a single endpoint
+			// using namespacing logic on tools and resources
+
+			/*
+				TODO: decide on option how to do this
+
+				Option A:
+				- use SDK to query all downstream MCP servers to get all Tools and Resources
+				- rename tools and resources based on namespace schema
+				- setup our own MCP server with the new renamed tools and resources
+				Pros: straight forward on high-level
+				Cons: can get very complicated fast in the details
+
+				Option B:
+				- proxy specific requests/actions, like "initialize" or "ping", "tools/list",
+				then have a logic that routes the request based on the action:
+					- tools/list -> triggers tools/list for ALL servers
+						- challenge here might be session management
+			*/
+
 		}
 	}
+	/*
+		Requests:
 
-	// last step: Start the Proxy Server
-	addr := fmt.Sprintf(":%s", config.ProxyConfiguration.Port)
-	log.Printf("Proxy server started on %s", config.ProxyConfiguration.Port)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatal("ListenAndServe:", err)
-	}
+		- initialize
+		- ping
+		- tools/list
+		- tools/call
+		- prompts/list
+		- prompts/get
+		- resources/templates/list
+		- resources/list
+		- resources/read
+		- resources/subscribe
+		- resources/unsubscribe
+		- roots/list
+		- logging/setLevel
+		- completion/complete
+		- sampling/createMessage
+		- elicitation/create
+
+		Notifications:
+
+		- notifications/initialized
+		- notifications/cancelled
+		- notifications/message
+		- notifications/progress
+		- notifications/prompts/list_changed
+		- notifications/resources/list_changed
+		- notifications/resources/updated
+		- notifications/roots/list_changed
+		- notifications/tools/list_changed
+		- notifications/elicitation/complete
+	*/
+
+	// 5. Start the (proxy) Server
+	log.Printf("Starting proxy server on %s", config.ProxyConfiguration.Port)
+	return c.server.ListenAndServe()
 }
 
-func StartMCPProxy(endpoint string, config *HttpMcpServerConfig) {
+func (c *CentianServer) LogHTTPRequest(r *http.Request, lifecycle string) {
+	// TODO
+	// requestID := fmt.Sprintf("http_request_%s", time.Now().UnixMicro()) // TODO: get real request ID -> maybe even from the request itself?
+	// sessionID := ""
+	// command := "" // here we HAVE to get the JSON RPC structure from the request body
+	// args := []string{
+	// 	"test",
+	// }
+	// c.logger.LogRequest(requestID, sessionID, command, args, c.serverID, "")
+}
+
+func (c *CentianServer) RegisterProxy(endpoint string, config *HttpMcpServerConfig) error {
 	// 1. Get target URL from config
 	target, err := url.Parse(config.URL)
 	if err != nil {
-		log.Fatalf("Invalid target URL: %s - Config: %#v", err, config)
+		return fmt.Errorf("invalid URL for endpoint %s: %w", endpoint, err)
 	}
 
 	// 2. Get proxy
@@ -115,20 +235,29 @@ func StartMCPProxy(endpoint string, config *HttpMcpServerConfig) {
 	// without being buffered, which is essential for text/event-stream.
 	proxy.FlushInterval = -1
 
-	// 4. Create the handler function
-	// TODO: add correct path pattern (should be "/mcp/<gateway_name>/<server_name>")
-	http.HandleFunc(endpoint, func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Proxying request: %s %s", r.Method, r.URL.Path)
-
-		// Optional: Update the host header to match the target
+	// deal with headers via Director
+	headers := config.GetSubstitutedHeaders()
+	proxy.Director = func(r *http.Request) {
+		// TODO: add logging and processing before forwarding request to MCP server
+		c.LogHTTPRequest(r, "")
+		r.URL.Scheme = target.Scheme
+		r.URL.Host = target.Host
 		r.Host = target.Host
-
-		// Set headers
-		for k, v := range config.GetSubstitutedHeaders() {
-			// TODO: check if this any -> string transformation makes sense
-			r.Header.Set(k, fmt.Sprintf("%v", v))
+		for k, v := range headers {
+			r.Header.Set(k, v)
 		}
+	}
 
+	// 4. Create the handler function
+	c.mux.HandleFunc(endpoint, func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Proxying request: %s %s", r.Method, r.URL.Path)
 		proxy.ServeHTTP(w, r)
 	})
+	log.Printf("Registered proxy endpoint: %s -> %s", endpoint, config.URL)
+	return nil
+}
+
+func (c *CentianServer) Shutdown(ctx context.Context) error {
+	log.Println("Shutting down proxy server...")
+	return c.server.Shutdown(ctx)
 }

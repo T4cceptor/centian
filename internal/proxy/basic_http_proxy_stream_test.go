@@ -24,20 +24,29 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	proxyConfig.Port = "9000"
 	centianConfig := CentianConfig{
 		ProxyConfiguration: proxyConfig,
-		Gateways: []GatewayConfig{
-			{
-				Name: "my-test-gateway",
+		Gateways: map[string]GatewayConfig{
+			"my-test-gateway": {
 				McpServers: map[string]HttpMcpServerConfig{
-					"my-test-mcp-1": NewHTTPProxyConfig(downstreamURL, map[string]any{
-						"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
-					}),
+					"my-test-mcp-1": HttpMcpServerConfig{
+						URL: downstreamURL,
+						Headers: map[string]string{
+							"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
+						},
+					},
 				},
 			},
 		},
 	}
 	// Start raw proxy server in background
 	go func() {
-		StartCentianServer(&centianConfig)
+		server, err := NewCentianHTTPProxy(&centianConfig)
+		if err != nil {
+			log.Fatal("Unable to create proxy server:", err)
+
+		}
+		if err := server.StartCentianServer(); err != nil {
+			log.Fatal("Unable to start proxy server:", err)
+		}
 	}()
 
 	// Wait for server to start
@@ -56,7 +65,7 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	proxyURL := fmt.Sprintf(
 		"http://localhost:%s/mcp/%s/%s",
 		proxyConfig.Port,
-		centianConfig.Gateways[0].Name,
+		"my-test-gateway",
 		"my-test-mcp-1",
 	)
 	log.Printf("Connecting to proxy server at %s", proxyURL)

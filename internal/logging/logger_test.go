@@ -245,7 +245,7 @@ func TestLogRequest(t *testing.T) {
 	}
 
 	// Parse the message field as JSON
-	messageStr, ok := logEntry["message"].(string)
+	messageStr, ok := logEntry["raw_message"].(string)
 	if !ok {
 		t.Fatal("Message field should be a string")
 	}
@@ -328,7 +328,7 @@ func TestLogResponse(t *testing.T) {
 	}
 
 	// Parse the message field as JSON
-	messageStr, ok := logEntry["message"].(string)
+	messageStr, ok := logEntry["raw_message"].(string)
 	if !ok {
 		t.Fatal("Message field should be a string")
 	}

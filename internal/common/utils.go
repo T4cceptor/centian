@@ -24,3 +24,12 @@ func StreamPrint(speed float64, format string, a ...any) {
 		time.Sleep(delay)
 	}
 }
+
+// getCurrentWorkingDir gets the current working directory
+func GetCurrentWorkingDir() string {
+	pwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return pwd
+}

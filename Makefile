@@ -31,7 +31,7 @@ clean: ## Clean build artifacts
 
 test: ## Run unit tests
 	@echo "Running unit tests..."
-	go test -v -race ./internal/... ./cmd/...
+	go test -v -race ./internal/... ./cmd/... | gotestsum --format testname
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."

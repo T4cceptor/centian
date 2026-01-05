@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// Logger provides basic logging functionality to .centian folder
-type Logger struct {
+// InternalLogger provides basic logging functionality to .centian folder
+type InternalLogger struct {
 	logFile *os.File
 	logger  *log.Logger
 }
 
 // NewLogger creates a new logger instance that writes to ~/.centian/centian.log
-func NewLogger() (*Logger, error) {
+func NewLogger() (*InternalLogger, error) {
 	// Get user home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -38,14 +38,14 @@ func NewLogger() (*Logger, error) {
 	// Create logger with timestamp and prefix
 	logger := log.New(logFile, "", log.LstdFlags)
 
-	return &Logger{
+	return &InternalLogger{
 		logFile: logFile,
 		logger:  logger,
 	}, nil
 }
 
 // Close closes the log file
-func (l *Logger) Close() error {
+func (l *InternalLogger) Close() error {
 	if l.logFile != nil {
 		return l.logFile.Close()
 	}
@@ -53,27 +53,27 @@ func (l *Logger) Close() error {
 }
 
 // Info logs an info message
-func (l *Logger) Info(message string, args ...interface{}) {
+func (l *InternalLogger) Info(message string, args ...interface{}) {
 	l.logger.Printf("[INFO] "+message, args...)
 }
 
 // Error logs an error message
-func (l *Logger) Error(message string, args ...interface{}) {
+func (l *InternalLogger) Error(message string, args ...interface{}) {
 	l.logger.Printf("[ERROR] "+message, args...)
 }
 
 // Debug logs a debug message
-func (l *Logger) Debug(message string, args ...interface{}) {
+func (l *InternalLogger) Debug(message string, args ...interface{}) {
 	l.logger.Printf("[DEBUG] "+message, args...)
 }
 
 // Warn logs a warning message
-func (l *Logger) Warn(message string, args ...interface{}) {
+func (l *InternalLogger) Warn(message string, args ...interface{}) {
 	l.logger.Printf("[WARN] "+message, args...)
 }
 
 // LogOperation logs the start and completion of an operation
-func (l *Logger) LogOperation(operation string, fn func() error) error {
+func (l *InternalLogger) LogOperation(operation string, fn func() error) error {
 	l.Info("Starting operation: %s", operation)
 	start := time.Now()
 
@@ -90,7 +90,7 @@ func (l *Logger) LogOperation(operation string, fn func() error) error {
 }
 
 // Global logger instance
-var globalLogger *Logger
+var globalLogger *InternalLogger
 
 // InitializeLogger initializes the global logger
 func InitializeLogger() error {
