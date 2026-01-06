@@ -33,3 +33,7 @@ func GetCurrentWorkingDir() string {
 	}
 	return pwd
 }
+
+func GetSecondsFromInt(i int) time.Duration {
+	return time.Duration(i) * time.Second
+}

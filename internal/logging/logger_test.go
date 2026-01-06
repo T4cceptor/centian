@@ -91,7 +91,7 @@ func TestLogProxyStart(t *testing.T) {
 	defer logger.Close()
 
 	// When: logging a proxy start event
-	err = logger.LogProxyStart()
+	err = logger.LogProxyStart(nil)
 
 	// Then: the log should be written successfully
 	if err != nil {
@@ -159,7 +159,7 @@ func TestLogProxyStop(t *testing.T) {
 	defer logger.Close()
 
 	// When: logging a proxy stop event
-	err = logger.LogProxyStop(success, errorMsg)
+	err = logger.LogProxyStop(success, errorMsg, nil)
 
 	// Then: the log should be written successfully
 	if err != nil {
@@ -425,7 +425,7 @@ func TestLoggerClose(t *testing.T) {
 
 	// Then: subsequent logging operations should handle closed logger gracefully
 	// (The exact behavior depends on implementation - it might be a no-op or return an error)
-	err = logger.LogProxyStart()
+	err = logger.LogProxyStart(nil)
 	if err != nil {
 		t.Logf("Logging after close returned error (expected): %v", err)
 	}

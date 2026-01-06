@@ -1,16 +1,21 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/common"
 	"github.com/CentianAI/centian-cli/internal/logging"
 	"github.com/CentianAI/centian-cli/internal/processor"
+	"github.com/google/uuid"
 )
 
 /*
@@ -31,15 +36,27 @@ Full config example:
 		}
 	}
 */
+
+const MaxBodySize = 10 * 1024 * 1024 // 10MB
+
 type HttpMcpServerConfig struct {
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers"`
 }
 
+func (pc *HttpMcpServerConfig) GetSubstitutedHeaders() map[string]string {
+	if pc.Headers == nil {
+		return make(map[string]string)
+	}
+	// TODO: actually perform env var substitution on each header field
+	return pc.Headers
+}
+
 type GatewayConfig struct {
 	AllowDynamicProxy    bool                           `json:"allowDynamic"`
 	AllowGatewayEndpoint bool                           `json:"setupGateway"`
-	McpServers           map[string]HttpMcpServerConfig `json:"mcpServers"`
+	McpServersConfig     map[string]HttpMcpServerConfig `json:"mcpServers"`
+	// TODO: could also store processorChain here -> makes more sense
 }
 
 type ProxyConfig struct {
@@ -57,29 +74,18 @@ func NewDefaultProxyConfig() ProxyConfig {
 
 type CentianConfig struct {
 	Name               string                   `json:"server_name"` // currently only used for logging
-	ProxyConfiguration ProxyConfig              `json:"-"`
-	Gateways           map[string]GatewayConfig `json:"gateways"`
+	ProxyConfiguration ProxyConfig              `json:"proxy_config"`
+	GatewayConfigs     map[string]GatewayConfig `json:"gateways"`
 }
 
 type CentianServer struct {
 	config         *CentianConfig
 	mux            *http.ServeMux
 	server         *http.Server
-	logger         *logging.HttpLogger
-	processorChain *processor.Chain
-	serverID       string // used to uniquely identify this specific object instance
-}
-
-func (pc *HttpMcpServerConfig) GetSubstitutedHeaders() map[string]string {
-	if pc.Headers == nil {
-		return make(map[string]string)
-	}
-	// TODO: actually perform env var substitution on each header field
-	return pc.Headers
-}
-
-func getSecondsFromInt(i int) time.Duration {
-	return time.Duration(i) * time.Second
+	baseLogger     *logging.Logger                       // Shared base logger (ONE file handle)
+	loggers        map[string]logging.McpLoggerInterface // One logger per endpoint
+	processorChain *processor.Chain                      // TODO: processorChain could also be on a specific Gateway
+	serverID       string                                // used to uniquely identify this specific object instance
 }
 
 func getServerID(config *CentianConfig) string {
@@ -97,23 +103,24 @@ func NewCentianHTTPProxy(config *CentianConfig) (*CentianServer, error) {
 	server := &http.Server{
 		Addr:         ":" + config.ProxyConfiguration.Port,
 		Handler:      mux,
-		ReadTimeout:  getSecondsFromInt(config.ProxyConfiguration.Timeout),
-		WriteTimeout: getSecondsFromInt(config.ProxyConfiguration.Timeout),
+		ReadTimeout:  common.GetSecondsFromInt(config.ProxyConfiguration.Timeout),
+		WriteTimeout: common.GetSecondsFromInt(config.ProxyConfiguration.Timeout),
 	}
 
-	// TODO: here we now have ONE logger for multiple endpoints - if we want to use this we
-	// have to have a better way to store the URL and headers, as they are endpoint specific!
-	logger, err := logging.NewHttpLogger("https://locahost:9000", nil)
+	// Create ONE base logger (ONE file handle) shared by all endpoint loggers
+	baseLogger, err := logging.NewLogger()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
+
 	// TODO: add processor chain -> TODO: check how the config needs to look like!
 	return &CentianServer{
-		config:   config,
-		mux:      mux,
-		server:   server,
-		logger:   logger,
-		serverID: getServerID(config),
+		config:     config,
+		mux:        mux,
+		server:     server,
+		baseLogger: baseLogger,
+		loggers:    make(map[string]logging.McpLoggerInterface),
+		serverID:   getServerID(config),
 	}, nil
 }
 
@@ -133,15 +140,16 @@ func (c *CentianServer) StartCentianServer() error {
 	// this is VERY similar to using an endpoint, only that the client
 	// has a different way to provide the endpoint,
 	// e.g. through the tool name "<servername>__<actual_toolname>"
-	for gatewayName, gatewayConfig := range config.Gateways {
+	for gatewayName, gatewayConfig := range config.GatewayConfigs {
 		// 2. Iterate through each mcp server config for this gateway
-		for serverName, serverConfig := range gatewayConfig.McpServers {
+		for serverName, serverConfig := range gatewayConfig.McpServersConfig {
 			// 3. create new endpoint for MCP server to be proxied
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-			// TODO: add verification for both gatewayname and serverName to be used in a URL
-			// TODO: add logging and processor logic
-			// 4. attach proxy endpoint
-			if err := c.RegisterProxy(endpoint, &serverConfig); err != nil {
+			// TODO: allow custom endpoint patterns
+
+			// TODO: add verification for both gatewayName and serverName to be used in a URL
+			// 4. attach proxy endpoint with logging
+			if err := c.RegisterProxy(endpoint, &serverConfig, gatewayName, serverName); err != nil {
 				log.Printf("Failed to register endpoint %s: %v", endpoint, err)
 				// Continue with other servers
 			}
@@ -213,37 +221,136 @@ func (c *CentianServer) StartCentianServer() error {
 	return c.server.ListenAndServe()
 }
 
-func (c *CentianServer) LogHTTPRequest(r *http.Request, lifecycle string) {
-	// TODO
-	// requestID := fmt.Sprintf("http_request_%s", time.Now().UnixMicro()) // TODO: get real request ID -> maybe even from the request itself?
-	// sessionID := ""
-	// command := "" // here we HAVE to get the JSON RPC structure from the request body
-	// args := []string{
-	// 	"test",
-	// }
-	// c.logger.LogRequest(requestID, sessionID, command, args, c.serverID, "")
+func getNewId() string {
+	result := ""
+	if id, err := uuid.NewV7(); err == nil {
+		result = id.String()
+	}
+	if result == "" {
+		result = fmt.Sprintf("req_%d", time.Now().UnixMicro())
+	}
+	return result
 }
 
-func (c *CentianServer) RegisterProxy(endpoint string, config *HttpMcpServerConfig) error {
-	// 1. Get target URL from config
+func (c *CentianServer) GetRequestID(r *http.Request) string {
+	return getNewId()
+}
+
+func (c *CentianServer) GetResponseID(resp *http.Response) string {
+	responseID := ""
+	if resp != nil && resp.Request != nil {
+		responseID, _ = resp.Request.Context().Value("requestID").(string)
+	}
+	if responseID == "" {
+		responseID = getNewId()
+	}
+	return responseID
+}
+
+func (c *CentianServer) readBody(reader io.Reader) ([]byte, error) {
+	bodyBytes, err := io.ReadAll(reader)
+	if len(bodyBytes) >= MaxBodySize {
+		log.Print("request body exceeds maximum size")
+		return nil, fmt.Errorf("request body exceeds maximum size")
+	}
+	if err != nil {
+		log.Printf("Error reading request body: %s", err)
+		return nil, err
+	}
+	return bodyBytes, nil
+}
+
+func (c *CentianServer) getProxy(target *url.URL) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	// Configure the proxy for streaming (SSE support)
+	// FlushInterval: -1 ensures that the data is sent to the client immediately
+	// without being buffered, which is essential for text/event-stream.
+	proxy.FlushInterval = -1
+	return proxy
+}
+
+func (c *CentianServer) RegisterProxy(endpoint string, config *HttpMcpServerConfig, gatewayName, serverName string) error {
+	// 1. Create endpoint-specific logger (shares baseLogger file handle)
+	endpointLogger := logging.NewHttpLogger(
+		c.baseLogger,
+		c.config.ProxyConfiguration.Port,
+		gatewayName,
+		serverName,
+		endpoint,
+		config.URL,
+	)
+
+	// Store logger for this endpoint
+	c.loggers[endpoint] = endpointLogger
+	// TODO: should we extend this into a bigger state for the endpoint?
+	// the endpoint could have its own struct with logger, and other relevant information on it
+
+	// Log endpoint registration
+	_ = endpointLogger.LogProxyStart(nil)
+
+	// 2. Get target URL from config
 	target, err := url.Parse(config.URL)
 	if err != nil {
 		return fmt.Errorf("invalid URL for endpoint %s: %w", endpoint, err)
 	}
 
-	// 2. Get proxy
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	// 3. Get proxy
+	proxy := c.getProxy(target)
 
-	// 3. Configure the proxy for streaming (SSE support)
-	// FlushInterval: -1 ensures that the data is sent to the client immediately
-	// without being buffered, which is essential for text/event-stream.
-	proxy.FlushInterval = -1
-
-	// deal with headers via Director
+	// 5. Deal with headers and request logging via Director
 	headers := config.GetSubstitutedHeaders()
 	proxy.Director = func(r *http.Request) {
-		// TODO: add logging and processing before forwarding request to MCP server
-		c.LogHTTPRequest(r, "")
+		// Read and log request
+		mcpRequest := McpEvent{
+			EventType:  McpRequestEvent,
+			RequestID:  c.GetRequestID(r),
+			SessionID:  endpointLogger.SessionID(), // TODO ?
+			Endpoint:   endpoint,
+			ReceivedAt: time.Now(),
+			Request:    r,
+			Response:   nil,
+			ReqBody:    nil, // currently empty - needs to be filled
+			RespBody:   nil,
+			JSONRPC:    nil, // nil indicates NO body - this does NOT represent an EMPTY body
+			metadata: map[string]string{
+				"test": "test",
+			},
+		}
+
+		if r.Body != nil {
+			// TODO: determine if this is acceptable -
+			// alternative is to stream request via
+			// TeeReader (log + forward without full buffering)
+			// TODO: ContentLength check
+			limitedBody := io.LimitReader(r.Body, MaxBodySize)
+			if mcpRequest.ReqBody, err = c.readBody(limitedBody); err != nil {
+				common.LogError(err.Error())
+				mcpRequest.processingErrors["read_body"] = err
+			}
+		}
+
+		// Log to file
+		// TODO: refactor logging -> we want to know about requests without a body too!!
+		if err := endpointLogger.LogRequest(mcpRequest); err != nil {
+			common.LogError(err.Error())
+			mcpRequest.processingErrors["log_request"] = err
+		}
+
+		// Debug output to stderr
+		fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] [%s] %s\n", endpoint, requestBody)
+
+		// TODO: Execute processor chain on request (if configured)
+		// requestBody needs to be modified here!
+
+		// Restore body for forwarding (important!)
+		r.Body = io.NopCloser(bytes.NewBuffer([]byte(requestBody)))
+
+		// Store requestID in context for response logging
+		ctx := context.WithValue(r.Context(), "requestID", requestID)
+		*r = *r.WithContext(ctx)
+
+		// Set target URL and headers
 		r.URL.Scheme = target.Scheme
 		r.URL.Host = target.Host
 		r.Host = target.Host
@@ -252,16 +359,61 @@ func (c *CentianServer) RegisterProxy(endpoint string, config *HttpMcpServerConf
 		}
 	}
 
-	// 4. Create the handler function
+	// 6. Add response logging via ModifyResponse hook
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		requestID := c.GetResponseID(resp)
+		responseBody := ""
+		// TODO: this should actually be a struct and contain
+		// more information about the request/response
+
+		// Read and log response
+		if resp.Body != nil {
+			// TODO: ContentLength check
+			if bodyBytes, err := io.ReadAll(resp.Body); err != nil {
+				common.LogError(err.Error())
+			} else {
+				responseBody = string(bodyBytes)
+			}
+		}
+		// Log to file
+		if err := endpointLogger.LogResponse(requestID, responseBody, true, "", nil); err != nil {
+			common.LogError(err.Error())
+		}
+
+		// Debug output to stderr
+		fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] [%s] %s\n", endpoint, responseBody)
+
+		// TODO: Execute processor chain on response (if configured)
+		// responseBody needs to be modified here!
+
+		// Restore body for client (important!)
+		if responseBody != "" {
+			resp.Body = io.NopCloser(bytes.NewBuffer([]byte(responseBody)))
+		}
+		return nil
+	}
+
+	// 7. Create the handler function
 	c.mux.HandleFunc(endpoint, func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Proxying request: %s %s", r.Method, r.URL.Path)
 		proxy.ServeHTTP(w, r)
 	})
+
 	log.Printf("Registered proxy endpoint: %s -> %s", endpoint, config.URL)
 	return nil
 }
 
 func (c *CentianServer) Shutdown(ctx context.Context) error {
 	log.Println("Shutting down proxy server...")
+
+	// Log shutdown for all endpoints
+	for _, logger := range c.loggers {
+		_ = logger.LogProxyStop(true, "", nil)
+	}
+
+	// Close shared base logger (ONE close for all endpoints)
+	if c.baseLogger != nil {
+		_ = c.baseLogger.Close()
+	}
+
 	return c.server.Shutdown(ctx)
 }

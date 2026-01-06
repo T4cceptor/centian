@@ -26,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/common"
 	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/CentianAI/centian-cli/internal/logging"
 	"github.com/CentianAI/centian-cli/internal/processor"
@@ -166,7 +167,7 @@ func (p *StdioProxy) Start() error {
 
 	// Log proxy start
 	if p.logger != nil {
-		_ = p.logger.LogProxyStart()
+		_ = p.logger.LogProxyStart(nil)
 	}
 
 	// Start goroutines to handle I/O with WaitGroup tracking
@@ -224,7 +225,7 @@ func (p *StdioProxy) Stop() error {
 
 	// Now safe to close logger after all goroutines have finished
 	if p.logger != nil {
-		_ = p.logger.LogProxyStop(true, "")
+		_ = p.logger.LogProxyStop(true, "", nil)
 		_ = p.logger.Close()
 	}
 
@@ -250,7 +251,10 @@ func (p *StdioProxy) handleStdout() {
 			// Log the MCP response to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
-				_ = p.logger.LogResponse(requestID, line, true, "", nil)
+				err := p.logger.LogResponse(requestID, line, true, "", nil)
+				if err != nil {
+					common.LogError(err.Error())
+				}
 			}
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 

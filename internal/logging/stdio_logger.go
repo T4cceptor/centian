@@ -133,7 +133,7 @@ func (sl *StdioLogger) LogResponse(requestID, message string, success bool, erro
 }
 
 // LogProxyStart logs when the stdio proxy starts (uses immutable context)
-func (sl *StdioLogger) LogProxyStart() error {
+func (sl *StdioLogger) LogProxyStart(metadata map[string]string) error {
 	requestID := fmt.Sprintf("start_%d", time.Now().UnixNano())
 	logEntry := sl.CreateLogEntry(
 		requestID,
@@ -148,7 +148,7 @@ func (sl *StdioLogger) LogProxyStart() error {
 }
 
 // LogProxyStop logs when the stdio proxy stops (uses immutable context)
-func (sl *StdioLogger) LogProxyStop(success bool, errorMsg string) error {
+func (sl *StdioLogger) LogProxyStop(success bool, errorMsg string, metadata map[string]string) error {
 	requestID := fmt.Sprintf("stop_%d", time.Now().UnixNano())
 	logEntry := sl.CreateLogEntry(
 		requestID,

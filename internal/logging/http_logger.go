@@ -16,7 +16,6 @@ package logging
 
 import (
 	"fmt"
-	"net/http"
 	"time"
 )
 
@@ -26,32 +25,35 @@ import (
 // structured logging and analysis.
 type HttpLogEntry struct {
 	BaseLogEntry
-	
+
 	// Gateway is the logical grouping of MCP servers (e.g., "my-gateway")
 	Gateway string `json:"gateway"`
-	
+
 	// ServerName identifies the specific MCP server within the gateway
 	ServerName string `json:"server_name"`
-	
+
 	// Endpoint is the HTTP path this server is mounted at (e.g., "/mcp/my-gateway/github")
 	Endpoint string `json:"endpoint"`
-	
+
 	// DownstreamURL is the target MCP server URL being proxied to
 	DownstreamURL string `json:"downstream_url"`
-	
+
 	// Transport identifies the protocol (always "http" for this entry type)
 	Transport string `json:"transport"`
-	
+
 	// ProxyPort is the port the proxy server is listening on
 	ProxyPort string `json:"proxy_port,omitempty"`
 }
 
-// StdioLogger wraps Logger with stdio-specific immutable context
+// HttpLogger wraps Logger with HTTP endpoint-specific immutable context.
+// Multiple HttpLoggers can share the same underlying *Logger (file handle)
+// while maintaining independent endpoint contexts.
 type HttpLogger struct {
-	*Logger // Note: this is the same Logger instance for ALL HttpLoggers of a single server
+	*Logger // Shared file handle across all HttpLoggers from same base
 
-	// Immutable context per endpoint
+	// Immutable context per endpoint (set at initialization)
 	sessionID     string
+	transport     string
 	port          string
 	gatewayName   string
 	serverName    string
@@ -59,104 +61,126 @@ type HttpLogger struct {
 	downstreamURL string
 }
 
-// NewStdioLogger creates a logger with stdio-specific immutable context
-func NewHttpLogger(URL string, Headers map[string]string) (*HttpLogger, error) {
-	baseLogger, err := NewLogger()
-	if err != nil {
-		return nil, err
-	}
-
+// NewHttpLogger creates a logger for a specific HTTP endpoint.
+// All HttpLoggers created from the same baseLogger share the file handle.
+//
+// Parameters:
+//   - baseLogger: Shared Logger instance (file handle)
+//   - port: Proxy server port (e.g., "8080")
+//   - gatewayName: Gateway identifier (e.g., "my-gateway")
+//   - serverName: MCP server identifier (e.g., "github")
+//   - endpoint: HTTP endpoint path (e.g., "/mcp/my-gateway/github")
+//   - downstreamURL: Target MCP server URL (e.g., "https://api.github.com/mcp")
+func NewHttpLogger(baseLogger *Logger, port, gatewayName, serverName, endpoint, downstreamURL string) *HttpLogger {
 	timestamp := time.Now().UnixNano()
-	sessionID := fmt.Sprintf("session_%d", timestamp)
+	sessionID := fmt.Sprintf("http_endpoint_%s_%d", endpoint, timestamp)
 
 	return &HttpLogger{
 		Logger:        baseLogger,
-		downstreamURL: URL,
 		sessionID:     sessionID,
-	}, nil
+		transport:     "http",
+		port:          port,
+		gatewayName:   gatewayName,
+		serverName:    serverName,
+		endpoint:      endpoint,
+		downstreamURL: downstreamURL,
+	}
 }
 
 // Getters for immutable context
-func (sl *HttpLogger) SessionID() string { return sl.sessionID }
-func (sl *HttpLogger) Url() string       { return sl.downstreamURL }
+func (hl *HttpLogger) SessionID() string { return hl.sessionID }
+func (hl *HttpLogger) ServerID() string {
+	return fmt.Sprintf("http_%s_%s", hl.gatewayName, hl.serverName)
+}
+func (hl *HttpLogger) Port() string          { return hl.port }
+func (hl *HttpLogger) GatewayName() string   { return hl.gatewayName }
+func (hl *HttpLogger) ServerName() string    { return hl.serverName }
+func (hl *HttpLogger) Endpoint() string      { return hl.endpoint }
+func (hl *HttpLogger) DownstreamURL() string { return hl.downstreamURL }
 
-func (sl *HttpLogger) CreateLogEntry(requestID, message, errorMsg string, direction McpEventDirection, messagetype McpMessageType, success bool, metadata map[string]string) *HttpLogEntry {
+func (hl *HttpLogger) CreateLogEntry(requestID, message, errorMsg string, direction McpEventDirection, messagetype McpMessageType, success bool, metadata map[string]string) *HttpLogEntry {
 	baseLogEntry := BaseLogEntry{
 		Timestamp:   time.Now(),
-		RequestID:   requestID,
-		SessionID:   sl.sessionID,
-		Direction:   direction,
+		SessionID:   hl.sessionID,
+		ServerID:    hl.ServerID(),
 		Transport:   "http",
+		RequestID:   requestID,
+		Direction:   direction,
 		RawMessage:  message,
 		MessageType: messagetype,
+		Error:       errorMsg,
 		Success:     success,
 		Metadata:    metadata,
 	}
 	return &HttpLogEntry{
-		BaseLogEntry: baseLogEntry,
-		Url:          sl.downstreamURL,
+		BaseLogEntry:  baseLogEntry,
+		Gateway:       hl.gatewayName,
+		ServerName:    hl.serverName,
+		Endpoint:      hl.endpoint,
+		DownstreamURL: hl.downstreamURL,
+		Transport:     hl.transport,
+		ProxyPort:     hl.port,
 	}
 }
 
-// LogRequest logs an MCP request (uses immutable context)
-func (sl *HttpLogger) LogRequest(r http.Request, requestID, message string, metadata map[string]string) error {
-	logEntry := sl.CreateLogEntry(
+// LogRequest logs an HTTP MCP request (uses immutable context)
+func (hl *HttpLogger) LogRequest(requestID, message string, metadata map[string]string) error {
+	entry := hl.CreateLogEntry(
 		requestID,
 		message,
-		"", // errorMsg
+		"", // errMsg
 		DirectionClientToServer,
 		MessageTypeRequest,
-		true, // Success
+		true, // success
 		metadata,
 	)
-	// TODO: transform raw http request "r" into JSON and attach to logEntry
-	return sl.logEntry(logEntry)
+	return hl.logEntry(entry)
 }
 
-// LogResponse logs an MCP response (uses immutable context)
-func (sl *HttpLogger) LogResponse(r http.Response, requestID, message string, success bool, errorMsg string, metadata map[string]string) error {
-	logEntry := sl.CreateLogEntry(
+// LogResponse logs an HTTP MCP response (uses immutable context)
+func (hl *HttpLogger) LogResponse(requestID, message string, success bool, errorMsg string, metadata map[string]string) error {
+	entry := hl.CreateLogEntry(
 		requestID,
 		message,
-		errorMsg, // errorMsg
+		errorMsg, // errMsg
 		DirectionServerToClient,
 		MessageTypeResponse,
-		success, // Success
+		success, // success
 		metadata,
 	)
-	if !success {
-		logEntry.MessageType = "error"
-	}
-	// TODO: transform raw http response "r" into JSON and attach to logEntry
-	return sl.logEntry(logEntry)
+	return hl.logEntry(entry)
 }
 
-// LogProxyStart logs when the stdio proxy starts (uses immutable context)
-func (sl *HttpLogger) LogProxyStart() error {
+// LogProxyStart logs when the HTTP endpoint starts (uses immutable context)
+func (hl *HttpLogger) LogProxyStart(metadata map[string]string) error {
+	// TODO: offer metadata to be provided here
 	requestID := fmt.Sprintf("start_%d", time.Now().UnixNano())
-	logEntry := sl.CreateLogEntry(
+	message := fmt.Sprintf("HTTP endpoint started: %s -> %s", hl.endpoint, hl.downstreamURL)
+	entry := hl.CreateLogEntry(
 		requestID,
-		"Proxy started", // TODO: should we log all servers/endpoints we are proxying here?
-		"",              // errorMsg
+		message,
+		"", // errMsg
 		DirectionSystem,
 		MessageTypeSystem,
-		true, // Success
+		true, // success
 		nil,
 	)
-	return sl.logEntry(logEntry)
+	return hl.logEntry(entry)
 }
 
-// LogProxyStop logs when the stdio proxy stops (uses immutable context)
-func (sl *HttpLogger) LogProxyStop(success bool, errorMsg string) error {
-	requestID := fmt.Sprintf("stop_%d", time.Now().UnixNano())
-	logEntry := sl.CreateLogEntry(
+// LogProxyStop logs when the HTTP endpoint stops (uses immutable context)
+func (hl *HttpLogger) LogProxyStop(success bool, errorMsg string, metadata map[string]string) error {
+	// TODO: offer metadata to be provided here
+	requestID := fmt.Sprintf("start_%d", time.Now().UnixNano())
+	message := fmt.Sprintf("HTTP endpoint stopped: %s", hl.endpoint)
+	entry := hl.CreateLogEntry(
 		requestID,
-		"Proxy stopped",
-		"", // errorMsg
+		message,
+		errorMsg, // errMsg
 		DirectionSystem,
 		MessageTypeSystem,
-		true, // Success
+		success, // success
 		nil,
 	)
-	return sl.logEntry(logEntry)
+	return hl.logEntry(entry)
 }

@@ -1,14 +1,11 @@
-package logging
+package common
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
 	"time"
 )
 
+// McpEventDirection
 type McpEventDirection string
 
 const (
@@ -27,7 +24,6 @@ func (m McpEventDirection) MarshalJSON() ([]byte, error) {
 		return json.Marshal(string(DirectionUnknown))
 	}
 }
-
 func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -43,6 +39,7 @@ func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 	}
 }
 
+// McpMessageType
 type McpMessageType string
 
 const (
@@ -60,7 +57,6 @@ func (m McpMessageType) MarshalJSON() ([]byte, error) {
 		return json.Marshal(string(MessageTypeUnknown))
 	}
 }
-
 func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -76,22 +72,7 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	}
 }
 
-type McpLoggerInterface interface {
-	LogRequest(requestID, message string, metadata map[string]string) error
-	LogResponse(requestID, message string, success bool, errorMsg string, metadata map[string]string) error
-	LogProxyStart(metadata map[string]string) error
-	LogProxyStop(success bool, errorMsg string, metadata map[string]string) error
-}
-
-type McpLogger struct {
-	*Logger
-
-	sessionID string
-	serverID  string
-	transport string
-}
-
-type BaseLogEntry struct {
+type BaseMcpEvent struct {
 	// Timestamp is the exact time when the log entry was created
 	Timestamp time.Time `json:"timestamp"`
 
@@ -131,84 +112,28 @@ type BaseLogEntry struct {
 
 	// Transport identifies the proxy type: "stdio", "http", "websocket"
 	Transport string `json:"transport"`
+
+	// ProcessingErrors indicate errors during processing of this event
+	ProcessingErrors map[string]error `json:"-"`
 }
 
-// Logger handles log file I/O operations (base logger for all transports)
-type Logger struct {
-	logFile *os.File
-	logPath string
-	mu      sync.Mutex // Protect concurrent writes
-}
+type HttpMcpEvent struct {
+	BaseMcpEvent
 
-// NewLogger creates a new base logger instance
-func NewLogger() (*Logger, error) {
-	// Resolve logs directory location
-	logsDir, err := GetLogsDirectory()
-	if err != nil {
-		return nil, err
-	}
+	// Gateway is the logical grouping of MCP servers (e.g., "my-gateway")
+	Gateway string `json:"gateway"`
 
-	if err := os.MkdirAll(logsDir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create logs directory: %w", err)
-	}
+	// ServerName identifies the specific MCP server within the gateway
+	ServerName string `json:"server_name"`
 
-	// Create log file with current date
-	logFileName := fmt.Sprintf("requests_%s.jsonl", time.Now().Format("2006-01-02"))
-	logPath := filepath.Join(logsDir, logFileName)
+	// Endpoint is the HTTP path this server is mounted at (e.g., "/mcp/my-gateway/github")
+	//
+	// Follows the pattern: /mcp/<gateway_name>/<server_name>
+	Endpoint string `json:"endpoint"`
 
-	// Open log file in append mode
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open log file: %w", err)
-	}
+	// DownstreamURL is the target MCP server URL being proxied to
+	DownstreamURL string `json:"downstream_url"`
 
-	return &Logger{
-		logFile: logFile,
-		logPath: logPath,
-	}, nil
-}
-
-// logEntry writes any log entry to the JSONL file (base Logger method)
-func (l *Logger) logEntry(entry interface{}) error {
-	if l.logFile == nil {
-		return fmt.Errorf("logger not initialized")
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	data, err := json.Marshal(entry)
-	if err != nil {
-		return fmt.Errorf("failed to marshal log entry: %w", err)
-	}
-
-	// Write JSON line
-	if _, err := l.logFile.Write(data); err != nil {
-		return fmt.Errorf("failed to write log entry: %w", err)
-	}
-
-	// Write newline
-	if _, err := l.logFile.WriteString("\n"); err != nil {
-		return fmt.Errorf("failed to write newline: %w", err)
-	}
-
-	// Sync to disk
-	return l.logFile.Sync()
-}
-
-// Close closes the logger
-func (l *Logger) Close() error {
-	if l.logFile != nil {
-		return l.logFile.Close()
-	}
-	return nil
-}
-
-// GetLogPath returns the absolute path to the current log file.
-// This method can be used by external callers to:
-//   - Display log location to users for debugging
-//   - Access logs programmatically for analysis or monitoring
-//   - Integrate with external log aggregation tools
-//   - Provide log file paths in status/diagnostic outputs
-func (l *Logger) GetLogPath() string {
-	return l.logPath
+	// ProxyPort is the port the proxy server is listening on
+	ProxyPort string `json:"proxy_port,omitempty"`
 }

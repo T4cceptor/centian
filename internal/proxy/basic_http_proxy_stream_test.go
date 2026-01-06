@@ -24,9 +24,9 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	proxyConfig.Port = "9000"
 	centianConfig := CentianConfig{
 		ProxyConfiguration: proxyConfig,
-		Gateways: map[string]GatewayConfig{
+		GatewayConfigs: map[string]GatewayConfig{
 			"my-test-gateway": {
-				McpServers: map[string]HttpMcpServerConfig{
+				McpServersConfig: map[string]HttpMcpServerConfig{
 					"my-test-mcp-1": HttpMcpServerConfig{
 						URL: downstreamURL,
 						Headers: map[string]string{
