@@ -222,9 +222,7 @@ func TestProcessorValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set proxy if not set (required for validation)
 			if tt.config.Proxy == nil {
-				tt.config.Proxy = &ProxySettings{
-					Transport: "stdio",
-				}
+				tt.config.Proxy = &ProxySettings{}
 			}
 
 			err := ValidateConfig(tt.config)

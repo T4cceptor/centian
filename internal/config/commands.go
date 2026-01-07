@@ -228,15 +228,25 @@ func showConfig(ctx context.Context, cmd *cli.Command) error {
 		configPath, _ := GetConfigPath()
 		fmt.Printf("Configuration path: %s\n", configPath)
 		fmt.Printf("Version: %s\n", config.Version)
-		fmt.Printf("Transport: %s\n", config.Proxy.Transport)
 		if config.Proxy.LogLevel != "" {
 			fmt.Printf("Log Level: %s\n", config.Proxy.LogLevel)
 		}
-		fmt.Printf("Servers: %d configured\n", len(config.Servers))
+		fmt.Printf("Gateways: %d configured\n", len(config.Gateways))
 
-		enabled := len(config.ListEnabledServers())
-		fmt.Printf("  - Enabled: %d\n", enabled)
-		fmt.Printf("  - Disabled: %d\n", len(config.Servers)-enabled)
+		allServers := []*MCPServerConfig{}
+		for _, gatewayConfig := range config.Gateways {
+			allServers = append(allServers, gatewayConfig.ListServers()...)
+		}
+		fmt.Printf("Servers: %d configured\n", len(allServers))
+
+		enabled := []*MCPServerConfig{}
+		for _, serverConfig := range allServers {
+			if serverConfig.Enabled {
+				enabled = append(enabled, enabled...)
+			}
+		}
+		fmt.Printf("  - Enabled: %d\n", len(enabled))
+		fmt.Printf("  - Disabled: %d\n", len(allServers)-len(enabled))
 	}
 
 	return nil
@@ -264,42 +274,53 @@ func listServers(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	enabledOnly := cmd.Bool("enabled-only")
-	servers := config.Servers
+	gateways := config.Gateways
 
-	if len(servers) == 0 {
-		fmt.Println("No servers configured.")
+	if len(gateways) == 0 {
+		fmt.Println("No gateways configured.")
 		return nil
 	}
 
 	fmt.Printf("MCP Servers:\n")
-	for name, server := range servers {
-		if enabledOnly && !server.Enabled {
-			continue
+	for gatewayName, gatewayConfig := range gateways {
+		fmt.Printf("- %s\n", gatewayName)
+		for serverName, server := range gatewayConfig.MCPServers {
+			if enabledOnly && !server.Enabled {
+				continue
+			}
+			status := "✅ enabled"
+			if !server.Enabled {
+				status = "❌ disabled"
+			}
+
+			fmt.Printf("  - %s (%s)\n", serverName, status)
+			// stdio
+			if server.Command != "" {
+				fmt.Printf("      Command: '%s'\n", server.Command)
+			}
+			if len(server.Args) > 0 {
+				fmt.Printf("      Args: '%v'\n", server.Args)
+			}
+			// http
+			if server.URL != "" {
+				fmt.Printf("      URL: '%s'\n", server.URL)
+			}
+			if len(server.Headers) > 0 {
+				fmt.Printf("      Headers: '%v'\n", server.Headers)
+			}
+
+			if server.Source != "" {
+				fmt.Printf("      Source: %s\n", server.Source)
+			}
+			fmt.Println()
 		}
 
-		status := "✅ enabled"
-		if !server.Enabled {
-			status = "❌ disabled"
-		}
-
-		fmt.Printf("  %s (%s)\n", name, status)
-		if server.Command != "" {
-			fmt.Printf("    Command: %s %v\n", server.Command, server.Args)
-		}
-		if server.URL != "" {
-			fmt.Printf("    URL: %s %v\n", server.URL, server.Args)
-		}
-		if len(server.Args) > 0 {
-			fmt.Printf("    Args: %v\n", server.Args)
-		}
-		if server.Source != "" {
-			fmt.Printf("    Source: %s\n", server.Source)
-		}
-		fmt.Println()
 	}
 
 	return nil
 }
+
+//// TODO: check the below code and modify it to fit the new config structure including gateways
 
 // addServer adds a new MCP server configuration to the global config.
 // Validates that the server name doesn't already exist before adding.
@@ -309,26 +330,28 @@ func addServer(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	name := cmd.String("name")
-	if _, exists := config.Servers[name]; exists {
-		return fmt.Errorf("server '%s' already exists", name)
-	}
+	// TODO: needs to be redone with gateway logic
 
-	server := &MCPServer{
-		Name:        name,
-		Command:     cmd.String("command"),
-		Args:        cmd.StringSlice("args"),
-		Description: cmd.String("description"),
-		Enabled:     cmd.Bool("enabled"),
-	}
+	// name := cmd.String("name")
+	// if _, exists := config.Servers[name]; exists {
+	// 	return fmt.Errorf("server '%s' already exists", name)
+	// }
 
-	config.AddServer(name, server)
+	// server := &MCPServer{
+	// 	Name:        name,
+	// 	Command:     cmd.String("command"),
+	// 	Args:        cmd.StringSlice("args"),
+	// 	Description: cmd.String("description"),
+	// 	Enabled:     cmd.Bool("enabled"),
+	// }
+
+	// config.AddServer(name, server)
 
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	fmt.Printf("✅ Added server '%s'\n", name)
+	// fmt.Printf("✅ Added server '%s'\n", name)
 	return nil
 }
 
@@ -338,18 +361,20 @@ func removeServer(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	name := cmd.String("name")
-	if _, exists := config.Servers[name]; !exists {
-		return fmt.Errorf("server '%s' not found", name)
-	}
+	// TODO: needs to be redone with gateway logic
 
-	config.RemoveServer(name)
+	// name := cmd.String("name")
+	// if _, exists := config.Servers[name]; !exists {
+	// 	return fmt.Errorf("server '%s' not found", name)
+	// }
+
+	// config.RemoveServer(name)
 
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	fmt.Printf("✅ Removed server '%s'\n", name)
+	// fmt.Printf("✅ Removed server '%s'\n", name)
 	return nil
 }
 
@@ -367,12 +392,14 @@ func toggleServer(name string, enabled bool) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	server, exists := config.Servers[name]
-	if !exists {
-		return fmt.Errorf("server '%s' not found", name)
-	}
+	// TODO: needs to be redone with gateway logic
 
-	server.Enabled = enabled
+	// server, exists := config.Servers[name]
+	// if !exists {
+	// 	return fmt.Errorf("server '%s' not found", name)
+	// }
+
+	// server.Enabled = enabled
 
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)

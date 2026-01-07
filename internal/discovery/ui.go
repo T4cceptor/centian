@@ -320,27 +320,20 @@ func ImportServers(servers []Server, globalConfig *config.GlobalConfig) int {
 			continue
 		}
 
-		// Check if server already exists
-		if _, exists := globalConfig.Servers[discovered.Name]; exists {
-			common.LogWarn("Server '%s' already exists in config, skipping", discovered.Name)
-			fmt.Printf("⚠️  Server '%s' already exists, skipping\n", discovered.Name)
-			continue
-		}
-
 		// Convert to MCPServer
-		mcpServer := &config.MCPServer{
-			Name:        discovered.Name,
-			Command:     discovered.Command,
-			Args:        discovered.Args,
-			Env:         discovered.Env,
-			URL:         discovered.URL,
-			Transport:   discovered.Transport,
-			Enabled:     true, // Auto-discovered servers are enabled by default
-			Description: discovered.Description,
-			Source:      discovered.SourcePath,
-		}
+		// mcpServer := &config.MCPServer{
+		// 	Name:        discovered.Name,
+		// 	Command:     discovered.Command,
+		// 	Args:        discovered.Args,
+		// 	Env:         discovered.Env,
+		// 	URL:         discovered.URL,
+		// 	Transport:   discovered.Transport,
+		// 	Enabled:     true, // Auto-discovered servers are enabled by default
+		// 	Description: discovered.Description,
+		// 	Source:      discovered.SourcePath,
+		// }
 
-		globalConfig.AddServer(discovered.Name, mcpServer)
+		// globalConfig.AddServer(discovered.Name, mcpServer)
 		imported++
 		common.LogInfo("Imported server: %s (transport: %s, source: %s)", discovered.Name, discovered.Transport, discovered.SourcePath)
 

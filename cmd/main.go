@@ -37,6 +37,7 @@ func main() {
 		EnableShellCompletion: true,
 		Commands: []*urfavecli.Command{
 			cli.InitCommand,
+			cli.ServerCommand,
 			cli.StdioCommand,
 			cli.LogsCommand,
 			config.ConfigCommand,

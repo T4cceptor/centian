@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,14 +21,19 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	if githubPAT == "" {
 		log.Fatal("GITHUB_PAT environment variable not set")
 	}
-	proxyConfig := NewDefaultProxyConfig()
-	proxyConfig.Port = "9000"
-	centianConfig := CentianConfig{
-		ProxyConfiguration: proxyConfig,
-		GatewayConfigs: map[string]GatewayConfig{
+
+	// Create GlobalConfig with HTTP proxy settings
+	globalConfig := &config.GlobalConfig{
+		Name:    "Test Proxy Server",
+		Version: "1.0.0",
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 30,
+		},
+		Gateways: map[string]*config.GatewayConfig{
 			"my-test-gateway": {
-				McpServersConfig: map[string]HttpMcpServerConfig{
-					"my-test-mcp-1": HttpMcpServerConfig{
+				MCPServers: map[string]*config.MCPServerConfig{
+					"my-test-mcp-1": {
 						URL: downstreamURL,
 						Headers: map[string]string{
 							"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
@@ -37,9 +43,10 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 			},
 		},
 	}
+
 	// Start raw proxy server in background
 	go func() {
-		server, err := NewCentianHTTPProxy(&centianConfig)
+		server, err := NewCentianHTTPProxy(globalConfig)
 		if err != nil {
 			log.Fatal("Unable to create proxy server:", err)
 
@@ -64,7 +71,7 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	// This demonstrates that our raw proxy works with real MCP SDK clients
 	proxyURL := fmt.Sprintf(
 		"http://localhost:%s/mcp/%s/%s",
-		proxyConfig.Port,
+		globalConfig.Proxy.Port,
 		"my-test-gateway",
 		"my-test-mcp-1",
 	)

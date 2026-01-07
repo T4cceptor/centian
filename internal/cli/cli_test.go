@@ -94,8 +94,8 @@ func TestRunAutoDiscovery(t *testing.T) {
 		t.Error("Config version changed during auto-discovery")
 	}
 
-	if cfg.Servers == nil {
-		t.Error("Config servers map should not be nil after auto-discovery")
+	if cfg.Gateways == nil {
+		t.Error("Config gateway map should not be nil after auto-discovery")
 	}
 
 	t.Log("Auto-discovery function test completed successfully")
