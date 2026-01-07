@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
 type McpEventDirection string
@@ -71,7 +73,7 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 		*m = McpMessageType(s)
 		return nil
 	default:
-		*m = McpMessageType(DirectionUnknown)
+		*m = MessageTypeUnknown
 		return nil
 	}
 }
@@ -211,4 +213,8 @@ func (l *Logger) Close() error {
 //   - Provide log file paths in status/diagnostic outputs
 func (l *Logger) GetLogPath() string {
 	return l.logPath
+}
+
+func (l *Logger) LogMcpEvent(event common.McpEventInterface) error {
+	return l.logEntry(event)
 }

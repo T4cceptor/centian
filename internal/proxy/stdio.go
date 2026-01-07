@@ -251,6 +251,7 @@ func (p *StdioProxy) handleStdout() {
 			// Log the MCP response to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
+				// TODO: refactor code to use StdioMcpEvent instead and simplify logging
 				err := p.logger.LogResponse(requestID, line, true, "", nil)
 				if err != nil {
 					common.LogError(err.Error())
@@ -353,6 +354,7 @@ func (p *StdioProxy) handleStdin() {
 			// Log the client request to file and stderr for debugging
 			if p.logger != nil {
 				requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
+				// TODO: refactor code to use StdioMcpEvent instead and simplify logging
 				_ = p.logger.LogRequest(requestID, line, nil)
 			}
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)

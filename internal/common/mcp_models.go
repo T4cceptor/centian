@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"net/http"
 	"time"
 )
 
@@ -67,7 +68,7 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 		*m = McpMessageType(s)
 		return nil
 	default:
-		*m = McpMessageType(DirectionUnknown)
+		*m = MessageTypeUnknown
 		return nil
 	}
 }
@@ -76,11 +77,17 @@ type BaseMcpEvent struct {
 	// Timestamp is the exact time when the log entry was created
 	Timestamp time.Time `json:"timestamp"`
 
+	// Transport identifies the proxy type: "stdio", "http", "websocket"
+	Transport string `json:"transport"`
+
 	// RequestID uniquely identifies a single request/response pair
 	RequestID string `json:"request_id"`
 
 	// SessionID groups multiple requests within the same proxy session
 	SessionID string `json:"session_id,omitempty"`
+
+	// ServerID uniquely identifies the MCP server instance handling this request
+	ServerID string `json:"server_id,omitempty"`
 
 	// Direction indicates the communication flow perspective:
 	// "request" (client→server),
@@ -88,12 +95,6 @@ type BaseMcpEvent struct {
 	// "system" (proxy lifecycle events).
 	// This field remains stable regardless of success/failure status.
 	Direction McpEventDirection `json:"direction"`
-
-	// ServerID uniquely identifies the MCP server instance handling this request
-	ServerID string `json:"server_id,omitempty"`
-
-	// RawMessage container the raw input received for the specific message
-	RawMessage string `json:"raw_message"`
 
 	// MessageType categorizes the content/outcome: "request", "response", "error", or "system".
 	// Unlike Direction, this changes to "error" for failed responses, enabling filtering
@@ -107,18 +108,67 @@ type BaseMcpEvent struct {
 	// Error contains error details if Success is false
 	Error string `json:"error,omitempty"`
 
-	// Metadata holds additional context-specific key-value pairs
-	Metadata map[string]string `json:"metadata,omitempty"`
-
-	// Transport identifies the proxy type: "stdio", "http", "websocket"
-	Transport string `json:"transport"`
-
 	// ProcessingErrors indicate errors during processing of this event
 	ProcessingErrors map[string]error `json:"-"`
+
+	// Metadata holds additional context-specific key-value pairs
+	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+type HttpEvent struct {
+	ReqID       string
+	Method      string
+	URL         string
+	ReqHeaders  http.Header
+	RespStatus  int
+	RespHeaders http.Header
+	Body        []byte // captured (non-streaming or limited)
+	BodySize    int64
+	Truncated   bool
+	Streaming   bool
+	ContentType string
+}
+
+func NewHttpEventFromRequest(r *http.Request, requestID string) *HttpEvent {
+	responseStatus := -1
+	var responseHeaders http.Header = nil
+	if r.Response != nil {
+		responseStatus = r.Response.StatusCode
+		responseHeaders = r.Response.Header
+	}
+	return &HttpEvent{
+		ReqID:       requestID,
+		Method:      r.Method,
+		URL:         r.URL.String(),
+		ReqHeaders:  r.Header,
+		RespStatus:  responseStatus,  // -1 means there is no response yet
+		RespHeaders: responseHeaders, // nil means there is no response yet
+		Body:        nil,             // will be set during processing
+		BodySize:    r.ContentLength,
+		Truncated:   false,                        // TODO
+		Streaming:   false,                        // TODO
+		ContentType: r.Header.Get("Content-Type"), // TODO: check if this is correct and appropriate
+	}
+}
+
+func NewHttpEventFromResponse(resp *http.Response, requestID string) *HttpEvent {
+	return &HttpEvent{
+		ReqID:       requestID,
+		Method:      resp.Request.Method,
+		URL:         resp.Request.URL.String(),
+		ReqHeaders:  resp.Request.Header,
+		RespStatus:  resp.StatusCode,
+		RespHeaders: resp.Header,
+		Body:        nil, // Set during processing
+		BodySize:    resp.ContentLength,
+		ContentType: resp.Header.Get("Content-Type"),
+	}
 }
 
 type HttpMcpEvent struct {
 	BaseMcpEvent
+
+	HttpEvent *HttpEvent
 
 	// Gateway is the logical grouping of MCP servers (e.g., "my-gateway")
 	Gateway string `json:"gateway"`
@@ -136,4 +186,99 @@ type HttpMcpEvent struct {
 
 	// ProxyPort is the port the proxy server is listening on
 	ProxyPort string `json:"proxy_port,omitempty"`
+}
+
+func (h HttpMcpEvent) RawMessage() string {
+	rawMessage := ""
+	if len(h.HttpEvent.Body) > 0 {
+		rawMessage = string(h.HttpEvent.Body)
+	}
+	return rawMessage
+}
+
+// Convert on serialization (in MarshalJSON)
+func (e HttpMcpEvent) MarshalJSON() ([]byte, error) {
+	type Alias HttpMcpEvent
+	return marshalWithRaw(e.RawMessage(), Alias(e))
+}
+
+func (e *HttpMcpEvent) DeepClone() *HttpMcpEvent {
+	// Shallow copy value fields (dereference pointer to get value)
+	processedEvent := *e
+
+	// Deep copy ProcessingErrors map
+	processedEvent.ProcessingErrors = make(map[string]error)
+	for k, v := range e.ProcessingErrors {
+		processedEvent.ProcessingErrors[k] = v // Copy original errors
+	}
+	processedEvent.Metadata = make(map[string]string)
+	for k, v := range e.Metadata {
+		processedEvent.Metadata[k] = v // Copy original metadata
+	}
+	if processedEvent.HttpEvent != nil {
+		processedEvent.HttpEvent = &HttpEvent{
+			ReqID:       e.HttpEvent.ReqID,
+			Method:      e.HttpEvent.Method,
+			URL:         e.HttpEvent.URL,
+			ReqHeaders:  e.HttpEvent.ReqHeaders.Clone(), // ✅ Deep copy
+			RespStatus:  e.HttpEvent.RespStatus,
+			RespHeaders: e.HttpEvent.RespHeaders.Clone(), // ✅ Deep copy
+			Body:        make([]byte, len(e.HttpEvent.Body)),
+			BodySize:    e.HttpEvent.BodySize,
+			Truncated:   e.HttpEvent.Truncated,
+			Streaming:   e.HttpEvent.Streaming,
+			ContentType: e.HttpEvent.ContentType,
+		}
+		copy(processedEvent.HttpEvent.Body, e.HttpEvent.Body)
+	} else {
+		processedEvent.HttpEvent = nil
+	}
+
+	return &processedEvent
+}
+
+type StdioMcpEvent struct {
+	BaseMcpEvent
+
+	// Command is the executable being proxied (e.g., "npx", "python")
+	Command string `json:"command"`
+
+	// Args are the command-line arguments passed to the command
+	Args []string `json:"args"`
+
+	// ProjectPath is the working directory where the command executes
+	ProjectPath string `json:"project_path"`
+
+	// ConfigSource indicates where configuration originated: "global", "project", or "profile"
+	ConfigSource string `json:"config_source"`
+
+	Message string `json:"message"`
+}
+
+func (s StdioMcpEvent) RawMessage() string {
+	return s.Message
+}
+
+func marshalWithRaw(raw string, v any) ([]byte, error) {
+	// v should be an alias type (so it won't recurse)
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	m["raw_message"] = raw
+	return json.Marshal(m)
+}
+
+// Convert on serialization (in MarshalJSON)
+func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
+	type Alias StdioMcpEvent
+	return marshalWithRaw(s.RawMessage(), Alias(s))
+}
+
+type McpEventInterface interface {
+	RawMessage() string
 }
