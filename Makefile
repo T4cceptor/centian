@@ -31,7 +31,13 @@ clean: ## Clean build artifacts
 
 test: ## Run unit tests
 	@echo "Running unit tests..."
-	go test -v -race ./internal/... ./cmd/... | gotestsum --format testname
+	@if command -v gotestsum >/dev/null 2>&1; then \
+		gotestsum --format testname -- -race ./internal/... ./cmd/...; \
+	else \
+		echo "Note: gotestsum not found, using default go test output"; \
+		echo "Install with: go install gotest.tools/gotestsum@latest"; \
+		go test -v -race ./internal/... ./cmd/...; \
+	fi
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."
