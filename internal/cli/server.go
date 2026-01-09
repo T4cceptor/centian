@@ -16,7 +16,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -94,7 +93,7 @@ func handleServerStartCommand(ctx context.Context, cmd *cli.Command) error {
 
 	if configPath != "" {
 		// Load from custom path
-		globalConfig, err = loadConfigFromPath(configPath)
+		globalConfig, err = config.LoadConfigFromPath(configPath)
 		if err != nil {
 			return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 		}
@@ -189,26 +188,4 @@ func handleServerStartCommand(ctx context.Context, cmd *cli.Command) error {
 	case err := <-errChan:
 		return err
 	}
-}
-
-// loadConfigFromPath loads configuration from a custom file path
-func loadConfigFromPath(path string) (*config.GlobalConfig, error) {
-	// Read config file
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// Parse JSON
-	var cfg config.GlobalConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	// Validate config
-	if err := config.ValidateConfig(&cfg); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return &cfg, nil
 }

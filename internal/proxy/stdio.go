@@ -17,7 +17,6 @@ package proxy
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -36,6 +35,8 @@ import (
 // It manages the lifecycle of an MCP server process and handles bidirectional
 // communication between the client and server.
 type StdioProxy struct {
+	config *config.GlobalConfig
+
 	// cmd is the command being executed for the MCP server
 	cmd *exec.Cmd
 
@@ -78,14 +79,22 @@ type StdioProxy struct {
 	// args are the arguments passed to the command
 	args []string
 
-	// processorChain executes processors on requests/responses (optional, nil-safe)
-	processorChain *processor.Chain
+	processor *EventProcessor
 }
 
 // NewStdioProxy creates a new stdio proxy for the given command and arguments.
 // To enable processors, call SetProcessors after creation.
-func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioProxy, error) {
+func NewStdioProxy(ctx context.Context, command string, args []string, pathToConfig string) (*StdioProxy, error) {
 	proxyCtx, cancel := context.WithCancel(ctx)
+	var globalConfig *config.GlobalConfig
+	if len(pathToConfig) > 0 {
+		var err error
+		globalConfig, err = config.LoadConfigFromPath(pathToConfig)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("failed to load config: %s - %w", pathToConfig, err)
+		}
+	}
 
 	// Create the command
 	cmd := exec.CommandContext(proxyCtx, command, args...)
@@ -116,7 +125,12 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 
-	return &StdioProxy{
+	timestamp := time.Now().UnixNano()
+	sessionID := fmt.Sprintf("session_%d", timestamp)
+	serverID := fmt.Sprintf("stdio_%s_%d", command, timestamp)
+
+	proxy := StdioProxy{
+		config:    nil,
 		cmd:       cmd,
 		stdin:     stdin,
 		stdout:    stdout,
@@ -125,28 +139,23 @@ func NewStdioProxy(ctx context.Context, command string, args []string) (*StdioPr
 		ctx:       proxyCtx,
 		cancel:    cancel,
 		logger:    logger,
-		sessionID: logger.SessionID(), // Get from logger
-		serverID:  logger.ServerID(),  // Get from logger
+		sessionID: sessionID,
+		serverID:  serverID,
 		command:   command,
 		args:      args,
-	}, nil
-}
-
-// SetProcessors initializes the processor chain for this proxy.
-// Must be called before Start() to enable request/response processing.
-func (p *StdioProxy) SetProcessors(processors []*config.ProcessorConfig) error {
-	if len(processors) == 0 {
-		p.processorChain = nil
-		return nil
+		processor: nil,
 	}
 
-	chain, err := processor.NewChain(processors, p.command, p.sessionID)
-	if err != nil {
-		return fmt.Errorf("failed to create processor chain: %w", err)
+	// Create and attach processors
+	if globalConfig != nil {
+		proxy.config = globalConfig
+		processors, err := processor.NewChain(globalConfig.Processors, globalConfig.Name, sessionID)
+		if err == nil {
+			proxy.processor = NewEventProcessor(logger.Logger, processors)
+		}
 	}
 
-	p.processorChain = chain
-	return nil
+	return &proxy, nil
 }
 
 // Start starts the MCP server process and begins proxying
@@ -232,6 +241,31 @@ func (p *StdioProxy) Stop() error {
 	return nil
 }
 
+func (p *StdioProxy) GetEvent(message, requestID string, direction common.McpEventDirection, messageType common.McpMessageType) common.StdioMcpEvent {
+	baseMcpEvent := common.BaseMcpEvent{
+		Timestamp:        time.Now(),
+		Transport:        "stdio",
+		RequestID:        requestID,
+		SessionID:        p.sessionID,
+		ServerID:         p.serverID,
+		Direction:        direction,
+		MessageType:      messageType,
+		Success:          true, // TODO: this is not necessarily the case - but how do we know if its successful or not?
+		Error:            "",
+		ProcessingErrors: map[string]error{},
+		Metadata:         map[string]string{}, // TODO
+		Modified:         false,
+	}
+	return common.StdioMcpEvent{
+		BaseMcpEvent: baseMcpEvent,
+		Command:      p.command,
+		Args:         p.args,
+		ProjectPath:  p.cmd.Path,
+		ConfigSource: "project", // TODO
+		Message:      message,
+	}
+}
+
 // handleStdout reads from MCP server stdout and forwards to our stdout
 func (p *StdioProxy) handleStdout() {
 	defer func() {
@@ -247,62 +281,20 @@ func (p *StdioProxy) handleStdout() {
 			return
 		default:
 			line := scanner.Text()
-
-			// Log the MCP response to file and stderr for debugging
-			if p.logger != nil {
-				requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
-				// TODO: refactor code to use StdioMcpEvent instead and simplify logging
-				err := p.logger.LogResponse(requestID, line, true, "", nil)
-				if err != nil {
-					common.LogError(err.Error())
-				}
-			}
+			requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
+			event := p.GetEvent(line, requestID, common.DirectionServerToClient, common.MessageTypeResponse)
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 
 			// Execute processor chain if configured
-			outputLine := line
-			if p.processorChain != nil {
-				result, err := p.processorChain.ExecuteResponse(line)
-				switch {
-				case err != nil:
-					// Failed to execute processor chain
-					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute response processors: %v\n", err)
-					// Fall through and forward original response
-				case result.Status >= 400:
-					// Processor rejected or errored - send MCP error to client
-					fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Response rejected with status %d\n", result.Status)
-
-					// Extract request ID from original message
-					var msgData map[string]interface{}
-					if err := json.Unmarshal([]byte(line), &msgData); err != nil {
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to parse response JSON for error response: %v\n", err)
-						// Fall through and forward original response
-					} else {
-						// Format MCP error response
-						errorResponse, err := processor.FormatMCPError(result, msgData["id"])
-						if err != nil {
-							fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to format MCP error: %v\n", err)
-							// Fall through and forward original response
-						} else {
-							// Send error response to client instead of original response
-							outputLine = errorResponse
-						}
-					}
-				default:
-					// Status 200 - processor passed, use modified payload
-					modifiedJSON, err := json.Marshal(result.ModifiedPayload)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to marshal modified response: %v\n", err)
-						// Fall through and forward original response
-					} else {
-						outputLine = string(modifiedJSON)
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Response modified by processors\n")
-					}
+			if p.processor != nil {
+				if err := p.processor.Process(&event); err != nil {
+					common.LogError(err.Error())
+					event.ProcessingErrors["processing_error"] = err
 				}
 			}
 
 			// Forward to client
-			fmt.Println(outputLine)
+			fmt.Println(event.RawMessage())
 		}
 	}
 
@@ -350,61 +342,22 @@ func (p *StdioProxy) handleStdin() {
 			return
 		default:
 			line := scanner.Text()
-
-			// Log the client request to file and stderr for debugging
-			if p.logger != nil {
-				requestID := fmt.Sprintf("req_%d", time.Now().UnixNano())
-				// TODO: refactor code to use StdioMcpEvent instead and simplify logging
-				_ = p.logger.LogRequest(requestID, line, nil)
-			}
+			requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
+			event := p.GetEvent(line, requestID, common.DirectionClientToServer, common.MessageTypeRequest)
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)
 
 			// Execute processor chain if configured
-			outputLine := line
-			if p.processorChain != nil {
-				result, err := p.processorChain.ExecuteRequest(line)
-				switch {
-				case err != nil:
-					// Failed to execute processor chain
-					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute request processors: %v\n", err)
-					// Fall through and forward original request
-				case result.Status >= 400:
-					// Processor rejected or errored - send MCP error to client
-					fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Request rejected with status %d\n", result.Status)
-
-					// Extract request ID from original message
-					var msgData map[string]interface{}
-					if err := json.Unmarshal([]byte(line), &msgData); err != nil {
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to parse request JSON for error response: %v\n", err)
-						continue
-					}
-
-					// Format MCP error response
-					errorResponse, err := processor.FormatMCPError(result, msgData["id"])
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to format MCP error: %v\n", err)
-						continue
-					}
-
-					// Send error response to client (not to server)
-					fmt.Println(errorResponse)
-					continue // Don't forward to server
-				default:
-					// Status 200 - processor passed, use modified payload
-					modifiedJSON, err := json.Marshal(result.ModifiedPayload)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to marshal modified request: %v\n", err)
-						// Fall through and forward original request
-					} else {
-						outputLine = string(modifiedJSON)
-						fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Request modified by processors\n")
-					}
+			if p.processor != nil {
+				if err := p.processor.Process(&event); err != nil {
+					common.LogError(err.Error())
+					event.ProcessingErrors["processing_error"] = err
 				}
 			}
 
 			// Forward to MCP server
+			// TODO: proceed depending on event status!
 			if p.stdin != nil {
-				if _, err := fmt.Fprintln(p.stdin, outputLine); err != nil {
+				if _, err := fmt.Fprintln(p.stdin, event.RawMessage()); err != nil {
 					fmt.Fprintf(os.Stderr, "Error writing to MCP server stdin: %v\n", err)
 					return
 				}

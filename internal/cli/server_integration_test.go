@@ -29,7 +29,7 @@ func TestServerStartIntegration(t *testing.T) {
 	defer os.Remove(configPath)
 
 	// Given: a test config loaded from the file
-	globalConfig, err := loadConfigFromPath(configPath)
+	globalConfig, err := config.LoadConfigFromPath(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load test config: %v", err)
 	}
@@ -278,7 +278,7 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 					"second-mock": {
 						URL: mockServerURL,
 						Headers: map[string]string{
-							"Content-Type": "application/json",
+							"Content-Type":  "application/json",
 							"X-Test-Header": "test-value",
 						},
 						Enabled:     true,
@@ -372,7 +372,7 @@ func TestConfigFileValidation(t *testing.T) {
 			os.WriteFile(configPath, data, 0644)
 
 			// Try to load config
-			_, err := loadConfigFromPath(configPath)
+			_, err := config.LoadConfigFromPath(configPath)
 
 			if tt.expectError {
 				if err == nil {

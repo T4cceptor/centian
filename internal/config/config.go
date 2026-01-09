@@ -226,6 +226,29 @@ func LoadConfig() (*GlobalConfig, error) {
 	return &config, nil
 }
 
+// LoadConfigFromPath loads configuration from a custom file path.
+// The configuration is validated after loading.
+func LoadConfigFromPath(path string) (*GlobalConfig, error) {
+	// Read config file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse JSON
+	var cfg GlobalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Validate config
+	if err := ValidateConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return &cfg, nil
+}
+
 // SaveConfig saves the configuration to ~/.centian/config.jsonc.
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.

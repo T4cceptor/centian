@@ -398,7 +398,6 @@ func CreateProxyEndpoint(
 	// Note: we combine both global (server) and local (gateway) processors
 	// TODO: later we can handle this more granulary, but works for now
 	allProcessors := append(server.config.Processors, gateway.config.Processors...)
-
 	processorChain, err := processor.NewChain(allProcessors, server.config.Name, sessionID)
 	if err != nil {
 		common.LogError(err.Error())

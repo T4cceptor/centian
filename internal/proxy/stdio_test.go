@@ -16,7 +16,7 @@ func TestNewStdioProxy(t *testing.T) {
 	args := []string{"test"}
 
 	// When: creating a new stdio proxy
-	proxy, err := NewStdioProxy(ctx, command, args)
+	proxy, err := NewStdioProxy(ctx, command, args, "")
 
 	// Then: the proxy should be created successfully
 	if err != nil {
@@ -52,7 +52,7 @@ func TestNewStdioProxy(t *testing.T) {
 func TestStdioProxyStartStop(t *testing.T) {
 	// Given: a stdio proxy with a simple echo command
 	ctx := context.Background()
-	proxy, err := NewStdioProxy(ctx, "echo", []string{"test"})
+	proxy, err := NewStdioProxy(ctx, "echo", []string{"test"}, "")
 	if err != nil {
 		t.Fatalf("Failed to create proxy: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestStdioProxyWithInvalidCommand(t *testing.T) {
 	args := []string{}
 
 	// When: creating a proxy with invalid command
-	proxy, err := NewStdioProxy(ctx, command, args)
+	proxy, err := NewStdioProxy(ctx, command, args, "")
 
 	// Then: the proxy should be created (validation happens at start)
 	if err != nil {
@@ -117,7 +117,7 @@ func TestStdioProxySessionIDs(t *testing.T) {
 	proxies := make([]*StdioProxy, 3)
 
 	for i := 0; i < 3; i++ {
-		proxy, err := NewStdioProxy(ctx, "echo", []string{"test"})
+		proxy, err := NewStdioProxy(ctx, "echo", []string{"test"}, "")
 		if err != nil {
 			t.Fatalf("Failed to create proxy %d: %v", i, err)
 		}
@@ -156,7 +156,7 @@ func TestStdioProxySessionIDs(t *testing.T) {
 func TestStdioProxyContextCancellation(t *testing.T) {
 	// Given: a cancellable context and a long-running command
 	ctx, cancel := context.WithCancel(context.Background())
-	proxy, err := NewStdioProxy(ctx, "sleep", []string{"5"})
+	proxy, err := NewStdioProxy(ctx, "sleep", []string{"5"}, "")
 	if err != nil {
 		t.Fatalf("Failed to create proxy: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestStdioProxyContextCancellation(t *testing.T) {
 func TestStdioProxyWait(t *testing.T) {
 	// Given: a stdio proxy with a quick command
 	ctx := context.Background()
-	proxy, err := NewStdioProxy(ctx, "echo", []string{"test"})
+	proxy, err := NewStdioProxy(ctx, "echo", []string{"test"}, "")
 	if err != nil {
 		t.Fatalf("Failed to create proxy: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestStdioProxyLoggerIntegration(t *testing.T) {
 
 	// Given: a stdio proxy
 	ctx := context.Background()
-	proxy, err := NewStdioProxy(ctx, "echo", []string{"test"})
+	proxy, err := NewStdioProxy(ctx, "echo", []string{"test"}, "")
 	if err != nil {
 		t.Fatalf("Failed to create proxy: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestStdioProxyRapidStartStop(t *testing.T) {
 	// Given: multiple rapid start/stop cycles
 	for i := 0; i < 10; i++ {
 		ctx := context.Background()
-		proxy, err := NewStdioProxy(ctx, "sleep", []string{"0.1"})
+		proxy, err := NewStdioProxy(ctx, "sleep", []string{"0.1"}, "")
 		if err != nil {
 			t.Fatalf("Failed to create proxy %d: %v", i, err)
 		}
@@ -283,7 +283,7 @@ func TestStdioProxyStopTimeout(t *testing.T) {
 
 	// Given: a proxy with a long-running command
 	ctx := context.Background()
-	proxy, err := NewStdioProxy(ctx, "sleep", []string{"10"})
+	proxy, err := NewStdioProxy(ctx, "sleep", []string{"10"}, "")
 	if err != nil {
 		t.Fatalf("Failed to create proxy: %v", err)
 	}
