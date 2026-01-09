@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/CentianAI/centian-cli/internal/common"
@@ -490,6 +492,7 @@ func (e *CentianProxyEndpoint) DirectorHandler(r *http.Request) {
 	// Set target URL and headers
 	r.URL.Scheme = e.target.Scheme
 	r.URL.Host = e.target.Host
+	r.URL.Path = e.target.Path // Use the target's path, not the proxy endpoint path
 	r.Host = e.target.Host
 	for k, v := range e.substitutedHeaders {
 		r.Header.Set(k, v)
@@ -501,8 +504,30 @@ func (e *CentianProxyEndpoint) ModifyResponseHandler(resp *http.Response) error 
 	// Read and log response
 	var err error
 	if resp.Body != nil {
-		if mcpResponse.HttpEvent.Body, err = readBody(resp.Body); err != nil {
-			common.LogError(err.Error())
+		// Check if response is gzip-compressed
+		if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
+			// Decompress gzip response
+			gzipReader, gzipErr := gzip.NewReader(resp.Body)
+			if gzipErr != nil {
+				common.LogError(fmt.Sprintf("Failed to create gzip reader: %v", gzipErr))
+				mcpResponse.ProcessingErrors["gzip_decompression"] = gzipErr
+			} else {
+				defer gzipReader.Close()
+				// Read decompressed body
+				if mcpResponse.HttpEvent.Body, err = readBody(gzipReader); err != nil {
+					common.LogError(err.Error())
+					mcpResponse.ProcessingErrors["read_body"] = err
+				}
+				// Remove Content-Encoding header since we're returning uncompressed data
+				resp.Header.Del("Content-Encoding")
+				resp.Header.Del("Content-Length") // Length will be different after decompression
+			}
+		} else {
+			// Read uncompressed body normally
+			if mcpResponse.HttpEvent.Body, err = readBody(resp.Body); err != nil {
+				common.LogError(err.Error())
+				mcpResponse.ProcessingErrors["read_body"] = err
+			}
 		}
 	}
 	// Log to file

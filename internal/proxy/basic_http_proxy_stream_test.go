@@ -2,11 +2,9 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -14,66 +12,70 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// TestRawProxyWithSDKClient tests the raw proxy using MCP SDK client
-func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
-	downstreamURL := "https://api.githubcopilot.com/mcp/"
-	githubPAT := os.Getenv("GITHUB_PAT")
-	if githubPAT == "" {
-		log.Fatal("GITHUB_PAT environment variable not set")
+// TestDeepWikiHTTPProxyWithSDKClient tests the HTTP proxy with DeepWiki's public MCP server
+// This test connects to a real public MCP endpoint and performs actual searches
+func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test with external service in short mode")
 	}
 
-	// Create GlobalConfig with HTTP proxy settings
+	downstreamURL := "https://mcp.deepwiki.com/mcp"
+
+	// Given: a GlobalConfig with HTTP proxy settings pointing to DeepWiki
 	globalConfig := &config.GlobalConfig{
 		Name:    "Test Proxy Server",
 		Version: "1.0.0",
 		Proxy: &config.ProxySettings{
-			Port:    "9000",
+			Port:    "9002",
 			Timeout: 30,
 		},
 		Gateways: map[string]*config.GatewayConfig{
-			"my-test-gateway": {
+			"public-gateway": {
 				MCPServers: map[string]*config.MCPServerConfig{
-					"my-test-mcp-1": {
+					"deepwiki": {
 						URL: downstreamURL,
-						Headers: map[string]string{
-							"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
-						},
+						// Headers: map[string]string{
+						// 	"Content-Type": "application/json",
+						// },
 					},
 				},
 			},
 		},
 	}
 
-	// Start raw proxy server in background
-	go func() {
-		server, err := NewCentianHTTPProxy(globalConfig)
-		if err != nil {
-			log.Fatal("Unable to create proxy server:", err)
+	// When: starting the proxy server in background
+	server, err := NewCentianHTTPProxy(globalConfig)
+	if err != nil {
+		t.Fatalf("Failed to create proxy server: %v", err)
+	}
 
-		}
-		if err := server.StartCentianServer(); err != nil {
-			log.Fatal("Unable to start proxy server:", err)
+	go func() {
+		if err := server.StartCentianServer(); err != nil && err != http.ErrServerClosed {
+			log.Printf("Server error: %v", err)
 		}
 	}()
 
 	// Wait for server to start
 	time.Sleep(2 * time.Second)
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		server.Shutdown(ctx)
+	}()
 
 	ctx := context.Background()
 
-	// Create MCP client (this is what Claude Code/Desktop would use)
+	// When: creating an MCP client and connecting through the proxy
 	client := mcp.NewClient(&mcp.Implementation{
-		Name:    "test-client",
+		Name:    "centian-test-client",
 		Version: "1.0.0",
 	}, nil)
 
-	// Connect to proxy server (NOT directly to GitHub!)
-	// This demonstrates that our raw proxy works with real MCP SDK clients
 	proxyURL := fmt.Sprintf(
 		"http://localhost:%s/mcp/%s/%s",
 		globalConfig.Proxy.Port,
-		"my-test-gateway",
-		"my-test-mcp-1",
+		"public-gateway",
+		"deepwiki",
 	)
 	log.Printf("Connecting to proxy server at %s", proxyURL)
 
@@ -90,34 +92,46 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	}
 	defer session.Close()
 
-	log.Println("✅ Connected to proxy server")
+	log.Println("✅ Connected to proxy server successfully")
 
-	// Test 1: List tools (this request goes through proxy to GitHub)
-	log.Println("\n=== Test 1: List Tools (via proxy) ===")
+	// Then: listing tools should return DeepWiki's available tools
+	log.Println("\n=== Test 1: List Available Tools ===")
 	toolsResult, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("Failed to list tools: %v", err)
 	}
 
-	log.Printf("✅ Received %d tools from GitHub (via proxy):", len(toolsResult.Tools))
-	for i, tool := range toolsResult.Tools {
-		if i < 5 { // Show first 5 tools
-			log.Printf("  - %s: %s", tool.Name, tool.Description)
-		}
-	}
-	if len(toolsResult.Tools) > 5 {
-		log.Printf("  ... and %d more tools", len(toolsResult.Tools)-5)
+	if len(toolsResult.Tools) == 0 {
+		t.Fatal("Expected at least one tool from DeepWiki")
 	}
 
-	// Test 2: Call a tool (get issue #19 via proxy)
-	log.Println("\n=== Test 2: Call Tool (get issue #19 via proxy) ===")
+	log.Printf("✅ Received %d tools from DeepWiki (via proxy):", len(toolsResult.Tools))
+	for _, tool := range toolsResult.Tools {
+		log.Printf("  - %s: %s", tool.Name, tool.Description)
+	}
+
+	// Then: calling a tool should return valid results
+	log.Println("\n=== Test 2: Ask Question about 'modelcontextprotocol/servers' ===")
+
+	// Use ask_question tool with proper parameters
+	toolName := "ask_question"
+	found := false
+	for _, tool := range toolsResult.Tools {
+		if tool.Name == "ask_question" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Skip("ask_question tool not available from DeepWiki")
+	}
+
 	params := &mcp.CallToolParams{
-		Name: "issue_read",
+		Name: toolName,
 		Arguments: map[string]any{
-			"method":       "get",
-			"owner":        "CentianAI",
-			"repo":         "centian-cli",
-			"issue_number": 19,
+			"repoName": "modelcontextprotocol/servers",
+			"question": "What is the Model Context Protocol?",
 		},
 	}
 
@@ -127,37 +141,35 @@ func TestConfigurableHTTPProxyWithSDKClient(t *testing.T) {
 	}
 
 	if res.IsError {
+		t.Log("Tool returned error response:")
 		for _, c := range res.Content {
-			log.Println(c)
+			t.Logf("  %v", c)
 		}
-		t.Fatal("Tool returned error")
+		t.Fatal("Tool call resulted in error")
 	}
 
 	log.Println("✅ Tool call successful (via proxy)")
-	for _, c := range res.Content {
-		textContent, ok := c.(*mcp.TextContent)
-		if ok {
-			// Parse the JSON to extract just the title
-			var issueData map[string]interface{}
-			if err := json.Unmarshal([]byte(textContent.Text), &issueData); err == nil {
-				if title, ok := issueData["title"].(string); ok {
-					log.Printf("  Issue #19 title: %s", title)
-				}
+
+	// Verify we got content back
+	if len(res.Content) == 0 {
+		t.Fatal("Expected content in tool response, got none")
+	}
+
+	for i, c := range res.Content {
+		if textContent, ok := c.(*mcp.TextContent); ok {
+			if len(textContent.Text) > 100 {
+				log.Printf("  Response[%d] (first 100 chars): %s...", i, textContent.Text[:100])
+			} else {
+				log.Printf("  Response[%d]: %s", i, textContent.Text)
 			}
 		}
 	}
 
 	// Summary
-	log.Println("\n=== POC Results ===")
-	log.Println("✅ Raw proxy successfully forwarded requests to downstream")
-	log.Println("✅ Headers (Authorization) passed through to downstream")
-	log.Println("✅ Transparent JSON-RPC forwarding works")
-	log.Println("✅ Compatible with MCP SDK clients")
-	log.Println("")
-	log.Println("KEY FINDING: This validates the 'forwardToDownstream' approach!")
-	log.Println("  - We CAN do transparent forwarding")
-	log.Println("  - Headers ARE passed through correctly")
-	log.Println("  - SDK clients work with raw proxy")
-	log.Println("")
-	log.Println("NEXT STEP: Integrate SDK session management with this forwarding approach")
+	log.Println("\n=== Test Results ===")
+	log.Println("✅ Proxy successfully forwarded requests to DeepWiki")
+	log.Println("✅ Tools list retrieved via proxy")
+	log.Println("✅ Search query executed successfully")
+	log.Println("✅ Valid response content received")
+	log.Printf("✅ Validated proxy flow with public MCP server (DeepWiki)")
 }

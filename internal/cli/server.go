@@ -63,7 +63,7 @@ Example config structure:
           "github": {
             "url": "https://api.githubcopilot.com/mcp/",
             "headers": {
-              "Authorization": "Bearer ${GITHUB_PAT}"
+              "Authorization": "Bearer ${MY_GH_TOKEN_ENV_VAR}"
             }
           }
         }
