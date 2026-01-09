@@ -113,6 +113,9 @@ type BaseMcpEvent struct {
 
 	// Metadata holds additional context-specific key-value pairs
 	Metadata map[string]string `json:"metadata,omitempty"`
+
+	// Modified indicates that the event has been modified at least once since being received
+	Modified bool `json:"modified"`
 }
 
 type HttpEvent struct {
@@ -196,6 +199,18 @@ func (h HttpMcpEvent) RawMessage() string {
 	return rawMessage
 }
 
+func (h *HttpMcpEvent) SetRawMessage(newMessage string) {
+	h.HttpEvent.Body = []byte(newMessage)
+}
+
+func (h *HttpMcpEvent) SetModified(b bool) {
+	h.BaseMcpEvent.Modified = b
+}
+
+func (h HttpMcpEvent) HasContent() bool {
+	return len(h.HttpEvent.Body) > 0
+}
+
 // Convert on serialization (in MarshalJSON)
 func (e HttpMcpEvent) MarshalJSON() ([]byte, error) {
 	type Alias HttpMcpEvent
@@ -259,6 +274,18 @@ func (s StdioMcpEvent) RawMessage() string {
 	return s.Message
 }
 
+func (s *StdioMcpEvent) SetRawMessage(newMessage string) {
+	s.Message = newMessage
+}
+
+func (h *StdioMcpEvent) SetModified(b bool) {
+	h.BaseMcpEvent.Modified = b
+}
+
+func (s StdioMcpEvent) HasContent() bool {
+	return len(s.Message) > 0
+}
+
 func marshalWithRaw(raw string, v any) ([]byte, error) {
 	// v should be an alias type (so it won't recurse)
 	data, err := json.Marshal(v)
@@ -281,4 +308,7 @@ func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
 
 type McpEventInterface interface {
 	RawMessage() string
+	SetRawMessage(newMessage string)
+	SetModified(b bool)
+	HasContent() bool
 }

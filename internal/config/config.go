@@ -76,6 +76,7 @@ type GatewayConfig struct {
 	AllowDynamic         bool                        `json:"allowDynamic,omitempty"` // Allow dynamic proxy endpoints
 	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"` // Setup gateway endpoint with namespacing
 	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`             // HTTP MCP servers in this gateway
+	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
 }
 
 func (g *GatewayConfig) ListServers() []*MCPServerConfig {

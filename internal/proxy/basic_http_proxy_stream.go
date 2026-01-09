@@ -54,11 +54,20 @@ func getNewUuidV7() string {
 	return result
 }
 
-func readBody(body io.ReadCloser) ([]byte, error) {
+func readBody(body io.ReadCloser, headers http.Header) ([]byte, error) {
+	var limitedReader io.Reader
+	// Check if response is gzip-compressed
+	if strings.EqualFold(headers.Get("Content-Encoding"), "gzip") {
+		// Decompress gzip response
+		var gzipErr error
+		if limitedReader, gzipErr = gzip.NewReader(body); gzipErr != nil {
+			return nil, gzipErr
+		}
+	}
 	// TODO: determine if this is acceptable -
 	// alternative is to stream request via
 	// TeeReader (log + forward without full buffering)
-	limitedReader := io.LimitReader(body, MaxBodySize+1) // +1 to detect overflow
+	limitedReader = io.LimitReader(body, MaxBodySize+1) // +1 to detect overflow
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if len(bodyBytes) > MaxBodySize {
 		log.Print("request body exceeds maximum size")
@@ -81,22 +90,21 @@ type CentianServer struct {
 }
 
 type CentianProxyGateway struct {
-	config         *config.GatewayConfig
-	name           string
-	endpoints      []*CentianProxyEndpoint
-	processorChain *processor.Chain
-	server         *CentianServer
+	config    *config.GatewayConfig
+	name      string
+	endpoints []*CentianProxyEndpoint
+	server    *CentianServer
 }
 
 type CentianProxyEndpoint struct {
-	endpoint      string
-	mcpServerName string
-	sessionID     string // TODO: check if we can use MCPs own session IDs
-	config        *config.MCPServerConfig
-	gateway       *CentianProxyGateway
-	server        *CentianServer
-	proxy         *httputil.ReverseProxy
-
+	endpoint           string
+	mcpServerName      string
+	sessionID          string // TODO: check if we can use MCPs own session IDs
+	config             *config.MCPServerConfig
+	gateway            *CentianProxyGateway
+	server             *CentianServer
+	proxy              *httputil.ReverseProxy
+	processor          *EventProcessor
 	substitutedHeaders map[string]string
 	target             *url.URL
 }
@@ -140,7 +148,7 @@ func (e *CentianProxyEndpoint) LogProxyMessage(message string) {
 	}
 	// TODO: maybe using the event structure for basic logs is not the best way?
 	mcpEvent.HttpEvent.Body = []byte(message)
-	e.server.baseLogger.LogMcpEvent(mcpEvent)
+	e.server.baseLogger.LogMcpEvent(&mcpEvent)
 }
 
 func getServerID(config *config.GlobalConfig) string {
@@ -177,6 +185,24 @@ func NewCentianHTTPProxy(config *config.GlobalConfig) (*CentianServer, error) {
 	}, nil
 }
 
+func (c *CentianServer) GetNewGateway(
+	gatewayName string,
+	config *config.GatewayConfig,
+) CentianProxyGateway {
+	return CentianProxyGateway{
+		config:    config,
+		name:      gatewayName,
+		endpoints: make([]*CentianProxyEndpoint, 0),
+		server:    c,
+	}
+}
+
+func getEndpoint(gatewayName, mcpServerName string) (string, error) {
+	// TODO: add verification for both gatewayName and serverName to be used in a URL
+	// TODO: allow custom endpoint patterns
+	return fmt.Sprintf("/mcp/%s/%s", gatewayName, mcpServerName), nil
+}
+
 func (c *CentianServer) StartCentianServer() error {
 	config := c.config
 
@@ -194,22 +220,22 @@ func (c *CentianServer) StartCentianServer() error {
 	// has a different way to provide the endpoint,
 	// e.g. through the tool name "<servername>__<actual_toolname>"
 	for gatewayName, gatewayConfig := range config.Gateways {
-		gateway := CentianProxyGateway{
-			config:    gatewayConfig,
-			name:      gatewayName,
-			endpoints: make([]*CentianProxyEndpoint, 0),
-			server:    c,
-		}
+		gateway := c.GetNewGateway(gatewayName, gatewayConfig)
+
 		c.gateways[gatewayName] = &gateway
 
 		// 2. Iterate through each mcp server config for this gateway
 		for mcpServerName, mcpServerConfig := range gatewayConfig.MCPServers {
 			// 3. create new endpoint for MCP server to be proxied
-			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, mcpServerName)
-			// TODO: allow custom endpoint patterns
-			proxyEndpoint := CreateProxyEndpoint(mcpServerConfig, &gateway, endpoint, mcpServerName, c)
+			endpoint, _ := getEndpoint(gatewayName, mcpServerName)
+			proxyEndpoint := CreateProxyEndpoint(
+				mcpServerConfig,
+				&gateway,
+				endpoint,
+				mcpServerName,
+				c, // sever
+			)
 
-			// TODO: add verification for both gatewayName and serverName to be used in a URL
 			// 4. attach proxy endpoint with logging
 			if proxyEndpoint, err := c.RegisterProxy(&proxyEndpoint, &gateway); err != nil {
 				log.Printf("Failed to register endpoint %s: %v", endpoint, err)
@@ -367,6 +393,17 @@ func CreateProxyEndpoint(
 	} else {
 		proxyEndpoint.target = target
 	}
+
+	// Set processorChain
+	// Note: we combine both global (server) and local (gateway) processors
+	// TODO: later we can handle this more granulary, but works for now
+	allProcessors := append(server.config.Processors, gateway.config.Processors...)
+
+	processorChain, err := processor.NewChain(allProcessors, server.config.Name, sessionID)
+	if err != nil {
+		common.LogError(err.Error())
+	}
+	proxyEndpoint.processor = NewEventProcessor(server.baseLogger, processorChain)
 	return proxyEndpoint
 }
 
@@ -392,7 +429,7 @@ func (e *CentianProxyEndpoint) mcpEventFromRequest(r *http.Request) *common.Http
 	)
 	var err error
 	if r.Body != nil {
-		if mcpEvent.HttpEvent.Body, err = readBody(r.Body); err != nil {
+		if mcpEvent.HttpEvent.Body, err = readBody(r.Body, r.Header); err != nil {
 			common.LogError(err.Error())
 			mcpEvent.ProcessingErrors["read_body"] = err
 		}
@@ -456,34 +493,27 @@ func (e *CentianProxyEndpoint) DirectorHandler(r *http.Request) {
 	mcpRequest := e.mcpEventFromRequest(r)
 	// mcpRequest has r.Body set if it is non-Nil, as mcpRequest.HttpEvent.Body
 
-	// Log to file
-	if err := e.server.baseLogger.LogMcpEvent(mcpRequest); err != nil {
-		common.LogError(err.Error())
-		mcpRequest.ProcessingErrors["log_request_init"] = err
-	}
-
 	// Debug output to stderr
-	fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] [%s] %s\n", e.endpoint, mcpRequest.RawMessage())
+	fmt.Fprintf(
+		os.Stderr,
+		"[CLIENT->SERVER] - %s - [%s] %s\n",
+		mcpRequest.HttpEvent.Method,
+		e.endpoint,
+		mcpRequest.RawMessage(),
+	)
 
-	// TODO: Execute processor chain on request (if configured)
-	// requestBody needs to be modified here!
-	processedMessage := mcpRequest.RawMessage()
-
-	if processedMessage != mcpRequest.RawMessage() || len(mcpRequest.ProcessingErrors) > 0 {
-		processedEvent := mcpRequest.DeepClone()
-		processedEvent.RequestID = processedEvent.RequestID + "_processed"
-		processedEvent.HttpEvent.Body = []byte(processedMessage)
-		processedEvent.Metadata["processing_stage"] = "post_processor"
-		processedEvent.Metadata["processed_at"] = time.Now().Format(time.RFC3339Nano)
-		// TODO: double check if we need to change more fields
-		if err := e.server.baseLogger.LogMcpEvent(processedEvent); err != nil {
-			common.LogError(err.Error())
-			processedEvent.ProcessingErrors["log_request_post_processors"] = err
-		}
+	if err := e.processor.Process(mcpRequest); err != nil {
+		common.LogError(err.Error())
+		mcpRequest.ProcessingErrors["processing_error"] = err
 	}
 
 	// Restore body for forwarding (important!)
-	r.Body = io.NopCloser(bytes.NewBuffer([]byte(processedMessage)))
+	// Only set body if there's content - empty bodies should remain nil/empty
+	if mcpRequest.HasContent() {
+		r.Body = io.NopCloser(bytes.NewBuffer([]byte(mcpRequest.RawMessage())))
+	} else {
+		r.Body = http.NoBody // Use http.NoBody for empty requests
+	}
 
 	// Store requestID in context for response logging
 	ctx := context.WithValue(r.Context(), RequestIDField, mcpRequest.RequestID)
@@ -504,63 +534,26 @@ func (e *CentianProxyEndpoint) ModifyResponseHandler(resp *http.Response) error 
 	// Read and log response
 	var err error
 	if resp.Body != nil {
-		// Check if response is gzip-compressed
-		if strings.EqualFold(resp.Header.Get("Content-Encoding"), "gzip") {
-			// Decompress gzip response
-			gzipReader, gzipErr := gzip.NewReader(resp.Body)
-			if gzipErr != nil {
-				common.LogError(fmt.Sprintf("Failed to create gzip reader: %v", gzipErr))
-				mcpResponse.ProcessingErrors["gzip_decompression"] = gzipErr
-			} else {
-				defer gzipReader.Close()
-				// Read decompressed body
-				if mcpResponse.HttpEvent.Body, err = readBody(gzipReader); err != nil {
-					common.LogError(err.Error())
-					mcpResponse.ProcessingErrors["read_body"] = err
-				}
-				// Remove Content-Encoding header since we're returning uncompressed data
-				resp.Header.Del("Content-Encoding")
-				resp.Header.Del("Content-Length") // Length will be different after decompression
-			}
-		} else {
-			// Read uncompressed body normally
-			if mcpResponse.HttpEvent.Body, err = readBody(resp.Body); err != nil {
-				common.LogError(err.Error())
-				mcpResponse.ProcessingErrors["read_body"] = err
-			}
+		// Read uncompressed body normally
+		if mcpResponse.HttpEvent.Body, err = readBody(resp.Body, resp.Header); err != nil {
+			common.LogError(err.Error())
+			mcpResponse.ProcessingErrors["read_body"] = err
 		}
 	}
-	// Log to file
-	if err := e.server.baseLogger.LogMcpEvent(mcpResponse); err != nil {
-		common.LogError(err.Error())
-		mcpResponse.ProcessingErrors["log_response_init"] = err
-	}
-
 	// Debug output to stderr
 	fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] [%s] %s\n", e.endpoint, mcpResponse.RawMessage())
 
-	// TODO: Execute processor chain on response (if configured)
-	// responseBody needs to be modified here!
-	processedMessage := mcpResponse.RawMessage()
-
-	// TODO: better would be a flag if the McpEvent was modified
-	if processedMessage != mcpResponse.RawMessage() || len(mcpResponse.ProcessingErrors) > 0 {
-		processedEvent := mcpResponse.DeepClone()
-		processedEvent.RequestID = processedEvent.RequestID + "_processed"
-		processedEvent.HttpEvent.Body = []byte(processedMessage)
-		processedEvent.Metadata["processing_stage"] = "post_processor"
-		processedEvent.Metadata["processed_at"] = time.Now().Format(time.RFC3339Nano)
-		// TODO: double check if we need to change more fields
-		if err := e.server.baseLogger.LogMcpEvent(processedEvent); err != nil {
-			common.LogError(err.Error())
-			mcpResponse.ProcessingErrors["log_response_post_processors"] = err
-		}
-
+	if err := e.processor.Process(mcpResponse); err != nil {
+		common.LogError(err.Error())
+		mcpResponse.ProcessingErrors["processing_error"] = err
 	}
 
 	// Restore body for client (important!)
-	if processedMessage != "" {
-		resp.Body = io.NopCloser(bytes.NewBuffer([]byte(processedMessage)))
+	// Only set body if there's content - empty bodies should remain nil/empty
+	if mcpResponse.HasContent() {
+		resp.Body = io.NopCloser(bytes.NewBuffer([]byte(mcpResponse.RawMessage())))
+	} else {
+		resp.Body = http.NoBody // Use http.NoBody for empty responses
 	}
 	return nil
 }

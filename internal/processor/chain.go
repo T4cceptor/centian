@@ -32,6 +32,20 @@ func NewChain(processors []*config.ProcessorConfig, serverName, sessionID string
 	}, nil
 }
 
+// HasActiveProcessors returns true if the chain has any enabled processors.
+func (c *Chain) HasProcessors() bool {
+	if c == nil || len(c.processors) == 0 {
+		return false
+	}
+	// Check if any processor is enabled
+	for _, p := range c.processors {
+		if p.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
 // ChainResult represents the result of executing a processor chain.
 type ChainResult struct {
 	Status          int                    // Final status code (200, 40x, 50x)
