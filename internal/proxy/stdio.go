@@ -65,7 +65,7 @@ type StdioProxy struct {
 	cancel context.CancelFunc
 
 	// logger records proxy activity for debugging and monitoring
-	logger *logging.StdioLogger
+	logger *logging.Logger
 
 	// sessionID is a unique identifier for this proxy session (format: "session_<timestamp>")
 	sessionID string
@@ -87,7 +87,7 @@ type StdioProxy struct {
 func NewStdioProxy(ctx context.Context, command string, args []string, pathToConfig string) (*StdioProxy, error) {
 	proxyCtx, cancel := context.WithCancel(ctx)
 	var globalConfig *config.GlobalConfig
-	if len(pathToConfig) > 0 {
+	if pathToConfig != "" {
 		var err error
 		globalConfig, err = config.LoadConfigFromPath(pathToConfig)
 		if err != nil {
@@ -118,8 +118,8 @@ func NewStdioProxy(ctx context.Context, command string, args []string, pathToCon
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Create logger with immutable context (includes session/server IDs)
-	logger, err := logging.NewStdioLogger(command, args)
+	// Create logger
+	logger, err := logging.NewLogger()
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create logger: %w", err)
@@ -151,7 +151,7 @@ func NewStdioProxy(ctx context.Context, command string, args []string, pathToCon
 		proxy.config = globalConfig
 		processors, err := processor.NewChain(globalConfig.Processors, globalConfig.Name, sessionID)
 		if err == nil {
-			proxy.processor = NewEventProcessor(logger.Logger, processors)
+			proxy.processor = NewEventProcessor(logger, processors)
 		}
 	}
 
@@ -176,7 +176,7 @@ func (p *StdioProxy) Start() error {
 
 	// Log proxy start
 	if p.logger != nil {
-		_ = p.logger.LogProxyStart(nil)
+		p.logSystemMessage(fmt.Sprintf("Stdio proxy started: %s %v", p.command, p.args))
 	}
 
 	// Start goroutines to handle I/O with WaitGroup tracking
@@ -234,14 +234,47 @@ func (p *StdioProxy) Stop() error {
 
 	// Now safe to close logger after all goroutines have finished
 	if p.logger != nil {
-		_ = p.logger.LogProxyStop(true, "", nil)
+		p.logSystemMessage(fmt.Sprintf("Stdio proxy stopped: %s %v", p.command, p.args))
 		_ = p.logger.Close()
 	}
 
 	return nil
 }
 
-func (p *StdioProxy) GetEvent(message, requestID string, direction common.McpEventDirection, messageType common.McpMessageType) common.StdioMcpEvent {
+func (p *StdioProxy) logSystemMessage(message string) {
+	requestID := fmt.Sprintf("system_event_%d", time.Now().UnixNano())
+	baseEvent := common.BaseMcpEvent{
+		Timestamp:        time.Now(),
+		SessionID:        p.sessionID,
+		ServerID:         p.serverID,
+		Transport:        "stdio",
+		RequestID:        requestID,
+		Direction:        common.DirectionSystem,
+		MessageType:      common.MessageTypeSystem,
+		Error:            "",
+		Success:          true,
+		Metadata:         nil,
+		ProcessingErrors: make(map[string]error),
+	}
+	mcpEvent := &common.StdioMcpEvent{
+		BaseMcpEvent: baseEvent,
+		Command:      p.command,
+		Args:         p.args,
+		ProjectPath:  p.cmd.Path,
+		ConfigSource: "project",
+		Message:      message,
+	}
+	if err := p.logger.LogMcpEvent(mcpEvent); err != nil {
+		common.LogError(err.Error())
+	}
+}
+
+// GetEvent returns a new StdioMcpEvent for the given parameters
+func (p *StdioProxy) GetEvent(
+	message, requestID string,
+	direction common.McpEventDirection,
+	messageType common.McpMessageType,
+) common.StdioMcpEvent {
 	baseMcpEvent := common.BaseMcpEvent{
 		Timestamp:        time.Now(),
 		Transport:        "stdio",

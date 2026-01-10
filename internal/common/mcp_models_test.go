@@ -176,7 +176,7 @@ func TestMcpMessageType_UnmarshalJSON_UnknownType(t *testing.T) {
 
 func TestNewHttpEventFromRequest_BasicRequest(t *testing.T) {
 	// Given: a basic HTTP request
-	req := httptest.NewRequest("POST", "https://example.com/api/test?param=value", nil)
+	req := httptest.NewRequest("POST", "https://example.com/api/test?param=value", http.NoBody)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Custom", "test-header")
 	req.ContentLength = 100
@@ -200,7 +200,7 @@ func TestNewHttpEventFromRequest_BasicRequest(t *testing.T) {
 
 func TestNewHttpEventFromRequest_WithResponse(t *testing.T) {
 	// Given: a request that has an associated response
-	req := httptest.NewRequest("GET", "https://example.com/api", nil)
+	req := httptest.NewRequest("GET", "https://example.com/api", http.NoBody)
 	req.Response = &http.Response{
 		StatusCode: 200,
 		Header:     http.Header{"X-Response": []string{"success"}},
@@ -221,7 +221,7 @@ func TestNewHttpEventFromRequest_WithResponse(t *testing.T) {
 
 func TestNewHttpEventFromResponse_SuccessResponse(t *testing.T) {
 	// Given: a successful HTTP response
-	req := httptest.NewRequest("GET", "https://example.com/api/users", nil)
+	req := httptest.NewRequest("GET", "https://example.com/api/users", http.NoBody)
 	req.Header.Set("Authorization", "Bearer token")
 	resp := &http.Response{
 		StatusCode:    200,
@@ -247,7 +247,7 @@ func TestNewHttpEventFromResponse_SuccessResponse(t *testing.T) {
 
 func TestNewHttpEventFromResponse_ErrorResponse(t *testing.T) {
 	// Given: an error HTTP response
-	req := httptest.NewRequest("POST", "https://example.com/api/create", nil)
+	req := httptest.NewRequest("POST", "https://example.com/api/create", http.NoBody)
 	resp := &http.Response{
 		StatusCode: 500,
 		Header:     http.Header{"X-Error": []string{"internal-error"}},

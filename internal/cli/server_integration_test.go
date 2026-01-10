@@ -216,11 +216,12 @@ func createMockMCPServer() *httptest.Server {
 			toolName, _ := params["name"].(string)
 
 			var content string
-			if toolName == "get_weather" {
+			switch toolName {
+			case "get_weather":
 				content = "Sunny, 72°F in San Francisco"
-			} else if toolName == "get_time" {
+			case "get_time":
 				content = time.Now().Format(time.RFC3339)
-			} else {
+			default:
 				content = "Unknown tool"
 			}
 
@@ -299,7 +300,7 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 		t.Fatalf("Failed to marshal test config: %v", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		t.Fatalf("Failed to write test config file: %v", err)
 	}
 
@@ -369,7 +370,7 @@ func TestConfigFileValidation(t *testing.T) {
 			configPath := filepath.Join(tmpDir, "test_config.json")
 
 			data, _ := json.MarshalIndent(tt.config, "", "  ")
-			os.WriteFile(configPath, data, 0644)
+			os.WriteFile(configPath, data, 0o644)
 
 			// Try to load config
 			_, err := config.LoadConfigFromPath(configPath)

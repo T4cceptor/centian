@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/common"
 	"github.com/CentianAI/centian-cli/internal/config"
 )
 
@@ -32,7 +33,7 @@ func NewChain(processors []*config.ProcessorConfig, serverName, sessionID string
 	}, nil
 }
 
-// HasActiveProcessors returns true if the chain has any enabled processors.
+// HasProcessors returns true if the chain has any enabled processors.
 func (c *Chain) HasProcessors() bool {
 	if c == nil || len(c.processors) == 0 {
 		return false
@@ -55,23 +56,11 @@ type ChainResult struct {
 	Metadata        map[string]interface{} // Aggregated processor metadata
 }
 
-// ExecuteRequest executes the processor chain on an MCP request.
-// Returns the final status and modified payload (or error).
-func (c *Chain) ExecuteRequest(jsonPayload string) (*ChainResult, error) {
-	return c.execute("request", jsonPayload)
-}
-
-// ExecuteResponse executes the processor chain on an MCP response.
-// Returns the final status and modified payload (or error).
-func (c *Chain) ExecuteResponse(jsonPayload string) (*ChainResult, error) {
-	return c.execute("response", jsonPayload)
-}
-
-// execute runs all enabled processors sequentially on the payload.
-func (c *Chain) execute(messageType string, jsonPayload string) (*ChainResult, error) {
+// Execute runs all enabled processors sequentially on the payload.
+func (c *Chain) Execute(event common.McpEventInterface) (*ChainResult, error) {
 	// Parse the JSON payload
 	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonPayload), &payload); err != nil {
+	if err := json.Unmarshal([]byte(event.RawMessage()), &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON payload: %w", err)
 	}
 
@@ -94,12 +83,12 @@ func (c *Chain) execute(messageType string, jsonPayload string) (*ChainResult, e
 
 		// Build processor input
 		input := &config.ProcessorInput{
-			Type:      messageType,
+			Type:      string(event.GetBaseEvent().MessageType),
 			Timestamp: time.Now().Format(time.RFC3339),
 			Connection: config.ConnectionContext{
 				ServerName: c.serverName,
-				Transport:  "stdio",
-				SessionID:  c.sessionID,
+				Transport:  event.GetBaseEvent().Transport, // TODO - this is wrong
+				SessionID:  event.GetBaseEvent().SessionID,
 			},
 			Payload: payload,
 			Metadata: config.ProcessorMetadata{

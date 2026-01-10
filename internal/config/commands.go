@@ -314,9 +314,7 @@ func listServers(ctx context.Context, cmd *cli.Command) error {
 			}
 			fmt.Println()
 		}
-
 	}
-
 	return nil
 }
 
@@ -331,7 +329,6 @@ func addServer(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	// TODO: needs to be redone with gateway logic
-
 	// name := cmd.String("name")
 	// if _, exists := config.Servers[name]; exists {
 	// 	return fmt.Errorf("server '%s' already exists", name)

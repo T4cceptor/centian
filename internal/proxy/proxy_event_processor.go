@@ -10,6 +10,7 @@ import (
 	"github.com/CentianAI/centian-cli/internal/processor"
 )
 
+// EventProcessor is used to call the main processing loop for any MCP transport method
 type EventProcessor struct {
 	logger              *logging.Logger
 	processorChain      *processor.Chain
@@ -17,6 +18,7 @@ type EventProcessor struct {
 	logAfterProcessing  bool
 }
 
+// NewEventProcessor returns a new EventProcessor with the provided logger and processors
 func NewEventProcessor(logger *logging.Logger, processors *processor.Chain) *EventProcessor {
 	return &EventProcessor{
 		logger:              logger,
@@ -26,16 +28,20 @@ func NewEventProcessor(logger *logging.Logger, processors *processor.Chain) *Eve
 	}
 }
 
+// Process starts the main event loop processing, including logging and any configured processors
 func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 	// Log before processing
 	if ep.logBeforeProcessing {
-		ep.logger.LogMcpEvent(event)
+		if err := ep.logger.LogMcpEvent(event); err != nil {
+			common.LogError(err.Error())
+			event.GetBaseEvent().ProcessingErrors["processor_log_error"] = err
+		}
 	}
 
 	// Apply processors in order (only if there are actually processors configured)
 	if ep.processorChain != nil && ep.processorChain.HasProcessors() && event.HasContent() {
 		outputLine := event.RawMessage()
-		result, err := ep.processorChain.ExecuteResponse(outputLine)
+		result, err := ep.processorChain.Execute(event)
 
 		// TODO: standardize those logs
 		switch {
@@ -86,7 +92,10 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 
 	// Log after processing
 	if ep.logAfterProcessing {
-		ep.logger.LogMcpEvent(event)
+		if err := ep.logger.LogMcpEvent(event); err != nil {
+			common.LogError(err.Error())
+			event.GetBaseEvent().ProcessingErrors["processor_log_error"] = err
+		}
 	}
 	return nil
 }

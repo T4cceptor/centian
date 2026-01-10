@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/logging"
+	"github.com/CentianAI/centian-cli/internal/common"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -27,18 +27,21 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
 
 	// Given: a log file with a log entry
-	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []logging.StdioLogEntry{
+	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []common.StdioMcpEvent{
 		{
-			BaseLogEntry: logging.BaseLogEntry{
-				Timestamp:   time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
-				Direction:   "request",
-				MessageType: "request",
-				SessionID:   "sess-123",
-				RawMessage:  "ping",
-				Success:     true,
+			BaseMcpEvent: common.BaseMcpEvent{
+				Timestamp:        time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
+				Transport:        "stdio",
+				RequestID:        "req-test",
+				Direction:        common.DirectionClientToServer,
+				MessageType:      common.MessageTypeRequest,
+				SessionID:        "sess-123",
+				Success:          true,
+				ProcessingErrors: make(map[string]error),
 			},
 			Command: "npx",
 			Args:    []string{"@server"},
+			Message: "ping",
 		},
 	})
 
@@ -122,7 +125,7 @@ func TestHandleLogsCommandNoDirectory(t *testing.T) {
 // writeTestLogFile creates a JSONL log file at the specified path with the given entries.
 // Each entry is encoded as a single JSON line, matching the format used by the logging system.
 // The function creates parent directories if needed and truncates any existing file.
-func writeTestLogFile(t *testing.T, path string, entries []logging.StdioLogEntry) {
+func writeTestLogFile(t *testing.T, path string, entries []common.StdioMcpEvent) {
 	t.Helper()
 
 	// Create parent directories if they don't exist

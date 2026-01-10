@@ -21,9 +21,10 @@ type GlobalConfig struct {
 	Metadata   map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
 }
 
-// MCPServer represents a single MCP server configuration.
+// MCPServerConfig represents a single MCP server configuration.
 // Each server defines how to start and connect to an MCP server process,
-// including command, arguments, environment variables, and metadata.
+// including all necessary arguments, e.g. command, arguments,
+// environment variables, and metadata.
 type MCPServerConfig struct {
 	Name        string                 `json:"name"`                  // Display name
 	Command     string                 `json:"command,omitempty"`     // Executable command (for stdio/process transport)
@@ -63,6 +64,7 @@ type ProxySettings struct {
 	Timeout  int    `json:"timeout,omitempty"`  // Request timeout in seconds
 }
 
+// NewDefaultProxySettings creates a new ProxySettings with default values
 func NewDefaultProxySettings() ProxySettings {
 	return ProxySettings{
 		Port:     "8080",
@@ -79,6 +81,7 @@ type GatewayConfig struct {
 	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
 }
 
+// ListServers returns a slice of all available MCPServerConfigs for this GatewayConfig
 func (g *GatewayConfig) ListServers() []*MCPServerConfig {
 	result := make([]*MCPServerConfig, 0)
 	for _, server := range g.MCPServers {
@@ -134,6 +137,7 @@ type ConnectionContext struct {
 	ServerName string `json:"server_name"` // Name of the MCP server
 	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
 	SessionID  string `json:"session_id"`  // Unique session identifier
+	// TODO: potentially add server data in here like URL/CMD, headers/args, etc.
 }
 
 // ProcessorMetadata contains additional context for processor execution.

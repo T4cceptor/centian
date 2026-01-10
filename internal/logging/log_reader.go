@@ -26,6 +26,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
 // ErrLogsDirNotFound is returned when the Centian logs directory is missing.
@@ -34,9 +36,9 @@ var ErrLogsDirNotFound = errors.New("centian logs directory not found")
 // ErrNoLogEntries is returned when log files exist but contain no valid entries.
 var ErrNoLogEntries = errors.New("no log entries found")
 
-// AnnotatedLogEntry wraps a LogEntry with contextual metadata used for display.
+// AnnotatedLogEntry wraps a generic MCP event with contextual metadata used for display.
 type AnnotatedLogEntry struct {
-	StdioLogEntry
+	Event      common.McpEventInterface
 	SourceFile string
 }
 
@@ -90,8 +92,8 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		}
 		for i := range fileEntries {
 			entries = append(entries, AnnotatedLogEntry{
-				StdioLogEntry: fileEntries[i],
-				SourceFile:    filePath,
+				Event:      fileEntries[i],
+				SourceFile: filePath,
 			})
 		}
 	}
@@ -102,7 +104,7 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 
 	// Sort by timestamp (newest first) for chronological accuracy across files
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Timestamp.After(entries[j].Timestamp)
+		return entries[i].Event.GetBaseEvent().Timestamp.After(entries[j].Event.GetBaseEvent().Timestamp)
 	})
 
 	// Apply limit if specified (0 = no limit)
@@ -115,31 +117,40 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 
 // FormatDisplayLine converts an AnnotatedLogEntry into a human-readable summary string.
 func FormatDisplayLine(entry *AnnotatedLogEntry) string {
+	baseEvent := entry.Event.GetBaseEvent()
+
 	status := "ok"
-	if !entry.Success {
+	if !baseEvent.Success {
 		status = "fail"
 	}
 
-	command := entry.Command
-	if len(entry.Args) > 0 {
-		command = fmt.Sprintf("%s %s", command, strings.Join(entry.Args, " "))
+	// Extract transport-specific details
+	command := ""
+	switch e := entry.Event.(type) {
+	case *common.StdioMcpEvent:
+		command = e.Command
+		if len(e.Args) > 0 {
+			command = fmt.Sprintf("%s %s", command, strings.Join(e.Args, " "))
+		}
+	case *common.HttpMcpEvent:
+		command = fmt.Sprintf("%s %s", e.ServerName, e.Endpoint)
 	}
 
-	detail := entry.RawMessage
-	if entry.Error != "" {
-		detail = entry.Error
+	detail := entry.Event.RawMessage()
+	if baseEvent.Error != "" {
+		detail = baseEvent.Error
 	}
 	detail = truncate(detail, 80)
 
-	sessionInfo := entry.SessionID
+	sessionInfo := baseEvent.SessionID
 	if sessionInfo == "" {
 		sessionInfo = "-"
 	}
 
 	return fmt.Sprintf("%s | %-8s | %-8s | %-4s | %-36s | %s | %s",
-		entry.Timestamp.Format(time.RFC3339),
-		entry.Direction,
-		entry.MessageType,
+		baseEvent.Timestamp.Format(time.RFC3339),
+		baseEvent.Direction,
+		baseEvent.MessageType,
 		status,
 		command,
 		sessionInfo,
@@ -150,7 +161,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 // readLogFile reads and parses a JSONL log file, returning all valid entries.
 // Returns empty slice (not error) if file doesn't exist. Skips malformed lines.
 // Supports log lines up to 10MB.
-func readLogFile(path string) ([]StdioLogEntry, error) {
+func readLogFile(path string) ([]common.McpEventInterface, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -160,7 +171,7 @@ func readLogFile(path string) ([]StdioLogEntry, error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	var entries []StdioLogEntry
+	var entries []common.McpEventInterface
 
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)
@@ -172,13 +183,36 @@ func readLogFile(path string) ([]StdioLogEntry, error) {
 			continue
 		}
 
-		var entry StdioLogEntry
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			// Skip malformed lines but continue processing the rest of the file.
+		// Detect transport type by peeking at the JSON
+		var peek struct {
+			Transport string `json:"transport"`
+		}
+		if err := json.Unmarshal([]byte(line), &peek); err != nil {
+			// Skip malformed lines
 			continue
 		}
 
-		entries = append(entries, entry)
+		// Unmarshal to appropriate type based on transport
+		var event common.McpEventInterface
+		switch peek.Transport {
+		case "stdio":
+			var stdioEvent common.StdioMcpEvent
+			if err := json.Unmarshal([]byte(line), &stdioEvent); err != nil {
+				continue
+			}
+			event = &stdioEvent
+		case "http":
+			var httpEvent common.HttpMcpEvent
+			if err := json.Unmarshal([]byte(line), &httpEvent); err != nil {
+				continue
+			}
+			event = &httpEvent
+		default:
+			// Skip unknown transport types
+			continue
+		}
+
+		entries = append(entries, event)
 	}
 
 	if err := scanner.Err(); err != nil && !errors.Is(err, io.EOF) {

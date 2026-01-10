@@ -211,7 +211,21 @@ func (h HttpMcpEvent) HasContent() bool {
 	return len(h.HttpEvent.Body) > 0
 }
 
+func (h HttpMcpEvent) IsRequest() bool {
+	return h.BaseMcpEvent.MessageType == MessageTypeRequest
+}
+
+func (h HttpMcpEvent) IsResponse() bool {
+	return h.BaseMcpEvent.MessageType == MessageTypeResponse
+}
+
+func (h HttpMcpEvent) GetBaseEvent() BaseMcpEvent {
+	return h.BaseMcpEvent
+}
+
 // Convert on serialization (in MarshalJSON)
+//
+//nolint:gocritic // Intentional value receiver to implement json.Marshaler for both value and pointer types
 func (e HttpMcpEvent) MarshalJSON() ([]byte, error) {
 	type Alias HttpMcpEvent
 	return marshalWithRaw(e.RawMessage(), Alias(e))
@@ -283,7 +297,19 @@ func (h *StdioMcpEvent) SetModified(b bool) {
 }
 
 func (s StdioMcpEvent) HasContent() bool {
-	return len(s.Message) > 0
+	return s.Message != ""
+}
+
+func (s StdioMcpEvent) GetBaseEvent() BaseMcpEvent {
+	return s.BaseMcpEvent
+}
+
+func (h StdioMcpEvent) IsRequest() bool {
+	return h.BaseMcpEvent.MessageType == MessageTypeRequest
+}
+
+func (h StdioMcpEvent) IsResponse() bool {
+	return h.BaseMcpEvent.MessageType == MessageTypeResponse
 }
 
 func marshalWithRaw(raw string, v any) ([]byte, error) {
@@ -301,14 +327,20 @@ func marshalWithRaw(raw string, v any) ([]byte, error) {
 }
 
 // Convert on serialization (in MarshalJSON)
+//
+//nolint:gocritic // Intentional value receiver to implement json.Marshaler for both value and pointer types
 func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
 	type Alias StdioMcpEvent
 	return marshalWithRaw(s.RawMessage(), Alias(s))
 }
 
+// McpEventInterface provides an abstraction of all MCP Events, independent of transport type
 type McpEventInterface interface {
 	RawMessage() string
 	SetRawMessage(newMessage string)
 	SetModified(b bool)
 	HasContent() bool
+	GetBaseEvent() BaseMcpEvent
+	IsResponse() bool
+	IsRequest() bool
 }

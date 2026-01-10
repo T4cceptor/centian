@@ -11,16 +11,33 @@ import (
 	"github.com/CentianAI/centian-cli/internal/common"
 )
 
+// McpEventDirection identifies the direction of the MCP event,
+// e.g. from client to server, or from proxy to client, etc.
 type McpEventDirection string
 
 const (
-	DirectionClientToServer  McpEventDirection = "[CLIENT -> SERVER]"
-	DirectionServerToClient  McpEventDirection = "[SERVER -> CLIENT]"
+	// DirectionClientToServer represents the direction from CLIENT to SERVER.
+	DirectionClientToServer McpEventDirection = "[CLIENT -> SERVER]"
+
+	// DirectionServerToClient represents the direction from SERVER to CLIENT.
+	DirectionServerToClient McpEventDirection = "[SERVER -> CLIENT]"
+
+	// DirectionCentianToClient represents the direction from CENTIAN to CLIENT,
+	// e.g. when the event is returned prematurely back to the CLIENT due to processing.
 	DirectionCentianToClient McpEventDirection = "[CENTIAN -> CLIENT]"
-	DirectionSystem          McpEventDirection = "[SYSTEM]"
-	DirectionUnknown         McpEventDirection = "[UNKNOWN]" // in case the direction is not one of the above!
+
+	// DirectionSystem represents that this is a SYSTEM event
+	// - meaning it is not forwarded to either CLIENT or SERVER.
+	DirectionSystem McpEventDirection = "[SYSTEM]"
+
+	// DirectionUnknown represents an unknown direction,
+	// in case the direction is not one of the above!
+	DirectionUnknown McpEventDirection = "[UNKNOWN]"
 )
 
+// MarshalJSON returns the JSON encoding for McpEventDirection
+// - if m does match any of the allowed values
+// it is replaced with DirectionUnknown
 func (m McpEventDirection) MarshalJSON() ([]byte, error) {
 	switch m {
 	case DirectionClientToServer, DirectionServerToClient, DirectionCentianToClient, DirectionSystem:
@@ -30,6 +47,9 @@ func (m McpEventDirection) MarshalJSON() ([]byte, error) {
 	}
 }
 
+// UnmarshalJSON parses the JSON-encoded data of McpEventDirection
+// - if m does match any of the allowed values
+// it is replaced with DirectionUnknown
 func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -40,20 +60,28 @@ func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 		*m = McpEventDirection(s)
 		return nil
 	default:
-		*m = McpEventDirection(DirectionUnknown)
+		*m = DirectionUnknown
 		return nil
 	}
 }
 
+// McpMessageType identifies the type of a MCP message, e.g. request, response, system, etc.
 type McpMessageType string
 
 const (
-	MessageTypeRequest  McpMessageType = "request"
+	// MessageTypeRequest identifies a message of type "request"
+	MessageTypeRequest McpMessageType = "request"
+	// MessageTypeResponse identifies a message of type "response"
 	MessageTypeResponse McpMessageType = "response"
-	MessageTypeSystem   McpMessageType = "system"
-	MessageTypeUnknown  McpMessageType = "unknown" // fallback in case of error
+	// MessageTypeSystem identifies a message of type "system"
+	MessageTypeSystem McpMessageType = "system"
+	// MessageTypeUnknown identifies a message of type "unknown"
+	MessageTypeUnknown McpMessageType = "unknown" // fallback in case of error
 )
 
+// MarshalJSON returns the JSON encoding for McpMessageType
+// - if m does match any of the allowed values
+// it is replaced with MessageTypeUnknown
 func (m McpMessageType) MarshalJSON() ([]byte, error) {
 	switch m {
 	case MessageTypeRequest, MessageTypeResponse, MessageTypeSystem:
@@ -63,6 +91,9 @@ func (m McpMessageType) MarshalJSON() ([]byte, error) {
 	}
 }
 
+// UnmarshalJSON parses the JSON-encoded data of m
+// - if m does match any of the allowed values
+// it is replaced with MessageTypeUnknown
 func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -78,21 +109,7 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	}
 }
 
-type McpLoggerInterface interface {
-	LogRequest(requestID, message string, metadata map[string]string) error
-	LogResponse(requestID, message string, success bool, errorMsg string, metadata map[string]string) error
-	LogProxyStart(metadata map[string]string) error
-	LogProxyStop(success bool, errorMsg string, metadata map[string]string) error
-}
-
-type McpLogger struct {
-	*Logger
-
-	sessionID string
-	serverID  string
-	transport string
-}
-
+// BaseLogEntry represents the basic fields for any log entry and is always included in all logs
 type BaseLogEntry struct {
 	// Timestamp is the exact time when the log entry was created
 	Timestamp time.Time `json:"timestamp"`
@@ -215,6 +232,7 @@ func (l *Logger) GetLogPath() string {
 	return l.logPath
 }
 
+// LogMcpEvent logs the provided stdio/http MCP event
 func (l *Logger) LogMcpEvent(event common.McpEventInterface) error {
 	return l.logEntry(event)
 }
