@@ -30,6 +30,16 @@ const (
 	DirectionUnknown McpEventDirection = "[UNKNOWN]"
 )
 
+/*
+	MarshalJSON returns the JSON encoding of McpEventDirection.
+
+It maps the value to one of the allowed directions:
+  - [CLIENT -> SERVER]
+  - [SERVER -> CLIENT]
+  - [CENTIAN -> CLIENT]
+  - [SYSTEM]
+  - [UNKNOWN] - in case none of the above fit
+*/
 func (m McpEventDirection) MarshalJSON() ([]byte, error) {
 	switch m {
 	case DirectionClientToServer, DirectionServerToClient, DirectionCentianToClient, DirectionSystem:
@@ -38,6 +48,17 @@ func (m McpEventDirection) MarshalJSON() ([]byte, error) {
 		return json.Marshal(string(DirectionUnknown))
 	}
 }
+
+/*
+	UnmarshalJSON parses the JSON-encoded data of McpEventDirection.
+
+It maps the value to one of the allowed directions:
+  - [CLIENT -> SERVER]
+  - [SERVER -> CLIENT]
+  - [CENTIAN -> CLIENT]
+  - [SYSTEM]
+  - [UNKNOWN] - in case none of the above fit
+*/
 func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -53,16 +74,21 @@ func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 	}
 }
 
-// McpMessageType
+// McpMessageType represents the type if an MCP event, can be request, response, system, or unknown
 type McpMessageType string
 
 const (
-	MessageTypeRequest  McpMessageType = "request"
+	// MessageTypeRequest represents a request message type
+	MessageTypeRequest McpMessageType = "request"
+	// MessageTypeResponse represents a response message type
 	MessageTypeResponse McpMessageType = "response"
-	MessageTypeSystem   McpMessageType = "system"
-	MessageTypeUnknown  McpMessageType = "unknown" // fallback in case of error
+	// MessageTypeSystem represents a system message type
+	MessageTypeSystem McpMessageType = "system"
+	// MessageTypeUnknown represents a unknown message type
+	MessageTypeUnknown McpMessageType = "unknown"
 )
 
+// MarshalJSON returns the JSON encoding of McpMessageType.
 func (m McpMessageType) MarshalJSON() ([]byte, error) {
 	switch m {
 	case MessageTypeRequest, MessageTypeResponse, MessageTypeSystem:
@@ -71,6 +97,8 @@ func (m McpMessageType) MarshalJSON() ([]byte, error) {
 		return json.Marshal(string(MessageTypeUnknown))
 	}
 }
+
+// UnmarshalJSON parses the JSON-encoded data of McpMessageType.
 func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -86,6 +114,7 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	}
 }
 
+// BaseMcpEvent holds the basic data for any MCP event independent of transport
 type BaseMcpEvent struct {
 	// Timestamp is the exact time when the log entry was created
 	Timestamp time.Time `json:"timestamp"`
@@ -131,6 +160,7 @@ type BaseMcpEvent struct {
 	Modified bool `json:"modified"`
 }
 
+// HttpEvent holds http request/response data - used by HttpMcpEvent
 type HttpEvent struct {
 	ReqID       string
 	Method      string
@@ -145,6 +175,7 @@ type HttpEvent struct {
 	ContentType string
 }
 
+// NewHttpEventFromRequest creates a new HttpEvent given a http.Request
 func NewHttpEventFromRequest(r *http.Request, requestID string) *HttpEvent {
 	responseStatus := -1
 	var responseHeaders http.Header = nil
@@ -167,6 +198,7 @@ func NewHttpEventFromRequest(r *http.Request, requestID string) *HttpEvent {
 	}
 }
 
+// NewHttpEventFromResponse creates a new HttpEvent given a http.Response
 func NewHttpEventFromResponse(resp *http.Response, requestID string) *HttpEvent {
 	return &HttpEvent{
 		ReqID:       requestID,
@@ -181,6 +213,7 @@ func NewHttpEventFromResponse(resp *http.Response, requestID string) *HttpEvent 
 	}
 }
 
+// HttpMcpEvent holds data for an HTTP-based MCP event
 type HttpMcpEvent struct {
 	BaseMcpEvent
 
@@ -204,6 +237,9 @@ type HttpMcpEvent struct {
 	ProxyPort string `json:"proxy_port,omitempty"`
 }
 
+// RawMessage returns the message content of the HttpMcpEvent, is based on HttpEvent.Body
+//
+// If the original HttpEvent has no Body (e.g. GET, DELETE methods) it returns an empty string
 func (h HttpMcpEvent) RawMessage() string {
 	rawMessage := ""
 	if len(h.HttpEvent.Body) > 0 {
@@ -212,26 +248,34 @@ func (h HttpMcpEvent) RawMessage() string {
 	return rawMessage
 }
 
+// SetRawMessage overwrites the mcp event content - used for writting back processed MCP event data
+//
+// For HttpMcpEvent this overwrites the original HttpEvent.Body
 func (h *HttpMcpEvent) SetRawMessage(newMessage string) {
 	h.HttpEvent.Body = []byte(newMessage)
 }
 
+// SetModified sets the modified flag
 func (h *HttpMcpEvent) SetModified(b bool) {
 	h.BaseMcpEvent.Modified = b
 }
 
+// HasContent returns true if HttpEvent.Body has content, false otherwise
 func (h HttpMcpEvent) HasContent() bool {
 	return len(h.HttpEvent.Body) > 0
 }
 
+// IsRequest returns true if MessageType is MessageTypeRequest
 func (h HttpMcpEvent) IsRequest() bool {
 	return h.BaseMcpEvent.MessageType == MessageTypeRequest
 }
 
+// IsResponse returns true if MessageType is MessageTypeResponse
 func (h HttpMcpEvent) IsResponse() bool {
 	return h.BaseMcpEvent.MessageType == MessageTypeResponse
 }
 
+// GetBaseEvent returns the BaseMcpEvent for this HttpMcpEvent
 func (h HttpMcpEvent) GetBaseEvent() BaseMcpEvent {
 	return h.BaseMcpEvent
 }
@@ -244,6 +288,7 @@ func (e HttpMcpEvent) MarshalJSON() ([]byte, error) {
 	return marshalWithRaw(e.RawMessage(), Alias(e))
 }
 
+// DeepClone creates a deep copy of the HttpMcpEvent and returns it
 func (e *HttpMcpEvent) DeepClone() *HttpMcpEvent {
 	// Shallow copy value fields (dereference pointer to get value)
 	processedEvent := *e
@@ -279,6 +324,7 @@ func (e *HttpMcpEvent) DeepClone() *HttpMcpEvent {
 	return &processedEvent
 }
 
+// HttpMcpEvent holds data for an stdio-based MCP event
 type StdioMcpEvent struct {
 	BaseMcpEvent
 
@@ -297,10 +343,12 @@ type StdioMcpEvent struct {
 	Message string `json:"message"`
 }
 
+// RawMessage returns the message content of the StdioMcpEvent
 func (s StdioMcpEvent) RawMessage() string {
 	return s.Message
 }
 
+// SetRawMessage sets the message content of the StdioMcpEvent
 func (s *StdioMcpEvent) SetRawMessage(newMessage string) {
 	s.Message = newMessage
 }
