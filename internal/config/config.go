@@ -5,8 +5,10 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 )
 
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.jsonc.
@@ -19,6 +21,30 @@ type GlobalConfig struct {
 	Gateways   map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
 	Processors []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
 	Metadata   map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+}
+
+// ServerSearchResult captures data and references
+// when searching for a specific server in the config
+type ServerSearchResult struct {
+	gatewayName string
+	gateway     *GatewayConfig
+	server      *MCPServerConfig
+}
+
+// SearchServerByName searches for a server given a name,
+// can return multiple results for different gateways
+func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
+	var foundServers []ServerSearchResult = make([]ServerSearchResult, 0)
+	for gatewayName, gatewayConfig := range g.Gateways {
+		if gatewayConfig.HasServer(name) {
+			foundServers = append(foundServers, ServerSearchResult{
+				gatewayName: gatewayName,
+				gateway:     gatewayConfig,
+				server:      gatewayConfig.MCPServers[name],
+			})
+		}
+	}
+	return foundServers
 }
 
 // MCPServerConfig represents a single MCP server configuration.
@@ -88,6 +114,26 @@ func (g *GatewayConfig) ListServers() []*MCPServerConfig {
 		result = append(result, server)
 	}
 	return result
+}
+
+// AddServer adds a the provided server to the gateways MCP servers using name as key
+func (g *GatewayConfig) AddServer(name string, server *MCPServerConfig) {
+	g.MCPServers[name] = server
+}
+
+// RemoveServer removes server identified via name
+func (g *GatewayConfig) RemoveServer(name string) {
+	delete(g.MCPServers, name)
+}
+
+// HasServer returns true if a server with the provided name exists in this gateway
+func (g *GatewayConfig) HasServer(name string) bool {
+	for serverName := range g.MCPServers {
+		if serverName == name {
+			return true
+		}
+	}
+	return false
 }
 
 //////// PROCESSOR CONFIG STRUCTS ///////
@@ -288,6 +334,10 @@ func ValidateConfig(config *GlobalConfig) error {
 		return fmt.Errorf("version field is required")
 	}
 
+	if err := validatedGateways(config.Gateways); err != nil {
+		return err
+	}
+
 	if err := validateProcessors(config.Processors); err != nil {
 		return err
 	}
@@ -295,10 +345,12 @@ func ValidateConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// validateServers validates server configurations
-func validateServers(gateways map[string]*GatewayConfig) error {
-	for _, gatewayConfig := range gateways {
-		// TODO: check if gatewayName is URL compliant
+// validatedGateways validates server configurations
+func validatedGateways(gateways map[string]*GatewayConfig) error {
+	for gatewayName, gatewayConfig := range gateways {
+		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
+			return err
+		}
 		for name, server := range gatewayConfig.MCPServers {
 			if err := validateServer(name, server); err != nil {
 				return err
@@ -308,12 +360,91 @@ func validateServers(gateways map[string]*GatewayConfig) error {
 	return nil
 }
 
+// isURLCompliant checks if a name is URL-safe (alphanumeric, dash, underscore only).
+// Names must start with alphanumeric character and can contain alphanumeric, dash, or underscore.
+// This ensures names can be safely used in URL paths like /mcp/<gateway>/<server>.
+func isURLCompliant(name string) bool {
+	if name == "" {
+		return false
+	}
+	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore
+	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
+	matched, _ := regexp.MatchString(pattern, name)
+	return matched
+}
+
+// isValidHTTPURL validates that a URL string is a properly formatted HTTP/HTTPS URL.
+// Returns true if the URL has a valid http:// or https:// scheme and a host component.
+func isValidHTTPURL(urlStr string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	// Must have http or https scheme and a host
+	return (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") && parsedURL.Host != ""
+}
+
+// validateGateway validates a gateway configuration
+func validateGateway(name string, config GatewayConfig) error {
+	// Validate gateway name is URL compliant (used in endpoint paths)
+	if !isURLCompliant(name) {
+		return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
+	}
+
+	// Validate at least one server exists
+	if len(config.MCPServers) == 0 {
+		return fmt.Errorf("gateway '%s': must have at least one MCP server", name)
+	}
+
+	// Validate gateway-level processors if present
+	if len(config.Processors) > 0 {
+		if err := validateProcessors(config.Processors); err != nil {
+			return fmt.Errorf("gateway '%s': %w", name, err)
+		}
+	}
+
+	return nil
+}
+
 // validateServer validates a single server configuration
 func validateServer(name string, server *MCPServerConfig) error {
-	// TODO:
-	// - check server.Headers
-	// - check server.URL
-	// - check name being URL compliant
+	// Validate server name is URL compliant (used in endpoint paths)
+	if !isURLCompliant(name) {
+		return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
+	}
+
+	// Validate transport consistency - must have either Command (stdio) OR URL (http), not both
+	hasCommand := server.Command != ""
+	hasURL := server.URL != ""
+
+	if !hasCommand && !hasURL {
+		return fmt.Errorf("server '%s': must specify either 'command' (stdio transport) or 'url' (http transport)", name)
+	}
+
+	if hasCommand && hasURL {
+		return fmt.Errorf("server '%s': cannot specify both 'command' and 'url' - choose either stdio or http transport", name)
+	}
+
+	// Validate URL format if URL is specified
+	if hasURL {
+		if !isValidHTTPURL(server.URL) {
+			return fmt.Errorf("server '%s': invalid URL format - must be a valid http:// or https:// URL", name)
+		}
+
+		// Headers only make sense for HTTP transport
+		// (For stdio transport, headers would be ignored)
+	}
+
+	// Validate Headers format - all values must be strings
+	for headerKey, headerValue := range server.Headers {
+		if headerKey == "" {
+			return fmt.Errorf("server '%s': header keys cannot be empty", name)
+		}
+		if headerValue == "" {
+			return fmt.Errorf("server '%s': header '%s' has empty value", name, headerKey)
+		}
+	}
+
 	return nil
 }
 

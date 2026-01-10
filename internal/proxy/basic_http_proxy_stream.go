@@ -298,8 +298,9 @@ func (c *CentianServer) StartCentianServer() error {
 			then have a logic that routes the request based on the action:
 				- tools/list -> triggers tools/list for ALL servers
 					- challenge here might be session management
+
+			if gatewayConfig.AllowGatewayEndpoint {}
 		*/
-		// if gatewayConfig.AllowGatewayEndpoint {}
 	}
 
 	// 5. Start the (proxy) Server

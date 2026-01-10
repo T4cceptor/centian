@@ -69,21 +69,6 @@ var configRemoveCommand = &cli.Command{
 	Action: removeConfig,
 }
 
-// TODO: determine if this is required - it makes sense, but maybe we have better options
-// var configCleanCommand = &cli.Command{
-// 	Name:        "clean",
-// 	Usage:       "Clean invalid servers from configuration",
-// 	Description: "Removes servers with empty commands or other validation issues",
-// 	Flags: []cli.Flag{
-// 		&cli.BoolFlag{
-// 			Name:    "dry-run",
-// 			Aliases: []string{"n"},
-// 			Usage:   "Show what would be cleaned without making changes",
-// 		},
-// 	},
-// 	Action: cleanConfig,
-// }
-
 var configServerCommand = &cli.Command{
 	Name:        "server",
 	Usage:       "Manage MCP servers",
@@ -114,10 +99,15 @@ var configServerCommand = &cli.Command{
 					Required: true,
 				},
 				&cli.StringFlag{
-					Name:     "command",
-					Aliases:  []string{"c"},
-					Usage:    "Server command",
-					Required: true,
+					Name:    "gateway",
+					Aliases: []string{"gw"},
+					Usage:   "Gateway name",
+					Value:   "default",
+				},
+				&cli.StringFlag{
+					Name:    "command",
+					Aliases: []string{"c"},
+					Usage:   "Server command",
 				},
 				&cli.StringSliceFlag{
 					Name:    "args",
@@ -125,14 +115,19 @@ var configServerCommand = &cli.Command{
 					Usage:   "Command arguments",
 				},
 				&cli.StringFlag{
+					Name:    "url",
+					Aliases: []string{"u"},
+					Usage:   "Server URL",
+				},
+				&cli.StringMapFlag{
+					Name:    "headers",
+					Aliases: []string{"hd"},
+					Usage:   "Server Headers",
+				},
+				&cli.StringFlag{
 					Name:    "description",
 					Aliases: []string{"d"},
 					Usage:   "Server description",
-				},
-				&cli.StringSliceFlag{
-					Name:    "tags",
-					Aliases: []string{"t"},
-					Usage:   "Server tags",
 				},
 				&cli.BoolFlag{
 					Name:  "enabled",
@@ -242,7 +237,7 @@ func showConfig(ctx context.Context, cmd *cli.Command) error {
 		enabled := []*MCPServerConfig{}
 		for _, serverConfig := range allServers {
 			if serverConfig.Enabled {
-				enabled = append(enabled, enabled...)
+				enabled = append(enabled, serverConfig)
 			}
 		}
 		fmt.Printf("  - Enabled: %d\n", len(enabled))
@@ -328,27 +323,41 @@ func addServer(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// TODO: needs to be redone with gateway logic
-	// name := cmd.String("name")
-	// if _, exists := config.Servers[name]; exists {
-	// 	return fmt.Errorf("server '%s' already exists", name)
-	// }
+	gatewayName := cmd.String("gateway")
+	existingGateway, ok := config.Gateways[gatewayName]
+	if !ok {
+		// gatewayName does not exist in the config, so we create it
+		// Note: if no gatewayName was specified the default is "default"
+		config.Gateways[gatewayName] = &GatewayConfig{
+			AllowDynamic:         false,
+			AllowGatewayEndpoint: false,
+			MCPServers:           map[string]*MCPServerConfig{},
+			Processors:           make([]*ProcessorConfig, 0),
+		}
+		existingGateway = config.Gateways[gatewayName]
+	}
 
-	// server := &MCPServer{
-	// 	Name:        name,
-	// 	Command:     cmd.String("command"),
-	// 	Args:        cmd.StringSlice("args"),
-	// 	Description: cmd.String("description"),
-	// 	Enabled:     cmd.Bool("enabled"),
-	// }
+	name := cmd.String("name")
+	if _, exists := existingGateway.MCPServers[name]; exists {
+		return fmt.Errorf("server '%s' already exists", name)
+	}
 
-	// config.AddServer(name, server)
+	serverConfig := &MCPServerConfig{
+		Name:        name,
+		Command:     cmd.String("command"),
+		Args:        cmd.StringSlice("args"),
+		URL:         cmd.String("URL"),
+		Headers:     cmd.StringMap("headers"),
+		Description: cmd.String("description"),
+		Enabled:     cmd.Bool("enabled"),
+	}
+	existingGateway.AddServer(name, serverConfig)
 
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	// fmt.Printf("✅ Added server '%s'\n", name)
+	fmt.Printf("✅ Added server '%s'\n", name)
 	return nil
 }
 
@@ -357,21 +366,25 @@ func removeServer(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-
-	// TODO: needs to be redone with gateway logic
-
-	// name := cmd.String("name")
-	// if _, exists := config.Servers[name]; !exists {
-	// 	return fmt.Errorf("server '%s' not found", name)
-	// }
-
-	// config.RemoveServer(name)
+	serverName := cmd.String("name")
+	foundServers := config.SearchServerByName(serverName)
+	numFoundServers := len(foundServers)
+	if numFoundServers == 1 {
+		// expected, "good" case -> we just remove this single server
+		result := foundServers[0]
+		result.gateway.RemoveServer(serverName)
+	} else if len(foundServers) > 1 {
+		// Huston we have a problem! -> now we need to ask the user what to do
+		// TODO: implement user interaction
+	} else {
+		return fmt.Errorf("Unable to find server '%s' in config", serverName)
+	}
 
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	// fmt.Printf("✅ Removed server '%s'\n", name)
+	fmt.Printf("✅ Removed server '%s'\n", serverName)
 	return nil
 }
 
@@ -389,14 +402,18 @@ func toggleServer(name string, enabled bool) error {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// TODO: needs to be redone with gateway logic
-
-	// server, exists := config.Servers[name]
-	// if !exists {
-	// 	return fmt.Errorf("server '%s' not found", name)
-	// }
-
-	// server.Enabled = enabled
+	foundServers := config.SearchServerByName(name)
+	numFoundServers := len(foundServers)
+	if numFoundServers == 1 {
+		// expected, "good" case -> we just remove this single server
+		result := foundServers[0]
+		result.server.Enabled = enabled
+	} else if len(foundServers) > 1 {
+		// Huston we have a problem! -> now we need to ask the user what to do
+		// TODO: implement user interaction
+	} else {
+		return fmt.Errorf("Unable to find server '%s' in config", name)
+	}
 
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)

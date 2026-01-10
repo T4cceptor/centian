@@ -69,7 +69,7 @@ func (m *McpEventDirection) UnmarshalJSON(b []byte) error {
 		*m = McpEventDirection(s)
 		return nil
 	default:
-		*m = McpEventDirection(DirectionUnknown)
+		*m = DirectionUnknown
 		return nil
 	}
 }
@@ -114,7 +114,10 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 	}
 }
 
-// BaseMcpEvent holds the basic data for any MCP event independent of transport
+// BaseMcpEvent holds the core metadata common to all MCP events regardless of transport type.
+//
+// This struct contains fields for tracking request flow, timing, status, and contextual information
+// that apply universally across stdio, HTTP, and other transport mechanisms.
 type BaseMcpEvent struct {
 	// Timestamp is the exact time when the log entry was created
 	Timestamp time.Time `json:"timestamp"`
@@ -160,22 +163,52 @@ type BaseMcpEvent struct {
 	Modified bool `json:"modified"`
 }
 
-// HttpEvent holds http request/response data - used by HttpMcpEvent
+// HttpEvent captures HTTP request and response data for tracking MCP communication over HTTP transport.
+//
+// This struct stores both request metadata (method, URL, headers) and response data (status, headers, body)
+// to provide complete visibility into HTTP-based MCP interactions. The Body field may be nil or truncated
+// for large payloads or streaming responses.
 type HttpEvent struct {
-	ReqID       string
-	Method      string
-	URL         string
-	ReqHeaders  http.Header
-	RespStatus  int
+	// ReqID uniquely identifies this HTTP request
+	ReqID string
+
+	// Method is the HTTP method (GET, POST, etc.)
+	Method string
+
+	// URL is the full request URL
+	URL string
+
+	// ReqHeaders contains the HTTP request headers
+	ReqHeaders http.Header
+
+	// RespStatus is the HTTP response status code (-1 if no response yet)
+	RespStatus int
+
+	// RespHeaders contains the HTTP response headers (nil if no response yet)
 	RespHeaders http.Header
-	Body        []byte // captured (non-streaming or limited)
-	BodySize    int64
-	Truncated   bool
-	Streaming   bool
+
+	// Body contains the captured request/response body (may be nil, truncated, or empty for streaming)
+	Body []byte
+
+	// BodySize is the original content length
+	BodySize int64
+
+	// Truncated indicates if the body was truncated due to size limits
+	Truncated bool
+
+	// Streaming indicates if this is a streaming response
+	Streaming bool
+
+	// ContentType is the Content-Type header value
 	ContentType string
 }
 
-// NewHttpEventFromRequest creates a new HttpEvent given a http.Request
+// NewHttpEventFromRequest creates a new HttpEvent from an HTTP request.
+//
+// This constructor initializes an HttpEvent with request metadata and placeholder values
+// for response fields. Response status is set to -1 and headers to nil to indicate no
+// response has been received yet. The Body field is initially nil and should be set
+// during request processing.
 func NewHttpEventFromRequest(r *http.Request, requestID string) *HttpEvent {
 	responseStatus := -1
 	var responseHeaders http.Header = nil
@@ -198,7 +231,12 @@ func NewHttpEventFromRequest(r *http.Request, requestID string) *HttpEvent {
 	}
 }
 
-// NewHttpEventFromResponse creates a new HttpEvent given a http.Response
+// NewHttpEventFromResponse creates a new HttpEvent from an HTTP response.
+//
+// This constructor initializes an HttpEvent with both request and response metadata extracted
+// from the response object. The request details are obtained from resp.Request, while response
+// status and headers are taken directly from the response. The Body field is initially nil
+// and should be set during response processing.
 func NewHttpEventFromResponse(resp *http.Response, requestID string) *HttpEvent {
 	return &HttpEvent{
 		ReqID:       requestID,
@@ -240,7 +278,7 @@ type HttpMcpEvent struct {
 // RawMessage returns the message content of the HttpMcpEvent, is based on HttpEvent.Body
 //
 // If the original HttpEvent has no Body (e.g. GET, DELETE methods) it returns an empty string
-func (h HttpMcpEvent) RawMessage() string {
+func (h *HttpMcpEvent) RawMessage() string {
 	rawMessage := ""
 	if len(h.HttpEvent.Body) > 0 {
 		rawMessage = string(h.HttpEvent.Body)
@@ -248,7 +286,7 @@ func (h HttpMcpEvent) RawMessage() string {
 	return rawMessage
 }
 
-// SetRawMessage overwrites the mcp event content - used for writting back processed MCP event data
+// SetRawMessage overwrites the mcp event content - used for writing back processed MCP event data
 //
 // For HttpMcpEvent this overwrites the original HttpEvent.Body
 func (h *HttpMcpEvent) SetRawMessage(newMessage string) {
@@ -261,26 +299,31 @@ func (h *HttpMcpEvent) SetModified(b bool) {
 }
 
 // HasContent returns true if HttpEvent.Body has content, false otherwise
-func (h HttpMcpEvent) HasContent() bool {
+func (h *HttpMcpEvent) HasContent() bool {
 	return len(h.HttpEvent.Body) > 0
 }
 
 // IsRequest returns true if MessageType is MessageTypeRequest
-func (h HttpMcpEvent) IsRequest() bool {
+func (h *HttpMcpEvent) IsRequest() bool {
 	return h.BaseMcpEvent.MessageType == MessageTypeRequest
 }
 
 // IsResponse returns true if MessageType is MessageTypeResponse
-func (h HttpMcpEvent) IsResponse() bool {
+func (h *HttpMcpEvent) IsResponse() bool {
 	return h.BaseMcpEvent.MessageType == MessageTypeResponse
 }
 
 // GetBaseEvent returns the BaseMcpEvent for this HttpMcpEvent
-func (h HttpMcpEvent) GetBaseEvent() BaseMcpEvent {
+func (h *HttpMcpEvent) GetBaseEvent() BaseMcpEvent {
 	return h.BaseMcpEvent
 }
 
-// Convert on serialization (in MarshalJSON)
+// MarshalJSON implements custom JSON marshaling for HttpMcpEvent.
+//
+// This method injects the raw message content into the JSON output using an alias type
+// to prevent infinite recursion. Uses a value receiver to implement json.Marshaler
+// for both value and pointer types, enabling marshaling of HttpMcpEvent regardless
+// of whether it's passed by value or by pointer.
 //
 //nolint:gocritic // Intentional value receiver to implement json.Marshaler for both value and pointer types
 func (e HttpMcpEvent) MarshalJSON() ([]byte, error) {
@@ -288,7 +331,12 @@ func (e HttpMcpEvent) MarshalJSON() ([]byte, error) {
 	return marshalWithRaw(e.RawMessage(), Alias(e))
 }
 
-// DeepClone creates a deep copy of the HttpMcpEvent and returns it
+// DeepClone creates a deep copy of the HttpMcpEvent.
+//
+// This method performs a complete deep copy of the event including all nested structures
+// (ProcessingErrors map, Metadata map, HttpEvent with headers and body). The returned copy
+// is completely independent from the original, allowing safe concurrent modifications
+// without affecting the source event.
 func (e *HttpMcpEvent) DeepClone() *HttpMcpEvent {
 	// Shallow copy value fields (dereference pointer to get value)
 	processedEvent := *e
@@ -324,7 +372,11 @@ func (e *HttpMcpEvent) DeepClone() *HttpMcpEvent {
 	return &processedEvent
 }
 
-// HttpMcpEvent holds data for an stdio-based MCP event
+// StdioMcpEvent holds data for a stdio-based MCP event.
+//
+// This event type represents MCP communication that occurs via standard input/output streams,
+// typically with processes spawned via commands like npx or python. It captures both the
+// command execution context and the message content exchanged with the MCP server.
 type StdioMcpEvent struct {
 	BaseMcpEvent
 
@@ -340,39 +392,55 @@ type StdioMcpEvent struct {
 	// ConfigSource indicates where configuration originated: "global", "project", or "profile"
 	ConfigSource string `json:"config_source"`
 
+	// Message contains the actual MCP message content (request or response payload)
 	Message string `json:"message"`
 }
 
-// RawMessage returns the message content of the StdioMcpEvent
-func (s StdioMcpEvent) RawMessage() string {
+// RawMessage returns the message content of the StdioMcpEvent.
+//
+// For stdio events, this returns the Message field directly which contains
+// the MCP request or response payload.
+func (s *StdioMcpEvent) RawMessage() string {
 	return s.Message
 }
 
-// SetRawMessage sets the message content of the StdioMcpEvent
+// SetRawMessage overwrites the message content - used for writing back processed MCP event data.
+//
+// For StdioMcpEvent this overwrites the Message field.
 func (s *StdioMcpEvent) SetRawMessage(newMessage string) {
 	s.Message = newMessage
 }
 
-func (h *StdioMcpEvent) SetModified(b bool) {
-	h.BaseMcpEvent.Modified = b
+// SetModified sets the modified flag to indicate the event has been altered.
+func (s *StdioMcpEvent) SetModified(b bool) {
+	s.BaseMcpEvent.Modified = b
 }
 
-func (s StdioMcpEvent) HasContent() bool {
+// HasContent returns true if Message field is non-empty, false otherwise.
+func (s *StdioMcpEvent) HasContent() bool {
 	return s.Message != ""
 }
 
-func (s StdioMcpEvent) GetBaseEvent() BaseMcpEvent {
+// GetBaseEvent returns the BaseMcpEvent for this StdioMcpEvent.
+func (s *StdioMcpEvent) GetBaseEvent() BaseMcpEvent {
 	return s.BaseMcpEvent
 }
 
-func (h StdioMcpEvent) IsRequest() bool {
-	return h.BaseMcpEvent.MessageType == MessageTypeRequest
+// IsRequest returns true if MessageType is MessageTypeRequest.
+func (s *StdioMcpEvent) IsRequest() bool {
+	return s.BaseMcpEvent.MessageType == MessageTypeRequest
 }
 
-func (h StdioMcpEvent) IsResponse() bool {
-	return h.BaseMcpEvent.MessageType == MessageTypeResponse
+// IsResponse returns true if MessageType is MessageTypeResponse.
+func (s *StdioMcpEvent) IsResponse() bool {
+	return s.BaseMcpEvent.MessageType == MessageTypeResponse
 }
 
+// marshalWithRaw marshals a struct to JSON and adds a "raw_message" field.
+//
+// This helper function is used by MarshalJSON implementations to inject the raw message
+// content into the JSON output without modifying the original struct definition. The parameter v
+// must be an alias type to prevent infinite recursion during marshaling.
 func marshalWithRaw(raw string, v any) ([]byte, error) {
 	// v should be an alias type (so it won't recurse)
 	data, err := json.Marshal(v)
@@ -387,7 +455,12 @@ func marshalWithRaw(raw string, v any) ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// Convert on serialization (in MarshalJSON)
+// MarshalJSON implements custom JSON marshaling for StdioMcpEvent.
+//
+// This method injects the raw message content into the JSON output using an alias type
+// to prevent infinite recursion. Uses a value receiver to implement json.Marshaler
+// for both value and pointer types, enabling marshaling of StdioMcpEvent regardless
+// of whether it's passed by value or by pointer.
 //
 //nolint:gocritic // Intentional value receiver to implement json.Marshaler for both value and pointer types
 func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
@@ -395,7 +468,18 @@ func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
 	return marshalWithRaw(s.RawMessage(), Alias(s))
 }
 
-// McpEventInterface provides an abstraction of all MCP Events, independent of transport type
+// McpEventInterface provides a transport-agnostic abstraction for all MCP events.
+//
+// This interface enables polymorphic handling of MCP events across different transport
+// mechanisms (stdio, HTTP, etc.) without requiring type assertions. All event types
+// (StdioMcpEvent, HttpMcpEvent) implement this interface, allowing unified processing
+// of events regardless of their underlying transport implementation.
+//
+// The interface provides methods for:
+//   - Message content access and modification (RawMessage, SetRawMessage)
+//   - Event state tracking (SetModified, HasContent)
+//   - Metadata access (GetBaseEvent)
+//   - Type identification (IsRequest, IsResponse)
 type McpEventInterface interface {
 	RawMessage() string
 	SetRawMessage(newMessage string)
