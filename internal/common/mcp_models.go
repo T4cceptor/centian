@@ -6,15 +6,28 @@ import (
 	"time"
 )
 
-// McpEventDirection
+// McpEventDirection represents the event direction, e.g. CLIENT to SERVER, CENTIAN to CLIENT etc
 type McpEventDirection string
 
 const (
-	DirectionClientToServer  McpEventDirection = "[CLIENT -> SERVER]"
-	DirectionServerToClient  McpEventDirection = "[SERVER -> CLIENT]"
+	// DirectionClientToServer represents the direction: CLIENT -> SERVER
+	DirectionClientToServer McpEventDirection = "[CLIENT -> SERVER]"
+
+	// DirectionServerToClient represents the direction: SERVER -> CLIENT
+	DirectionServerToClient McpEventDirection = "[SERVER -> CLIENT]"
+
+	// DirectionCentianToClient represents the direction: CENTIAN -> CLIENT,
+	// e.g. when a response is returned early before being forwarded to
+	// the downstream MCP server
 	DirectionCentianToClient McpEventDirection = "[CENTIAN -> CLIENT]"
-	DirectionSystem          McpEventDirection = "[SYSTEM]"
-	DirectionUnknown         McpEventDirection = "[UNKNOWN]" // in case the direction is not one of the above!
+
+	// DirectionSystem represents a system event, not intended
+	// to be forwarded to either CLIENT or SERVER
+	DirectionSystem McpEventDirection = "[SYSTEM]"
+
+	// DirectionUnknown represents an unknown direction and is used
+	// in case the direction is not one of the above!
+	DirectionUnknown McpEventDirection = "[UNKNOWN]"
 )
 
 func (m McpEventDirection) MarshalJSON() ([]byte, error) {
