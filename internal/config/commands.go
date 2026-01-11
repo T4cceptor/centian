@@ -425,20 +425,21 @@ func removeServer(ctx context.Context, cmd *cli.Command) error {
 	}
 	serverName := cmd.String("name")
 	foundServers := config.SearchServerByName(serverName)
-	numFoundServers := len(foundServers)
-	if numFoundServers == 1 {
+
+	switch len(foundServers) {
+	case 0:
+		return fmt.Errorf("Unable to find server '%s' in config", serverName)
+	case 1:
 		// expected, "good" case -> we just remove this single server
 		result := foundServers[0]
 		result.gateway.RemoveServer(serverName)
-	} else if len(foundServers) > 1 {
+	default:
 		// Multiple matches - prompt user to select
 		selected, err := promptUserToSelectServer(foundServers, serverName)
 		if err != nil {
 			return err
 		}
 		selected.gateway.RemoveServer(serverName)
-	} else {
-		return fmt.Errorf("Unable to find server '%s' in config", serverName)
 	}
 
 	if err := SaveConfig(config); err != nil {
@@ -464,20 +465,21 @@ func toggleServer(name string, enabled bool) error {
 	}
 
 	foundServers := config.SearchServerByName(name)
-	numFoundServers := len(foundServers)
-	if numFoundServers == 1 {
-		// expected, "good" case -> we just remove this single server
+
+	switch len(foundServers) {
+	case 0:
+		return fmt.Errorf("Unable to find server '%s' in config", name)
+	case 1:
+		// expected, "good" case -> we just toggle this single server
 		result := foundServers[0]
 		result.server.Enabled = enabled
-	} else if len(foundServers) > 1 {
+	default:
 		// Multiple matches - prompt user to select
 		selected, err := promptUserToSelectServer(foundServers, name)
 		if err != nil {
 			return err
 		}
 		selected.server.Enabled = enabled
-	} else {
-		return fmt.Errorf("Unable to find server '%s' in config", name)
 	}
 
 	if err := SaveConfig(config); err != nil {
