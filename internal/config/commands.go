@@ -313,8 +313,6 @@ func listServers(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-//// TODO: check the below code and modify it to fit the new config structure including gateways
-
 // addServer adds a new MCP server configuration to the global config.
 // Validates that the server name doesn't already exist before adding.
 func addServer(ctx context.Context, cmd *cli.Command) error {
@@ -361,6 +359,65 @@ func addServer(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// promptUserToSelectServer displays multiple server matches and prompts user to select one.
+// Returns the selected ServerSearchResult or error if cancelled/invalid selection.
+func promptUserToSelectServer(foundServers []ServerSearchResult, serverName string) (*ServerSearchResult, error) {
+	fmt.Printf("⚠️  Server '%s' found in multiple gateways:\n\n", serverName)
+
+	// Display all matches with context
+	for i, result := range foundServers {
+		status := "✅ enabled"
+		if !result.server.Enabled {
+			status = "❌ disabled"
+		}
+
+		transport := "stdio"
+		transportInfo := fmt.Sprintf("command: %s", result.server.Command)
+		if result.server.URL != "" {
+			transport = "http"
+			transportInfo = fmt.Sprintf("url: %s", result.server.URL)
+		}
+
+		fmt.Printf("  [%d] Gateway: %s\n", i+1, result.gatewayName)
+		fmt.Printf("      Status: %s\n", status)
+		fmt.Printf("      Transport: %s (%s)\n", transport, transportInfo)
+		if result.server.Description != "" {
+			fmt.Printf("      Description: %s\n", result.server.Description)
+		}
+		fmt.Println()
+	}
+
+	// Prompt for selection
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Select gateway [1-%d] or 'c' to cancel: ", len(foundServers))
+
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("failed to read input: %w", err)
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	// Handle cancellation
+	if response == "c" || response == "cancel" {
+		return nil, fmt.Errorf("operation cancelled")
+	}
+
+	// Parse selection number
+	var selection int
+	if _, err := fmt.Sscanf(response, "%d", &selection); err != nil {
+		return nil, fmt.Errorf("invalid selection: %s", response)
+	}
+
+	// Validate selection range
+	if selection < 1 || selection > len(foundServers) {
+		return nil, fmt.Errorf("selection out of range: %d (valid: 1-%d)", selection, len(foundServers))
+	}
+
+	// Return selected result (convert to 0-based index)
+	return &foundServers[selection-1], nil
+}
+
 func removeServer(ctx context.Context, cmd *cli.Command) error {
 	config, err := LoadConfig()
 	if err != nil {
@@ -374,8 +431,12 @@ func removeServer(ctx context.Context, cmd *cli.Command) error {
 		result := foundServers[0]
 		result.gateway.RemoveServer(serverName)
 	} else if len(foundServers) > 1 {
-		// Huston we have a problem! -> now we need to ask the user what to do
-		// TODO: implement user interaction
+		// Multiple matches - prompt user to select
+		selected, err := promptUserToSelectServer(foundServers, serverName)
+		if err != nil {
+			return err
+		}
+		selected.gateway.RemoveServer(serverName)
 	} else {
 		return fmt.Errorf("Unable to find server '%s' in config", serverName)
 	}
@@ -409,8 +470,12 @@ func toggleServer(name string, enabled bool) error {
 		result := foundServers[0]
 		result.server.Enabled = enabled
 	} else if len(foundServers) > 1 {
-		// Huston we have a problem! -> now we need to ask the user what to do
-		// TODO: implement user interaction
+		// Multiple matches - prompt user to select
+		selected, err := promptUserToSelectServer(foundServers, name)
+		if err != nil {
+			return err
+		}
+		selected.server.Enabled = enabled
 	} else {
 		return fmt.Errorf("Unable to find server '%s' in config", name)
 	}

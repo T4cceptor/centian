@@ -83,6 +83,41 @@ Examples:
 	},
 }
 
+func printServerInfo(config *config.GlobalConfig) error {
+	serverName := config.Name
+	if serverName == "" {
+		serverName = "Centian Proxy Server"
+	}
+	totalServers := 0
+	for _, gateway := range config.Gateways {
+		totalServers += len(gateway.MCPServers)
+	}
+
+	if totalServers == 0 {
+		return fmt.Errorf("no MCP servers configured in gateways")
+	}
+
+	fmt.Fprintf(os.Stderr, "[CENTIAN] %s\n", serverName)
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting HTTP proxy server...\n")
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Port: %s\n", config.Proxy.Port)
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Timeout: %ds\n", config.Proxy.Timeout)
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Gateways: %d\n", len(config.Gateways))
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Total MCP servers: %d\n", totalServers)
+	fmt.Fprintf(os.Stderr, "\n")
+
+	// Print endpoint information
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Configured endpoints:\n")
+	for gatewayName, gateway := range config.Gateways {
+		for serverName, server := range gateway.MCPServers {
+			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+			fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
+				config.Proxy.Port, endpoint, server.URL)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "\n")
+	return nil
+}
+
 // handleServerStartCommand handles the server start command
 func handleServerStartCommand(ctx context.Context, cmd *cli.Command) error {
 	configPath := cmd.String("config-path")
@@ -91,22 +126,14 @@ func handleServerStartCommand(ctx context.Context, cmd *cli.Command) error {
 	var globalConfig *config.GlobalConfig
 	var err error
 
-	if configPath != "" {
-		// Load from custom path
-		globalConfig, err = config.LoadConfigFromPath(configPath)
-		if err != nil {
-			return fmt.Errorf("failed to load config from %s: %w", configPath, err)
-		}
-		fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
-	} else {
-		// Load from default path
-		globalConfig, err = config.LoadConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w\n\nHint: Run 'centian init' to create a default configuration", err)
-		}
-		defaultPath, _ := config.GetConfigPath()
-		fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", defaultPath)
+	if configPath == "" {
+		configPath, _ = config.GetConfigPath()
 	}
+	globalConfig, err = config.LoadConfigFromPath(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
+	}
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
 
 	// Validate that we have proxy configuration
 	if globalConfig.Proxy == nil {
@@ -117,43 +144,13 @@ func handleServerStartCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
 	}
 
-	// Count total HTTP servers configured
-	totalServers := 0
-	for _, gateway := range globalConfig.Gateways {
-		totalServers += len(gateway.MCPServers)
-	}
-
-	if totalServers == 0 {
-		return fmt.Errorf("no MCP servers configured in gateways")
-	}
-
 	// Display server information
-	serverName := globalConfig.Name
-	if serverName == "" {
-		serverName = "Centian Proxy Server"
+	if err := printServerInfo(globalConfig); err != nil {
+		return err
 	}
-
-	fmt.Fprintf(os.Stderr, "[CENTIAN] %s\n", serverName)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting HTTP proxy server...\n")
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Port: %s\n", globalConfig.Proxy.Port)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Timeout: %ds\n", globalConfig.Proxy.Timeout)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Gateways: %d\n", len(globalConfig.Gateways))
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Total MCP servers: %d\n", totalServers)
-	fmt.Fprintf(os.Stderr, "\n")
-
-	// Print endpoint information
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Configured endpoints:\n")
-	for gatewayName, gateway := range globalConfig.Gateways {
-		for serverName, server := range gateway.MCPServers {
-			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-			fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
-				globalConfig.Proxy.Port, endpoint, server.URL)
-		}
-	}
-	fmt.Fprintf(os.Stderr, "\n")
 
 	// Create HTTP proxy server
-	// TODO: handle stdio as well
+	// TODO: handle stdio as well - requires cross-transport support
 	server, err := proxy.NewCentianHTTPProxy(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP proxy server: %w", err)
