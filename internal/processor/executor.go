@@ -139,7 +139,7 @@ func handleExecutionResult(processorConfig *config.ProcessorConfig, input *confi
 
 	// Handle execution error (non-zero exit code)
 	if err != nil {
-		errorMsg := fmt.Sprintf("processor '%s' failed: %v", processorConfig.Name, err)
+		errorMsg := fmt.Sprintf("processor '%s' execution failed: %v", processorConfig.Name, err)
 		if stderr.Len() > 0 {
 			errorMsg = fmt.Sprintf("%s\nstderr: %s", errorMsg, stderr.String())
 		}
