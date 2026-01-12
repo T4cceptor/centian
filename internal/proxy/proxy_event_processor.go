@@ -66,6 +66,8 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 					// Fall through and forward original response
 				} else {
 					// Send error response to client instead of original response
+					// TODO: need to provide caller code the chance to react
+					// to errors that should be forwarded to client
 					outputLine = errorResponse
 				}
 			}
@@ -80,9 +82,10 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 				fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Response modified by processors\n")
 			}
 		}
-
-		// TODO: result should also dictate what happens with the
-		// event -> are we returning it or are the forwarding it ?!
+		event.SetStatus(result.Status)
+		if result.Error != nil {
+			event.GetBaseEvent().ProcessingErrors["processing_error"] = fmt.Errorf("%s", *result.Error)
+		}
 		// We likely need a field indicating how to proceed with the event!
 		if outputLine != event.RawMessage() {
 			event.SetModified(true)

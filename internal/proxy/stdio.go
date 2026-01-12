@@ -389,6 +389,12 @@ func (p *StdioProxy) handleStdin() {
 
 			// Forward to MCP server
 			// TODO: proceed depending on event status!
+			if event.Status > 299 {
+				// If status indicates an error we return to the client immediately
+				// TODO: log this?
+				fmt.Println(event.RawMessage())
+				return
+			}
 			if p.stdin != nil {
 				if _, err := fmt.Fprintln(p.stdin, event.RawMessage()); err != nil {
 					fmt.Fprintf(os.Stderr, "Error writing to MCP server stdin: %v\n", err)

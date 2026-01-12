@@ -119,6 +119,13 @@ func (m *McpMessageType) UnmarshalJSON(b []byte) error {
 // This struct contains fields for tracking request flow, timing, status, and contextual information
 // that apply universally across stdio, HTTP, and other transport mechanisms.
 type BaseMcpEvent struct {
+
+	// Indicates the event status - is related to http status codes:
+	// 20x - ok
+	// 40x - expected error - client might be able to resolve it by rephrasing the query
+	// 50x - unexpected error - proxy ran into unexpected error
+	Status int `json:"status"`
+
 	// Timestamp is the exact time when the log entry was created
 	Timestamp time.Time `json:"timestamp"`
 
@@ -318,6 +325,11 @@ func (h *HttpMcpEvent) GetBaseEvent() BaseMcpEvent {
 	return h.BaseMcpEvent
 }
 
+// SetStatus sets the status for this MCP event
+func (h *HttpMcpEvent) SetStatus(status int) {
+	h.BaseMcpEvent.Status = status
+}
+
 // MarshalJSON implements custom JSON marshaling for HttpMcpEvent.
 //
 // This method injects the raw message content into the JSON output using an alias type
@@ -436,6 +448,11 @@ func (s *StdioMcpEvent) IsResponse() bool {
 	return s.BaseMcpEvent.MessageType == MessageTypeResponse
 }
 
+// SetStatus sets the status for this MCP event
+func (s *StdioMcpEvent) SetStatus(status int) {
+	s.BaseMcpEvent.Status = status
+}
+
 // marshalWithRaw marshals a struct to JSON and adds a "raw_message" field.
 //
 // This helper function is used by MarshalJSON implementations to inject the raw message
@@ -488,4 +505,5 @@ type McpEventInterface interface {
 	GetBaseEvent() BaseMcpEvent
 	IsResponse() bool
 	IsRequest() bool
+	SetStatus(newStatus int)
 }

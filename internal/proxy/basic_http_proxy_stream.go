@@ -269,11 +269,11 @@ func (c *CentianServer) StartCentianServer() error {
 			)
 
 			// 4. attach proxy endpoint with logging
-			if proxyEndpoint, err := c.RegisterProxy(&proxyEndpoint, &gateway); err != nil {
+			if err := c.RegisterProxy(&proxyEndpoint, &gateway); err != nil {
 				log.Printf("Failed to register endpoint %s: %v", endpoint, err)
 				// Continue with other servers
 			} else {
-				gateway.endpoints = append(gateway.endpoints, proxyEndpoint)
+				gateway.endpoints = append(gateway.endpoints, &proxyEndpoint)
 			}
 		}
 
@@ -331,26 +331,45 @@ func (c *CentianServer) GetResponseID(resp *http.Response) string {
 // RegisterProxy creates the actual httputil.ReverseProxy and attaches it
 // to both the provided endpoint and the servers mux to start proxying via
 // this endpoint
-func (c *CentianServer) RegisterProxy(endpoint *CentianProxyEndpoint, gateway *CentianProxyGateway) (*CentianProxyEndpoint, error) {
+func (c *CentianServer) RegisterProxy(endpoint *CentianProxyEndpoint, gateway *CentianProxyGateway) error {
 	// Log endpoint registration
 	endpoint.LogProxyStart()
 
 	// Get proxy
 	_ = endpoint.createProxy()
 
-	// Attach DirectorHandler to proxy
-	endpoint.proxy.Director = endpoint.DirectorHandler
+	// Attach Director to proxy - this handles the target URL and headers settings
+	endpoint.proxy.Director = func(r *http.Request) {
+		r.URL.Scheme = endpoint.target.Scheme
+		r.URL.Host = endpoint.target.Host
+		r.URL.Path = endpoint.target.Path // Use the target's path, not the proxy endpoint path
+		r.Host = endpoint.target.Host
+		for k, v := range endpoint.substitutedHeaders {
+			r.Header.Set(k, v)
+		}
+	}
 
 	// Attach ModifyResponseHandler to proxy
 	endpoint.proxy.ModifyResponse = endpoint.ModifyResponseHandler
 
 	// 7. Create the handler function
 	c.mux.HandleFunc(endpoint.endpoint, func(w http.ResponseWriter, r *http.Request) {
+		mcpEvent := endpoint.RequestHandler(r)
+		if mcpEvent.Status > 299 {
+			// If status indicates an error we return to the client immediately
+			// TODO: log this?
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(mcpEvent.GetBaseEvent().Status)
+			if _, err := w.Write([]byte(mcpEvent.RawMessage())); err != nil {
+				common.LogError(err.Error())
+			}
+			return // we return WITHOUT forwarding the message to the server
+		}
 		endpoint.proxy.ServeHTTP(w, r)
 	})
 
 	log.Printf("Registered proxy endpoint: %s -> %s", endpoint.endpoint, endpoint.config.URL)
-	return endpoint, nil
+	return nil
 }
 
 // Shutdown stops the whole server, including all endpoints and gateways
@@ -504,8 +523,8 @@ func (e *CentianProxyEndpoint) GetTarget() (*url.URL, error) {
 	return target, nil
 }
 
-// DirectorHandler is called when the MCP client sends an event, before it is forwarded to the MCP server.
-func (e *CentianProxyEndpoint) DirectorHandler(r *http.Request) {
+// RequestHandler is called when the MCP client sends an event, before it is forwarded to the MCP server.
+func (e *CentianProxyEndpoint) RequestHandler(r *http.Request) *common.HttpMcpEvent {
 	// Read and log request
 	mcpRequest := e.mcpEventFromRequest(r)
 	// mcpRequest has r.Body set if it is non-Nil, as mcpRequest.HttpEvent.Body
@@ -535,15 +554,7 @@ func (e *CentianProxyEndpoint) DirectorHandler(r *http.Request) {
 	// Store requestID in context for response logging
 	ctx := context.WithValue(r.Context(), reqIdField, mcpRequest.RequestID)
 	*r = *r.WithContext(ctx)
-
-	// Set target URL and headers
-	r.URL.Scheme = e.target.Scheme
-	r.URL.Host = e.target.Host
-	r.URL.Path = e.target.Path // Use the target's path, not the proxy endpoint path
-	r.Host = e.target.Host
-	for k, v := range e.substitutedHeaders {
-		r.Header.Set(k, v)
-	}
+	return mcpRequest
 }
 
 // ModifyResponseHandler is called when the proxied MCP server returns an answer or sends an event, before it is forwarded to the MCP client.
