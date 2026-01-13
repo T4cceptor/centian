@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -337,5 +338,86 @@ func TestLogStdioMcpEvent(t *testing.T) {
 
 	if logEntry.ConfigSource != configSource {
 		t.Errorf("Expected config_source '%s', got '%v'", configSource, logEntry.ConfigSource)
+	}
+}
+
+// ========================================
+// GetLogPath Tests
+// ========================================
+
+func TestGetLogPath_ReturnsCorrectPath(t *testing.T) {
+	// Setup: create temporary directory
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	// Given: a logger
+	logger, err := NewLogger()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+
+	// When: getting the log path
+	logPath := logger.GetLogPath()
+
+	// Then: should return a non-empty path
+	if logPath == "" {
+		t.Error("Expected non-empty log path")
+	}
+
+	// And: path should contain .centian/logs directory
+	expectedDir := filepath.Join(".centian", "logs")
+	if !strings.Contains(logPath, expectedDir) {
+		t.Errorf("Expected log path to contain '%s', got: %s", expectedDir, logPath)
+	}
+
+	// And: path should end with requests_<date>.jsonl format
+	fileName := filepath.Base(logPath)
+	if !strings.HasPrefix(fileName, "requests_") || !strings.HasSuffix(fileName, ".jsonl") {
+		t.Errorf("Expected log file name format 'requests_YYYY-MM-DD.jsonl', got: %s", fileName)
+	}
+}
+
+func TestGetLogPath_PathExistsAfterLogging(t *testing.T) {
+	// Setup: create temporary directory
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	// Given: a logger that has written a log entry
+	logger, err := NewLogger()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+
+	// Log an event to ensure file is created
+	baseMcpEvent := getBaseMcpEvent()
+	httpMcpEvent := common.HttpMcpEvent{
+		BaseMcpEvent: baseMcpEvent,
+		HttpEvent: &common.HttpEvent{
+			ReqID:      "test-req",
+			Method:     "POST",
+			URL:        "http://localhost:8080",
+			ReqHeaders: make(http.Header),
+			Body:       []byte("{\"test\":\"data\"}"),
+		},
+		Endpoint:  "/test",
+		ProxyPort: "8080",
+	}
+	err = logger.LogMcpEvent(&httpMcpEvent)
+	if err != nil {
+		t.Fatalf("Failed to log event: %v", err)
+	}
+
+	// When: getting the log path
+	logPath := logger.GetLogPath()
+
+	// Then: the log file should exist
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		t.Errorf("Log file does not exist at path: %s", logPath)
 	}
 }
