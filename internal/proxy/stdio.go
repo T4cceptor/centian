@@ -314,6 +314,7 @@ func (p *StdioProxy) handleStdout() {
 			return
 		default:
 			line := scanner.Text()
+			// TODO: get requestID from "line"
 			requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
 			event := p.GetEvent(line, requestID, common.DirectionServerToClient, common.MessageTypeResponse)
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
@@ -375,6 +376,7 @@ func (p *StdioProxy) handleStdin() {
 			return
 		default:
 			line := scanner.Text()
+			// TODO: get requestID from "line"
 			requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
 			event := p.GetEvent(line, requestID, common.DirectionClientToServer, common.MessageTypeRequest)
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)

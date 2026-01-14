@@ -287,7 +287,7 @@ type HttpMcpEvent struct {
 // If the original HttpEvent has no Body (e.g. GET, DELETE methods) it returns an empty string
 func (h *HttpMcpEvent) RawMessage() string {
 	rawMessage := ""
-	if len(h.HttpEvent.Body) > 0 {
+	if h.HttpEvent != nil && len(h.HttpEvent.Body) > 0 {
 		rawMessage = string(h.HttpEvent.Body)
 	}
 	return rawMessage
@@ -297,6 +297,11 @@ func (h *HttpMcpEvent) RawMessage() string {
 //
 // For HttpMcpEvent this overwrites the original HttpEvent.Body
 func (h *HttpMcpEvent) SetRawMessage(newMessage string) {
+	if h.HttpEvent == nil {
+		// Note: this should never happen - except during testing
+		LogWarn("HttpEvent is nil, creating new for message: %s", newMessage)
+		h.HttpEvent = &HttpEvent{} // we create a new HttpEvent
+	}
 	h.HttpEvent.Body = []byte(newMessage)
 }
 
@@ -307,7 +312,7 @@ func (h *HttpMcpEvent) SetModified(b bool) {
 
 // HasContent returns true if HttpEvent.Body has content, false otherwise
 func (h *HttpMcpEvent) HasContent() bool {
-	return len(h.HttpEvent.Body) > 0
+	return h.HttpEvent != nil && len(h.HttpEvent.Body) > 0
 }
 
 // IsRequest returns true if MessageType is MessageTypeRequest

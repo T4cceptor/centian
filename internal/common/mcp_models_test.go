@@ -687,3 +687,156 @@ func TestMarshalWithRaw_InvalidJSON(t *testing.T) {
 	// Then: should return error
 	assert.Assert(t, err != nil)
 }
+
+func TestMcpEventInterface_SetRawMessage_Works(t *testing.T) {
+	// Given: some MCP Events
+	mcpEvents := []McpEventInterface{
+		&StdioMcpEvent{},
+		&HttpMcpEvent{},
+	}
+	newBody := "test 123"
+
+	for _, event := range mcpEvents {
+		// sanity check
+		assert.Equal(t, event.RawMessage(), "")
+
+		// When: calling SetModified
+		event.SetRawMessage(newBody)
+
+		assert.Equal(t, event.RawMessage(), newBody)
+	}
+}
+
+func TestMcpEventInterface_SetModified_Works(t *testing.T) {
+	// Given: some MCP Events
+	mcpEvents := []McpEventInterface{
+		&StdioMcpEvent{},
+		&HttpMcpEvent{},
+	}
+
+	for _, event := range mcpEvents {
+		// When: calling SetModified
+		event.SetModified(true)
+
+		// Then: the value is modified as expected
+		assert.Equal(t, event.GetBaseEvent().Modified, true)
+	}
+}
+
+func TestMcpEventInterface_HasContent_Works(t *testing.T) {
+	// Given: some MCP Events
+	mcpEvents := []McpEventInterface{
+		&StdioMcpEvent{},
+		&HttpMcpEvent{},
+	}
+
+	for _, event := range mcpEvents {
+		// When: calling HasContent
+		hasContent := event.HasContent()
+
+		// Then: hasContent is false, as there is no content
+		assert.Equal(t, hasContent, false)
+
+		// When: adding content
+		event.SetRawMessage("test message")
+		hasContent = event.HasContent()
+
+		// Then: hasContent is now true
+		assert.Equal(t, hasContent, true)
+	}
+}
+
+func TestMcpEventInterface_IsRequestIsResponse_Works(t *testing.T) {
+	// Given: some MCP Events
+	mcpEvents := []McpEventInterface{
+		&StdioMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeRequest,
+			},
+		},
+		&HttpMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeRequest,
+			},
+		},
+		&StdioMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeResponse,
+			},
+		},
+		&HttpMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeResponse,
+			},
+		},
+		&StdioMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeSystem,
+			},
+		},
+		&HttpMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeSystem,
+			},
+		},
+		&StdioMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeUnknown,
+			},
+		},
+		&HttpMcpEvent{
+			BaseMcpEvent: BaseMcpEvent{
+				MessageType: MessageTypeUnknown,
+			},
+		},
+	}
+
+	for _, event := range mcpEvents {
+		// When: calling IsRequest and IsResponse
+		isRequest := event.IsRequest()
+		isResponse := event.IsResponse()
+
+		// Then: the values map to the MessageType property on the base event
+		assert.Equal(t, isRequest, event.GetBaseEvent().MessageType == MessageTypeRequest)
+		assert.Equal(t, isResponse, event.GetBaseEvent().MessageType == MessageTypeResponse)
+	}
+}
+
+func TestGetBaseEvent_Works(t *testing.T) {
+	// Given: some MCP Events
+	baseMcpEvent := BaseMcpEvent{
+		Transport: "my-test-transport",
+	}
+	mcpEvents := []McpEventInterface{
+		&StdioMcpEvent{
+			BaseMcpEvent: baseMcpEvent,
+		},
+		&HttpMcpEvent{
+			BaseMcpEvent: baseMcpEvent,
+		},
+	}
+
+	for _, event := range mcpEvents {
+		// When: calling IsRequest and IsResponse
+		baseEvent := event.GetBaseEvent()
+
+		// Then: the values map to the MessageType property on the base event
+		assert.Equal(t, baseEvent.Transport, baseMcpEvent.Transport)
+	}
+}
+
+func TestSetStatus_Works(t *testing.T) {
+	// Given: some MCP Events
+	mcpEvents := []McpEventInterface{
+		&StdioMcpEvent{},
+		&HttpMcpEvent{},
+	}
+
+	for _, event := range mcpEvents {
+		// When: calling IsRequest and IsResponse
+		event.SetStatus(123)
+
+		// Then: the values map to the MessageType property on the base event
+		assert.Equal(t, event.GetBaseEvent().Status, 123)
+	}
+}
