@@ -514,13 +514,14 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 		Enabled: true,
 	}
 	server2 := MCPServerConfig{
-		Name:    "server2",
-		URL:     "https://awesomemcp.test123",
-		Headers: make(map[string]string),
-		Enabled: false,
+		Name:        "server2",
+		URL:         "https://awesomemcp.test123",
+		Headers:     make(map[string]string),
+		Enabled:     false,
+		Description: "test123",
 	}
 	results := []ServerSearchResult{
-		ServerSearchResult{
+		{
 			gatewayName: "gateway1",
 			gateway: &GatewayConfig{
 				MCPServers: map[string]*MCPServerConfig{
@@ -530,7 +531,7 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 			},
 			server: &server1,
 		},
-		ServerSearchResult{
+		{
 			gatewayName: "gateway2",
 			gateway: &GatewayConfig{
 				MCPServers: map[string]*MCPServerConfig{
@@ -540,10 +541,30 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 			},
 			server: &server1,
 		},
+		{
+			gatewayName: "gateway2",
+			gateway: &GatewayConfig{
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": &server1,
+					"server2": &server2,
+				},
+			},
+			server: &server2,
+		},
 	}
+	r, w, _ := os.Pipe()
+	orig := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = orig }()
+	w.WriteString("1\n")
+	w.Close()
+
 	got := captureStdout(t, func() {
-		serverSearchResult, err := promptUserToSelectServer(results, "server1")
+		result, err := promptUserToSelectServer(results, "server1")
 		// TODO: put stdin, then expect certain result - then check out
+		assert.NilError(t, err)
+		assert.Assert(t, result.server.Name == "server1")
+		assert.Assert(t, result.gatewayName == "gateway1")
 	})
 	assert.Assert(t, strings.Contains(got, "Status: ✅ enabled")) //
 	assert.Assert(t, strings.Contains(got, "Status: ❌ disabled"))
@@ -553,7 +574,8 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 	assert.Assert(t, strings.Contains(got, "Gateway: gateway2"))
 	assert.Assert(t, strings.Contains(got, "Transport: stdio"))
 	assert.Assert(t, strings.Contains(got, "Transport: http"))
-
+	assert.Assert(t, strings.Contains(got, "Select gateway [1-3] or 'c' to cancel:"))
+	assert.Assert(t, strings.Contains(got, "Description: test123"))
 }
 
 func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
