@@ -324,6 +324,9 @@ func addServer(ctx context.Context, cmd *cli.Command) error {
 	gatewayName := cmd.String("gateway")
 	existingGateway, ok := config.Gateways[gatewayName]
 	if !ok {
+		if config.Gateways == nil {
+			config.Gateways = make(map[string]*GatewayConfig)
+		}
 		// gatewayName does not exist in the config, so we create it
 		// Note: if no gatewayName was specified the default is "default"
 		config.Gateways[gatewayName] = &GatewayConfig{
@@ -336,8 +339,10 @@ func addServer(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	name := cmd.String("name")
-	if _, exists := existingGateway.MCPServers[name]; exists {
-		return fmt.Errorf("server '%s' already exists", name)
+	if existingGateway.MCPServers != nil {
+		if _, exists := existingGateway.MCPServers[name]; exists {
+			return fmt.Errorf("server '%s' already exists", name)
+		}
 	}
 
 	serverConfig := &MCPServerConfig{

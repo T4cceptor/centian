@@ -118,6 +118,9 @@ func (g *GatewayConfig) ListServers() []*MCPServerConfig {
 
 // AddServer adds a the provided server to the gateways MCP servers using name as key
 func (g *GatewayConfig) AddServer(name string, server *MCPServerConfig) {
+	if g.MCPServers == nil {
+		g.MCPServers = make(map[string]*MCPServerConfig)
+	}
 	g.MCPServers[name] = server
 }
 

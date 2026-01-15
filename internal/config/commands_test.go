@@ -3,10 +3,13 @@ package config
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/urfave/cli/v3"
 	"gotest.tools/assert"
@@ -327,6 +330,181 @@ func TestListServers_DisplaysAllServers(t *testing.T) {
 	// And: should display both servers
 	assert.Assert(t, strings.Contains(output, "test-server"))
 	assert.Assert(t, strings.Contains(output, "disabled-server"))
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	fn()
+
+	_ = w.Close()
+	os.Stdout = orig
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	_ = r.Close()
+	return string(out)
+}
+
+func TestListServers_Details(t *testing.T) {
+	// Given: no config, context and command
+	// prep no config:
+	configPath, confErr := GetConfigPath()
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	_, statErr := os.Stat(configPath)
+	if statErr != nil {
+		// this means config path doesnt exist!
+	} else if configPath != "" || confErr != nil {
+		os.Rename(configPath, tmpConfPath)
+	}
+
+	ctx := context.Background()
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "enabled-only"},
+		},
+	}
+
+	// When: calling listServers
+	failedToLoadConfig1 := listServers(ctx, cmd)
+
+	// Then: err is as expected (due to no config)
+	assert.ErrorContains(t, failedToLoadConfig1, "failed to load configuration")
+
+	got := captureStdout(t, func() {
+		// When: adding a real config and calling listServers
+		newConfig := GlobalConfig{
+			Name:    "test config",
+			Version: "1.0.0",
+		}
+		saveError := SaveConfig(&newConfig)
+		assert.NilError(t, saveError)
+		noGetwayError := listServers(ctx, cmd)
+		assert.NilError(t, noGetwayError) // in this case we do NOT return an error
+	})
+	want := "No gateways configured.\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+
+	gatewayName := fmt.Sprintf("my-gateway-%d", time.Now().UnixNano())
+	serverName := fmt.Sprintf("my-server-%d", time.Now().UnixNano())
+	got = captureStdout(t, func() {
+		// When: adding a real config WITH Gateways and servers and calling listServers
+		newConfig := GlobalConfig{
+			Name:    "test config",
+			Version: "1.0.0",
+			Gateways: map[string]*GatewayConfig{
+				gatewayName: {
+					MCPServers: map[string]*MCPServerConfig{
+						serverName: {
+							URL: "https://test-url.test123",
+						},
+					},
+				},
+			},
+		}
+		saveError := SaveConfig(&newConfig)
+		assert.NilError(t, saveError)
+		noGetwayError := listServers(ctx, cmd)
+		assert.NilError(t, noGetwayError) // in this case we do NOT return an error
+	})
+	want = "MCP Servers:\n"
+	if !strings.Contains(got, want) {
+		t.Fatalf("got %q, which does not include %q", got, want)
+	}
+	if !strings.Contains(got, gatewayName) {
+		t.Fatalf("got %q, which does not include gatewayName %q", got, gatewayName)
+	}
+	if !strings.Contains(got, serverName) {
+		t.Fatalf("got %q, which does not include serverName %q", got, serverName)
+	}
+
+	if statErr == nil && configPath != "" || confErr != nil {
+		e1 := os.Rename(tmpConfPath, configPath)
+		assert.NilError(t, e1) // sanity check
+		_, e := LoadConfig()
+		assert.NilError(t, e) // sanity check
+	}
+}
+
+func TestAddServer_Details(t *testing.T) {
+	ctx := context.Background()
+	serverCmdVal := "my-test-server-2"
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "name", Value: serverCmdVal},
+		},
+	}
+
+	// existing config prep
+	configPath, confErr := GetConfigPath()
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	_, statErr := os.Stat(configPath)
+	if statErr != nil {
+		// this means config path doesnt exist!
+	} else if configPath != "" || confErr != nil {
+		os.Rename(configPath, tmpConfPath)
+	}
+
+	// When: calling addServer without an existing config
+	failedToLoadConfig1 := addServer(ctx, cmd)
+
+	// Then: err is as expected (due to no config)
+	assert.ErrorContains(t, failedToLoadConfig1, "failed to load configuration")
+
+	// When: calling addServer WITH an existing config and NO gateways
+	newConfig := GlobalConfig{
+		Name:     "test config",
+		Version:  "1.0.0",
+		Gateways: map[string]*GatewayConfig{},
+	}
+	saveError := SaveConfig(&newConfig)
+	assert.NilError(t, saveError)
+
+	serverName := fmt.Sprintf("my-server-%d", time.Now().UnixNano())
+	cmd = &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "gateway", Value: "default"},
+			&cli.StringFlag{Name: "name", Value: serverName},
+			&cli.StringFlag{Name: "command", Value: "npx"},
+		},
+	}
+	noError := addServer(ctx, cmd)
+
+	// Then: the command works as expected, and a new server is added under the "default" gateway
+	assert.NilError(t, noError)
+	config, err := LoadConfig()
+	assert.NilError(t, err)
+	assert.Equal(t, len(config.Gateways), 1)
+	assert.Equal(t, len(config.Gateways["default"].MCPServers), 1)
+
+	mcpServer, ok := config.Gateways["default"].MCPServers[serverName]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, mcpServer.Command, "npx")
+
+	// When: adding an existing servername
+	cmd = &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "gateway", Value: "default"},
+			&cli.StringFlag{Name: "name", Value: serverName},
+		},
+	}
+	serverExistsErr := addServer(ctx, cmd)
+
+	// Then: there is a an error "server '%s' already exists"
+	expectedError := fmt.Sprintf("server '%s' already exists", serverName)
+	assert.Error(t, serverExistsErr, expectedError)
+
 }
 
 func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
