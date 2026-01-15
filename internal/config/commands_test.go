@@ -578,6 +578,169 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 	assert.Assert(t, strings.Contains(got, "Description: test123"))
 }
 
+func TestRemoveServer_Details(t *testing.T) {
+	ctx := context.Background()
+	serverName := "my-test-server-2"
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "name", Value: serverName},
+		},
+	}
+
+	// handle existing config
+	configPath, confErr := GetConfigPath()
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	_, statErr := os.Stat(configPath)
+	if statErr != nil {
+		// this means config path doesnt exist!
+	} else if configPath != "" || confErr != nil {
+		os.Rename(configPath, tmpConfPath)
+	}
+
+	// When: calling removeServer without config
+	noConfigError := removeServer(ctx, cmd)
+	// Then: correct error is returned
+	assert.ErrorContains(t, noConfigError, "failed to load configuration")
+
+	// Given: existing config without server
+	newConfig := GlobalConfig{
+		Name:    "test config",
+		Version: "1.0.0",
+	}
+	saveError := SaveConfig(&newConfig)
+	assert.NilError(t, saveError)
+
+	// When: calling removeServer
+	noServerError := removeServer(ctx, cmd)
+	// Unable to find server '%s' in config
+	assert.ErrorContains(t, noServerError, "Unable to find server 'my-test-server-2' in config")
+
+	server := MCPServerConfig{
+		Name:    serverName,
+		Command: "npx",
+	}
+	newConfig.Gateways = map[string]*GatewayConfig{
+		"gateway1": {
+			MCPServers: map[string]*MCPServerConfig{
+				serverName: &server,
+				"test123": {
+					Name:    "test123",
+					Command: "npx",
+				},
+			},
+		},
+	}
+	saveError = SaveConfig(&newConfig)
+	assert.NilError(t, saveError)
+
+	// When: calling remnoveServer
+	noError := removeServer(ctx, cmd)
+
+	// Then: it successfully removes the server
+	assert.NilError(t, noError)
+	config, err := LoadConfig()
+	assert.NilError(t, err)
+	_, ok := config.Gateways["gateway1"].MCPServers[serverName]
+	assert.Assert(t, !ok)
+}
+
+func TestToggleServer_Details(t *testing.T) {
+	serverName := "my-test-server-2"
+
+	// handle existing config
+	configPath, confErr := GetConfigPath()
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	_, statErr := os.Stat(configPath)
+	if statErr != nil {
+		// this means config path doesnt exist!
+	} else if configPath != "" || confErr != nil {
+		os.Rename(configPath, tmpConfPath)
+	}
+
+	// When: calling removeServer without config
+	noConfigError := toggleServer(serverName, false)
+	// Then: correct error is returned
+	assert.ErrorContains(t, noConfigError, "failed to load configuration")
+
+	// Given: existing config without server
+	newConfig := GlobalConfig{
+		Name:    "test config",
+		Version: "1.0.0",
+	}
+	saveError := SaveConfig(&newConfig)
+	assert.NilError(t, saveError)
+
+	// When: calling removeServer
+	noServerError := toggleServer(serverName, false)
+	// Unable to find server '%s' in config
+	assert.ErrorContains(t, noServerError, "Unable to find server 'my-test-server-2' in config")
+
+	server := MCPServerConfig{
+		Name:    serverName,
+		Command: "npx",
+		Enabled: true,
+	}
+	newConfig.Gateways = map[string]*GatewayConfig{
+		"gateway1": {
+			MCPServers: map[string]*MCPServerConfig{
+				serverName: &server,
+				"test123": {
+					Name:    "test123",
+					Command: "npx",
+				},
+			},
+		},
+	}
+	saveError = SaveConfig(&newConfig)
+	assert.NilError(t, saveError)
+
+	// When: calling remnoveServer
+	expectedValue := false
+	noError := toggleServer(serverName, expectedValue)
+
+	// Then: it successfully removes the server
+	assert.NilError(t, noError)
+	config, err := LoadConfig()
+	assert.NilError(t, err)
+	loadedServer, ok := config.Gateways["gateway1"].MCPServers[serverName]
+	assert.Assert(t, ok)
+	assert.Assert(t, loadedServer.Enabled == expectedValue)
+
+	// When: calling enableServer
+	ctx := context.Background()
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "name", Value: serverName},
+		},
+	}
+	noError = enableServer(ctx, cmd)
+
+	// Then: server is enabled, and no errors are given
+	assert.NilError(t, noError)
+	config, err = LoadConfig()
+	assert.NilError(t, err)
+	loadedServer, ok = config.Gateways["gateway1"].MCPServers[serverName]
+	assert.Assert(t, ok)
+	assert.Assert(t, loadedServer.Enabled)
+
+	// When: calling disableServer
+	ctx = context.Background()
+	cmd = &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "name", Value: serverName},
+		},
+	}
+	noError = disableServer(ctx, cmd)
+
+	// Then: server is enabled, and no errors are given
+	assert.NilError(t, noError)
+	config, err = LoadConfig()
+	assert.NilError(t, err)
+	loadedServer, ok = config.Gateways["gateway1"].MCPServers[serverName]
+	assert.Assert(t, ok)
+	assert.Assert(t, !loadedServer.Enabled)
+}
+
 func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
 	// Given: a config with enabled and disabled servers
 	cleanup := setupTestEnv(t)

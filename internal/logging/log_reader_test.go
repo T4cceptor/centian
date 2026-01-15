@@ -211,3 +211,25 @@ func writeLogFile(t *testing.T, dir, name string, entries []common.StdioMcpEvent
 		}
 	}
 }
+
+func TestTruncate_Details(t *testing.T) {
+	tests := []struct {
+		longString string
+		limit      int
+		expected   string
+	}{
+		{"short", 500, "short"},
+		{"not long, but too long", 2, "..."},
+		{"something long", 9, "someth..."},
+		{"something", 9, "something"},
+	}
+	for _, test := range tests {
+		// Given: a longer string, and a limit
+		// When: calling truncate providing longString and limit
+		result := truncate(test.longString, test.limit)
+		// Then: result is as expected
+		if result != test.expected {
+			t.Fatalf("Expected: %s, got: %s", test.expected, result)
+		}
+	}
+}
