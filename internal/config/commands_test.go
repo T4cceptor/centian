@@ -504,6 +504,55 @@ func TestAddServer_Details(t *testing.T) {
 	// Then: there is a an error "server '%s' already exists"
 	expectedError := fmt.Sprintf("server '%s' already exists", serverName)
 	assert.Error(t, serverExistsErr, expectedError)
+}
+
+func TestPromptUserToSelectServer_Details(t *testing.T) {
+	server1 := MCPServerConfig{
+		Name:    "server1",
+		Command: "npx",
+		Args:    []string{"1", "2", "3"},
+		Enabled: true,
+	}
+	server2 := MCPServerConfig{
+		Name:    "server2",
+		URL:     "https://awesomemcp.test123",
+		Headers: make(map[string]string),
+		Enabled: false,
+	}
+	results := []ServerSearchResult{
+		ServerSearchResult{
+			gatewayName: "gateway1",
+			gateway: &GatewayConfig{
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": &server1,
+					"server2": &server2,
+				},
+			},
+			server: &server1,
+		},
+		ServerSearchResult{
+			gatewayName: "gateway2",
+			gateway: &GatewayConfig{
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": &server1,
+					"server2": &server2,
+				},
+			},
+			server: &server1,
+		},
+	}
+	got := captureStdout(t, func() {
+		serverSearchResult, err := promptUserToSelectServer(results, "server1")
+		// TODO: put stdin, then expect certain result - then check out
+	})
+	assert.Assert(t, strings.Contains(got, "Status: ✅ enabled")) //
+	assert.Assert(t, strings.Contains(got, "Status: ❌ disabled"))
+	assert.Assert(t, strings.Contains(got, "command: npx"))
+	assert.Assert(t, strings.Contains(got, "url: https://awesomemcp.test123"))
+	assert.Assert(t, strings.Contains(got, "Gateway: gateway1"))
+	assert.Assert(t, strings.Contains(got, "Gateway: gateway2"))
+	assert.Assert(t, strings.Contains(got, "Transport: stdio"))
+	assert.Assert(t, strings.Contains(got, "Transport: http"))
 
 }
 

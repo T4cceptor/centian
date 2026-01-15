@@ -384,6 +384,7 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 		}
 
 		fmt.Printf("  [%d] Gateway: %s\n", i+1, result.gatewayName)
+		fmt.Printf("      Server Name: %s\n", result.server.Name)
 		fmt.Printf("      Status: %s\n", status)
 		fmt.Printf("      Transport: %s (%s)\n", transport, transportInfo)
 		if result.server.Description != "" {
