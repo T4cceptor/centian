@@ -286,7 +286,7 @@ func TestGetConfigDir(t *testing.T) {
 	}{
 		{
 			name: "normal home directory",
-			setup: func(t *testing.T) {
+			setup: func(_ *testing.T) {
 				// Use current HOME
 			},
 			teardown:  func() {},
@@ -302,7 +302,7 @@ func TestGetConfigDir(t *testing.T) {
 		},
 		{
 			name: "custom home directory",
-			setup: func(t *testing.T) {
+			setup: func(_ *testing.T) {
 				os.Setenv("HOME", "/custom/home")
 			},
 			teardown: func() {
@@ -456,7 +456,7 @@ func TestSaveConfigErrorHandling(t *testing.T) {
 		{
 			name:      "save valid config",
 			config:    DefaultConfig(),
-			setup:     func(t *testing.T) {},
+			setup:     func(_ *testing.T) {},
 			wantError: false,
 		},
 		{
@@ -475,7 +475,7 @@ func TestSaveConfigErrorHandling(t *testing.T) {
 					},
 				},
 			},
-			setup:     func(t *testing.T) {},
+			setup:     func(_ *testing.T) {},
 			wantError: false,
 		},
 	}

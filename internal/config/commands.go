@@ -184,7 +184,7 @@ var configServerCommand = &cli.Command{
 
 // initConfig initializes a new configuration file with default settings.
 // Creates ~/.centian/config.jsonc if it doesn't exist, fails if file already exists.
-func initConfig(ctx context.Context, cmd *cli.Command) error {
+func initConfig(_ context.Context, _ *cli.Command) error {
 	configPath, err := GetConfigPath()
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func initConfig(ctx context.Context, cmd *cli.Command) error {
 
 // showConfig displays the current configuration either as formatted text
 // or JSON based on the --json flag.
-func showConfig(ctx context.Context, cmd *cli.Command) error {
+func showConfig(_ context.Context, cmd *cli.Command) error {
 	config, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
@@ -247,7 +247,7 @@ func showConfig(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func validateConfig(ctx context.Context, cmd *cli.Command) error {
+func validateConfig(_ context.Context, _ *cli.Command) error {
 	config, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("❌ Configuration validation failed: %w", err)
@@ -262,7 +262,7 @@ func validateConfig(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func listServers(ctx context.Context, cmd *cli.Command) error {
+func listServers(_ context.Context, cmd *cli.Command) error {
 	config, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
@@ -315,7 +315,7 @@ func listServers(ctx context.Context, cmd *cli.Command) error {
 
 // addServer adds a new MCP server configuration to the global config.
 // Validates that the server name doesn't already exist before adding.
-func addServer(ctx context.Context, cmd *cli.Command) error {
+func addServer(_ context.Context, cmd *cli.Command) error {
 	config, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
@@ -424,7 +424,7 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 	return &foundServers[selection-1], nil
 }
 
-func removeServer(ctx context.Context, cmd *cli.Command) error {
+func removeServer(_ context.Context, cmd *cli.Command) error {
 	config, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
@@ -434,7 +434,7 @@ func removeServer(ctx context.Context, cmd *cli.Command) error {
 
 	switch len(foundServers) {
 	case 0:
-		return fmt.Errorf("Unable to find server '%s' in config", serverName)
+		return fmt.Errorf("unable to find server '%s' in config", serverName)
 	case 1:
 		// expected, "good" case -> we just remove this single server
 		result := foundServers[0]
@@ -456,11 +456,11 @@ func removeServer(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func enableServer(ctx context.Context, cmd *cli.Command) error {
+func enableServer(_ context.Context, cmd *cli.Command) error {
 	return toggleServer(cmd.String("name"), true)
 }
 
-func disableServer(ctx context.Context, cmd *cli.Command) error {
+func disableServer(_ context.Context, cmd *cli.Command) error {
 	return toggleServer(cmd.String("name"), false)
 }
 
@@ -474,7 +474,7 @@ func toggleServer(name string, enabled bool) error {
 
 	switch len(foundServers) {
 	case 0:
-		return fmt.Errorf("Unable to find server '%s' in config", name)
+		return fmt.Errorf("unable to find server '%s' in config", name)
 	case 1:
 		// expected, "good" case -> we just toggle this single server
 		result := foundServers[0]
@@ -501,7 +501,7 @@ func toggleServer(name string, enabled bool) error {
 }
 
 // removeConfig removes the entire centian configuration
-func removeConfig(ctx context.Context, cmd *cli.Command) error {
+func removeConfig(_ context.Context, cmd *cli.Command) error {
 	configDir, err := GetConfigDir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)

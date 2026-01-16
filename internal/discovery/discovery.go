@@ -1,4 +1,4 @@
-// Package internal provides MCP server auto-discovery functionality.
+// Package discovery provides MCP server auto-discovery functionality.
 // This system scans common configuration locations to automatically import
 // existing MCP server configurations into centian.
 package discovery
@@ -350,7 +350,7 @@ func (c *ClaudeDesktopDiscoverer) Discover() ([]Server, error) {
 	}
 
 	// Read and parse config
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -508,6 +508,7 @@ func (v *VSCodeDiscoverer) scanPath(configPath string) ([]Server, error) {
 		return []Server{}, nil
 	}
 
+	configPath = filepath.Clean(configPath)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
@@ -517,7 +518,7 @@ func (v *VSCodeDiscoverer) scanPath(configPath string) ([]Server, error) {
 	if strings.HasSuffix(configPath, "mcp.json") {
 		return v.parseMCPJson(data, configPath)
 	} else if strings.HasSuffix(configPath, "settings.json") {
-		return v.parseSettingsJson(data, configPath)
+		return v.parseSettingsJSON(data, configPath)
 	}
 
 	return []Server{}, nil
@@ -565,7 +566,7 @@ func (v *VSCodeDiscoverer) parseMCPJson(data []byte, sourcePath string) ([]Serve
 	return servers, nil
 }
 
-func (v *VSCodeDiscoverer) parseSettingsJson(data []byte, sourcePath string) ([]Server, error) {
+func (v *VSCodeDiscoverer) parseSettingsJSON(data []byte, sourcePath string) ([]Server, error) {
 	var config map[string]interface{}
 
 	if err := json.Unmarshal(data, &config); err != nil {
@@ -684,7 +685,8 @@ func (r *RegexDiscoverer) scanPath(path string, depth int) ([]Server, error) {
 	// Check if path exists
 	info, err := os.Stat(path)
 	if err != nil {
-		return []Server{}, nil // Path doesn't exist, not an error
+		//nolint:nilerr // Path doesn't exist, not an error
+		return []Server{}, nil
 	}
 
 	var servers []Server

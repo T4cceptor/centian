@@ -5,12 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestLogging(t *testing.T) {
 	// Initialize logging
-	if err := InitializeLogger(); err != nil {
+	if err := initInternalLogger(); err != nil {
 		t.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer CloseLogger()
@@ -20,23 +19,6 @@ func TestLogging(t *testing.T) {
 	LogError("Test error message: %d", 123)
 	LogDebug("Test debug message")
 	LogWarn("Test warning message")
-
-	// Test operation logging
-	err := LogOperation("test operation", func() error {
-		time.Sleep(10 * time.Millisecond)
-		return nil
-	})
-	if err != nil {
-		t.Errorf("LogOperation failed: %v", err)
-	}
-
-	// Test operation logging with error
-	err = LogOperation("failing operation", func() error {
-		return os.ErrNotExist
-	})
-	if err == nil {
-		t.Error("Expected error from failing operation")
-	}
 
 	// Close logger to flush writes
 	CloseLogger()

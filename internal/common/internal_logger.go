@@ -8,28 +8,30 @@ import (
 	"time"
 )
 
-// InternalLogger provides basic logging functionality to .centian folder
+// InternalLogger provides basic logging functionality to .centian folder.
 type InternalLogger struct {
 	logFile *os.File
 	logger  *log.Logger
 }
 
-// NewLogger creates a new logger instance that writes to ~/.centian/centian.log
-func NewLogger() (*InternalLogger, error) {
+// newInternalLogger creates a new logger instance that writes to ~/.centian/centian.log.
+func newInternalLogger() (*InternalLogger, error) {
 	// Get user home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	// Create .centian directory if it doesn't exist
+	// Create .centian directory if it doesn't exist.
+	// TODO: move this into a utils function.
 	centianDir := filepath.Join(homeDir, ".centian")
-	if err := os.MkdirAll(centianDir, 0o755); err != nil {
+	if err := os.MkdirAll(centianDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create .centian directory: %w", err)
 	}
 
-	// Open log file (create if doesn't exist, append if exists)
+	// Open log file (create if doesn't exist, append if exists).
 	logPath := filepath.Join(centianDir, "centian.log")
+	//nolint:gosec // We are writing a file without sensitive data.
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
@@ -44,7 +46,7 @@ func NewLogger() (*InternalLogger, error) {
 	}, nil
 }
 
-// Close closes the log file
+// Close closes the log file.
 func (l *InternalLogger) Close() error {
 	if l.logFile != nil {
 		return l.logFile.Close()
@@ -52,27 +54,27 @@ func (l *InternalLogger) Close() error {
 	return nil
 }
 
-// Info logs an info message
+// Info logs an info message.
 func (l *InternalLogger) Info(message string, args ...interface{}) {
 	l.logger.Printf("[INFO] "+message, args...)
 }
 
-// Error logs an error message
+// Error logs an error message.
 func (l *InternalLogger) Error(message string, args ...interface{}) {
 	l.logger.Printf("[ERROR] "+message, args...)
 }
 
-// Debug logs a debug message
+// Debug logs a debug message.
 func (l *InternalLogger) Debug(message string, args ...interface{}) {
 	l.logger.Printf("[DEBUG] "+message, args...)
 }
 
-// Warn logs a warning message
+// Warn logs a warning message.
 func (l *InternalLogger) Warn(message string, args ...interface{}) {
 	l.logger.Printf("[WARN] "+message, args...)
 }
 
-// LogOperation logs the start and completion of an operation
+// LogOperation logs the start and completion of an operation.
 func (l *InternalLogger) LogOperation(operation string, fn func() error) error {
 	l.Info("Starting operation: %s", operation)
 	start := time.Now()
@@ -89,56 +91,51 @@ func (l *InternalLogger) LogOperation(operation string, fn func() error) error {
 	return err
 }
 
-// Global logger instance
+// Global logger instance.
 var globalLogger *InternalLogger
 
-// InitializeLogger initializes the global logger
-func InitializeLogger() error {
-	var err error
-	globalLogger, err = NewLogger()
-	return err
-}
-
-// CloseLogger closes the global logger
-func CloseLogger() error {
-	if globalLogger != nil {
-		return globalLogger.Close()
+// initInternalLogger initializes the global logger.
+func initInternalLogger() error {
+	if globalLogger == nil {
+		var err error
+		globalLogger, err = newInternalLogger()
+		return err
 	}
-	return nil
+	return nil // nothing to do, global logger already available.
 }
 
-// LogInfo logs an info message using the global logger
+// CloseLogger closes the global logger.
+func CloseLogger() error {
+	if err := initInternalLogger(); err != nil {
+		return err
+	}
+	return globalLogger.Close()
+}
+
+// LogInfo logs an info message using the global logger.
 func LogInfo(message string, args ...interface{}) {
-	if globalLogger != nil {
+	if err := initInternalLogger(); err == nil {
 		globalLogger.Info(message, args...)
 	}
 }
 
-// LogError logs an error message using the global logger
+// LogError logs an error message using the global logger.
 func LogError(message string, args ...interface{}) {
-	if globalLogger != nil {
+	if err := initInternalLogger(); err == nil {
 		globalLogger.Error(message, args...)
 	}
 }
 
-// LogDebug logs a debug message using the global logger
+// LogDebug logs a debug message using the global logger.
 func LogDebug(message string, args ...interface{}) {
-	if globalLogger != nil {
+	if err := initInternalLogger(); err == nil {
 		globalLogger.Debug(message, args...)
 	}
 }
 
-// LogWarn logs a warning message using the global logger
+// LogWarn logs a warning message using the global logger.
 func LogWarn(message string, args ...interface{}) {
-	if globalLogger != nil {
+	if err := initInternalLogger(); err == nil {
 		globalLogger.Warn(message, args...)
 	}
-}
-
-// LogOperation logs an operation using the global logger
-func LogOperation(operation string, fn func() error) error {
-	if globalLogger != nil {
-		return globalLogger.LogOperation(operation, fn)
-	}
-	return fn()
 }

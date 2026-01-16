@@ -132,7 +132,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 		if len(e.Args) > 0 {
 			command = fmt.Sprintf("%s %s", command, strings.Join(e.Args, " "))
 		}
-	case *common.HttpMcpEvent:
+	case *common.HTTPMcpEvent:
 		command = fmt.Sprintf("%s %s", e.ServerName, e.Endpoint)
 	}
 
@@ -162,12 +162,13 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 // Returns empty slice (not error) if file doesn't exist. Skips malformed lines.
 // Supports log lines up to 10MB.
 func readLogFile(path string) ([]common.McpEventInterface, error) {
-	file, err := os.Open(path)
+	cleanPath := filepath.Clean(path)
+	file, err := os.Open(cleanPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to open log file %s: %w", path, err)
+		return nil, fmt.Errorf("failed to open log file %s: %w", cleanPath, err)
 	}
 	defer func() { _ = file.Close() }()
 
@@ -202,7 +203,7 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 			}
 			event = &stdioEvent
 		case "http":
-			var httpEvent common.HttpMcpEvent
+			var httpEvent common.HTTPMcpEvent
 			if err := json.Unmarshal([]byte(line), &httpEvent); err != nil {
 				continue
 			}

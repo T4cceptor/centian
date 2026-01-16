@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -50,7 +51,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	}
 
 	go func() {
-		if err := server.StartCentianServer(); err != nil && err != http.ErrServerClosed {
+		if err := server.StartCentianServer(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
 		}
 	}()

@@ -1,4 +1,4 @@
-// Package internal provides configuration management and MCP proxy functionality
+// Package config provides configuration management and MCP proxy functionality
 // for the Centian CLI tool.
 package config
 
@@ -34,7 +34,7 @@ type ServerSearchResult struct {
 // SearchServerByName searches for a server given a name,
 // can return multiple results for different gateways
 func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
-	var foundServers []ServerSearchResult = make([]ServerSearchResult, 0)
+	foundServers := make([]ServerSearchResult, 0)
 	for gatewayName, gatewayConfig := range g.Gateways {
 		if gatewayConfig.HasServer(name) {
 			foundServers = append(foundServers, ServerSearchResult{
@@ -242,7 +242,7 @@ func EnsureConfigDir() error {
 		return err
 	}
 
-	return os.MkdirAll(configDir, 0o755)
+	return os.MkdirAll(configDir, 0o750)
 }
 
 // LoadConfig loads the global configuration from ~/.centian/config.jsonc.
@@ -260,7 +260,7 @@ func LoadConfig() (*GlobalConfig, error) {
 	}
 
 	// Read config file
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -283,7 +283,7 @@ func LoadConfig() (*GlobalConfig, error) {
 // The configuration is validated after loading.
 func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 	// Read config file
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -322,6 +322,7 @@ func SaveConfig(config *GlobalConfig) error {
 	}
 
 	// Write to file
+	//nolint:gosec // We are writing a file without sensitive data.
 	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}

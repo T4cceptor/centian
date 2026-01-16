@@ -51,9 +51,9 @@ func TestLogBaseMcpEvent(t *testing.T) {
 	requestID := "req_123"
 	sessionID := "session_456"
 	baseMcpEvent := getBaseMcpEvent()
-	httpMcpEvent := common.HttpMcpEvent{
+	httpMcpEvent := common.HTTPMcpEvent{
 		BaseMcpEvent: baseMcpEvent,
-		HttpEvent: &common.HttpEvent{
+		HTTPEvent: &common.HTTPEvent{
 			ReqID:       requestID,
 			Method:      "POST",
 			URL:         "localhost:9000",
@@ -123,7 +123,7 @@ func TestLogBaseMcpEvent(t *testing.T) {
 	}
 }
 
-func TestLogHttpMcpEvent(t *testing.T) {
+func TestLogHTTPMcpEvent(t *testing.T) {
 	// Setup: create temporary directory
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
@@ -142,13 +142,13 @@ func TestLogHttpMcpEvent(t *testing.T) {
 	gateway := "my-awesome-gateway"
 	serverName := "my-awesome-server"
 	endpoint := fmt.Sprintf("/mcp/%s/%s", gateway, serverName)
-	downstreamUrl := "localhost:9000/mcp/something"
+	downstreamURL := "localhost:9000/mcp/something"
 	port := "8989"
 
 	baseMcpEvent := getBaseMcpEvent()
-	httpMcpEvent := common.HttpMcpEvent{
+	httpMcpEvent := common.HTTPMcpEvent{
 		BaseMcpEvent: baseMcpEvent,
-		HttpEvent: &common.HttpEvent{
+		HTTPEvent: &common.HTTPEvent{
 			ReqID:       requestID,
 			Method:      "POST",
 			URL:         "localhost:9000",
@@ -160,7 +160,7 @@ func TestLogHttpMcpEvent(t *testing.T) {
 		Gateway:       gateway,
 		ServerName:    serverName,
 		Endpoint:      endpoint,
-		DownstreamURL: downstreamUrl,
+		DownstreamURL: downstreamURL,
 		ProxyPort:     port,
 	}
 
@@ -231,8 +231,8 @@ func TestLogHttpMcpEvent(t *testing.T) {
 		t.Errorf("Expected endpoint '%s', got '%v'", endpoint, logEntry["endpoint"])
 	}
 
-	if logEntry["downstream_url"] != downstreamUrl {
-		t.Errorf("Expected downstream_url '%s', got '%v'", downstreamUrl, logEntry["downstream_url"])
+	if logEntry["downstream_url"] != downstreamURL {
+		t.Errorf("Expected downstream_url '%s', got '%v'", downstreamURL, logEntry["downstream_url"])
 	}
 
 	if logEntry["proxy_port"] != port {
@@ -396,9 +396,9 @@ func TestGetLogPath_PathExistsAfterLogging(t *testing.T) {
 
 	// Log an event to ensure file is created
 	baseMcpEvent := getBaseMcpEvent()
-	httpMcpEvent := common.HttpMcpEvent{
+	httpMcpEvent := common.HTTPMcpEvent{
 		BaseMcpEvent: baseMcpEvent,
-		HttpEvent: &common.HttpEvent{
+		HTTPEvent: &common.HTTPEvent{
 			ReqID:      "test-req",
 			Method:     "POST",
 			URL:        "http://localhost:8080",

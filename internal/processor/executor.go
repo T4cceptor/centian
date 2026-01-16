@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -128,7 +129,7 @@ func (e *Executor) executeCommandWithTimeout(processorConfig *config.ProcessorCo
 // handleExecutionResult processes command execution result and returns ProcessorOutput
 func handleExecutionResult(processorConfig *config.ProcessorConfig, input *config.ProcessorInput, stdout, stderr bytes.Buffer, err error) (*config.ProcessorOutput, error) {
 	// Handle timeout
-	if err == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) {
 		errorMsg := fmt.Sprintf("processor '%s' timed out after %d seconds", processorConfig.Name, processorConfig.Timeout)
 		return &config.ProcessorOutput{
 			Status:  500,

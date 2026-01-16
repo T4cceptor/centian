@@ -361,9 +361,7 @@ func TestListServers_Details(t *testing.T) {
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
-	if statErr != nil {
-		// this means config path doesnt exist!
-	} else if configPath != "" || confErr != nil {
+	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
@@ -450,9 +448,7 @@ func TestAddServer_Details(t *testing.T) {
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
-	if statErr != nil {
-		// this means config path doesnt exist!
-	} else if configPath != "" || confErr != nil {
+	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
@@ -591,9 +587,7 @@ func TestRemoveServer_Details(t *testing.T) {
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
-	if statErr != nil {
-		// this means config path doesnt exist!
-	} else if configPath != "" || confErr != nil {
+	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
@@ -613,7 +607,7 @@ func TestRemoveServer_Details(t *testing.T) {
 	// When: calling removeServer
 	noServerError := removeServer(ctx, cmd)
 	// Unable to find server '%s' in config
-	assert.ErrorContains(t, noServerError, "Unable to find server 'my-test-server-2' in config")
+	assert.ErrorContains(t, noServerError, "unable to find server 'my-test-server-2' in config")
 
 	server := MCPServerConfig{
 		Name:    serverName,
@@ -651,9 +645,7 @@ func TestToggleServer_Details(t *testing.T) {
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
-	if statErr != nil {
-		// this means config path doesnt exist!
-	} else if configPath != "" || confErr != nil {
+	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
@@ -673,7 +665,7 @@ func TestToggleServer_Details(t *testing.T) {
 	// When: calling removeServer
 	noServerError := toggleServer(serverName, false)
 	// Unable to find server '%s' in config
-	assert.ErrorContains(t, noServerError, "Unable to find server 'my-test-server-2' in config")
+	assert.ErrorContains(t, noServerError, "unable to find server 'my-test-server-2' in config")
 
 	server := MCPServerConfig{
 		Name:    serverName,

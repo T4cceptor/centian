@@ -241,14 +241,14 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 	}{
 		{
 			name: "non-existent config file",
-			setupConfig: func(t *testing.T, dir string) string {
+			setupConfig: func(_ *testing.T, dir string) string {
 				return filepath.Join(dir, "nonexistent.json")
 			},
 			expectedErr: "failed to load config",
 		},
 		{
 			name: "invalid JSON in config file",
-			setupConfig: func(t *testing.T, dir string) string {
+			setupConfig: func(_ *testing.T, dir string) string {
 				path := filepath.Join(dir, "invalid.json")
 				os.WriteFile(path, []byte("{ invalid json"), 0o644)
 				return path
@@ -257,7 +257,7 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 		},
 		{
 			name: "config with invalid structure",
-			setupConfig: func(t *testing.T, dir string) string {
+			setupConfig: func(_ *testing.T, dir string) string {
 				path := filepath.Join(dir, "invalid_structure.json")
 				// Missing required version field
 				invalidConfig := map[string]interface{}{

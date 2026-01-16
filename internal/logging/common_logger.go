@@ -1,3 +1,5 @@
+// Package logging provides utility and helper functions and structs related to logging activity
+// for both internal logs (regarding the centian proxy) and MCP requests/respoonses.
 package logging
 
 import (
@@ -167,7 +169,7 @@ func NewLogger() (*Logger, error) {
 		return nil, err
 	}
 
-	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+	if err := os.MkdirAll(logsDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory: %w", err)
 	}
 
@@ -176,6 +178,7 @@ func NewLogger() (*Logger, error) {
 	logPath := filepath.Join(logsDir, logFileName)
 
 	// Open log file in append mode
+	//nolint:gosec // We are writing a file without sensitive data.
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file: %w", err)

@@ -5,10 +5,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CentianAI/centian-cli/internal/common"
-	"github.com/CentianAI/centian-cli/internal/config"
+)
+
+// Source type constants
+const (
+	SourceTypeClaudeDesktop  = "claude-desktop"
+	SourceTypeVSCodeMCP      = "vscode-mcp"
+	SourceTypeVSCodeSettings = "vscode-settings"
+	SourceTypeGenericMCP     = "generic-mcp"
+)
+
+// File path identifier constants
+const (
+	ClaudeDesktopConfigFile = "claude_desktop_config.json"
+	VSCodeMCPConfigFile     = ".vscode/mcp.json"
+	VSCodeSettingsFile      = "settings.json"
+)
+
+// Config key constants
+const (
+	ConfigKeyMCPServers     = "mcpServers"
+	ConfigKeyServers        = "servers"
+	ConfigKeyMCPServersPath = "mcp.servers"
+)
+
+// Centian proxy constants
+const (
+	CentianCommand      = "centian"
+	CentianStartCommand = "start"
+	CentianPathFlag     = "--path"
+	BackupFileSuffix    = ".centian-backup"
 )
 
 // ReplacementConfig contains information for replacing a source config with centian proxy
@@ -19,20 +49,20 @@ type ReplacementConfig struct {
 	ProxyConfig     string   // Replacement config snippet
 }
 
-// DiscoveryUI provides user interface functions for the discovery system
-type DiscoveryUI struct {
+// UserInterface provides user interface functions for the discovery system
+type UserInterface struct {
 	reader *bufio.Reader
 }
 
 // NewDiscoveryUI creates a new discovery UI interface
-func NewDiscoveryUI() *DiscoveryUI {
-	return &DiscoveryUI{
+func NewDiscoveryUI() *UserInterface {
+	return &UserInterface{
 		reader: bufio.NewReader(os.Stdin),
 	}
 }
 
 // ShowDiscoveryResults displays discovered servers and prompts for user consent
-func (ui *DiscoveryUI) ShowDiscoveryResults(result *Result) ([]Server, error) {
+func (ui *UserInterface) ShowDiscoveryResults(result *Result) ([]Server, error) {
 	if len(result.Servers) == 0 {
 		if len(result.Errors) > 0 {
 			fmt.Printf("🔍 Searched for existing MCP configurations but found none.\n")
@@ -89,7 +119,7 @@ func (ui *DiscoveryUI) ShowDiscoveryResults(result *Result) ([]Server, error) {
 }
 
 // promptForImport asks the user which servers to import and offers proxy replacement
-func (ui *DiscoveryUI) promptForImport(servers []Server) ([]Server, error) {
+func (ui *UserInterface) promptForImport(servers []Server) ([]Server, error) {
 	fmt.Printf("Import these servers into centian configuration?\n")
 	fmt.Printf("Options:\n")
 	fmt.Printf("  [a]ll      - Import all servers (default)\n")
@@ -124,7 +154,7 @@ func (ui *DiscoveryUI) promptForImport(servers []Server) ([]Server, error) {
 }
 
 // selectServers allows user to pick specific servers to import
-func (ui *DiscoveryUI) selectServers(servers []Server) ([]Server, error) {
+func (ui *UserInterface) selectServers(servers []Server) ([]Server, error) {
 	fmt.Printf("\nSelect servers to import (comma-separated numbers, e.g., 1,3,4):\n")
 
 	for i := range servers {
@@ -172,7 +202,7 @@ func (ui *DiscoveryUI) selectServers(servers []Server) ([]Server, error) {
 }
 
 // selectAndReplace allows user to pick specific configs to replace with centian proxy
-func (ui *DiscoveryUI) selectAndReplace(servers []Server) ([]Server, error) {
+func (ui *UserInterface) selectAndReplace(servers []Server) ([]Server, error) {
 	// Group servers by source file for better display
 	configGroups := make(map[string][]Server)
 	for i := range servers {
@@ -273,7 +303,7 @@ func (ui *DiscoveryUI) selectAndReplace(servers []Server) ([]Server, error) {
 }
 
 // promptForReplacement asks user about replacing discovered configs with centian proxy
-func (ui *DiscoveryUI) promptForReplacement(servers []Server) ([]Server, error) {
+func (ui *UserInterface) promptForReplacement(servers []Server) ([]Server, error) {
 	common.StreamPrint(8, "🔄 Configuration Replacement\n")
 	common.StreamPrint(10, "============================\n")
 	common.StreamPrint(8, "💡 This centralizes MCP management through centian.\n")
@@ -303,7 +333,7 @@ func (ui *DiscoveryUI) promptForReplacement(servers []Server) ([]Server, error) 
 }
 
 // ImportServers converts discovered servers to MCPServer configs and adds them to the global config
-func ImportServers(servers []Server, globalConfig *config.GlobalConfig) int {
+func ImportServers(servers []Server) int {
 	common.LogInfo("Starting import of %d discovered servers", len(servers))
 
 	imported := 0
@@ -357,7 +387,7 @@ func ImportServers(servers []Server, globalConfig *config.GlobalConfig) int {
 }
 
 // ShowImportSummary displays the results of the import process
-func ShowImportSummary(imported int, total int) {
+func ShowImportSummary(imported int) {
 	if imported == 0 {
 		fmt.Printf("\n📋 No servers were imported.\n")
 		fmt.Printf("💡 You can add servers manually using:\n")
@@ -382,26 +412,19 @@ func generateReplacementConfig(server Server) ReplacementConfig {
 	var proxyConfig string
 
 	// Determine source type from path
-	if strings.Contains(server.SourcePath, "claude_desktop_config.json") {
-		sourceType = "claude-desktop"
+	switch {
+	case strings.Contains(server.SourcePath, ClaudeDesktopConfigFile):
+		sourceType = SourceTypeClaudeDesktop
 		proxyConfig = generateClaudeDesktopReplacement()
-	} else if strings.Contains(server.SourcePath, ".vscode/mcp.json") {
-		sourceType = "vscode-mcp"
+	case strings.Contains(server.SourcePath, VSCodeMCPConfigFile):
+		sourceType = SourceTypeVSCodeMCP
 		proxyConfig = generateVSCodeMCPReplacement()
-	} else if strings.Contains(server.SourcePath, "settings.json") {
-		sourceType = "vscode-settings"
+	case strings.Contains(server.SourcePath, VSCodeSettingsFile):
+		sourceType = SourceTypeVSCodeSettings
 		proxyConfig = generateVSCodeSettingsReplacement()
-	} else if strings.Contains(server.SourcePath, ".mcp.json") {
-		// Generic .mcp.json files - use mcpServers structure like Claude Desktop
-		sourceType = "generic-mcp"
-		proxyConfig = generateGenericMCPReplacement()
-	} else if sourceType == "" {
+	default:
 		// Default fallback for unknown file types
-		sourceType = "generic-mcp"
-		proxyConfig = generateGenericMCPReplacement()
-	} else {
-		// Default fallback for unknown file types
-		sourceType = "generic-mcp"
+		sourceType = SourceTypeGenericMCP
 		proxyConfig = generateGenericMCPReplacement()
 	}
 
@@ -534,6 +557,7 @@ func updateConfigFile(filePath, sourceType string) error {
 	common.LogInfo("Updating config file: %s (type: %s)", filePath, sourceType)
 
 	// Read current file
+	filePath = filepath.Clean(filePath)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		common.LogError("Failed to read config file %s: %v", filePath, err)
@@ -551,44 +575,44 @@ func updateConfigFile(filePath, sourceType string) error {
 
 	// Prepare centian server config with current config file path
 	centianConfig := map[string]interface{}{
-		"command": "centian",
-		"args":    []string{"start", "--path", filePath},
+		"command": CentianCommand,
+		"args":    []string{CentianStartCommand, CentianPathFlag, filePath},
 	}
 
 	// Replace MCP servers section based on source type
 	var serversReplaced int
 	switch sourceType {
-	case "claude-desktop", "generic-mcp":
-		if existingServers, ok := config["mcpServers"].(map[string]interface{}); ok {
+	case SourceTypeClaudeDesktop, SourceTypeGenericMCP:
+		if existingServers, ok := config[ConfigKeyMCPServers].(map[string]any); ok {
 			serversReplaced = len(existingServers)
 		}
-		config["mcpServers"] = map[string]interface{}{
-			"centian": centianConfig,
+		config[ConfigKeyMCPServers] = map[string]any{
+			CentianCommand: centianConfig,
 		}
 		common.LogDebug("Replaced mcpServers section (%d servers -> 1 centian proxy)", serversReplaced)
-	case "vscode-mcp":
-		if config["servers"] == nil {
-			config["servers"] = make(map[string]interface{})
+	case SourceTypeVSCodeMCP:
+		if config[ConfigKeyServers] == nil {
+			config[ConfigKeyServers] = make(map[string]any)
 		}
-		servers := config["servers"].(map[string]interface{})
+		servers := config[ConfigKeyServers].(map[string]any)
 		serversReplaced = len(servers)
 		// Clear existing servers and add centian
 		for key := range servers {
 			delete(servers, key)
 		}
-		servers["centian"] = centianConfig
+		servers[CentianCommand] = centianConfig
 		common.LogDebug("Replaced servers section (%d servers -> 1 centian proxy)", serversReplaced)
-	case "vscode-settings":
-		if config["mcp.servers"] == nil {
-			config["mcp.servers"] = make(map[string]interface{})
+	case SourceTypeVSCodeSettings:
+		if config[ConfigKeyMCPServersPath] == nil {
+			config[ConfigKeyMCPServersPath] = make(map[string]any)
 		}
-		mcpServers := config["mcp.servers"].(map[string]interface{})
+		mcpServers := config[ConfigKeyMCPServersPath].(map[string]any)
 		serversReplaced = len(mcpServers)
 		// Clear existing servers and add centian
 		for key := range mcpServers {
 			delete(mcpServers, key)
 		}
-		mcpServers["centian"] = centianConfig
+		mcpServers[CentianCommand] = centianConfig
 		common.LogDebug("Replaced mcp.servers section (%d servers -> 1 centian proxy)", serversReplaced)
 	default:
 		common.LogError("Unsupported source type: %s", sourceType)
@@ -603,7 +627,8 @@ func updateConfigFile(filePath, sourceType string) error {
 	}
 
 	// Create backup
-	backupPath := filePath + ".centian-backup"
+	backupPath := filePath + BackupFileSuffix
+	//nolint:gosec // We are writing a config file without sensitive data.
 	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
 		common.LogError("Failed to create backup %s: %v", backupPath, err)
 		return fmt.Errorf("failed to create backup: %w", err)
@@ -611,6 +636,7 @@ func updateConfigFile(filePath, sourceType string) error {
 	common.LogInfo("Created backup: %s", backupPath)
 
 	// Write new config
+	//nolint:gosec // We are writing a config file without sensitive data.
 	if err := os.WriteFile(filePath, newData, 0o644); err != nil {
 		common.LogError("Failed to write updated config %s: %v", filePath, err)
 		return fmt.Errorf("failed to write updated config: %w", err)

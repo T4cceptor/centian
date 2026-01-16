@@ -41,7 +41,7 @@ test: ## Run unit tests
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."
-	go test -v ./integration_tests/...
+	go test -v ./integrationtests/...
 
 test-all: test test-integration ## Run all tests (unit + integration)
 

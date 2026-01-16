@@ -1,3 +1,6 @@
+// Package common holds functions and structs that are used throughout all other
+// packages in this repository.
+// It mainly provides utils functions, and MCP models.
 package common
 
 import (

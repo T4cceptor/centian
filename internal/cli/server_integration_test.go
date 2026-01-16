@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -55,7 +56,7 @@ func TestServerStartIntegration(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := server.StartCentianServer(); err != nil && err != http.ErrServerClosed {
+		if err := server.StartCentianServer(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
 		}
 	}()

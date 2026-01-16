@@ -123,9 +123,8 @@ func SetupShellCompletion() error {
 	// Set up completion based on shell type
 	if shellInfo.Name == "fish" {
 		return setupFishCompletion(shellInfo.RCFile)
-	} else {
-		return setupShellCompletion(shellInfo)
 	}
+	return setupShellCompletion(shellInfo)
 }
 
 // setupShellCompletion sets up completion for bash/zsh shells
@@ -152,6 +151,7 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 	}
 
 	// Add completion line
+	//nolint:gosec // We are dealing with a file without sensitive data.
 	file, err := os.OpenFile(shellInfo.RCFile, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open RC file: %w", err)
@@ -179,7 +179,7 @@ func setupFishCompletion(completionFile string) error {
 
 	// Create completions directory if it doesn't exist
 	completionDir := filepath.Dir(completionFile)
-	if err := os.MkdirAll(completionDir, 0o755); err != nil {
+	if err := os.MkdirAll(completionDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create completions directory: %w", err)
 	}
 
@@ -191,7 +191,7 @@ func setupFishCompletion(completionFile string) error {
 	fishScript := `# Centian CLI fish completion
 complete -c centian -f -a "(centian --generate-shell-completion)"
 `
-
+	//nolint:gosec // We are writing a file without sensitive data.
 	if err := os.WriteFile(completionFile, []byte(fishScript), 0o644); err != nil {
 		return fmt.Errorf("failed to write fish completion file: %w", err)
 	}
@@ -204,7 +204,7 @@ complete -c centian -f -a "(centian --generate-shell-completion)"
 
 // completionExists checks if the completion line already exists in the RC file
 func completionExists(rcFile, completionLine string) (bool, error) {
-	file, err := os.Open(rcFile)
+	file, err := os.Open(filepath.Clean(rcFile))
 	if os.IsNotExist(err) {
 		return false, nil // File doesn't exist, so completion doesn't exist
 	}

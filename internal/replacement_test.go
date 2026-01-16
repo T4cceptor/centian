@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Test the current updateConfigFile function logic
+// Test the current updateConfigFile function logic.
 func testCurrentLogic(filePath, sourceType string) error {
 	fmt.Printf("Testing current logic on %s (type: %s)\n", filePath, sourceType)
 
@@ -85,6 +85,7 @@ func testCurrentLogic(filePath, sourceType string) error {
 	}
 
 	outputPath := filePath + ".result"
+	//nolint:gosec // Testing
 	if err := os.WriteFile(outputPath, newData, 0o644); err != nil {
 		return fmt.Errorf("failed to write result: %w", err)
 	}
@@ -103,7 +104,7 @@ func getServerNames(servers map[string]interface{}) []string {
 	return names
 }
 
-func TestReplacement(t *testing.T) {
+func TestReplacement(_ *testing.T) {
 	// Test with Claude Desktop config
 	if err := testCurrentLogic("test_configs/claude_desktop_config.json", "claude-desktop"); err != nil {
 		fmt.Printf("Error testing Claude Desktop config: %v\n", err)

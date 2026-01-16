@@ -33,6 +33,7 @@ func (r *RegexDiscoverer) matchesPattern(filePath string, pattern Pattern) (bool
 // matchesContentRegex checks if file content matches any of the content patterns
 func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns []string) (bool, error) {
 	// Read file content (limit to first 10KB for performance)
+	filePath = filepath.Clean(filePath)
 	file, err := os.Open(filePath)
 	if err != nil {
 		return false, err
@@ -65,6 +66,7 @@ func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns [
 
 // parseFile extracts MCP servers from a matched file
 func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server, error) {
+	filePath = filepath.Clean(filePath)
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, err
@@ -83,9 +85,7 @@ func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server,
 
 	// Set source type for replacement logic
 	for i := range servers {
-		if pattern.SourceType != "auto-detect" {
-			// Use pattern-specified source type
-		} else {
+		if pattern.SourceType == "auto-detect" {
 			// Auto-detect based on file path
 			servers[i].Source = detectSourceType(filePath)
 		}

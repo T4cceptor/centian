@@ -119,7 +119,7 @@ func printServerInfo(config *config.GlobalConfig) error {
 }
 
 // handleServerStartCommand handles the server start command
-func handleServerStartCommand(ctx context.Context, cmd *cli.Command) error {
+func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	configPath := cmd.String("config-path")
 
 	// Load configuration

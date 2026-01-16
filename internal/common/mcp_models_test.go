@@ -171,10 +171,10 @@ func TestMcpMessageType_UnmarshalJSON_UnknownType(t *testing.T) {
 }
 
 // ========================================
-// NewHttpEventFromRequest Tests
+// NewHTTPEventFromRequest Tests
 // ========================================
 
-func TestNewHttpEventFromRequest_BasicRequest(t *testing.T) {
+func TestNewHTTPEventFromRequest_BasicRequest(t *testing.T) {
 	// Given: a basic HTTP request
 	req := httptest.NewRequest("POST", "https://example.com/api/test?param=value", http.NoBody)
 	req.Header.Set("Content-Type", "application/json")
@@ -182,8 +182,8 @@ func TestNewHttpEventFromRequest_BasicRequest(t *testing.T) {
 	req.ContentLength = 100
 	requestID := "test-req-123"
 
-	// When: creating HttpEvent from request
-	event := NewHttpEventFromRequest(req, requestID)
+	// When: creating HTTPEvent from request
+	event := NewHTTPEventFromRequest(req, requestID)
 
 	// Then: should capture request details correctly
 	assert.Equal(t, requestID, event.ReqID)
@@ -198,7 +198,7 @@ func TestNewHttpEventFromRequest_BasicRequest(t *testing.T) {
 	assert.Assert(t, event.Body == nil) // Body set during processing
 }
 
-func TestNewHttpEventFromRequest_WithResponse(t *testing.T) {
+func TestNewHTTPEventFromRequest_WithResponse(t *testing.T) {
 	// Given: a request that has an associated response
 	req := httptest.NewRequest("GET", "https://example.com/api", http.NoBody)
 	req.Response = &http.Response{
@@ -207,8 +207,8 @@ func TestNewHttpEventFromRequest_WithResponse(t *testing.T) {
 	}
 	requestID := "test-req-456"
 
-	// When: creating HttpEvent from request
-	event := NewHttpEventFromRequest(req, requestID)
+	// When: creating HTTPEvent from request
+	event := NewHTTPEventFromRequest(req, requestID)
 
 	// Then: should capture response details
 	assert.Equal(t, 200, event.RespStatus)
@@ -216,10 +216,10 @@ func TestNewHttpEventFromRequest_WithResponse(t *testing.T) {
 }
 
 // ========================================
-// NewHttpEventFromResponse Tests
+// NewHTTPEventFromResponse Tests
 // ========================================
 
-func TestNewHttpEventFromResponse_SuccessResponse(t *testing.T) {
+func TestNewHTTPEventFromResponse_SuccessResponse(t *testing.T) {
 	// Given: a successful HTTP response
 	req := httptest.NewRequest("GET", "https://example.com/api/users", http.NoBody)
 	req.Header.Set("Authorization", "Bearer token")
@@ -231,8 +231,8 @@ func TestNewHttpEventFromResponse_SuccessResponse(t *testing.T) {
 	}
 	requestID := "test-resp-789"
 
-	// When: creating HttpEvent from response
-	event := NewHttpEventFromResponse(resp, requestID)
+	// When: creating HTTPEvent from response
+	event := NewHTTPEventFromResponse(resp, requestID)
 
 	// Then: should capture response and request details
 	assert.Equal(t, requestID, event.ReqID)
@@ -245,7 +245,7 @@ func TestNewHttpEventFromResponse_SuccessResponse(t *testing.T) {
 	assert.Equal(t, "application/json", event.ContentType)
 }
 
-func TestNewHttpEventFromResponse_ErrorResponse(t *testing.T) {
+func TestNewHTTPEventFromResponse_ErrorResponse(t *testing.T) {
 	// Given: an error HTTP response
 	req := httptest.NewRequest("POST", "https://example.com/api/create", http.NoBody)
 	resp := &http.Response{
@@ -255,8 +255,8 @@ func TestNewHttpEventFromResponse_ErrorResponse(t *testing.T) {
 	}
 	requestID := "test-resp-error"
 
-	// When: creating HttpEvent from response
-	event := NewHttpEventFromResponse(resp, requestID)
+	// When: creating HTTPEvent from response
+	event := NewHTTPEventFromResponse(resp, requestID)
 
 	// Then: should capture error details
 	assert.Equal(t, 500, event.RespStatus)
@@ -264,13 +264,13 @@ func TestNewHttpEventFromResponse_ErrorResponse(t *testing.T) {
 }
 
 // ========================================
-// HttpMcpEvent.RawMessage Tests
+// HTTPMcpEvent.RawMessage Tests
 // ========================================
 
-func TestHttpMcpEvent_RawMessage_WithBody(t *testing.T) {
-	// Given: an HttpMcpEvent with body content
-	event := HttpMcpEvent{
-		HttpEvent: &HttpEvent{
+func TestHTTPMcpEvent_RawMessage_WithBody(t *testing.T) {
+	// Given: an HTTPMcpEvent with body content
+	event := HTTPMcpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: []byte("test message body"),
 		},
 	}
@@ -282,10 +282,10 @@ func TestHttpMcpEvent_RawMessage_WithBody(t *testing.T) {
 	assert.Equal(t, "test message body", result)
 }
 
-func TestHttpMcpEvent_RawMessage_EmptyBody(t *testing.T) {
-	// Given: an HttpMcpEvent with empty body
-	event := HttpMcpEvent{
-		HttpEvent: &HttpEvent{
+func TestHTTPMcpEvent_RawMessage_EmptyBody(t *testing.T) {
+	// Given: an HTTPMcpEvent with empty body
+	event := HTTPMcpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: []byte{},
 		},
 	}
@@ -297,10 +297,10 @@ func TestHttpMcpEvent_RawMessage_EmptyBody(t *testing.T) {
 	assert.Equal(t, "", result)
 }
 
-func TestHttpMcpEvent_RawMessage_NilBody(t *testing.T) {
-	// Given: an HttpMcpEvent with nil body
-	event := HttpMcpEvent{
-		HttpEvent: &HttpEvent{
+func TestHTTPMcpEvent_RawMessage_NilBody(t *testing.T) {
+	// Given: an HTTPMcpEvent with nil body
+	event := HTTPMcpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: nil,
 		},
 	}
@@ -313,12 +313,12 @@ func TestHttpMcpEvent_RawMessage_NilBody(t *testing.T) {
 }
 
 // ========================================
-// HttpMcpEvent.MarshalJSON Tests
+// HTTPMcpEvent.MarshalJSON Tests
 // ========================================
 
-func TestHttpMcpEvent_MarshalJSON_Complete(t *testing.T) {
-	// Given: a complete HttpMcpEvent
-	event := HttpMcpEvent{
+func TestHTTPMcpEvent_MarshalJSON_Complete(t *testing.T) {
+	// Given: a complete HTTPMcpEvent
+	event := HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			Timestamp:   time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
 			Transport:   "http",
@@ -330,7 +330,7 @@ func TestHttpMcpEvent_MarshalJSON_Complete(t *testing.T) {
 			Success:     true,
 			Metadata:    map[string]string{"key": "value"},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: []byte("test body"),
 		},
 		Gateway:       "test-gateway",
@@ -424,12 +424,12 @@ func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
 }
 
 // ========================================
-// HttpMcpEvent.DeepClone Tests
+// HTTPMcpEvent.DeepClone Tests
 // ========================================
 
-func TestHttpMcpEvent_DeepClone_BasicClone(t *testing.T) {
-	// Given: an HttpMcpEvent with various fields
-	original := &HttpMcpEvent{
+func TestHTTPMcpEvent_DeepClone_BasicClone(t *testing.T) {
+	// Given: an HTTPMcpEvent with various fields
+	original := &HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			Timestamp:        time.Now(),
 			Transport:        "http",
@@ -441,7 +441,7 @@ func TestHttpMcpEvent_DeepClone_BasicClone(t *testing.T) {
 			ProcessingErrors: map[string]error{"err1": fmt.Errorf("error1")},
 			Metadata:         map[string]string{"key1": "value1"},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			ReqID:       "req-1",
 			Method:      "POST",
 			URL:         "https://example.com",
@@ -463,19 +463,19 @@ func TestHttpMcpEvent_DeepClone_BasicClone(t *testing.T) {
 	// Then: cloned should have same values
 	assert.Equal(t, original.RequestID, cloned.RequestID)
 	assert.Equal(t, original.Gateway, cloned.Gateway)
-	assert.Equal(t, original.HttpEvent.Method, cloned.HttpEvent.Method)
-	assert.Equal(t, string(original.HttpEvent.Body), string(cloned.HttpEvent.Body))
+	assert.Equal(t, original.HTTPEvent.Method, cloned.HTTPEvent.Method)
+	assert.Equal(t, string(original.HTTPEvent.Body), string(cloned.HTTPEvent.Body))
 	assert.Equal(t, original.Metadata["key1"], cloned.Metadata["key1"])
 }
 
-func TestHttpMcpEvent_DeepClone_ModifyClonedDoesNotAffectOriginal(t *testing.T) {
-	// Given: an HttpMcpEvent
-	original := &HttpMcpEvent{
+func TestHTTPMcpEvent_DeepClone_ModifyClonedDoesNotAffectOriginal(t *testing.T) {
+	// Given: an HTTPMcpEvent
+	original := &HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			ProcessingErrors: map[string]error{},
 			Metadata:         map[string]string{"key": "original"},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			ReqHeaders:  http.Header{"X-Test": []string{"original"}},
 			RespHeaders: http.Header{"X-Response": []string{"original"}},
 			Body:        []byte("original body"),
@@ -484,48 +484,48 @@ func TestHttpMcpEvent_DeepClone_ModifyClonedDoesNotAffectOriginal(t *testing.T) 
 
 	// When: cloning and modifying the clone
 	cloned := original.DeepClone()
-	cloned.HttpEvent.ReqHeaders.Set("X-Test", "modified")
-	cloned.HttpEvent.RespHeaders.Set("X-Response", "modified")
-	cloned.HttpEvent.Body[0] = 'M' // Modify first byte
+	cloned.HTTPEvent.ReqHeaders.Set("X-Test", "modified")
+	cloned.HTTPEvent.RespHeaders.Set("X-Response", "modified")
+	cloned.HTTPEvent.Body[0] = 'M' // Modify first byte
 	cloned.Metadata["key"] = "modified"
 	cloned.ProcessingErrors["new_error"] = fmt.Errorf("new")
 
 	// Then: original should remain unchanged
-	assert.Equal(t, "original", original.HttpEvent.ReqHeaders.Get("X-Test"))
-	assert.Equal(t, "original", original.HttpEvent.RespHeaders.Get("X-Response"))
-	assert.Equal(t, "original body", string(original.HttpEvent.Body)) // Compare as string
+	assert.Equal(t, "original", original.HTTPEvent.ReqHeaders.Get("X-Test"))
+	assert.Equal(t, "original", original.HTTPEvent.RespHeaders.Get("X-Response"))
+	assert.Equal(t, "original body", string(original.HTTPEvent.Body)) // Compare as string
 	assert.Equal(t, "original", original.Metadata["key"])
 	assert.Equal(t, 0, len(original.ProcessingErrors))
 }
 
-func TestHttpMcpEvent_DeepClone_NilHttpEvent(t *testing.T) {
-	// Given: an HttpMcpEvent with nil HttpEvent
-	original := &HttpMcpEvent{
+func TestHTTPMcpEvent_DeepClone_NilHTTPEvent(t *testing.T) {
+	// Given: an HTTPMcpEvent with nil HTTPEvent
+	original := &HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			RequestID:        "req-nil",
 			ProcessingErrors: map[string]error{},
 			Metadata:         map[string]string{},
 		},
-		HttpEvent: nil,
+		HTTPEvent: nil,
 		Gateway:   "gateway-nil",
 	}
 
 	// When: cloning
 	cloned := original.DeepClone()
 
-	// Then: cloned should also have nil HttpEvent
-	assert.Assert(t, cloned.HttpEvent == nil)
+	// Then: cloned should also have nil HTTPEvent
+	assert.Assert(t, cloned.HTTPEvent == nil)
 	assert.Equal(t, "gateway-nil", cloned.Gateway)
 }
 
-func TestHttpMcpEvent_DeepClone_EmptyMaps(t *testing.T) {
-	// Given: an HttpMcpEvent with empty maps
-	original := &HttpMcpEvent{
+func TestHTTPMcpEvent_DeepClone_EmptyMaps(t *testing.T) {
+	// Given: an HTTPMcpEvent with empty maps
+	original := &HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			ProcessingErrors: map[string]error{},
 			Metadata:         map[string]string{},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: []byte("test"),
 		},
 	}
@@ -539,14 +539,14 @@ func TestHttpMcpEvent_DeepClone_EmptyMaps(t *testing.T) {
 	assert.Equal(t, 1, len(cloned.Metadata))
 }
 
-func TestHttpMcpEvent_DeepClone_NilHeaders(t *testing.T) {
-	// Given: an HttpMcpEvent with nil headers
-	original := &HttpMcpEvent{
+func TestHTTPMcpEvent_DeepClone_NilHeaders(t *testing.T) {
+	// Given: an HTTPMcpEvent with nil headers
+	original := &HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			ProcessingErrors: map[string]error{},
 			Metadata:         map[string]string{},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			ReqHeaders:  nil,
 			RespHeaders: nil,
 			Body:        []byte("test"),
@@ -557,23 +557,23 @@ func TestHttpMcpEvent_DeepClone_NilHeaders(t *testing.T) {
 	cloned := original.DeepClone()
 
 	// Then: should handle nil headers gracefully (Clone() on nil returns nil)
-	assert.Assert(t, cloned.HttpEvent.ReqHeaders == nil)
-	assert.Assert(t, cloned.HttpEvent.RespHeaders == nil)
+	assert.Assert(t, cloned.HTTPEvent.ReqHeaders == nil)
+	assert.Assert(t, cloned.HTTPEvent.RespHeaders == nil)
 }
 
-func TestHttpMcpEvent_DeepClone_LargeBody(t *testing.T) {
-	// Given: an HttpMcpEvent with large body
+func TestHTTPMcpEvent_DeepClone_LargeBody(t *testing.T) {
+	// Given: an HTTPMcpEvent with large body
 	largeBody := make([]byte, 10000)
 	for i := range largeBody {
 		largeBody[i] = byte(i % 256)
 	}
 
-	original := &HttpMcpEvent{
+	original := &HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			ProcessingErrors: map[string]error{},
 			Metadata:         map[string]string{},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: largeBody,
 		},
 	}
@@ -582,18 +582,18 @@ func TestHttpMcpEvent_DeepClone_LargeBody(t *testing.T) {
 	cloned := original.DeepClone()
 
 	// Then: body should be copied, not shared
-	assert.Equal(t, len(original.HttpEvent.Body), len(cloned.HttpEvent.Body))
-	cloned.HttpEvent.Body[0] = 0xFF
-	assert.Assert(t, original.HttpEvent.Body[0] != 0xFF)
+	assert.Equal(t, len(original.HTTPEvent.Body), len(cloned.HTTPEvent.Body))
+	cloned.HTTPEvent.Body[0] = 0xFF
+	assert.Assert(t, original.HTTPEvent.Body[0] != 0xFF)
 }
 
 // ========================================
 // Integration Tests
 // ========================================
 
-func TestHttpMcpEvent_RoundTripJSON(t *testing.T) {
-	// Given: a complete HttpMcpEvent
-	original := HttpMcpEvent{
+func TestHTTPMcpEvent_RoundTripJSON(t *testing.T) {
+	// Given: a complete HTTPMcpEvent
+	original := HTTPMcpEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			Timestamp:   time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC),
 			Transport:   "http",
@@ -603,7 +603,7 @@ func TestHttpMcpEvent_RoundTripJSON(t *testing.T) {
 			Success:     true,
 			Metadata:    map[string]string{"test": "value"},
 		},
-		HttpEvent: &HttpEvent{
+		HTTPEvent: &HTTPEvent{
 			Body: []byte("round trip test"),
 		},
 		Gateway:    "test-gateway",
@@ -659,7 +659,7 @@ func TestStdioMcpEvent_RoundTripJSON(t *testing.T) {
 // Edge Cases
 // ========================================
 
-func TestNewHttpEventFromRequest_ComplexURL(t *testing.T) {
+func TestNewHTTPEventFromRequest_ComplexURL(t *testing.T) {
 	// Given: a request with complex URL including fragments
 	complexURL, _ := url.Parse("https://example.com:8080/path/to/resource?param1=value1&param2=value2#fragment")
 	req := &http.Request{
@@ -668,8 +668,8 @@ func TestNewHttpEventFromRequest_ComplexURL(t *testing.T) {
 		Header: http.Header{},
 	}
 
-	// When: creating HttpEvent
-	event := NewHttpEventFromRequest(req, "test-id")
+	// When: creating HTTPEvent
+	event := NewHTTPEventFromRequest(req, "test-id")
 
 	// Then: should preserve full URL
 	assert.Equal(t, complexURL.String(), event.URL)
@@ -692,7 +692,7 @@ func TestMcpEventInterface_SetRawMessage_Works(t *testing.T) {
 	// Given: some MCP Events
 	mcpEvents := []McpEventInterface{
 		&StdioMcpEvent{},
-		&HttpMcpEvent{},
+		&HTTPMcpEvent{},
 	}
 	newBody := "test 123"
 
@@ -711,7 +711,7 @@ func TestMcpEventInterface_SetModified_Works(t *testing.T) {
 	// Given: some MCP Events
 	mcpEvents := []McpEventInterface{
 		&StdioMcpEvent{},
-		&HttpMcpEvent{},
+		&HTTPMcpEvent{},
 	}
 
 	for _, event := range mcpEvents {
@@ -727,7 +727,7 @@ func TestMcpEventInterface_HasContent_Works(t *testing.T) {
 	// Given: some MCP Events
 	mcpEvents := []McpEventInterface{
 		&StdioMcpEvent{},
-		&HttpMcpEvent{},
+		&HTTPMcpEvent{},
 	}
 
 	for _, event := range mcpEvents {
@@ -754,7 +754,7 @@ func TestMcpEventInterface_IsRequestIsResponse_Works(t *testing.T) {
 				MessageType: MessageTypeRequest,
 			},
 		},
-		&HttpMcpEvent{
+		&HTTPMcpEvent{
 			BaseMcpEvent: BaseMcpEvent{
 				MessageType: MessageTypeRequest,
 			},
@@ -764,7 +764,7 @@ func TestMcpEventInterface_IsRequestIsResponse_Works(t *testing.T) {
 				MessageType: MessageTypeResponse,
 			},
 		},
-		&HttpMcpEvent{
+		&HTTPMcpEvent{
 			BaseMcpEvent: BaseMcpEvent{
 				MessageType: MessageTypeResponse,
 			},
@@ -774,7 +774,7 @@ func TestMcpEventInterface_IsRequestIsResponse_Works(t *testing.T) {
 				MessageType: MessageTypeSystem,
 			},
 		},
-		&HttpMcpEvent{
+		&HTTPMcpEvent{
 			BaseMcpEvent: BaseMcpEvent{
 				MessageType: MessageTypeSystem,
 			},
@@ -784,7 +784,7 @@ func TestMcpEventInterface_IsRequestIsResponse_Works(t *testing.T) {
 				MessageType: MessageTypeUnknown,
 			},
 		},
-		&HttpMcpEvent{
+		&HTTPMcpEvent{
 			BaseMcpEvent: BaseMcpEvent{
 				MessageType: MessageTypeUnknown,
 			},
@@ -811,7 +811,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 		&StdioMcpEvent{
 			BaseMcpEvent: baseMcpEvent,
 		},
-		&HttpMcpEvent{
+		&HTTPMcpEvent{
 			BaseMcpEvent: baseMcpEvent,
 		},
 	}
@@ -829,7 +829,7 @@ func TestSetStatus_Works(t *testing.T) {
 	// Given: some MCP Events
 	mcpEvents := []McpEventInterface{
 		&StdioMcpEvent{},
-		&HttpMcpEvent{},
+		&HTTPMcpEvent{},
 	}
 
 	for _, event := range mcpEvents {

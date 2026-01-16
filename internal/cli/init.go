@@ -1,3 +1,5 @@
+// Package cli provides all CLI commands centian offers,
+// including init, stdio, server, logs, config and all of their sub-commands
 package cli
 
 import (
@@ -33,7 +35,7 @@ var InitCommand = &cli.Command{
 
 // initCentian initializes the centian configuration and provides setup guidance.
 // This is the main entry point for new users to get started with centian.
-func initCentian(ctx context.Context, cmd *cli.Command) error {
+func initCentian(_ context.Context, cmd *cli.Command) error {
 	configPath, err := config.GetConfigPath()
 	if err != nil {
 		return fmt.Errorf("failed to determine config path: %w", err)
@@ -88,7 +90,10 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 }
 
 // runAutoDiscovery performs MCP server auto-discovery and handles user interaction
-func runAutoDiscovery(cfg *config.GlobalConfig) int {
+func runAutoDiscovery(_ *config.GlobalConfig) int {
+	// TODO: instead of adding the found servers to the file it
+	// should add it to the cfg object, then use existing methods to store that config
+
 	common.StreamPrint(10, "🔍 Scanning for existing MCP configurations...\n")
 	time.Sleep(1 * time.Second)
 
@@ -109,10 +114,10 @@ func runAutoDiscovery(cfg *config.GlobalConfig) int {
 	}
 
 	// Import selected servers
-	imported := discovery.ImportServers(selectedServers, cfg)
+	imported := discovery.ImportServers(selectedServers)
 
 	// Show import summary
-	discovery.ShowImportSummary(imported, len(selectedServers))
+	discovery.ShowImportSummary(imported)
 
 	return imported
 }

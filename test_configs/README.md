@@ -4,8 +4,8 @@ This directory contains configuration files used for testing and examples.
 
 ## Integration Test Configs
 
-### `integration_test_config.json`
-Configuration used by automated integration tests in `internal/cli/server_integration_test.go`.
+### `integrationtest_config.json`
+Configuration used by automated integration tests in `internal/cli/server_integrationtest.go`.
 - Uses mock MCP servers on localhost ports 8888-8889
 - Demonstrates multiple gateways and servers
 - Shows metadata usage

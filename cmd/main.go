@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package main contains the entry point for centian - it uses internal packages to provide the following CLI commands:
+// - centian init
+// - centian stdio
+// - centian server
+// - centian logs
+// - centian config
 package main
 
 import (

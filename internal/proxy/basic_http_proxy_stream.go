@@ -1,3 +1,7 @@
+// Package proxy provides functionality to proxy MCP communication between Client and Server.
+// The main functionality splits between stdio and http proxies, and includes a central
+// processing loop which logs and calls any configured processors for all MCP requests/responses
+// which are proxied.
 package proxy
 
 import (
@@ -45,9 +49,9 @@ const MaxBodySize = 10 * 1024 * 1024 // 10MB
 
 type requestIDField string
 
-const reqIdField requestIDField = "requestID"
+const reqIDField requestIDField = "requestID"
 
-func getNewUuidV7() string {
+func getNewUUIDV7() string {
 	result := ""
 	if id, err := uuid.NewV7(); err == nil {
 		result = id.String()
@@ -155,12 +159,12 @@ func (e *CentianProxyEndpoint) logSystemMessage(message string) {
 		Metadata:         nil,
 		ProcessingErrors: make(map[string]error),
 	}
-	httpEvent := &common.HttpEvent{
+	httpEvent := &common.HTTPEvent{
 		Body: []byte(message),
 	}
-	mcpEvent := &common.HttpMcpEvent{
+	mcpEvent := &common.HTTPMcpEvent{
 		BaseMcpEvent:  baseEvent,
-		HttpEvent:     httpEvent,
+		HTTPEvent:     httpEvent,
 		Gateway:       e.gateway.name,
 		ServerName:    e.mcpServerName,
 		Endpoint:      e.endpoint,
@@ -269,7 +273,7 @@ func (c *CentianServer) StartCentianServer() error {
 			)
 
 			// 4. attach proxy endpoint with logging
-			if err := c.RegisterProxy(&proxyEndpoint, &gateway); err != nil {
+			if err := c.RegisterProxy(&proxyEndpoint); err != nil {
 				log.Printf("Failed to register endpoint %s: %v", endpoint, err)
 				// Continue with other servers
 			} else {
@@ -309,8 +313,8 @@ func (c *CentianServer) StartCentianServer() error {
 }
 
 // GetRequestID returns a new requestID using UUIDv7
-func (c *CentianServer) GetRequestID(r *http.Request) string {
-	return getNewUuidV7()
+func (c *CentianServer) GetRequestID(_ *http.Request) string {
+	return getNewUUIDV7()
 }
 
 // GetResponseID returns a responseID for the given http.Response
@@ -320,10 +324,10 @@ func (c *CentianServer) GetRequestID(r *http.Request) string {
 func (c *CentianServer) GetResponseID(resp *http.Response) string {
 	responseID := ""
 	if resp != nil && resp.Request != nil {
-		responseID, _ = resp.Request.Context().Value(reqIdField).(string)
+		responseID, _ = resp.Request.Context().Value(reqIDField).(string)
 	}
 	if responseID == "" {
-		responseID = getNewUuidV7()
+		responseID = getNewUUIDV7()
 	}
 	return responseID
 }
@@ -331,7 +335,7 @@ func (c *CentianServer) GetResponseID(resp *http.Response) string {
 // RegisterProxy creates the actual httputil.ReverseProxy and attaches it
 // to both the provided endpoint and the servers mux to start proxying via
 // this endpoint
-func (c *CentianServer) RegisterProxy(endpoint *CentianProxyEndpoint, gateway *CentianProxyGateway) error {
+func (c *CentianServer) RegisterProxy(endpoint *CentianProxyEndpoint) error {
 	// Log endpoint registration
 	endpoint.LogProxyStart()
 
@@ -449,19 +453,19 @@ func (e *CentianProxyEndpoint) createProxy() *httputil.ReverseProxy {
 	return proxy
 }
 
-// mcpEventFromRequest uses http.Request to create a HttpMcpEvent
-func (e *CentianProxyEndpoint) mcpEventFromRequest(r *http.Request) *common.HttpMcpEvent {
+// mcpEventFromRequest uses http.Request to create a HTTPMcpEvent
+func (e *CentianProxyEndpoint) mcpEventFromRequest(r *http.Request) *common.HTTPMcpEvent {
 	reqID := e.server.GetRequestID(r)
-	mcpEvent := e.getHttpMcpEvent(
+	mcpEvent := e.getHTTPMcpEvent(
 		reqID,
 		true,
 		common.DirectionClientToServer,
 		common.MessageTypeRequest,
-		common.NewHttpEventFromRequest(r, reqID),
+		common.NewHTTPEventFromRequest(r, reqID),
 	)
 	var err error
 	if r.Body != nil {
-		if mcpEvent.HttpEvent.Body, err = readBody(r.Body, r.Header); err != nil {
+		if mcpEvent.HTTPEvent.Body, err = readBody(r.Body, r.Header); err != nil {
 			common.LogError(err.Error())
 			mcpEvent.ProcessingErrors["read_body"] = err
 		}
@@ -469,14 +473,14 @@ func (e *CentianProxyEndpoint) mcpEventFromRequest(r *http.Request) *common.Http
 	return mcpEvent
 }
 
-// getHttpMcpEvent creates a new common.HttpMcpEvent from the given parameters
-func (e *CentianProxyEndpoint) getHttpMcpEvent(
+// getHTTPMcpEvent creates a new common.HTTPMcpEvent from the given parameters
+func (e *CentianProxyEndpoint) getHTTPMcpEvent(
 	requestID string,
 	success bool,
 	direction common.McpEventDirection,
 	messageType common.McpMessageType,
-	httpEvent *common.HttpEvent,
-) *common.HttpMcpEvent {
+	httpEvent *common.HTTPEvent,
+) *common.HTTPMcpEvent {
 	baseMcpEvent := common.BaseMcpEvent{
 		Timestamp:        time.Now(),
 		Transport:        "http",
@@ -490,9 +494,9 @@ func (e *CentianProxyEndpoint) getHttpMcpEvent(
 		ProcessingErrors: make(map[string]error),
 		Metadata:         make(map[string]string),
 	}
-	return &common.HttpMcpEvent{
+	return &common.HTTPMcpEvent{
 		BaseMcpEvent:  baseMcpEvent,
-		HttpEvent:     httpEvent,
+		HTTPEvent:     httpEvent,
 		Gateway:       e.gateway.name,
 		ServerName:    e.mcpServerName,
 		Endpoint:      e.endpoint,
@@ -501,14 +505,14 @@ func (e *CentianProxyEndpoint) getHttpMcpEvent(
 	}
 }
 
-func (e *CentianProxyEndpoint) mcpEventFromResponse(r *http.Response) *common.HttpMcpEvent {
+func (e *CentianProxyEndpoint) mcpEventFromResponse(r *http.Response) *common.HTTPMcpEvent {
 	reqID := e.server.GetResponseID(r)
-	mcpEvent := e.getHttpMcpEvent(
+	mcpEvent := e.getHTTPMcpEvent(
 		reqID,
 		r.StatusCode < 400, // success
 		common.DirectionServerToClient,
 		common.MessageTypeResponse,
-		common.NewHttpEventFromResponse(r, reqID),
+		common.NewHTTPEventFromResponse(r, reqID),
 	)
 	return mcpEvent
 }
@@ -524,16 +528,16 @@ func (e *CentianProxyEndpoint) GetTarget() (*url.URL, error) {
 }
 
 // RequestHandler is called when the MCP client sends an event, before it is forwarded to the MCP server.
-func (e *CentianProxyEndpoint) RequestHandler(r *http.Request) *common.HttpMcpEvent {
+func (e *CentianProxyEndpoint) RequestHandler(r *http.Request) *common.HTTPMcpEvent {
 	// Read and log request
 	mcpRequest := e.mcpEventFromRequest(r)
-	// mcpRequest has r.Body set if it is non-Nil, as mcpRequest.HttpEvent.Body
+	// mcpRequest has r.Body set if it is non-Nil, as mcpRequest.HTTPEvent.Body
 
 	// Debug output to stderr
 	fmt.Fprintf(
 		os.Stderr,
 		"[CLIENT->SERVER] - %s - [%s] %s\n",
-		mcpRequest.HttpEvent.Method,
+		mcpRequest.HTTPEvent.Method,
 		e.endpoint,
 		mcpRequest.RawMessage(),
 	)
@@ -552,7 +556,7 @@ func (e *CentianProxyEndpoint) RequestHandler(r *http.Request) *common.HttpMcpEv
 	}
 
 	// Store requestID in context for response logging
-	ctx := context.WithValue(r.Context(), reqIdField, mcpRequest.RequestID)
+	ctx := context.WithValue(r.Context(), reqIDField, mcpRequest.RequestID)
 	*r = *r.WithContext(ctx)
 	return mcpRequest
 }
@@ -564,7 +568,7 @@ func (e *CentianProxyEndpoint) ModifyResponseHandler(resp *http.Response) error 
 	var err error
 	if resp.Body != nil {
 		// Read uncompressed body normally
-		if mcpResponse.HttpEvent.Body, err = readBody(resp.Body, resp.Header); err != nil {
+		if mcpResponse.HTTPEvent.Body, err = readBody(resp.Body, resp.Header); err != nil {
 			common.LogError(err.Error())
 			mcpResponse.ProcessingErrors["read_body"] = err
 		}
