@@ -6,11 +6,11 @@ import (
 	urfavecli "github.com/urfave/cli/v3"
 )
 
-// TestStdioCommandStructure tests the StdioCommand CLI structure
+// TestStdioCommandStructure tests the StdioCommand CLI structure.
 func TestStdioCommandStructure(t *testing.T) {
-	// Given: the StdioCommand
+	// Given: the StdioCommand.
 
-	// Then: verify command is properly configured
+	// Then: verify command is properly configured.
 	if StdioCommand == nil {
 		t.Fatal("StdioCommand is nil")
 	}
@@ -31,7 +31,7 @@ func TestStdioCommandStructure(t *testing.T) {
 		t.Error("StdioCommand should have action function")
 	}
 
-	// Then: verify flags exist
+	// Then: verify flags exist.
 	expectedFlags := map[string]string{
 		"cmd":         "string",
 		"config-path": "string",
@@ -48,17 +48,17 @@ func TestStdioCommandStructure(t *testing.T) {
 		}
 	}
 
-	// Verify all expected flags were found
+	// Verify all expected flags were found.
 	for flagName := range expectedFlags {
 		t.Errorf("Expected flag '%s' not found in StdioCommand", flagName)
 	}
 }
 
-// TestStdioCommandFlagDefaults tests default values for stdio command flags
+// TestStdioCommandFlagDefaults tests default values for stdio command flags.
 func TestStdioCommandFlagDefaults(t *testing.T) {
-	// Given: the StdioCommand flags
+	// Given: the StdioCommand flags.
 
-	// Then: verify cmd flag has correct default
+	// Then: verify cmd flag has correct default.
 	var cmdFlagFound bool
 	var cmdFlagDefault string
 
@@ -79,11 +79,11 @@ func TestStdioCommandFlagDefaults(t *testing.T) {
 	}
 }
 
-// TestStdioCommandUsageExamples verifies the command has helpful examples
+// TestStdioCommandUsageExamples verifies the command has helpful examples.
 func TestStdioCommandUsageExamples(t *testing.T) {
-	// Given: the StdioCommand
+	// Given: the StdioCommand.
 
-	// Then: verify description contains examples
+	// Then: verify description contains examples.
 	description := StdioCommand.Description
 
 	expectedExamples := []string{
@@ -99,23 +99,23 @@ func TestStdioCommandUsageExamples(t *testing.T) {
 		}
 	}
 
-	// Then: verify description mentions the '--' separator
+	// Then: verify description mentions the '--' separator.
 	if !contains(description, "--") {
 		t.Error("Expected description to mention '--' separator for arguments")
 	}
 }
 
-// TestStdioCommandShortOptionHandling verifies short option handling is enabled
+// TestStdioCommandShortOptionHandling verifies short option handling is enabled.
 func TestStdioCommandShortOptionHandling(t *testing.T) {
-	// Given: the StdioCommand
+	// Given: the StdioCommand.
 
-	// Then: verify UseShortOptionHandling is enabled
+	// Then: verify UseShortOptionHandling is enabled.
 	if !StdioCommand.UseShortOptionHandling {
 		t.Error("StdioCommand should have UseShortOptionHandling enabled")
 	}
 }
 
-// Helper function to check if a string contains a substring
+// Helper function to check if a string contains a substring.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || substr == "" ||
 		(s != "" && substr != "" && findSubstring(s, substr)))

@@ -4,14 +4,14 @@ import (
 	"testing"
 )
 
-// TestIsURLCompliant tests URL-safe name validation
+// TestIsURLCompliant tests URL-safe name validation.
 func TestIsURLCompliant(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
 		expected bool
 	}{
-		// Valid names
+		// Valid names.
 		{"simple alphanumeric", "server123", true},
 		{"with dash", "my-server", true},
 		{"with underscore", "my_server", true},
@@ -22,7 +22,7 @@ func TestIsURLCompliant(t *testing.T) {
 		{"mixed case", "MyServer", true},
 		{"long name", "very-long-server-name-with-many-parts_123", true},
 
-		// Invalid names
+		// Invalid names.
 		{"empty string", "", false},
 		{"starts with dash", "-server", false},
 		{"starts with underscore", "_server", false},
@@ -37,12 +37,12 @@ func TestIsURLCompliant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a name string
+			// Given: a name string.
 
-			// When: checking if it's URL compliant
+			// When: checking if it's URL compliant.
 			result := isURLCompliant(tt.input)
 
-			// Then: verify the result matches expected
+			// Then: verify the result matches expected.
 			if result != tt.expected {
 				t.Errorf("isURLCompliant('%s') = %v, expected %v", tt.input, result, tt.expected)
 			}
@@ -50,14 +50,14 @@ func TestIsURLCompliant(t *testing.T) {
 	}
 }
 
-// TestIsValidHTTPURL tests HTTP/HTTPS URL validation
+// TestIsValidHTTPURL tests HTTP/HTTPS URL validation.
 func TestIsValidHTTPURL(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
 		expected bool
 	}{
-		// Valid URLs
+		// Valid URLs.
 		{"simple http", "http://example.com", true},
 		{"simple https", "https://example.com", true},
 		{"with port", "http://example.com:8080", true},
@@ -69,7 +69,7 @@ func TestIsValidHTTPURL(t *testing.T) {
 		{"IP address", "http://192.168.1.1", true},
 		{"complex URL", "https://api.example.com:8443/v1/endpoint?param=value#section", true},
 
-		// Invalid URLs
+		// Invalid URLs.
 		{"empty string", "", false},
 		{"no scheme", "example.com", false},
 		{"ftp scheme", "ftp://example.com", false},
@@ -85,12 +85,12 @@ func TestIsValidHTTPURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a URL string
+			// Given: a URL string.
 
-			// When: checking if it's a valid HTTP/HTTPS URL
+			// When: checking if it's a valid HTTP/HTTPS URL.
 			result := isValidHTTPURL(tt.input)
 
-			// Then: verify the result matches expected
+			// Then: verify the result matches expected.
 			if result != tt.expected {
 				t.Errorf("isValidHTTPURL('%s') = %v, expected %v", tt.input, result, tt.expected)
 			}
@@ -98,7 +98,7 @@ func TestIsValidHTTPURL(t *testing.T) {
 	}
 }
 
-// TestValidateGateway tests gateway configuration validation
+// TestValidateGateway tests gateway configuration validation.
 func TestValidateGateway(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -247,12 +247,12 @@ func TestValidateGateway(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a gateway configuration
+			// Given: a gateway configuration.
 
-			// When: validating the gateway
+			// When: validating the gateway.
 			err := validateGateway(tt.gName, tt.gateway)
 
-			// Then: verify error expectation
+			// Then: verify error expectation.
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
@@ -268,7 +268,7 @@ func TestValidateGateway(t *testing.T) {
 	}
 }
 
-// TestValidateServer tests server configuration validation
+// TestValidateServer tests server configuration validation.
 func TestValidateServer(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -419,12 +419,12 @@ func TestValidateServer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a server configuration
+			// Given: a server configuration.
 
-			// When: validating the server
+			// When: validating the server.
 			err := validateServer(tt.sName, tt.server)
 
-			// Then: verify error expectation
+			// Then: verify error expectation.
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
@@ -440,7 +440,7 @@ func TestValidateServer(t *testing.T) {
 	}
 }
 
-// TestValidatedGateways tests validation of multiple gateways
+// TestValidatedGateways tests validation of multiple gateways.
 func TestValidatedGateways(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -530,12 +530,12 @@ func TestValidatedGateways(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a map of gateway configurations
+			// Given: a map of gateway configurations.
 
-			// When: validating all gateways
+			// When: validating all gateways.
 			err := validatedGateways(tt.gateways)
 
-			// Then: verify error expectation
+			// Then: verify error expectation.
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
@@ -551,7 +551,7 @@ func TestValidatedGateways(t *testing.T) {
 	}
 }
 
-// TestValidateConfigIntegration tests full config validation with gateways
+// TestValidateConfigIntegration tests full config validation with gateways.
 func TestValidateConfigIntegration(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -619,12 +619,12 @@ func TestValidateConfigIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a complete config
+			// Given: a complete config.
 
-			// When: validating the entire config
+			// When: validating the entire config.
 			err := ValidateConfig(tt.config)
 
-			// Then: verify error expectation
+			// Then: verify error expectation.
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)

@@ -13,7 +13,7 @@ import (
 	urfavecli "github.com/urfave/cli/v3"
 )
 
-// TestPrintServerInfo tests the server info printing function
+// TestPrintServerInfo tests the server info printing function.
 func TestPrintServerInfo(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -141,23 +141,23 @@ func TestPrintServerInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a server configuration
-			// Capture stderr output
+			// Given: a server configuration.
+			// Capture stderr output.
 			oldStderr := os.Stderr
 			r, w, _ := os.Pipe()
 			os.Stderr = w
 
-			// When: printing server info
+			// When: printing server info.
 			err := printServerInfo(tt.config)
 
-			// Restore stderr and capture output
+			// Restore stderr and capture output.
 			w.Close()
 			os.Stderr = oldStderr
 			var buf bytes.Buffer
 			buf.ReadFrom(r)
 			output := buf.String()
 
-			// Then: verify error expectation
+			// Then: verify error expectation.
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -167,7 +167,7 @@ func TestPrintServerInfo(t *testing.T) {
 					t.Errorf("Expected no error, got: %v", err)
 				}
 
-				// Then: verify expected strings in output
+				// Then: verify expected strings in output.
 				for _, expected := range tt.expectInOutput {
 					if !strings.Contains(output, expected) {
 						t.Errorf("Expected output to contain '%s', but it didn't.\nOutput:\n%s", expected, output)
@@ -178,7 +178,7 @@ func TestPrintServerInfo(t *testing.T) {
 	}
 }
 
-// TestHandleServerStartCommandValidation tests config validation logic
+// TestHandleServerStartCommandValidation tests config validation logic.
 func TestHandleServerStartCommandValidation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -204,13 +204,13 @@ func TestHandleServerStartCommandValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a test config file
+			// Given: a test config file.
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "test_config.json")
 			data, _ := json.MarshalIndent(tt.config, "", "  ")
 			os.WriteFile(configPath, data, 0o644)
 
-			// Given: a CLI command with config-path flag
+			// Given: a CLI command with config-path flag.
 			cmd := &urfavecli.Command{
 				Flags: []urfavecli.Flag{
 					&urfavecli.StringFlag{Name: "config-path"},
@@ -218,10 +218,10 @@ func TestHandleServerStartCommandValidation(t *testing.T) {
 			}
 			cmd.Set("config-path", configPath)
 
-			// When: running handleServerStartCommand
+			// When: running handleServerStartCommand.
 			err := handleServerStartCommand(context.Background(), cmd)
 
-			// Then: should return validation error
+			// Then: should return validation error.
 			if err == nil {
 				t.Fatalf("Expected error containing '%s', got nil", tt.expectedErr)
 			}
@@ -232,7 +232,7 @@ func TestHandleServerStartCommandValidation(t *testing.T) {
 	}
 }
 
-// TestHandleServerStartCommandConfigLoading tests config file loading
+// TestHandleServerStartCommandConfigLoading tests config file loading.
 func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -259,7 +259,7 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 			name: "config with invalid structure",
 			setupConfig: func(_ *testing.T, dir string) string {
 				path := filepath.Join(dir, "invalid_structure.json")
-				// Missing required version field
+				// Missing required version field.
 				invalidConfig := map[string]interface{}{
 					"proxy": map[string]interface{}{"port": "8080"},
 				}
@@ -273,11 +273,11 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a test config setup
+			// Given: a test config setup.
 			tempDir := t.TempDir()
 			configPath := tt.setupConfig(t, tempDir)
 
-			// Given: a CLI command with config-path
+			// Given: a CLI command with config-path.
 			cmd := &urfavecli.Command{
 				Flags: []urfavecli.Flag{
 					&urfavecli.StringFlag{Name: "config-path"},
@@ -285,10 +285,10 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 			}
 			cmd.Set("config-path", configPath)
 
-			// When: running handleServerStartCommand
+			// When: running handleServerStartCommand.
 			err := handleServerStartCommand(context.Background(), cmd)
 
-			// Then: should return config loading error
+			// Then: should return config loading error.
 			if err == nil {
 				t.Fatalf("Expected error containing '%s', got nil", tt.expectedErr)
 			}
@@ -299,16 +299,16 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 	}
 }
 
-// TestHandleServerStartCommandWithDefaultPath tests using default config path
+// TestHandleServerStartCommandWithDefaultPath tests using default config path.
 func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
-	// Given: a test environment with default config
+	// Given: a test environment with default config.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "testhome")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Create valid config at default location
+	// Create valid config at default location.
 	err := config.EnsureConfigDir()
 	if err != nil {
 		t.Fatalf("Failed to create config dir: %v", err)
@@ -338,8 +338,8 @@ func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 		t.Fatalf("Failed to save test config: %v", err)
 	}
 
-	// When: verifying config loads from default path
-	// Note: We can't easily test the full server startup in a unit test
+	// When: verifying config loads from default path.
+	// Note: We can't easily test the full server startup in a unit test.
 	// without complex mocking. The integration test covers the full flow.
 	// Here we just test that config loading from default path works.
 
@@ -349,17 +349,17 @@ func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 		t.Fatalf("Config loading from default path failed: %v", err)
 	}
 
-	// Then: verify config was loaded correctly
+	// Then: verify config was loaded correctly.
 	if loadedConfig.Name != "Default Path Test" {
 		t.Errorf("Expected config name 'Default Path Test', got '%s'", loadedConfig.Name)
 	}
 }
 
-// TestServerCommandStructure tests the ServerCommand CLI structure
+// TestServerCommandStructure tests the ServerCommand CLI structure.
 func TestServerCommandStructure(t *testing.T) {
-	// Given: the ServerCommand
+	// Given: the ServerCommand.
 
-	// Then: verify command is properly configured
+	// Then: verify command is properly configured.
 	if ServerCommand == nil {
 		t.Fatal("ServerCommand is nil")
 	}
@@ -372,12 +372,12 @@ func TestServerCommandStructure(t *testing.T) {
 		t.Error("ServerCommand should have usage text")
 	}
 
-	// Then: verify subcommands exist
+	// Then: verify subcommands exist.
 	if len(ServerCommand.Commands) == 0 {
 		t.Error("ServerCommand should have subcommands")
 	}
 
-	// Verify ServerStartCommand exists
+	// Verify ServerStartCommand exists.
 	var hasStartCommand bool
 	for _, subcmd := range ServerCommand.Commands {
 		if subcmd.Name != "start" {
@@ -385,7 +385,7 @@ func TestServerCommandStructure(t *testing.T) {
 		}
 		hasStartCommand = true
 
-		// Verify start command structure
+		// Verify start command structure.
 		if subcmd.Usage == "" {
 			t.Error("ServerStartCommand should have usage text")
 		}
@@ -396,7 +396,7 @@ func TestServerCommandStructure(t *testing.T) {
 			t.Error("ServerStartCommand should have action function")
 		}
 
-		// Verify flags
+		// Verify flags.
 		var hasConfigPathFlag bool
 		for _, flag := range subcmd.Flags {
 			if sf, ok := flag.(*urfavecli.StringFlag); ok && sf.Name == "config-path" {
@@ -414,7 +414,7 @@ func TestServerCommandStructure(t *testing.T) {
 	}
 }
 
-// TestPrintServerInfoEdgeCases tests edge cases in server info printing
+// TestPrintServerInfoEdgeCases tests edge cases in server info printing.
 func TestPrintServerInfoEdgeCases(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -472,10 +472,10 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a config with edge cases
+			// Given: a config with edge cases.
 
 			if tt.expectPanic {
-				// When: expecting panic
+				// When: expecting panic.
 				defer func() {
 					if r := recover(); r == nil {
 						t.Error("Expected panic but didn't get one")
@@ -483,21 +483,21 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 				}()
 			}
 
-			// Capture stderr
+			// Capture stderr.
 			oldStderr := os.Stderr
 			r, w, _ := os.Pipe()
 			os.Stderr = w
 
-			// When: printing server info
+			// When: printing server info.
 			_ = printServerInfo(tt.config)
 
-			// Restore stderr
+			// Restore stderr.
 			w.Close()
 			os.Stderr = oldStderr
 			var buf bytes.Buffer
 			buf.ReadFrom(r)
 
-			// Then: if we reach here without panic, test passes
+			// Then: if we reach here without panic, test passes.
 			if tt.expectPanic {
 				t.Error("Should have panicked but didn't")
 			}

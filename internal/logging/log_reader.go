@@ -1,10 +1,10 @@
-// Copyright 2025 CentianCLI Contributors
+// Copyright 2025 CentianCLI Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// You may obtain a copy of the License at.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0.
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -66,7 +66,7 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		return nil, err
 	}
 
-	// Read directory contents, returning specific error for missing dir
+	// Read directory contents, returning specific error for missing dir.
 	fileInfos, err := os.ReadDir(logDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -79,7 +79,7 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		return nil, ErrNoLogEntries
 	}
 
-	// Read and annotate entries from all files
+	// Read and annotate entries from all files.
 	var entries []AnnotatedLogEntry
 	for _, entry := range fileInfos {
 		if entry.IsDir() {
@@ -102,12 +102,12 @@ func LoadRecentLogEntries(limit int) ([]AnnotatedLogEntry, error) {
 		return nil, ErrNoLogEntries
 	}
 
-	// Sort by timestamp (newest first) for chronological accuracy across files
+	// Sort by timestamp (newest first) for chronological accuracy across files.
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Event.GetBaseEvent().Timestamp.After(entries[j].Event.GetBaseEvent().Timestamp)
 	})
 
-	// Apply limit if specified (0 = no limit)
+	// Apply limit if specified (0 = no limit).
 	if limit > 0 && len(entries) > limit {
 		return entries[:limit], nil
 	}
@@ -124,7 +124,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 		status = "fail"
 	}
 
-	// Extract transport-specific details
+	// Extract transport-specific details.
 	command := ""
 	switch e := entry.Event.(type) {
 	case *common.StdioMcpEvent:
@@ -184,16 +184,16 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 			continue
 		}
 
-		// Detect transport type by peeking at the JSON
+		// Detect transport type by peeking at the JSON.
 		var peek struct {
 			Transport string `json:"transport"`
 		}
 		if err := json.Unmarshal([]byte(line), &peek); err != nil {
-			// Skip malformed lines
+			// Skip malformed lines.
 			continue
 		}
 
-		// Unmarshal to appropriate type based on transport
+		// Unmarshal to appropriate type based on transport.
 		var event common.McpEventInterface
 		switch peek.Transport {
 		case "stdio":
@@ -209,7 +209,7 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 			}
 			event = &httpEvent
 		default:
-			// Skip unknown transport types
+			// Skip unknown transport types.
 			continue
 		}
 

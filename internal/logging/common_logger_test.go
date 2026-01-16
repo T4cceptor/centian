@@ -35,13 +35,13 @@ func getBaseMcpEvent() common.BaseMcpEvent {
 }
 
 func TestLogBaseMcpEvent(t *testing.T) {
-	// Setup: create temporary directory
+	// Setup: create temporary directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a logger and a BaseMcpEvent
+	// Given: a logger and a BaseMcpEvent.
 	logger, err := NewLogger()
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
@@ -67,15 +67,15 @@ func TestLogBaseMcpEvent(t *testing.T) {
 		Endpoint:   "/mcp/my-test-gateway/my-test-server",
 	}
 
-	// When: logging a request
+	// When: logging a request.
 	err = logger.LogMcpEvent(&httpMcpEvent)
 
-	// Then: the log should be written successfully
+	// Then: the log should be written successfully.
 	if err != nil {
 		t.Errorf("Failed to log request: %v", err)
 	}
 
-	// Read and verify log content (date-based naming)
+	// Read and verify log content (date-based naming).
 	logsDir := filepath.Join(tempDir, ".centian", "logs")
 	logFileName := fmt.Sprintf("requests_%s.jsonl", time.Now().Format("2006-01-02"))
 	logFile := filepath.Join(logsDir, logFileName)
@@ -84,14 +84,14 @@ func TestLogBaseMcpEvent(t *testing.T) {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
 
-	// Parse the log line as JSON
+	// Parse the log line as JSON.
 	var logEntry map[string]interface{}
 	err = json.Unmarshal(logContent, &logEntry)
 	if err != nil {
 		t.Fatalf("Failed to parse log entry: %v", err)
 	}
 
-	// Verify log entry structure
+	// Verify log entry structure.
 	if logEntry["request_id"] != requestID {
 		t.Errorf("Expected request_id '%s', got '%v'", requestID, logEntry["request_id"])
 	}
@@ -105,7 +105,7 @@ func TestLogBaseMcpEvent(t *testing.T) {
 		t.Errorf("Expected direction %v', got '%v'", exceptedDirecton, logEntry["direction"])
 	}
 
-	// Parse the message field as JSON
+	// Parse the message field as JSON.
 	messageStr, ok := logEntry["raw_message"].(string)
 	if !ok {
 		t.Fatal("Message field should be a string")
@@ -117,20 +117,20 @@ func TestLogBaseMcpEvent(t *testing.T) {
 		t.Fatalf("Failed to parse message content: %v", err)
 	}
 
-	// Check the actual message content
+	// Check the actual message content.
 	if messageData["method"] != "ping" {
 		t.Errorf("Expected method 'ping', got '%v'", messageData["method"])
 	}
 }
 
 func TestLogHTTPMcpEvent(t *testing.T) {
-	// Setup: create temporary directory
+	// Setup: create temporary directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a logger and a BaseMcpEvent
+	// Given: a logger and a BaseMcpEvent.
 	logger, err := NewLogger()
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
@@ -164,15 +164,15 @@ func TestLogHTTPMcpEvent(t *testing.T) {
 		ProxyPort:     port,
 	}
 
-	// When: logging a request
+	// When: logging a request.
 	err = logger.LogMcpEvent(&httpMcpEvent)
 
-	// Then: the log should be written successfully
+	// Then: the log should be written successfully.
 	if err != nil {
 		t.Errorf("Failed to log request: %v", err)
 	}
 
-	// Read and verify log content (date-based naming)
+	// Read and verify log content (date-based naming).
 	logsDir := filepath.Join(tempDir, ".centian", "logs")
 	logFileName := fmt.Sprintf("requests_%s.jsonl", time.Now().Format("2006-01-02"))
 	logFile := filepath.Join(logsDir, logFileName)
@@ -181,14 +181,14 @@ func TestLogHTTPMcpEvent(t *testing.T) {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
 
-	// Parse the log line as JSON
+	// Parse the log line as JSON.
 	var logEntry map[string]interface{}
 	err = json.Unmarshal(logContent, &logEntry)
 	if err != nil {
 		t.Fatalf("Failed to parse log entry: %v", err)
 	}
 
-	// Verify log entry structure
+	// Verify log entry structure.
 	if logEntry["request_id"] != requestID {
 		t.Errorf("Expected request_id '%s', got '%v'", requestID, logEntry["request_id"])
 	}
@@ -202,7 +202,7 @@ func TestLogHTTPMcpEvent(t *testing.T) {
 		t.Errorf("Expected direction %v', got '%v'", exceptedDirecton, logEntry["direction"])
 	}
 
-	// Parse the message field as JSON
+	// Parse the message field as JSON.
 	messageStr, ok := logEntry["raw_message"].(string)
 	if !ok {
 		t.Fatal("Message field should be a string")
@@ -214,7 +214,7 @@ func TestLogHTTPMcpEvent(t *testing.T) {
 		t.Fatalf("Failed to parse message content: %v", err)
 	}
 
-	// Check the actual message content
+	// Check the actual message content.
 	if messageData["method"] != "ping" {
 		t.Errorf("Expected method 'ping', got '%v'", messageData["method"])
 	}
@@ -241,13 +241,13 @@ func TestLogHTTPMcpEvent(t *testing.T) {
 }
 
 func TestLogStdioMcpEvent(t *testing.T) {
-	// Setup: create temporary directory
+	// Setup: create temporary directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a logger and a BaseMcpEvent
+	// Given: a logger and a BaseMcpEvent.
 	logger, err := NewLogger()
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
@@ -274,15 +274,15 @@ func TestLogStdioMcpEvent(t *testing.T) {
 		Message:      "{\"method\":\"ping\"}",
 	}
 
-	// When: logging a request
+	// When: logging a request.
 	err = logger.LogMcpEvent(&httpMcpEvent)
 
-	// Then: the log should be written successfully
+	// Then: the log should be written successfully.
 	if err != nil {
 		t.Errorf("Failed to log request: %v", err)
 	}
 
-	// Read and verify log content (date-based naming)
+	// Read and verify log content (date-based naming).
 	logsDir := filepath.Join(tempDir, ".centian", "logs")
 	logFileName := fmt.Sprintf("requests_%s.jsonl", time.Now().Format("2006-01-02"))
 	logFile := filepath.Join(logsDir, logFileName)
@@ -291,14 +291,14 @@ func TestLogStdioMcpEvent(t *testing.T) {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
 
-	// Parse the log line as JSON
+	// Parse the log line as JSON.
 	var logEntry common.StdioMcpEvent
 	err = json.Unmarshal(logContent, &logEntry)
 	if err != nil {
 		t.Fatalf("Failed to parse log entry: %v", err)
 	}
 
-	// Verify log entry structure
+	// Verify log entry structure.
 	if logEntry.RequestID != requestID {
 		t.Errorf("Expected request_id '%s', got '%v'", requestID, logEntry.RequestID)
 	}
@@ -312,14 +312,14 @@ func TestLogStdioMcpEvent(t *testing.T) {
 		t.Errorf("Expected direction %v', got '%v'", expectedDirection, logEntry.Direction)
 	}
 
-	// Parse the message field as JSON
+	// Parse the message field as JSON.
 	var messageData map[string]interface{}
 	err = json.Unmarshal([]byte(logEntry.RawMessage()), &messageData)
 	if err != nil {
 		t.Fatalf("Failed to parse message content: %v", err)
 	}
 
-	// Check the actual message content
+	// Check the actual message content.
 	if messageData["method"] != "ping" {
 		t.Errorf("Expected method 'ping', got '%v'", messageData["method"])
 	}
@@ -341,39 +341,39 @@ func TestLogStdioMcpEvent(t *testing.T) {
 	}
 }
 
-// ========================================
-// GetLogPath Tests
-// ========================================
+// ========================================.
+// GetLogPath Tests.
+// ========================================.
 
 func TestGetLogPath_ReturnsCorrectPath(t *testing.T) {
-	// Setup: create temporary directory
+	// Setup: create temporary directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a logger
+	// Given: a logger.
 	logger, err := NewLogger()
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
 	defer logger.Close()
 
-	// When: getting the log path
+	// When: getting the log path.
 	logPath := logger.GetLogPath()
 
-	// Then: should return a non-empty path
+	// Then: should return a non-empty path.
 	if logPath == "" {
 		t.Error("Expected non-empty log path")
 	}
 
-	// And: path should contain .centian/logs directory
+	// And: path should contain .centian/logs directory.
 	expectedDir := filepath.Join(".centian", "logs")
 	if !strings.Contains(logPath, expectedDir) {
 		t.Errorf("Expected log path to contain '%s', got: %s", expectedDir, logPath)
 	}
 
-	// And: path should end with requests_<date>.jsonl format
+	// And: path should end with requests_<date>.jsonl format.
 	fileName := filepath.Base(logPath)
 	if !strings.HasPrefix(fileName, "requests_") || !strings.HasSuffix(fileName, ".jsonl") {
 		t.Errorf("Expected log file name format 'requests_YYYY-MM-DD.jsonl', got: %s", fileName)
@@ -381,20 +381,20 @@ func TestGetLogPath_ReturnsCorrectPath(t *testing.T) {
 }
 
 func TestGetLogPath_PathExistsAfterLogging(t *testing.T) {
-	// Setup: create temporary directory
+	// Setup: create temporary directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a logger that has written a log entry
+	// Given: a logger that has written a log entry.
 	logger, err := NewLogger()
 	if err != nil {
 		t.Fatalf("Failed to create logger: %v", err)
 	}
 	defer logger.Close()
 
-	// Log an event to ensure file is created
+	// Log an event to ensure file is created.
 	baseMcpEvent := getBaseMcpEvent()
 	httpMcpEvent := common.HTTPMcpEvent{
 		BaseMcpEvent: baseMcpEvent,
@@ -413,10 +413,10 @@ func TestGetLogPath_PathExistsAfterLogging(t *testing.T) {
 		t.Fatalf("Failed to log event: %v", err)
 	}
 
-	// When: getting the log path
+	// When: getting the log path.
 	logPath := logger.GetLogPath()
 
-	// Then: the log file should exist
+	// Then: the log file should exist.
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
 		t.Errorf("Log file does not exist at path: %s", logPath)
 	}

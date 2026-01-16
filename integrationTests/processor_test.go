@@ -13,34 +13,34 @@ import (
 
 // TestPassthroughProcessor tests that the passthrough processor returns the input unchanged.
 func TestPassthroughProcessor(t *testing.T) {
-	// Given: a passthrough processor
+	// Given: a passthrough processor.
 	processorConfig := createProcessorConfig("passthrough", "processors/passthrough.py")
 	input := loadTestInput(t, "testdata/request_normal.json")
 
-	// When: executing the processor
+	// When: executing the processor.
 	output, err := executeProcessor(t, processorConfig, input)
 
-	// Then: execution succeeds with status 200
+	// Then: execution succeeds with status 200.
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (success)
+	// And: status is 200 (success).
 	if output.Status != 200 {
 		t.Errorf("Expected status 200, got %d", output.Status)
 	}
 
-	// And: error is nil
+	// And: error is nil.
 	if output.Error != nil && *output.Error != "" {
 		t.Errorf("Expected no error, got: %s", *output.Error)
 	}
 
-	// And: payload is unchanged
+	// And: payload is unchanged.
 	if !jsonEqual(t, input.Payload, output.Payload) {
 		t.Errorf("Payload was modified by passthrough processor")
 	}
 
-	// And: metadata includes processor name
+	// And: metadata includes processor name.
 	if output.Metadata == nil {
 		t.Fatal("Expected metadata to be present")
 	}
@@ -52,24 +52,24 @@ func TestPassthroughProcessor(t *testing.T) {
 
 // TestSecurityValidatorAllowsNormalRequests tests that normal requests pass through.
 func TestSecurityValidatorAllowsNormalRequests(t *testing.T) {
-	// Given: a security validator processor
+	// Given: a security validator processor.
 	processorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
 	input := loadTestInput(t, "testdata/request_normal.json")
 
-	// When: executing with a normal request
+	// When: executing with a normal request.
 	output, err := executeProcessor(t, processorConfig, input)
 
-	// Then: execution succeeds
+	// Then: execution succeeds.
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (allowed)
+	// And: status is 200 (allowed).
 	if output.Status != 200 {
 		t.Errorf("Expected status 200 for normal request, got %d", output.Status)
 	}
 
-	// And: no error is returned
+	// And: no error is returned.
 	if output.Error != nil && *output.Error != "" {
 		t.Errorf("Expected no error for normal request, got: %s", *output.Error)
 	}
@@ -77,29 +77,29 @@ func TestSecurityValidatorAllowsNormalRequests(t *testing.T) {
 
 // TestSecurityValidatorBlocksDeleteRequests tests that delete operations are rejected.
 func TestSecurityValidatorBlocksDeleteRequests(t *testing.T) {
-	// Given: a security validator processor
+	// Given: a security validator processor.
 	processorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
 	input := loadTestInput(t, "testdata/request_delete.json")
 
-	// When: executing with a delete request
+	// When: executing with a delete request.
 	output, err := executeProcessor(t, processorConfig, input)
 
-	// Then: execution succeeds (processor ran successfully)
+	// Then: execution succeeds (processor ran successfully).
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 403 (forbidden)
+	// And: status is 403 (forbidden).
 	if output.Status != 403 {
 		t.Errorf("Expected status 403 for delete request, got %d", output.Status)
 	}
 
-	// And: error message is present
+	// And: error message is present.
 	if output.Error == nil || *output.Error == "" {
 		t.Error("Expected error message for rejected delete request")
 	}
 
-	// And: error mentions deletion is not allowed
+	// And: error mentions deletion is not allowed.
 	expectedError := "Delete operations not allowed"
 	if output.Error == nil || *output.Error != expectedError {
 		var gotError string
@@ -109,7 +109,7 @@ func TestSecurityValidatorBlocksDeleteRequests(t *testing.T) {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, gotError)
 	}
 
-	// And: payload is empty (rejection)
+	// And: payload is empty (rejection).
 	if len(output.Payload) != 0 {
 		t.Errorf("Expected empty payload for rejected request, got: %v", output.Payload)
 	}
@@ -117,24 +117,24 @@ func TestSecurityValidatorBlocksDeleteRequests(t *testing.T) {
 
 // TestRequestLoggerPassesThrough tests that the logger processor passes requests through.
 func TestRequestLoggerPassesThrough(t *testing.T) {
-	// Given: a request logger processor
+	// Given: a request logger processor.
 	processorConfig := createProcessorConfig("request_logger", "processors/request_logger.py")
 	input := loadTestInput(t, "testdata/request_normal.json")
 
-	// When: executing the processor
+	// When: executing the processor.
 	output, err := executeProcessor(t, processorConfig, input)
 
-	// Then: execution succeeds
+	// Then: execution succeeds.
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (success)
+	// And: status is 200 (success).
 	if output.Status != 200 {
 		t.Errorf("Expected status 200, got %d", output.Status)
 	}
 
-	// And: payload is unchanged (logging is side effect only)
+	// And: payload is unchanged (logging is side effect only).
 	if !jsonEqual(t, input.Payload, output.Payload) {
 		t.Errorf("Payload was modified by logger processor")
 	}
@@ -142,24 +142,24 @@ func TestRequestLoggerPassesThrough(t *testing.T) {
 
 // TestPayloadTransformerModifiesRequest tests that the transformer adds custom headers.
 func TestPayloadTransformerModifiesRequest(t *testing.T) {
-	// Given: a payload transformer processor
+	// Given: a payload transformer processor.
 	processorConfig := createProcessorConfig("payload_transformer", "processors/payload_transformer.py")
 	input := loadTestInput(t, "testdata/request_normal.json")
 
-	// When: executing the processor
+	// When: executing the processor.
 	output, err := executeProcessor(t, processorConfig, input)
 
-	// Then: execution succeeds
+	// Then: execution succeeds.
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (success)
+	// And: status is 200 (success).
 	if output.Status != 200 {
 		t.Errorf("Expected status 200, got %d", output.Status)
 	}
 
-	// And: payload has been modified
+	// And: payload has been modified.
 	payload := output.Payload
 
 	params, ok := payload["params"].(map[string]interface{})
@@ -172,7 +172,7 @@ func TestPayloadTransformerModifiesRequest(t *testing.T) {
 		t.Fatal("Expected payload.params.arguments to be a map")
 	}
 
-	// And: custom header was added
+	// And: custom header was added.
 	xProcessor, ok := arguments["x-processor"].(string)
 	if !ok {
 		t.Fatal("Expected x-processor header to be added")
@@ -182,7 +182,7 @@ func TestPayloadTransformerModifiesRequest(t *testing.T) {
 		t.Errorf("Expected x-processor to be 'payload_transformer', got '%s'", xProcessor)
 	}
 
-	// And: modifications are tracked in metadata
+	// And: modifications are tracked in metadata.
 	if output.Metadata == nil {
 		t.Fatal("Expected metadata to be present")
 	}
@@ -190,24 +190,24 @@ func TestPayloadTransformerModifiesRequest(t *testing.T) {
 
 // TestProcessorWithResponseData tests that processors can handle response messages.
 func TestProcessorWithResponseData(t *testing.T) {
-	// Given: a passthrough processor
+	// Given: a passthrough processor.
 	processorConfig := createProcessorConfig("passthrough", "processors/passthrough.py")
 	input := loadTestInput(t, "testdata/response_success.json")
 
-	// When: executing with a response message
+	// When: executing with a response message.
 	output, err := executeProcessor(t, processorConfig, input)
 
-	// Then: execution succeeds
+	// Then: execution succeeds.
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200
+	// And: status is 200.
 	if output.Status != 200 {
 		t.Errorf("Expected status 200, got %d", output.Status)
 	}
 
-	// And: response payload is preserved
+	// And: response payload is preserved.
 	if !jsonEqual(t, input.Payload, output.Payload) {
 		t.Errorf("Response payload was modified")
 	}
@@ -215,32 +215,32 @@ func TestProcessorWithResponseData(t *testing.T) {
 
 // TestProcessorChain tests that multiple processors can be chained together.
 func TestProcessorChain(t *testing.T) {
-	// Given: a chain of processors (logger -> validator)
+	// Given: a chain of processors (logger -> validator).
 	loggerConfig := createProcessorConfig("request_logger", "processors/request_logger.py")
 	validatorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
 	input := loadTestInput(t, "testdata/request_normal.json")
 
-	// When: executing the chain
-	// First processor: logger
+	// When: executing the chain.
+	// First processor: logger.
 	output1, err := executeProcessor(t, loggerConfig, input)
 	if err != nil {
 		t.Fatalf("Logger processor failed: %v", err)
 	}
 
-	// Update metadata to track processor chain
+	// Update metadata to track processor chain.
 	if input.Metadata.ProcessorChain == nil {
 		input.Metadata.ProcessorChain = []string{}
 	}
 	input.Metadata.ProcessorChain = append(input.Metadata.ProcessorChain, "request_logger")
 
-	// Second processor: validator (receives output from logger)
+	// Second processor: validator (receives output from logger).
 	input.Payload = output1.Payload
 	output2, err := executeProcessor(t, validatorConfig, input)
 	if err != nil {
 		t.Fatalf("Validator processor failed: %v", err)
 	}
 
-	// Then: final status is 200 (both processors passed)
+	// Then: final status is 200 (both processors passed).
 	if output2.Status != 200 {
 		t.Errorf("Expected final status 200, got %d", output2.Status)
 	}
@@ -248,36 +248,36 @@ func TestProcessorChain(t *testing.T) {
 
 // TestProcessorChainWithRejection tests that a rejection stops the chain.
 func TestProcessorChainWithRejection(t *testing.T) {
-	// Given: a chain where the second processor rejects
+	// Given: a chain where the second processor rejects.
 	passthroughConfig := createProcessorConfig("passthrough", "processors/passthrough.py")
 	validatorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
 	input := loadTestInput(t, "testdata/request_delete.json")
 
-	// When: executing the chain
-	// First processor: passthrough
+	// When: executing the chain.
+	// First processor: passthrough.
 	output1, err := executeProcessor(t, passthroughConfig, input)
 	if err != nil {
 		t.Fatalf("Passthrough processor failed: %v", err)
 	}
 
-	// Second processor: validator (should reject)
+	// Second processor: validator (should reject).
 	input.Payload = output1.Payload
 	output2, err := executeProcessor(t, validatorConfig, input)
 	if err != nil {
 		t.Fatalf("Validator processor failed: %v", err)
 	}
 
-	// Then: chain stops with 403 rejection
+	// Then: chain stops with 403 rejection.
 	if output2.Status != 403 {
 		t.Errorf("Expected status 403 (rejection), got %d", output2.Status)
 	}
 
-	// And: subsequent processors should not be executed (tested implicitly)
+	// And: subsequent processors should not be executed (tested implicitly).
 }
 
 // Helper: createProcessorConfig creates a processor configuration for testing.
 func createProcessorConfig(name, scriptPath string) *config.ProcessorConfig {
-	// Get absolute path to processor script
+	// Get absolute path to processor script.
 	absPath, _ := filepath.Abs(scriptPath)
 
 	return &config.ProcessorConfig{

@@ -10,7 +10,7 @@ import (
 	"github.com/CentianAI/centian-cli/internal/config"
 )
 
-// TestNewChain tests processor chain creation
+// TestNewChain tests processor chain creation.
 func TestNewChain(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -57,12 +57,12 @@ func TestNewChain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: processor configurations
+			// Given: processor configurations.
 
-			// When: creating a new chain
+			// When: creating a new chain.
 			chain, err := NewChain(tt.processors, tt.serverName, tt.sessionID)
 
-			// Then: verify creation result
+			// Then: verify creation result.
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -91,7 +91,7 @@ func TestNewChain(t *testing.T) {
 	}
 }
 
-// TestHasProcessors tests processor presence checking
+// TestHasProcessors tests processor presence checking.
 func TestHasProcessors(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -146,12 +146,12 @@ func TestHasProcessors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a chain configuration
+			// Given: a chain configuration.
 
-			// When: checking if chain has processors
+			// When: checking if chain has processors.
 			got := tt.chain.HasProcessors()
 
-			// Then: verify result
+			// Then: verify result.
 			if got != tt.want {
 				t.Errorf("HasProcessors() = %v, want %v", got, tt.want)
 			}
@@ -159,7 +159,7 @@ func TestHasProcessors(t *testing.T) {
 	}
 }
 
-// TestExecute_SingleProcessor tests chain execution with single processor
+// TestExecute_SingleProcessor tests chain execution with single processor.
 func TestExecute_SingleProcessor(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -236,7 +236,7 @@ echo '{"status": 200, "payload": {}, "error": null, "metadata": {"exec_time": 42
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a processor chain with one processor
+			// Given: a processor chain with one processor.
 			tempDir := t.TempDir()
 			scriptPath := createTestScript(t, tempDir, "processor.sh", tt.processorScript)
 
@@ -259,10 +259,10 @@ echo '{"status": 200, "payload": {}, "error": null, "metadata": {"exec_time": 42
 
 			event := createTestEvent(`{"method": "tools/list"}`)
 
-			// When: executing the chain
+			// When: executing the chain.
 			result, err := chain.Execute(event)
 
-			// Then: verify execution result
+			// Then: verify execution result.
 			if err != nil {
 				t.Fatalf("Execute failed: %v", err)
 			}
@@ -282,24 +282,24 @@ echo '{"status": 200, "payload": {}, "error": null, "metadata": {"exec_time": 42
 	}
 }
 
-// TestExecute_MultipleProcessors tests chain with multiple processors
+// TestExecute_MultipleProcessors tests chain with multiple processors.
 func TestExecute_MultipleProcessors(t *testing.T) {
-	// Given: a chain with three processors
+	// Given: a chain with three processors.
 	tempDir := t.TempDir()
 
-	// Processor 1: Adds "processed_by_1" field
+	// Processor 1: Adds "processed_by_1" field.
 	script1 := createTestScript(t, tempDir, "proc1.sh", `#!/bin/bash
 read input
 echo '{"status": 200, "payload": {"processed_by_1": true}, "error": null, "metadata": {"processor": "1"}}'
 `)
 
-	// Processor 2: Adds "processed_by_2" field
+	// Processor 2: Adds "processed_by_2" field.
 	script2 := createTestScript(t, tempDir, "proc2.sh", `#!/bin/bash
 read input
 echo '{"status": 200, "payload": {"processed_by_2": true}, "error": null, "metadata": {"processor": "2"}}'
 `)
 
-	// Processor 3: Adds "processed_by_3" field
+	// Processor 3: Adds "processed_by_3" field.
 	script3 := createTestScript(t, tempDir, "proc3.sh", `#!/bin/bash
 read input
 echo '{"status": 200, "payload": {"processed_by_3": true}, "error": null, "metadata": {"processor": "3"}}'
@@ -335,10 +335,10 @@ echo '{"status": 200, "payload": {"processed_by_3": true}, "error": null, "metad
 
 	event := createTestEvent(`{"method": "tools/list"}`)
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: all processors execute successfully
+	// Then: all processors execute successfully.
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -349,7 +349,7 @@ echo '{"status": 200, "payload": {"processed_by_3": true}, "error": null, "metad
 		t.Errorf("Expected no error, got: %s", *result.Error)
 	}
 
-	// Then: all processors are in the chain
+	// Then: all processors are in the chain.
 	if len(result.ProcessorChain) != 3 {
 		t.Errorf("Expected 3 processors in chain, got %d", len(result.ProcessorChain))
 	}
@@ -360,15 +360,15 @@ echo '{"status": 200, "payload": {"processed_by_3": true}, "error": null, "metad
 		}
 	}
 
-	// Then: metadata from all processors is aggregated
+	// Then: metadata from all processors is aggregated.
 	if len(result.Metadata) != 3 {
 		t.Errorf("Expected metadata from 3 processors, got %d", len(result.Metadata))
 	}
 }
 
-// TestExecute_EarlyProcessorFailure tests chain stopping on processor failure
+// TestExecute_EarlyProcessorFailure tests chain stopping on processor failure.
 func TestExecute_EarlyProcessorFailure(t *testing.T) {
-	// Given: a chain where second processor fails
+	// Given: a chain where second processor fails.
 	tempDir := t.TempDir()
 
 	script1 := createTestScript(t, tempDir, "proc1.sh", `#!/bin/bash
@@ -416,10 +416,10 @@ echo '{"status": 200, "payload": {"step3": true}, "error": null}'
 
 	event := createTestEvent(`{"method": "test"}`)
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: chain stops at second processor
+	// Then: chain stops at second processor.
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -430,7 +430,7 @@ echo '{"status": 200, "payload": {"step3": true}, "error": null}'
 		t.Error("Expected error message")
 	}
 
-	// Then: only first two processors executed
+	// Then: only first two processors executed.
 	if len(result.ProcessorChain) != 2 {
 		t.Errorf("Expected 2 processors in chain, got %d", len(result.ProcessorChain))
 	}
@@ -439,9 +439,9 @@ echo '{"status": 200, "payload": {"step3": true}, "error": null}'
 	}
 }
 
-// TestExecute_DisabledProcessorsSkipped tests disabled processor handling
+// TestExecute_DisabledProcessorsSkipped tests disabled processor handling.
 func TestExecute_DisabledProcessorsSkipped(t *testing.T) {
-	// Given: a chain with disabled processors
+	// Given: a chain with disabled processors.
 	tempDir := t.TempDir()
 
 	script1 := createTestScript(t, tempDir, "proc1.sh", `#!/bin/bash
@@ -489,10 +489,10 @@ echo '{"status": 200, "payload": {"p3": true}, "error": null}'
 
 	event := createTestEvent(`{"method": "test"}`)
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: disabled processor is skipped
+	// Then: disabled processor is skipped.
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -500,7 +500,7 @@ echo '{"status": 200, "payload": {"p3": true}, "error": null}'
 		t.Errorf("Expected status 200, got %d", result.Status)
 	}
 
-	// Then: only enabled processors in chain
+	// Then: only enabled processors in chain.
 	if len(result.ProcessorChain) != 2 {
 		t.Errorf("Expected 2 processors in chain (skipping disabled), got %d", len(result.ProcessorChain))
 	}
@@ -511,9 +511,9 @@ echo '{"status": 200, "payload": {"p3": true}, "error": null}'
 	}
 }
 
-// TestExecute_ChainInvalidJSON tests handling of invalid JSON input in chain
+// TestExecute_ChainInvalidJSON tests handling of invalid JSON input in chain.
 func TestExecute_ChainInvalidJSON(t *testing.T) {
-	// Given: a chain with valid processor
+	// Given: a chain with valid processor.
 	tempDir := t.TempDir()
 	chain, err := NewChain([]*config.ProcessorConfig{
 		{
@@ -529,13 +529,13 @@ func TestExecute_ChainInvalidJSON(t *testing.T) {
 	}
 	chain.executor.WorkingDir = tempDir
 
-	// Invalid JSON event
+	// Invalid JSON event.
 	event := createTestEvent("not valid json {{{")
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: returns error for invalid JSON
+	// Then: returns error for invalid JSON.
 	if err == nil {
 		t.Fatal("Expected error for invalid JSON")
 	}
@@ -547,7 +547,7 @@ func TestExecute_ChainInvalidJSON(t *testing.T) {
 	}
 }
 
-// TestFormatMCPError tests MCP error response formatting
+// TestFormatMCPError tests MCP error response formatting.
 func TestFormatMCPError(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -614,12 +614,12 @@ func TestFormatMCPError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a chain result
+			// Given: a chain result.
 
-			// When: formatting as MCP error
+			// When: formatting as MCP error.
 			jsonStr, err := FormatMCPError(tt.result, tt.requestID)
 
-			// Then: verify formatting result
+			// Then: verify formatting result.
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error for non-error status")
@@ -631,13 +631,13 @@ func TestFormatMCPError(t *testing.T) {
 				t.Fatalf("FormatMCPError failed: %v", err)
 			}
 
-			// Then: parse and validate JSON structure
+			// Then: parse and validate JSON structure.
 			var parsed map[string]interface{}
 			if err := json.Unmarshal([]byte(jsonStr), &parsed); err != nil {
 				t.Fatalf("Failed to parse JSON: %v\nJSON: %s", err, jsonStr)
 			}
 
-			// Verify JSON-RPC structure
+			// Verify JSON-RPC structure.
 			if parsed["jsonrpc"] != "2.0" {
 				t.Errorf("Expected jsonrpc='2.0', got %v", parsed["jsonrpc"])
 			}
@@ -645,25 +645,25 @@ func TestFormatMCPError(t *testing.T) {
 				t.Errorf("Expected id='%v', got %v", tt.requestID, parsed["id"])
 			}
 
-			// Verify error object
+			// Verify error object.
 			errorObj, ok := parsed["error"].(map[string]interface{})
 			if !ok {
 				t.Fatal("Expected error object in response")
 			}
 
-			// Verify error code (JSON numbers are float64)
+			// Verify error code (JSON numbers are float64).
 			if code, ok := errorObj["code"].(float64); !ok || int(code) != tt.expectedCode {
 				t.Errorf("Expected error code %d, got %v", tt.expectedCode, errorObj["code"])
 			}
 
-			// Verify error message
+			// Verify error message.
 			if tt.expectedMsg != "" {
 				if msg, ok := errorObj["message"].(string); !ok || msg != tt.expectedMsg {
 					t.Errorf("Expected message='%s', got %v", tt.expectedMsg, errorObj["message"])
 				}
 			}
 
-			// Verify error data structure
+			// Verify error data structure.
 			errorData, ok := errorObj["data"].(map[string]interface{})
 			if !ok {
 				t.Fatal("Expected data object in error")
@@ -680,9 +680,9 @@ func TestFormatMCPError(t *testing.T) {
 	}
 }
 
-// Helper functions
+// Helper functions.
 
-// createTestEvent creates a test StdioMcpEvent with the given JSON message
+// createTestEvent creates a test StdioMcpEvent with the given JSON message.
 func createTestEvent(jsonMessage string) common.McpEventInterface {
 	return &common.StdioMcpEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
@@ -695,17 +695,17 @@ func createTestEvent(jsonMessage string) common.McpEventInterface {
 	}
 }
 
-// strPtr returns a pointer to a string
+// strPtr returns a pointer to a string.
 func strPtr(s string) *string {
 	return &s
 }
 
-// TestExecute_ProcessorExecutionFailure tests processor execution errors
+// TestExecute_ProcessorExecutionFailure tests processor execution errors.
 func TestExecute_ProcessorExecutionFailure(t *testing.T) {
-	// Given: a chain with a processor that fails to execute (not timeout, but execution error)
+	// Given: a chain with a processor that fails to execute (not timeout, but execution error).
 	tempDir := t.TempDir()
 
-	// Use nonexistent command to trigger execution failure
+	// Use nonexistent command to trigger execution failure.
 	chain, err := NewChain([]*config.ProcessorConfig{
 		{
 			Name:    "failing-processor",
@@ -725,10 +725,10 @@ func TestExecute_ProcessorExecutionFailure(t *testing.T) {
 
 	event := createTestEvent(`{"method": "test"}`)
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: execution returns 500 error
+	// Then: execution returns 500 error.
 	if err != nil {
 		t.Fatalf("Execute should not return error, got: %v", err)
 	}
@@ -742,25 +742,25 @@ func TestExecute_ProcessorExecutionFailure(t *testing.T) {
 	}
 }
 
-// TestExecute_ChainPayloadModification tests payload changes through chain
+// TestExecute_ChainPayloadModification tests payload changes through chain.
 func TestExecute_ChainPayloadModification(t *testing.T) {
-	// Given: processors that modify payload incrementally
+	// Given: processors that modify payload incrementally.
 	tempDir := t.TempDir()
 
-	// Processor 1: Sets field "a" to 1
+	// Processor 1: Sets field "a" to 1.
 	script1 := createTestScript(t, tempDir, "mod1.sh", `#!/bin/bash
 read input
 echo '{"status": 200, "payload": {"a": 1}, "error": null}'
 `)
 
-	// Processor 2: Receives {"a": 1}, adds "b": 2
+	// Processor 2: Receives {"a": 1}, adds "b": 2.
 	script2 := createTestScript(t, tempDir, "mod2.sh", `#!/bin/bash
 read input
 # In real scenario, processor would read input and merge, but for test we just set both
 echo '{"status": 200, "payload": {"a": 1, "b": 2}, "error": null}'
 `)
 
-	// Processor 3: Receives {"a": 1, "b": 2}, adds "c": 3
+	// Processor 3: Receives {"a": 1, "b": 2}, adds "c": 3.
 	script3 := createTestScript(t, tempDir, "mod3.sh", `#!/bin/bash
 read input
 echo '{"status": 200, "payload": {"a": 1, "b": 2, "c": 3}, "error": null}'
@@ -796,10 +796,10 @@ echo '{"status": 200, "payload": {"a": 1, "b": 2, "c": 3}, "error": null}'
 
 	event := createTestEvent(`{"initial": "payload"}`)
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: final payload has all modifications
+	// Then: final payload has all modifications.
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -807,7 +807,7 @@ echo '{"status": 200, "payload": {"a": 1, "b": 2, "c": 3}, "error": null}'
 		t.Errorf("Expected status 200, got %d", result.Status)
 	}
 
-	// Verify payload has all three fields (JSON numbers come back as float64)
+	// Verify payload has all three fields (JSON numbers come back as float64).
 	payload := result.ModifiedPayload
 	if a, ok := payload["a"].(float64); !ok || a != 1 {
 		t.Errorf("Expected payload.a=1, got %v", payload["a"])
@@ -820,7 +820,7 @@ echo '{"status": 200, "payload": {"a": 1, "b": 2, "c": 3}, "error": null}'
 	}
 }
 
-// TestFormatMCPError_RequestIDTypes tests different request ID types
+// TestFormatMCPError_RequestIDTypes tests different request ID types.
 func TestFormatMCPError_RequestIDTypes(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -842,17 +842,17 @@ func TestFormatMCPError_RequestIDTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a chain result with error
+			// Given: a chain result with error.
 			result := &ChainResult{
 				Status:         500,
 				Error:          strPtr("Test error"),
 				ProcessorChain: []string{"test"},
 			}
 
-			// When: formatting as MCP error
+			// When: formatting as MCP error.
 			jsonStr, err := FormatMCPError(result, tt.requestID)
 
-			// Then: formatting succeeds and includes request ID
+			// Then: formatting succeeds and includes request ID.
 			if err != nil {
 				t.Fatalf("FormatMCPError failed: %v", err)
 			}
@@ -862,12 +862,12 @@ func TestFormatMCPError_RequestIDTypes(t *testing.T) {
 				t.Fatalf("Failed to parse JSON: %v", err)
 			}
 
-			// Verify request ID is preserved (might be different type after JSON marshal/unmarshal)
+			// Verify request ID is preserved (might be different type after JSON marshal/unmarshal).
 			idValue := parsed["id"]
 			if tt.requestID == nil && idValue != nil {
 				t.Errorf("Expected nil id, got %v", idValue)
 			}
-			// For non-nil values, just verify id field exists
+			// For non-nil values, just verify id field exists.
 			if tt.requestID != nil && parsed["id"] == nil {
 				t.Error("Expected non-nil id field")
 			}
@@ -875,9 +875,9 @@ func TestFormatMCPError_RequestIDTypes(t *testing.T) {
 	}
 }
 
-// TestExecute_EmptyProcessorChain tests chain with no enabled processors
+// TestExecute_EmptyProcessorChain tests chain with no enabled processors.
 func TestExecute_EmptyProcessorChain(t *testing.T) {
-	// Given: a chain with no enabled processors
+	// Given: a chain with no enabled processors.
 	chain, err := NewChain([]*config.ProcessorConfig{
 		{Name: "disabled1", Type: "cli", Enabled: false},
 		{Name: "disabled2", Type: "cli", Enabled: false},
@@ -888,10 +888,10 @@ func TestExecute_EmptyProcessorChain(t *testing.T) {
 
 	event := createTestEvent(`{"method": "test", "value": 123}`)
 
-	// When: executing the chain
+	// When: executing the chain.
 	result, err := chain.Execute(event)
 
-	// Then: execution succeeds with original payload
+	// Then: execution succeeds with original payload.
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestExecute_EmptyProcessorChain(t *testing.T) {
 		t.Errorf("Expected empty processor chain, got %d processors", len(result.ProcessorChain))
 	}
 
-	// Verify original payload preserved (JSON numbers are float64)
+	// Verify original payload preserved (JSON numbers are float64).
 	if method, ok := result.ModifiedPayload["method"].(string); !ok || method != "test" {
 		t.Errorf("Expected method='test', got %v", result.ModifiedPayload["method"])
 	}

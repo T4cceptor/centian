@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestSearchServerByName tests the SearchServerByName functionality
+// TestSearchServerByName tests the SearchServerByName functionality.
 func TestSearchServerByName(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -94,24 +94,24 @@ func TestSearchServerByName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a config with specific gateway and server setup
+			// Given: a config with specific gateway and server setup.
 
-			// When: searching for a server by name
+			// When: searching for a server by name.
 			results := tt.config.SearchServerByName(tt.searchName)
 
-			// Then: verify the expected number of results
+			// Then: verify the expected number of results.
 			if len(results) != tt.expectedCount {
 				t.Errorf("Expected %d results, got %d", tt.expectedCount, len(results))
 			}
 
-			// Then: verify gateway name if single result expected
+			// Then: verify gateway name if single result expected.
 			if tt.expectedCount == 1 && tt.expectedGateway != "" {
 				if results[0].gatewayName != tt.expectedGateway {
 					t.Errorf("Expected gateway '%s', got '%s'", tt.expectedGateway, results[0].gatewayName)
 				}
 			}
 
-			// Then: verify all results have matching server names
+			// Then: verify all results have matching server names.
 			for _, result := range results {
 				if result.server.Name != tt.searchName {
 					t.Errorf("Expected server name '%s', got '%s'", tt.searchName, result.server.Name)
@@ -121,9 +121,9 @@ func TestSearchServerByName(t *testing.T) {
 	}
 }
 
-// TestGetSubstitutedHeaders tests environment variable substitution in headers
+// TestGetSubstitutedHeaders tests environment variable substitution in headers.
 func TestGetSubstitutedHeaders(t *testing.T) {
-	// Setup test environment variables
+	// Setup test environment variables.
 	os.Setenv("TEST_TOKEN", "secret_token_123")
 	os.Setenv("API_KEY", "api_key_456")
 	os.Setenv("EMPTY_VAR", "")
@@ -239,17 +239,17 @@ func TestGetSubstitutedHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a server config with headers containing env vars
+			// Given: a server config with headers containing env vars.
 
-			// When: getting substituted headers
+			// When: getting substituted headers.
 			result := tt.server.GetSubstitutedHeaders()
 
-			// Then: verify all expected headers are present
+			// Then: verify all expected headers are present.
 			if len(result) != len(tt.expected) {
 				t.Errorf("Expected %d headers, got %d", len(tt.expected), len(result))
 			}
 
-			// Then: verify each header value matches expected
+			// Then: verify each header value matches expected.
 			for key, expectedValue := range tt.expected {
 				if actualValue, ok := result[key]; !ok {
 					t.Errorf("Expected header '%s' not found", key)
@@ -261,7 +261,7 @@ func TestGetSubstitutedHeaders(t *testing.T) {
 	}
 }
 
-// TestGatewayListServers tests the ListServers method on GatewayConfig
+// TestGatewayListServers tests the ListServers method on GatewayConfig.
 func TestGatewayListServers(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -311,17 +311,17 @@ func TestGatewayListServers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a gateway with specific servers
+			// Given: a gateway with specific servers.
 
-			// When: listing all servers
+			// When: listing all servers.
 			result := tt.gateway.ListServers()
 
-			// Then: verify the count matches expected
+			// Then: verify the count matches expected.
 			if len(result) != tt.expectedCount {
 				t.Errorf("Expected %d servers, got %d", tt.expectedCount, len(result))
 			}
 
-			// Then: verify all expected server names are present
+			// Then: verify all expected server names are present.
 			foundNames := make(map[string]bool)
 			for _, server := range result {
 				foundNames[server.Name] = true
@@ -336,7 +336,7 @@ func TestGatewayListServers(t *testing.T) {
 	}
 }
 
-// TestGatewayAddServer tests the AddServer method on GatewayConfig
+// TestGatewayAddServer tests the AddServer method on GatewayConfig.
 func TestGatewayAddServer(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -386,20 +386,20 @@ func TestGatewayAddServer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a gateway with initial servers
+			// Given: a gateway with initial servers.
 			gateway := &GatewayConfig{
 				MCPServers: tt.initialServers,
 			}
 
-			// When: adding a new server
+			// When: adding a new server.
 			gateway.AddServer(tt.addName, tt.addServer)
 
-			// Then: verify the server count
+			// Then: verify the server count.
 			if len(gateway.MCPServers) != tt.expectedCount {
 				t.Errorf("Expected %d servers, got %d", tt.expectedCount, len(gateway.MCPServers))
 			}
 
-			// Then: verify the server was added correctly
+			// Then: verify the server was added correctly.
 			addedServer, exists := gateway.MCPServers[tt.addName]
 			if !exists {
 				t.Errorf("Server '%s' was not added", tt.addName)
@@ -415,7 +415,7 @@ func TestGatewayAddServer(t *testing.T) {
 	}
 }
 
-// TestGatewayRemoveServer tests the RemoveServer method on GatewayConfig
+// TestGatewayRemoveServer tests the RemoveServer method on GatewayConfig.
 func TestGatewayRemoveServer(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -463,20 +463,20 @@ func TestGatewayRemoveServer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a gateway with initial servers
+			// Given: a gateway with initial servers.
 			gateway := &GatewayConfig{
 				MCPServers: tt.initialServers,
 			}
 
-			// When: removing a server
+			// When: removing a server.
 			gateway.RemoveServer(tt.removeName)
 
-			// Then: verify the server count
+			// Then: verify the server count.
 			if len(gateway.MCPServers) != tt.expectedCount {
 				t.Errorf("Expected %d servers, got %d", tt.expectedCount, len(gateway.MCPServers))
 			}
 
-			// Then: verify the server was removed
+			// Then: verify the server was removed.
 			_, exists := gateway.MCPServers[tt.removeName]
 			if exists != tt.shouldExist {
 				if tt.shouldExist {
@@ -489,7 +489,7 @@ func TestGatewayRemoveServer(t *testing.T) {
 	}
 }
 
-// TestGatewayHasServer tests the HasServer method on GatewayConfig
+// TestGatewayHasServer tests the HasServer method on GatewayConfig.
 func TestGatewayHasServer(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -548,12 +548,12 @@ func TestGatewayHasServer(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a gateway with specific servers
+			// Given: a gateway with specific servers.
 
-			// When: checking if a server exists
+			// When: checking if a server exists.
 			result := tt.gateway.HasServer(tt.serverName)
 
-			// Then: verify the result matches expected
+			// Then: verify the result matches expected.
 			if result != tt.expected {
 				t.Errorf("Expected HasServer('%s') to return %v, got %v", tt.serverName, tt.expected, result)
 			}
@@ -561,14 +561,14 @@ func TestGatewayHasServer(t *testing.T) {
 	}
 }
 
-// TestGatewayServerOperationsIntegration tests a complete workflow
+// TestGatewayServerOperationsIntegration tests a complete workflow.
 func TestGatewayServerOperationsIntegration(t *testing.T) {
-	// Given: an empty gateway
+	// Given: an empty gateway.
 	gateway := &GatewayConfig{
 		MCPServers: make(map[string]*MCPServerConfig),
 	}
 
-	// When: adding multiple servers
+	// When: adding multiple servers.
 	server1 := &MCPServerConfig{Name: "server1", Command: "node", Enabled: true}
 	server2 := &MCPServerConfig{Name: "server2", Command: "python", Enabled: true}
 	server3 := &MCPServerConfig{Name: "server3", Command: "go", Enabled: false}
@@ -577,12 +577,12 @@ func TestGatewayServerOperationsIntegration(t *testing.T) {
 	gateway.AddServer("server2", server2)
 	gateway.AddServer("server3", server3)
 
-	// Then: verify all servers were added
+	// Then: verify all servers were added.
 	if len(gateway.MCPServers) != 3 {
 		t.Fatalf("Expected 3 servers, got %d", len(gateway.MCPServers))
 	}
 
-	// When: checking for server existence
+	// When: checking for server existence.
 	if !gateway.HasServer("server1") {
 		t.Error("Expected server1 to exist")
 	}
@@ -596,16 +596,16 @@ func TestGatewayServerOperationsIntegration(t *testing.T) {
 		t.Error("Expected nonexistent server to not exist")
 	}
 
-	// When: listing servers
+	// When: listing servers.
 	servers := gateway.ListServers()
 	if len(servers) != 3 {
 		t.Errorf("Expected 3 servers in list, got %d", len(servers))
 	}
 
-	// When: removing a server
+	// When: removing a server.
 	gateway.RemoveServer("server2")
 
-	// Then: verify server was removed
+	// Then: verify server was removed.
 	if gateway.HasServer("server2") {
 		t.Error("Expected server2 to be removed")
 	}
@@ -613,11 +613,11 @@ func TestGatewayServerOperationsIntegration(t *testing.T) {
 		t.Errorf("Expected 2 servers after removal, got %d", len(gateway.MCPServers))
 	}
 
-	// When: updating an existing server
+	// When: updating an existing server.
 	updatedServer1 := &MCPServerConfig{Name: "server1", Command: "deno", Enabled: false}
 	gateway.AddServer("server1", updatedServer1)
 
-	// Then: verify server was updated
+	// Then: verify server was updated.
 	if server := gateway.MCPServers["server1"]; server.Command != "deno" {
 		t.Errorf("Expected server1 command to be 'deno', got '%s'", server.Command)
 	}

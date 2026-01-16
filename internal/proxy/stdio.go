@@ -1,10 +1,10 @@
-// Copyright 2025 CentianCLI Contributors
+// Copyright 2025 CentianCLI Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// You may obtain a copy of the License at.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0.
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -37,46 +37,46 @@ import (
 type StdioProxy struct {
 	config *config.GlobalConfig
 
-	// cmd is the command being executed for the MCP server
+	// cmd is the command being executed for the MCP server.
 	cmd *exec.Cmd
 
-	// stdin is the pipe to write data to the MCP server's stdin
+	// stdin is the pipe to write data to the MCP server's stdin.
 	stdin io.WriteCloser
 
-	// stdout is the pipe to read data from the MCP server's stdout
+	// stdout is the pipe to read data from the MCP server's stdout.
 	stdout io.ReadCloser
 
-	// stderr is the pipe to read data from the MCP server's stderr
+	// stderr is the pipe to read data from the MCP server's stderr.
 	stderr io.ReadCloser
 
-	// running indicates whether the proxy is currently active
+	// running indicates whether the proxy is currently active.
 	running bool
 
-	// mu provides thread-safe access to the running state
+	// mu provides thread-safe access to the running state.
 	mu sync.RWMutex
 
-	// wg tracks active I/O handler goroutines to ensure clean shutdown
+	// wg tracks active I/O handler goroutines to ensure clean shutdown.
 	wg sync.WaitGroup
 
-	// ctx manages the proxy lifecycle and cancellation
+	// ctx manages the proxy lifecycle and cancellation.
 	ctx context.Context
 
-	// cancel stops the proxy by canceling the context
+	// cancel stops the proxy by canceling the context.
 	cancel context.CancelFunc
 
-	// logger records proxy activity for debugging and monitoring
+	// logger records proxy activity for debugging and monitoring.
 	logger *logging.Logger
 
-	// sessionID is a unique identifier for this proxy session (format: "session_<timestamp>")
+	// sessionID is a unique identifier for this proxy session (format: "session_<timestamp>").
 	sessionID string
 
-	// serverID is a unique identifier for the MCP server instance (format: "stdio_<command>_<timestamp>")
+	// serverID is a unique identifier for the MCP server instance (format: "stdio_<command>_<timestamp>").
 	serverID string
 
-	// command is the executable name being run (e.g., "npx", "python")
+	// command is the executable name being run (e.g., "npx", "python").
 	command string
 
-	// args are the arguments passed to the command
+	// args are the arguments passed to the command.
 	args []string
 
 	processor *EventProcessor
@@ -96,10 +96,10 @@ func NewStdioProxy(ctx context.Context, command string, args []string, pathToCon
 		}
 	}
 
-	// Create the command
+	// Create the command.
 	cmd := exec.CommandContext(proxyCtx, command, args...)
 
-	// Set up pipes
+	// Set up pipes.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -118,7 +118,7 @@ func NewStdioProxy(ctx context.Context, command string, args []string, pathToCon
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Create logger
+	// Create logger.
 	logger, err := logging.NewLogger()
 	if err != nil {
 		cancel()
@@ -146,7 +146,7 @@ func NewStdioProxy(ctx context.Context, command string, args []string, pathToCon
 		processor: nil,
 	}
 
-	// Create and attach processors
+	// Create and attach processors.
 	if globalConfig != nil {
 		proxy.config = globalConfig
 		processors, err := processor.NewChain(globalConfig.Processors, globalConfig.Name, sessionID)
@@ -158,7 +158,7 @@ func NewStdioProxy(ctx context.Context, command string, args []string, pathToCon
 	return &proxy, nil
 }
 
-// Start starts the MCP server process and begins proxying
+// Start starts the MCP server process and begins proxying.
 func (p *StdioProxy) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -167,19 +167,19 @@ func (p *StdioProxy) Start() error {
 		return fmt.Errorf("proxy already running")
 	}
 
-	// Start the MCP server process
+	// Start the MCP server process.
 	if err := p.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start MCP server: %w", err)
 	}
 
 	p.running = true
 
-	// Log proxy start
+	// Log proxy start.
 	if p.logger != nil {
 		p.logSystemMessage(fmt.Sprintf("Stdio proxy started: %s %v", p.command, p.args))
 	}
 
-	// Start goroutines to handle I/O with WaitGroup tracking
+	// Start goroutines to handle I/O with WaitGroup tracking.
 	p.wg.Add(3)
 	go func() { defer p.wg.Done(); p.handleStdout() }()
 	go func() { defer p.wg.Done(); p.handleStderr() }()
@@ -188,7 +188,7 @@ func (p *StdioProxy) Start() error {
 	return nil
 }
 
-// Stop stops the MCP server process and proxy
+// Stop stops the MCP server process and proxy.
 func (p *StdioProxy) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -197,42 +197,42 @@ func (p *StdioProxy) Stop() error {
 		return nil
 	}
 
-	// Cancel context to signal goroutines to stop
+	// Cancel context to signal goroutines to stop.
 	p.cancel()
 	p.running = false
 
-	// Close stdin pipe to signal no more input
+	// Close stdin pipe to signal no more input.
 	if p.stdin != nil {
 		_ = p.stdin.Close()
 	}
 
-	// Attempt graceful shutdown with SIGTERM first
+	// Attempt graceful shutdown with SIGTERM first.
 	if p.cmd.Process != nil {
-		// Send SIGTERM for graceful shutdown
+		// Send SIGTERM for graceful shutdown.
 		if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-			// If SIGTERM fails, process might already be dead
+			// If SIGTERM fails, process might already be dead.
 			fmt.Fprintf(os.Stderr, "Failed to send SIGTERM: %v\n", err)
 		}
 
-		// Give process time to exit gracefully after SIGTERM
+		// Give process time to exit gracefully after SIGTERM.
 		time.Sleep(5 * time.Second)
 
-		// If still running, escalate to SIGKILL
-		// Note: We check the process, not call Wait() to avoid race with monitoring goroutine
+		// If still running, escalate to SIGKILL.
+		// Note: We check the process, not call Wait() to avoid race with monitoring goroutine.
 		if p.cmd.Process != nil {
-			// Attempt SIGKILL if process is still alive
+			// Attempt SIGKILL if process is still alive.
 			if err := p.cmd.Process.Signal(syscall.Signal(0)); err == nil {
-				// Process is still alive, send SIGKILL
+				// Process is still alive, send SIGKILL.
 				fmt.Fprintf(os.Stderr, "Process did not exit gracefully, sending SIGKILL\n")
 				_ = p.cmd.Process.Kill()
 			}
 		}
 	}
 
-	// Wait for all I/O handler goroutines to finish
+	// Wait for all I/O handler goroutines to finish.
 	p.wg.Wait()
 
-	// Now safe to close logger after all goroutines have finished
+	// Now safe to close logger after all goroutines have finished.
 	if p.logger != nil {
 		p.logSystemMessage(fmt.Sprintf("Stdio proxy stopped: %s %v", p.command, p.args))
 		_ = p.logger.Close()
@@ -269,7 +269,7 @@ func (p *StdioProxy) logSystemMessage(message string) {
 	}
 }
 
-// GetEvent returns a new StdioMcpEvent for the given parameters
+// GetEvent returns a new StdioMcpEvent for the given parameters.
 func (p *StdioProxy) GetEvent(
 	message, requestID string,
 	direction common.McpEventDirection,
@@ -299,7 +299,7 @@ func (p *StdioProxy) GetEvent(
 	}
 }
 
-// handleStdout reads from MCP server stdout and forwards to our stdout
+// handleStdout reads from MCP server stdout and forwards to our stdout.
 func (p *StdioProxy) handleStdout() {
 	defer func() {
 		if p.stdout != nil {
@@ -314,12 +314,12 @@ func (p *StdioProxy) handleStdout() {
 			return
 		default:
 			line := scanner.Text()
-			// TODO: get requestID from "line"
+			// TODO: get requestID from "line".
 			requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
 			event := p.GetEvent(line, requestID, common.DirectionServerToClient, common.MessageTypeResponse)
 			fmt.Fprintf(os.Stderr, "[SERVER->CLIENT] %s\n", line)
 
-			// Execute processor chain if configured
+			// Execute processor chain if configured.
 			if p.processor != nil {
 				if err := p.processor.Process(&event); err != nil {
 					common.LogError(err.Error())
@@ -327,7 +327,7 @@ func (p *StdioProxy) handleStdout() {
 				}
 			}
 
-			// Forward to client
+			// Forward to client.
 			fmt.Println(event.RawMessage())
 		}
 	}
@@ -337,7 +337,7 @@ func (p *StdioProxy) handleStdout() {
 	}
 }
 
-// handleStderr reads from MCP server stderr and forwards to our stderr
+// handleStderr reads from MCP server stderr and forwards to our stderr.
 func (p *StdioProxy) handleStderr() {
 	defer func() {
 		if p.stderr != nil {
@@ -361,7 +361,7 @@ func (p *StdioProxy) handleStderr() {
 	}
 }
 
-// handleStdin reads from our stdin and forwards to MCP server
+// handleStdin reads from our stdin and forwards to MCP server.
 func (p *StdioProxy) handleStdin() {
 	defer func() {
 		if p.stdin != nil {
@@ -376,12 +376,12 @@ func (p *StdioProxy) handleStdin() {
 			return
 		default:
 			line := scanner.Text()
-			// TODO: get requestID from "line"
+			// TODO: get requestID from "line".
 			requestID := fmt.Sprintf("resp_%d", time.Now().UnixNano())
 			event := p.GetEvent(line, requestID, common.DirectionClientToServer, common.MessageTypeRequest)
 			fmt.Fprintf(os.Stderr, "[CLIENT->SERVER] %s\n", line)
 
-			// Execute processor chain if configured
+			// Execute processor chain if configured.
 			if p.processor != nil {
 				if err := p.processor.Process(&event); err != nil {
 					common.LogError(err.Error())
@@ -389,10 +389,10 @@ func (p *StdioProxy) handleStdin() {
 				}
 			}
 
-			// Forward to MCP server
+			// Forward to MCP server.
 			// TODO: proceed depending on event status!
 			if event.Status > 299 {
-				// If status indicates an error we return to the client immediately
+				// If status indicates an error we return to the client immediately.
 				// TODO: log this?
 				fmt.Println(event.RawMessage())
 				return
@@ -411,14 +411,14 @@ func (p *StdioProxy) handleStdin() {
 	}
 }
 
-// IsRunning returns whether the proxy is currently running
+// IsRunning returns whether the proxy is currently running.
 func (p *StdioProxy) IsRunning() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.running
 }
 
-// Wait waits for the MCP server process to finish
+// Wait waits for the MCP server process to finish.
 func (p *StdioProxy) Wait() error {
 	return p.cmd.Wait()
 }

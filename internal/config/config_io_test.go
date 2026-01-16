@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestLoadConfigFromPath tests loading configuration from a custom path
+// TestLoadConfigFromPath tests loading configuration from a custom path.
 func TestLoadConfigFromPath(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -103,7 +103,7 @@ func TestLoadConfigFromPath(t *testing.T) {
 				tempDir := t.TempDir()
 				configPath := filepath.Join(tempDir, "invalid.json")
 
-				// Config without required version field
+				// Config without required version field.
 				invalidConfig := map[string]interface{}{
 					"proxy": map[string]interface{}{},
 				}
@@ -120,13 +120,13 @@ func TestLoadConfigFromPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a test config file
+			// Given: a test config file.
 			path := tt.setup(t)
 
-			// When: loading config from the path
+			// When: loading config from the path.
 			cfg, err := LoadConfigFromPath(path)
 
-			// Then: verify error expectation
+			// Then: verify error expectation.
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
@@ -145,19 +145,19 @@ func TestLoadConfigFromPath(t *testing.T) {
 	}
 }
 
-// TestLoadConfigMissingFile tests loading when config file doesn't exist
+// TestLoadConfigMissingFile tests loading when config file doesn't exist.
 func TestLoadConfigMissingFile(t *testing.T) {
-	// Given: a test environment with no config file
+	// Given: a test environment with no config file.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "noconfig")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// When: attempting to load config
+	// When: attempting to load config.
 	cfg, err := LoadConfig()
 
-	// Then: should return error about missing file
+	// Then: should return error about missing file.
 	if err == nil {
 		t.Error("Expected error for missing config file, got nil")
 	}
@@ -169,16 +169,16 @@ func TestLoadConfigMissingFile(t *testing.T) {
 	}
 }
 
-// TestSaveAndLoadConfigRoundtrip tests saving and loading config
+// TestSaveAndLoadConfigRoundtrip tests saving and loading config.
 func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
-	// Given: a test environment
+	// Given: a test environment.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "roundtrip")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a config with specific values
+	// Given: a config with specific values.
 	originalConfig := DefaultConfig()
 	originalConfig.Name = "Test Server"
 	originalConfig.Gateways = map[string]*GatewayConfig{
@@ -206,25 +206,25 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 		},
 	}
 
-	// When: saving the config
+	// When: saving the config.
 	err := SaveConfig(originalConfig)
 	if err != nil {
 		t.Fatalf("SaveConfig failed: %v", err)
 	}
 
-	// Then: verify config file was created
+	// Then: verify config file was created.
 	configPath, _ := GetConfigPath()
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Fatal("Config file was not created")
 	}
 
-	// When: loading the config back
+	// When: loading the config back.
 	loadedConfig, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// Then: verify all fields match
+	// Then: verify all fields match.
 	if loadedConfig.Name != originalConfig.Name {
 		t.Errorf("Name: expected '%s', got '%s'", originalConfig.Name, loadedConfig.Name)
 	}
@@ -235,7 +235,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 		t.Errorf("Gateways count: expected %d, got %d", len(originalConfig.Gateways), len(loadedConfig.Gateways))
 	}
 
-	// Verify gateway details
+	// Verify gateway details.
 	if gw, ok := loadedConfig.Gateways["gateway1"]; ok {
 		if !gw.AllowDynamic {
 			t.Error("Gateway AllowDynamic should be true")
@@ -244,7 +244,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 			t.Errorf("Expected 2 servers in gateway, got %d", len(gw.MCPServers))
 		}
 
-		// Verify server1
+		// Verify server1.
 		if srv, ok := gw.MCPServers["server1"]; ok {
 			if srv.Command != "node" {
 				t.Errorf("Server1 command: expected 'node', got '%s'", srv.Command)
@@ -259,7 +259,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 			t.Error("Server1 not found in loaded config")
 		}
 
-		// Verify server2
+		// Verify server2.
 		if srv, ok := gw.MCPServers["server2"]; ok {
 			if srv.URL != "https://api.example.com" {
 				t.Errorf("Server2 URL: expected 'https://api.example.com', got '%s'", srv.URL)
@@ -275,7 +275,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 	}
 }
 
-// TestGetConfigDir tests config directory path retrieval
+// TestGetConfigDir tests config directory path retrieval.
 func TestGetConfigDir(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -287,7 +287,7 @@ func TestGetConfigDir(t *testing.T) {
 		{
 			name: "normal home directory",
 			setup: func(_ *testing.T) {
-				// Use current HOME
+				// Use current HOME.
 			},
 			teardown:  func() {},
 			wantError: false,
@@ -320,14 +320,14 @@ func TestGetConfigDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: test environment setup
+			// Given: test environment setup.
 			tt.setup(t)
 			defer tt.teardown()
 
-			// When: getting config directory
+			// When: getting config directory.
 			dir, err := GetConfigDir()
 
-			// Then: verify expectations
+			// Then: verify expectations.
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -344,17 +344,17 @@ func TestGetConfigDir(t *testing.T) {
 	}
 }
 
-// TestGetConfigPath tests config file path retrieval
+// TestGetConfigPath tests config file path retrieval.
 func TestGetConfigPath(t *testing.T) {
-	// Given: a test home directory
+	// Given: a test home directory.
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", "/test/home")
 	defer os.Setenv("HOME", originalHome)
 
-	// When: getting config path
+	// When: getting config path.
 	path, err := GetConfigPath()
 
-	// Then: verify path is correct
+	// Then: verify path is correct.
 	if err != nil {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestGetConfigPath(t *testing.T) {
 	}
 }
 
-// TestEnsureConfigDir tests config directory creation
+// TestEnsureConfigDir tests config directory creation.
 func TestEnsureConfigDir(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -414,13 +414,13 @@ func TestEnsureConfigDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: test environment setup
+			// Given: test environment setup.
 			homeDir := tt.setup(t)
 
-			// When: ensuring config directory exists
+			// When: ensuring config directory exists.
 			err := EnsureConfigDir()
 
-			// Then: verify expectations
+			// Then: verify expectations.
 			if tt.wantError {
 				if err == nil {
 					t.Error("Expected error, got nil")
@@ -437,9 +437,9 @@ func TestEnsureConfigDir(t *testing.T) {
 	}
 }
 
-// TestSaveConfigErrorHandling tests error scenarios in SaveConfig
+// TestSaveConfigErrorHandling tests error scenarios in SaveConfig.
 func TestSaveConfigErrorHandling(t *testing.T) {
-	// Given: a test environment
+	// Given: a test environment.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "savetest")
@@ -482,13 +482,13 @@ func TestSaveConfigErrorHandling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: test setup
+			// Given: test setup.
 			tt.setup(t)
 
-			// When: saving config
+			// When: saving config.
 			err := SaveConfig(tt.config)
 
-			// Then: verify expectations
+			// Then: verify expectations.
 			if tt.wantError {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
@@ -500,7 +500,7 @@ func TestSaveConfigErrorHandling(t *testing.T) {
 					t.Errorf("Expected no error, got: %v", err)
 				}
 
-				// Verify file was created and is valid JSON
+				// Verify file was created and is valid JSON.
 				configPath, _ := GetConfigPath()
 				data, err := os.ReadFile(configPath)
 				if err != nil {

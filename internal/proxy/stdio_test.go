@@ -239,7 +239,7 @@ func TestStdioProxyLoggerIntegration(t *testing.T) {
 	}
 }
 
-// TestStdioProxyRapidStartStop tests for race conditions and deadlocks.
+// TestStdioProxyRapidStartStop tests for race conditions and deadlocks
 // when rapidly starting and stopping proxies.
 func TestStdioProxyRapidStartStop(t *testing.T) {
 	// Setup: create temporary directory for logs.

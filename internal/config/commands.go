@@ -190,12 +190,12 @@ func initConfig(_ context.Context, _ *cli.Command) error {
 		return err
 	}
 
-	// Check if config already exists
+	// Check if config already exists.
 	if _, err := os.Stat(configPath); err == nil {
 		return fmt.Errorf("configuration already exists at %s", configPath)
 	}
 
-	// Create default config
+	// Create default config.
 	config := DefaultConfig()
 	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
@@ -289,14 +289,14 @@ func listServers(_ context.Context, cmd *cli.Command) error {
 			}
 
 			fmt.Printf("  - %s (%s)\n", serverName, status)
-			// stdio
+			// stdio.
 			if server.Command != "" {
 				fmt.Printf("      Command: '%s'\n", server.Command)
 			}
 			if len(server.Args) > 0 {
 				fmt.Printf("      Args: '%v'\n", server.Args)
 			}
-			// http
+			// http.
 			if server.URL != "" {
 				fmt.Printf("      URL: '%s'\n", server.URL)
 			}
@@ -327,8 +327,8 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		if config.Gateways == nil {
 			config.Gateways = make(map[string]*GatewayConfig)
 		}
-		// gatewayName does not exist in the config, so we create it
-		// Note: if no gatewayName was specified the default is "default"
+		// gatewayName does not exist in the config, so we create it.
+		// Note: if no gatewayName was specified the default is "default".
 		config.Gateways[gatewayName] = &GatewayConfig{
 			AllowDynamic:         false,
 			AllowGatewayEndpoint: false,
@@ -369,7 +369,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 func promptUserToSelectServer(foundServers []ServerSearchResult, serverName string) (*ServerSearchResult, error) {
 	fmt.Printf("⚠️  Server '%s' found in multiple gateways:\n\n", serverName)
 
-	// Display all matches with context
+	// Display all matches with context.
 	for i, result := range foundServers {
 		status := "✅ enabled"
 		if !result.server.Enabled {
@@ -393,7 +393,7 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 		fmt.Println()
 	}
 
-	// Prompt for selection
+	// Prompt for selection.
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("Select gateway [1-%d] or 'c' to cancel: ", len(foundServers))
 
@@ -404,23 +404,23 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 
 	response = strings.TrimSpace(strings.ToLower(response))
 
-	// Handle cancellation
+	// Handle cancellation.
 	if response == "c" || response == "cancel" {
 		return nil, fmt.Errorf("operation cancelled")
 	}
 
-	// Parse selection number
+	// Parse selection number.
 	var selection int
 	if _, err := fmt.Sscanf(response, "%d", &selection); err != nil {
 		return nil, fmt.Errorf("invalid selection: %s", response)
 	}
 
-	// Validate selection range
+	// Validate selection range.
 	if selection < 1 || selection > len(foundServers) {
 		return nil, fmt.Errorf("selection out of range: %d (valid: 1-%d)", selection, len(foundServers))
 	}
 
-	// Return selected result (convert to 0-based index)
+	// Return selected result (convert to 0-based index).
 	return &foundServers[selection-1], nil
 }
 
@@ -436,11 +436,11 @@ func removeServer(_ context.Context, cmd *cli.Command) error {
 	case 0:
 		return fmt.Errorf("unable to find server '%s' in config", serverName)
 	case 1:
-		// expected, "good" case -> we just remove this single server
+		// expected, "good" case -> we just remove this single server.
 		result := foundServers[0]
 		result.gateway.RemoveServer(serverName)
 	default:
-		// Multiple matches - prompt user to select
+		// Multiple matches - prompt user to select.
 		selected, err := promptUserToSelectServer(foundServers, serverName)
 		if err != nil {
 			return err
@@ -476,11 +476,11 @@ func toggleServer(name string, enabled bool) error {
 	case 0:
 		return fmt.Errorf("unable to find server '%s' in config", name)
 	case 1:
-		// expected, "good" case -> we just toggle this single server
+		// expected, "good" case -> we just toggle this single server.
 		result := foundServers[0]
 		result.server.Enabled = enabled
 	default:
-		// Multiple matches - prompt user to select
+		// Multiple matches - prompt user to select.
 		selected, err := promptUserToSelectServer(foundServers, name)
 		if err != nil {
 			return err
@@ -500,20 +500,20 @@ func toggleServer(name string, enabled bool) error {
 	return nil
 }
 
-// removeConfig removes the entire centian configuration
+// removeConfig removes the entire centian configuration.
 func removeConfig(_ context.Context, cmd *cli.Command) error {
 	configDir, err := GetConfigDir()
 	if err != nil {
 		return fmt.Errorf("failed to get config directory: %w", err)
 	}
 
-	// Check if config exists
+	// Check if config exists.
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		fmt.Printf("ℹ️  No configuration found at %s", configDir)
 		return nil
 	}
 
-	// Skip confirmation if --force is used
+	// Skip confirmation if --force is used.
 	if !cmd.Bool("force") {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Printf("⚠️  This will permanently remove your centian configuration at:")
@@ -532,7 +532,7 @@ func removeConfig(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	// Remove the entire config directory
+	// Remove the entire config directory.
 	if err := os.RemoveAll(configDir); err != nil {
 		return fmt.Errorf("failed to remove configuration: %w", err)
 	}

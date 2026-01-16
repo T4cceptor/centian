@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestProcessorValidation tests processor configuration validation
+// TestProcessorValidation tests processor configuration validation.
 func TestProcessorValidation(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -220,7 +220,7 @@ func TestProcessorValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set proxy if not set (required for validation)
+			// Set proxy if not set (required for validation).
 			if tt.config.Proxy == nil {
 				tt.config.Proxy = &ProxySettings{}
 			}
@@ -231,7 +231,7 @@ func TestProcessorValidation(t *testing.T) {
 				if err == nil {
 					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
 				} else if tt.errorMsg != "" {
-					// Check if error message contains expected substring
+					// Check if error message contains expected substring.
 					if !contains(err.Error(), tt.errorMsg) {
 						t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
 					}
@@ -241,7 +241,7 @@ func TestProcessorValidation(t *testing.T) {
 					t.Errorf("Expected no error, got: %v", err)
 				}
 
-				// Verify default timeout was applied
+				// Verify default timeout was applied.
 				if tt.name == "default timeout applied" {
 					if tt.config.Processors[0].Timeout != 15 {
 						t.Errorf("Expected default timeout 15, got %d", tt.config.Processors[0].Timeout)
@@ -252,16 +252,16 @@ func TestProcessorValidation(t *testing.T) {
 	}
 }
 
-// TestProcessorConfigPersistence tests that processor configuration persists through save/load
+// TestProcessorConfigPersistence tests that processor configuration persists through save/load.
 func TestProcessorConfigPersistence(t *testing.T) {
-	// Setup
+	// Setup.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "processor_test")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Create config with processors
+	// Create config with processors.
 	config := DefaultConfig()
 	config.Processors = []*ProcessorConfig{
 		{
@@ -286,24 +286,24 @@ func TestProcessorConfigPersistence(t *testing.T) {
 		},
 	}
 
-	// Save config
+	// Save config.
 	err := SaveConfig(config)
 	if err != nil {
 		t.Fatalf("SaveConfig failed: %v", err)
 	}
 
-	// Load config
+	// Load config.
 	loadedConfig, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// Verify processors were persisted
+	// Verify processors were persisted.
 	if len(loadedConfig.Processors) != 2 {
 		t.Fatalf("Expected 2 processors, got %d", len(loadedConfig.Processors))
 	}
 
-	// Verify first processor
+	// Verify first processor.
 	p1 := loadedConfig.Processors[0]
 	if p1.Name != "security-check" {
 		t.Errorf("Processor 1 name: expected 'security-check', got '%s'", p1.Name)
@@ -318,13 +318,13 @@ func TestProcessorConfigPersistence(t *testing.T) {
 		t.Errorf("Processor 1 timeout: expected 20, got %d", p1.Timeout)
 	}
 
-	// Verify config fields
+	// Verify config fields.
 	cmd, ok := p1.Config["command"].(string)
 	if !ok || cmd != "python" {
 		t.Errorf("Processor 1 command: expected 'python', got '%v'", cmd)
 	}
 
-	// Verify second processor
+	// Verify second processor.
 	p2 := loadedConfig.Processors[1]
 	if p2.Name != "logger" {
 		t.Errorf("Processor 2 name: expected 'logger', got '%s'", p2.Name)
@@ -334,7 +334,7 @@ func TestProcessorConfigPersistence(t *testing.T) {
 	}
 }
 
-// Helper function to check if string contains substring
+// Helper function to check if string contains substring.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || substr == "" ||
 		(s != "" && substr != "" && findSubstring(s, substr)))

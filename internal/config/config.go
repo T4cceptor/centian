@@ -11,6 +11,14 @@ import (
 	"regexp"
 )
 
+// ProcessorType defines the type of processor, e.g. cli, webhook, internal, etc.
+type ProcessorType string
+
+const (
+	// CLIProcessor represents the type of a CLI-based processor -> "cli".
+	CLIProcessor ProcessorType = "cli"
+)
+
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.jsonc.
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
@@ -24,7 +32,7 @@ type GlobalConfig struct {
 }
 
 // ServerSearchResult captures data and references
-// when searching for a specific server in the config
+// when searching for a specific server in the config.
 type ServerSearchResult struct {
 	gatewayName string
 	gateway     *GatewayConfig
@@ -32,7 +40,7 @@ type ServerSearchResult struct {
 }
 
 // SearchServerByName searches for a server given a name,
-// can return multiple results for different gateways
+// can return multiple results for different gateways.
 func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
 	foundServers := make([]ServerSearchResult, 0)
 	for gatewayName, gatewayConfig := range g.Gateways {
@@ -66,7 +74,7 @@ type MCPServerConfig struct {
 
 // GetSubstitutedHeaders returns headers with environment variables substituted.
 // Supports both ${VAR_NAME} and $VAR_NAME syntax.
-// Example: "Bearer ${GITHUB_TOKEN}" -> "Bearer ghp_abc123..."
+// Example: "Bearer ${GITHUB_TOKEN}" -> "Bearer ghp_abc123...".
 func (s *MCPServerConfig) GetSubstitutedHeaders() map[string]string {
 	if s.Headers == nil {
 		return make(map[string]string)
@@ -74,8 +82,8 @@ func (s *MCPServerConfig) GetSubstitutedHeaders() map[string]string {
 
 	result := make(map[string]string)
 	for key, value := range s.Headers {
-		// Use os.Expand to substitute environment variables
-		// Supports both ${VAR} and $VAR syntax
+		// Use os.Expand to substitute environment variables.
+		// Supports both ${VAR} and $VAR syntax.
 		result[key] = os.Expand(value, os.Getenv)
 	}
 	return result
@@ -90,7 +98,7 @@ type ProxySettings struct {
 	Timeout  int    `json:"timeout,omitempty"`  // Request timeout in seconds
 }
 
-// NewDefaultProxySettings creates a new ProxySettings with default values
+// NewDefaultProxySettings creates a new ProxySettings with default values.
 func NewDefaultProxySettings() ProxySettings {
 	return ProxySettings{
 		Port:     "8080",
@@ -99,7 +107,7 @@ func NewDefaultProxySettings() ProxySettings {
 	}
 }
 
-// GatewayConfig represents a logical grouping of HTTP MCP servers
+// GatewayConfig represents a logical grouping of HTTP MCP servers.
 type GatewayConfig struct {
 	AllowDynamic         bool                        `json:"allowDynamic,omitempty"` // Allow dynamic proxy endpoints
 	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"` // Setup gateway endpoint with namespacing
@@ -107,7 +115,7 @@ type GatewayConfig struct {
 	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
 }
 
-// ListServers returns a slice of all available MCPServerConfigs for this GatewayConfig
+// ListServers returns a slice of all available MCPServerConfigs for this GatewayConfig.
 func (g *GatewayConfig) ListServers() []*MCPServerConfig {
 	result := make([]*MCPServerConfig, 0)
 	for _, server := range g.MCPServers {
@@ -116,7 +124,7 @@ func (g *GatewayConfig) ListServers() []*MCPServerConfig {
 	return result
 }
 
-// AddServer adds a the provided server to the gateways MCP servers using name as key
+// AddServer adds a the provided server to the gateways MCP servers using name as key.
 func (g *GatewayConfig) AddServer(name string, server *MCPServerConfig) {
 	if g.MCPServers == nil {
 		g.MCPServers = make(map[string]*MCPServerConfig)
@@ -124,12 +132,12 @@ func (g *GatewayConfig) AddServer(name string, server *MCPServerConfig) {
 	g.MCPServers[name] = server
 }
 
-// RemoveServer removes server identified via name
+// RemoveServer removes server identified via name.
 func (g *GatewayConfig) RemoveServer(name string) {
 	delete(g.MCPServers, name)
 }
 
-// HasServer returns true if a server with the provided name exists in this gateway
+// HasServer returns true if a server with the provided name exists in this gateway.
 func (g *GatewayConfig) HasServer(name string) bool {
 	for serverName := range g.MCPServers {
 		if serverName == name {
@@ -139,7 +147,7 @@ func (g *GatewayConfig) HasServer(name string) bool {
 	return false
 }
 
-//////// PROCESSOR CONFIG STRUCTS ///////
+//////// PROCESSOR CONFIG STRUCTS ///////.
 
 // ProcessorConfig defines a single processor that executes during MCP request/response flow.
 // Processors are composable units that can inspect, modify, or reject MCP messages.
@@ -147,13 +155,13 @@ func (g *GatewayConfig) HasServer(name string) bool {
 // TODO: move below documentation into a better place
 // Type-specific configuration (Config field):
 //
-// For "cli" type processors:
-//   - "command" (string, required): Executable command to run (e.g., "python", "bash", "node")
-//   - "args" (array of strings, optional): Command-line arguments (e.g., ["script.py", "--flag"])
+// For CLIProcessor processors:
+//   - "command" (string, required): Executable command to run (e.g., "python", "bash", "node").
+//   - "args" (array of strings, optional): Command-line arguments (e.g., ["script.py", "--flag"]).
 //
 // Example CLI processor:
 //
-//	{
+//	{.
 //	  "name": "security-validator",
 //	  "type": "cli",
 //	  "enabled": true,
@@ -162,7 +170,7 @@ func (g *GatewayConfig) HasServer(name string) bool {
 //	    "command": "python",
 //	    "args": ["~/processors/security.py", "--strict"]
 //	  }
-//	}
+//	}.
 type ProcessorConfig struct {
 	Name    string                 `json:"name"`              // Unique processor name
 	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
@@ -204,7 +212,7 @@ type ProcessorOutput struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"` // Processor-specific metadata
 }
 
-// DefaultConfig returns a default configuration
+// DefaultConfig returns a default configuration.
 func DefaultConfig() *GlobalConfig {
 	proxySettings := NewDefaultProxySettings()
 	return &GlobalConfig{
@@ -217,7 +225,7 @@ func DefaultConfig() *GlobalConfig {
 	}
 }
 
-// GetConfigDir returns the centian config directory path
+// GetConfigDir returns the centian config directory path.
 func GetConfigDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -226,7 +234,7 @@ func GetConfigDir() (string, error) {
 	return filepath.Join(homeDir, ".centian"), nil
 }
 
-// GetConfigPath returns the full path to config.jsonc
+// GetConfigPath returns the full path to config.jsonc.
 func GetConfigPath() (string, error) {
 	configDir, err := GetConfigDir()
 	if err != nil {
@@ -235,7 +243,7 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(configDir, "config.jsonc"), nil
 }
 
-// EnsureConfigDir creates the config directory if it doesn't exist
+// EnsureConfigDir creates the config directory if it doesn't exist.
 func EnsureConfigDir() error {
 	configDir, err := GetConfigDir()
 	if err != nil {
@@ -254,24 +262,24 @@ func LoadConfig() (*GlobalConfig, error) {
 		return nil, err
 	}
 
-	// Check if config file exists
+	// Check if config file exists.
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("configuration file not found at %s", configPath)
 	}
 
-	// Read config file
+	// Read config file.
 	data, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Parse JSON (note: JSONC support would need additional parsing)
+	// Parse JSON (note: JSONC support would need additional parsing).
 	var config GlobalConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Validate config
+	// Validate config.
 	if err := ValidateConfig(&config); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -282,19 +290,19 @@ func LoadConfig() (*GlobalConfig, error) {
 // LoadConfigFromPath loads configuration from a custom file path.
 // The configuration is validated after loading.
 func LoadConfigFromPath(path string) (*GlobalConfig, error) {
-	// Read config file
+	// Read config file.
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Parse JSON
+	// Parse JSON.
 	var cfg GlobalConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Validate config
+	// Validate config.
 	if err := ValidateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -315,13 +323,13 @@ func SaveConfig(config *GlobalConfig) error {
 		return err
 	}
 
-	// Marshall with indentation for readability
+	// Marshall with indentation for readability.
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file
+	// Write to file.
 	//nolint:gosec // We are writing a file without sensitive data.
 	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
@@ -337,19 +345,16 @@ func ValidateConfig(config *GlobalConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
-
 	if err := validatedGateways(config.Gateways); err != nil {
 		return err
 	}
-
 	if err := validateProcessors(config.Processors); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// validatedGateways validates server configurations
+// validatedGateways validates server configurations.
 func validatedGateways(gateways map[string]*GatewayConfig) error {
 	for gatewayName, gatewayConfig := range gateways {
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
@@ -371,7 +376,7 @@ func isURLCompliant(name string) bool {
 	if name == "" {
 		return false
 	}
-	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore
+	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore.
 	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
 	matched, _ := regexp.MatchString(pattern, name)
 	return matched
@@ -384,23 +389,23 @@ func isValidHTTPURL(urlStr string) bool {
 	if err != nil {
 		return false
 	}
-	// Must have http or https scheme and a host
+	// Must have http or https scheme and a host.
 	return (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") && parsedURL.Host != ""
 }
 
-// validateGateway validates a gateway configuration
+// validateGateway validates a gateway configuration.
 func validateGateway(name string, config GatewayConfig) error {
-	// Validate gateway name is URL compliant (used in endpoint paths)
+	// Validate gateway name is URL compliant (used in endpoint paths).
 	if !isURLCompliant(name) {
 		return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 
-	// Validate at least one server exists
+	// Validate at least one server exists.
 	if len(config.MCPServers) == 0 {
 		return fmt.Errorf("gateway '%s': must have at least one MCP server", name)
 	}
 
-	// Validate gateway-level processors if present
+	// Validate gateway-level processors if present.
 	if len(config.Processors) > 0 {
 		if err := validateProcessors(config.Processors); err != nil {
 			return fmt.Errorf("gateway '%s': %w", name, err)
@@ -410,14 +415,14 @@ func validateGateway(name string, config GatewayConfig) error {
 	return nil
 }
 
-// validateServer validates a single server configuration
+// validateServer validates a single server configuration.
 func validateServer(name string, server *MCPServerConfig) error {
-	// Validate server name is URL compliant (used in endpoint paths)
+	// Validate server name is URL compliant (used in endpoint paths).
 	if !isURLCompliant(name) {
 		return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 
-	// Validate transport consistency - must have either Command (stdio) OR URL (http), not both
+	// Validate transport consistency - must have either Command (stdio) OR URL (http), not both.
 	hasCommand := server.Command != ""
 	hasURL := server.URL != ""
 
@@ -429,17 +434,17 @@ func validateServer(name string, server *MCPServerConfig) error {
 		return fmt.Errorf("server '%s': cannot specify both 'command' and 'url' - choose either stdio or http transport", name)
 	}
 
-	// Validate URL format if URL is specified
+	// Validate URL format if URL is specified.
 	if hasURL {
 		if !isValidHTTPURL(server.URL) {
 			return fmt.Errorf("server '%s': invalid URL format - must be a valid http:// or https:// URL", name)
 		}
 
-		// Headers only make sense for HTTP transport
-		// (For stdio transport, headers would be ignored)
+		// Headers only make sense for HTTP transport.
+		// (For stdio transport, headers would be ignored).
 	}
 
-	// Validate Headers format - all values must be strings
+	// Validate Headers format - all values must be strings.
 	for headerKey, headerValue := range server.Headers {
 		if headerKey == "" {
 			return fmt.Errorf("server '%s': header keys cannot be empty", name)
@@ -452,7 +457,7 @@ func validateServer(name string, server *MCPServerConfig) error {
 	return nil
 }
 
-// validateProcessors validates processor configurations
+// validateProcessors validates processor configurations.
 func validateProcessors(processors []*ProcessorConfig) error {
 	processorNames := make(map[string]bool)
 	for i, processor := range processors {
@@ -463,14 +468,14 @@ func validateProcessors(processors []*ProcessorConfig) error {
 	return nil
 }
 
-// validateProcessor validates a single processor configuration
+// validateProcessor validates a single processor configuration.
 func validateProcessor(index int, processor *ProcessorConfig, processorNames map[string]bool) error {
-	// Required fields
+	// Required fields.
 	if processor.Name == "" {
 		return fmt.Errorf("processor[%d]: name is required", index)
 	}
 
-	// Check for duplicate processor names
+	// Check for duplicate processor names.
 	if processorNames[processor.Name] {
 		return fmt.Errorf("processor '%s': duplicate processor name", processor.Name)
 	}
@@ -480,31 +485,31 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 		return fmt.Errorf("processor '%s': type is required", processor.Name)
 	}
 
-	// Validate type
-	if processor.Type != "cli" {
+	// Validate type.
+	if ProcessorType(processor.Type) != CLIProcessor {
 		return fmt.Errorf("processor '%s': unsupported type '%s' (v1 only supports 'cli')", processor.Name, processor.Type)
 	}
 
-	// Set default timeout if not specified
+	// Set default timeout if not specified.
 	if processor.Timeout == 0 {
 		processor.Timeout = 15 // Default 15 seconds
 	}
 
-	// Validate config field is present
+	// Validate config field is present.
 	if processor.Config == nil {
 		return fmt.Errorf("processor '%s': config is required", processor.Name)
 	}
 
-	// Validate type-specific config
+	// Validate type-specific config.
 	return validateProcessorTypeConfig(processor)
 }
 
-// validateProcessorTypeConfig validates type-specific processor configuration
+// validateProcessorTypeConfig validates type-specific processor configuration.
 func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 	//nolint:gocritic // switch used for future extensibility with additional processor types
-	switch processor.Type {
-	case "cli":
-		// CLI processors require command field in config
+	switch ProcessorType(processor.Type) {
+	case CLIProcessor:
+		// CLI processors require command field in config.
 		command, ok := processor.Config["command"]
 		if !ok {
 			return fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
@@ -513,7 +518,7 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 			return fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
 		}
 
-		// Args is optional but must be array if present
+		// Args is optional but must be array if present.
 		if args, exists := processor.Config["args"]; exists {
 			if _, ok := args.([]interface{}); !ok {
 				return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)

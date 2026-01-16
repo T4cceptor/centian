@@ -6,6 +6,27 @@ import (
 	"time"
 )
 
+// McpTransportType represents a valid MCP transport - either stdio or http.
+type McpTransportType string
+
+const (
+	// HTTPTransport represents HTTP transport -> "http".
+	HTTPTransport McpTransportType = "http"
+
+	// StdioTransport represents stdio transport -> "stdio".
+	StdioTransport McpTransportType = "stdio"
+)
+
+// IsHTTPTransport checks if the provided transport value is "http".
+func IsHTTPTransport(transport string) bool {
+	return McpTransportType(transport) == HTTPTransport
+}
+
+// IsStdioTransport checks if the provided transport value is "stdio".
+func IsStdioTransport(transport string) bool {
+	return McpTransportType(transport) == StdioTransport
+}
+
 // McpEventDirection represents the event direction, e.g. CLIENT to SERVER, CENTIAN to CLIENT etc.
 type McpEventDirection string
 
@@ -17,7 +38,7 @@ const (
 	DirectionServerToClient McpEventDirection = "[SERVER -> CLIENT]"
 
 	// DirectionCentianToClient represents the direction: CENTIAN -> CLIENT,
-	// e.g. when a response is returned early before being forwarded to
+	// e.g. when a response is returned early before being forwarded to.
 	// the downstream MCP server.
 	DirectionCentianToClient McpEventDirection = "[CENTIAN -> CLIENT]"
 
@@ -123,7 +144,7 @@ type BaseMcpEvent struct {
 	// Indicates the event status - is related to http status codes:
 	// 20x - ok
 	// 40x - expected error - client might be able to resolve it by rephrasing the query
-	// 50x - unexpected error - proxy ran into unexpected error
+	// 50x - unexpected error - proxy ran into unexpected error.
 	Status int `json:"status"`
 
 	// Timestamp is the exact time when the log entry was created.
@@ -141,7 +162,7 @@ type BaseMcpEvent struct {
 	// ServerID uniquely identifies the MCP server instance handling this request.
 	ServerID string `json:"server_id,omitempty"`
 
-	// Direction indicates the communication flow perspective:.
+	// Direction indicates the communication flow perspective:
 	// "request" (client→server),
 	// "response" (server→client), or
 	// "system" (proxy lifecycle events).
@@ -501,7 +522,7 @@ func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
 //   - Message content access and modification (RawMessage, SetRawMessage)
 //   - Event state tracking (SetModified, HasContent)
 //   - Metadata access (GetBaseEvent)
-//   - Type identification (IsRequest, IsResponse)
+//   - Type identification (IsRequest, IsResponse).
 type McpEventInterface interface {
 	RawMessage() string
 	SetRawMessage(newMessage string)

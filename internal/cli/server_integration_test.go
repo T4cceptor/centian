@@ -19,23 +19,23 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// TestServerStartIntegration tests the complete server startup flow with a real config file
+// TestServerStartIntegration tests the complete server startup flow with a real config file.
 func TestServerStartIntegration(t *testing.T) {
-	// Given: a mock downstream MCP server
+	// Given: a mock downstream MCP server.
 	mockMCPServer := createMockMCPServer()
 	defer mockMCPServer.Close()
 
-	// Given: a temporary config file pointing to the mock server
+	// Given: a temporary config file pointing to the mock server.
 	configPath := createTestConfigFile(t, mockMCPServer.URL)
 	defer os.Remove(configPath)
 
-	// Given: a test config loaded from the file
+	// Given: a test config loaded from the file.
 	globalConfig, err := config.LoadConfigFromPath(configPath)
 	if err != nil {
 		t.Fatalf("Failed to load test config: %v", err)
 	}
 
-	// Validate config structure
+	// Validate config structure.
 	if globalConfig.Name != "Test Integration Server" {
 		t.Errorf("Expected server name 'Test Integration Server', got '%s'", globalConfig.Name)
 	}
@@ -48,20 +48,20 @@ func TestServerStartIntegration(t *testing.T) {
 		t.Fatalf("Expected 1 gateway, got %d", len(globalConfig.Gateways))
 	}
 
-	// When: starting the Centian proxy server
+	// When: starting the Centian proxy server.
 	server, err := proxy.NewCentianHTTPProxy(globalConfig)
 	if err != nil {
 		t.Fatalf("Failed to create proxy server: %v", err)
 	}
 
-	// Start server in background
+	// Start server in background.
 	go func() {
 		if err := server.StartCentianServer(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
 		}
 	}()
 
-	// Wait for server to start
+	// Wait for server to start.
 	time.Sleep(2 * time.Second)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -69,7 +69,7 @@ func TestServerStartIntegration(t *testing.T) {
 		server.Shutdown(ctx)
 	}()
 
-	// When: connecting an MCP client to the proxy
+	// When: connecting an MCP client to the proxy.
 	ctx := context.Background()
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "integration-test-client",
@@ -94,7 +94,7 @@ func TestServerStartIntegration(t *testing.T) {
 
 	log.Println("✅ Connected to proxy server")
 
-	// Then: listing tools should succeed and return mock tools
+	// Then: listing tools should succeed and return mock tools.
 	toolsResult, err := session.ListTools(ctx, nil)
 	if err != nil {
 		t.Fatalf("Failed to list tools: %v", err)
@@ -109,7 +109,7 @@ func TestServerStartIntegration(t *testing.T) {
 		log.Printf("  - %s: %s", tool.Name, tool.Description)
 	}
 
-	// Then: calling a tool should succeed
+	// Then: calling a tool should succeed.
 	params := &mcp.CallToolParams{
 		Name: "get_weather",
 		Arguments: map[string]any{
@@ -131,7 +131,7 @@ func TestServerStartIntegration(t *testing.T) {
 		if textContent, ok := c.(*mcp.TextContent); ok {
 			log.Printf("  Response: %s", textContent.Text)
 
-			// Verify response contains expected data
+			// Verify response contains expected data.
 			if textContent.Text != "Sunny, 72°F in San Francisco" {
 				t.Errorf("Unexpected tool response: %s", textContent.Text)
 			}
@@ -147,14 +147,14 @@ func TestServerStartIntegration(t *testing.T) {
 	log.Println("✅ Request/response flow validated")
 }
 
-// createMockMCPServer creates a mock HTTP server that responds with MCP protocol messages
+// createMockMCPServer creates a mock HTTP server that responds with MCP protocol messages.
 func createMockMCPServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Read the request body
+		// Read the request body.
 		body, _ := io.ReadAll(r.Body)
 		defer r.Body.Close()
 
-		// Parse JSON-RPC request
+		// Parse JSON-RPC request.
 		var request map[string]interface{}
 		json.Unmarshal(body, &request)
 
@@ -255,7 +255,7 @@ func createMockMCPServer() *httptest.Server {
 	}))
 }
 
-// createTestConfigFile creates a temporary config file for testing
+// createTestConfigFile creates a temporary config file for testing.
 func createTestConfigFile(t *testing.T, mockServerURL string) string {
 	t.Helper()
 
@@ -291,11 +291,11 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 		},
 	}
 
-	// Create temporary directory
+	// Create temporary directory.
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test_config.json")
 
-	// Write config to file
+	// Write config to file.
 	data, err := json.MarshalIndent(testConfig, "", "  ")
 	if err != nil {
 		t.Fatalf("Failed to marshal test config: %v", err)
@@ -309,7 +309,7 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 	return configPath
 }
 
-// TestConfigFileValidation tests config file loading and validation
+// TestConfigFileValidation tests config file loading and validation.
 func TestConfigFileValidation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -366,14 +366,14 @@ func TestConfigFileValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temporary config file
+			// Create temporary config file.
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "test_config.json")
 
 			data, _ := json.MarshalIndent(tt.config, "", "  ")
 			os.WriteFile(configPath, data, 0o644)
 
-			// Try to load config
+			// Try to load config.
 			_, err := config.LoadConfigFromPath(configPath)
 
 			if tt.expectError {

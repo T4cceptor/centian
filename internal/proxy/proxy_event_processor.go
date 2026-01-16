@@ -10,7 +10,7 @@ import (
 	"github.com/CentianAI/centian-cli/internal/processor"
 )
 
-// EventProcessor is used to call the main processing loop for any MCP transport method
+// EventProcessor is used to call the main processing loop for any MCP transport method.
 type EventProcessor struct {
 	logger              *logging.Logger
 	processorChain      *processor.Chain
@@ -18,7 +18,7 @@ type EventProcessor struct {
 	logAfterProcessing  bool
 }
 
-// NewEventProcessor returns a new EventProcessor with the provided logger and processors
+// NewEventProcessor returns a new EventProcessor with the provided logger and processors.
 func NewEventProcessor(logger *logging.Logger, processors *processor.Chain) *EventProcessor {
 	return &EventProcessor{
 		logger:              logger,
@@ -28,9 +28,9 @@ func NewEventProcessor(logger *logging.Logger, processors *processor.Chain) *Eve
 	}
 }
 
-// Process starts the main event loop processing, including logging and any configured processors
+// Process starts the main event loop processing, including logging and any configured processors.
 func (ep *EventProcessor) Process(event common.McpEventInterface) error {
-	// Log before processing
+	// Log before processing.
 	if ep.logBeforeProcessing {
 		if err := ep.logger.LogMcpEvent(event); err != nil {
 			common.LogError(err.Error())
@@ -38,45 +38,45 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 		}
 	}
 
-	// Apply processors in order (only if there are actually processors configured)
+	// Apply processors in order (only if there are actually processors configured).
 	if ep.processorChain != nil && ep.processorChain.HasProcessors() && event.HasContent() {
 		outputLine := event.RawMessage()
 		result, err := ep.processorChain.Execute(event)
 
-		// TODO: standardize those logs
+		// TODO: standardize those logs.
 		switch {
 		case err != nil:
-			// Failed to execute processor chain
+			// Failed to execute processor chain.
 			fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute response processors: %v\n", err)
-			// Fall through and forward original response
+			// Fall through and forward original response.
 		case result.Status >= 400:
-			// Processor rejected or errored - send MCP error to client
+			// Processor rejected or errored - send MCP error to client.
 			fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Response rejected with status %d\n", result.Status)
 
-			// Extract request ID from original message
+			// Extract request ID from original message.
 			var msgData map[string]interface{}
 			if err := json.Unmarshal([]byte(outputLine), &msgData); err != nil {
 				fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to parse response JSON for error response: %v\n", err)
-				// Fall through and forward original response
+				// Fall through and forward original response.
 			} else {
-				// Format MCP error response
+				// Format MCP error response.
 				errorResponse, err := processor.FormatMCPError(result, msgData["id"])
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to format MCP error: %v\n", err)
-					// Fall through and forward original response
+					// Fall through and forward original response.
 				} else {
-					// Send error response to client instead of original response
-					// TODO: need to provide caller code the chance to react
-					// to errors that should be forwarded to client
+					// Send error response to client instead of original response.
+					// TODO: need to provide caller code the chance to react.
+					// to errors that should be forwarded to client.
 					outputLine = errorResponse
 				}
 			}
 		default:
-			// Status 200 - processor passed, use modified payload
+			// Status 200 - processor passed, use modified payload.
 			modifiedJSON, err := json.Marshal(result.ModifiedPayload)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to marshal modified response: %v\n", err)
-				// Fall through and forward original response
+				// Fall through and forward original response.
 			} else {
 				outputLine = string(modifiedJSON)
 				fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Response modified by processors\n")
@@ -93,7 +93,7 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 		event.SetRawMessage(outputLine)
 	}
 
-	// Log after processing
+	// Log after processing.
 	if ep.logAfterProcessing {
 		if err := ep.logger.LogMcpEvent(event); err != nil {
 			common.LogError(err.Error())

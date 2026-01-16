@@ -13,7 +13,7 @@ import (
 )
 
 func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
-	// Given: two log files with entries having different timestamps
+	// Given: two log files with entries having different timestamps.
 	tempDir := t.TempDir()
 	original := os.Getenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
@@ -58,13 +58,13 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 		},
 	})
 
-	// When: loading all recent log entries with no limit
+	// When: loading all recent log entries with no limit.
 	entries, err := LoadRecentLogEntries(0)
 	if err != nil {
 		t.Fatalf("LoadRecentLogEntries returned error: %v", err)
 	}
 
-	// Then: entries are sorted by timestamp with newest first
+	// Then: entries are sorted by timestamp with newest first.
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
@@ -75,7 +75,7 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 }
 
 func TestLoadRecentLogEntriesLimit(t *testing.T) {
-	// Given: a log file with 2 entries
+	// Given: a log file with 2 entries.
 	tempDir := t.TempDir()
 	original := os.Getenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
@@ -116,13 +116,13 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 		},
 	})
 
-	// When: loading recent entries with limit=1
+	// When: loading recent entries with limit=1.
 	entries, err := LoadRecentLogEntries(1)
 	if err != nil {
 		t.Fatalf("LoadRecentLogEntries returned error: %v", err)
 	}
 
-	// Then: only the most recent entry is returned
+	// Then: only the most recent entry is returned.
 	if len(entries) != 1 {
 		t.Fatalf("expected limit to return 1 entry, got %d", len(entries))
 	}
@@ -133,7 +133,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 }
 
 func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
-	// Given: a log directory that doesn't exist
+	// Given: a log directory that doesn't exist.
 	tempDir := filepath.Join(t.TempDir(), "missing")
 	original := os.Getenv("CENTIAN_LOG_DIR")
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
@@ -145,10 +145,10 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	// When: attempting to load log entries
+	// When: attempting to load log entries.
 	_, err := LoadRecentLogEntries(0)
 
-	// Then: ErrLogsDirNotFound is returned
+	// Then: ErrLogsDirNotFound is returned.
 	if err == nil {
 		t.Fatal("expected error for missing directory")
 	}
@@ -158,7 +158,7 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 }
 
 func TestFormatDisplayLine(t *testing.T) {
-	// Given: an annotated log entry with session ID and command details
+	// Given: an annotated log entry with session ID and command details.
 	event := &common.StdioMcpEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
@@ -178,10 +178,10 @@ func TestFormatDisplayLine(t *testing.T) {
 		SourceFile: "/tmp/log",
 	}
 
-	// When: formatting the entry for display
+	// When: formatting the entry for display.
 	line := FormatDisplayLine(&entry)
 
-	// Then: the formatted line contains session ID and command
+	// Then: the formatted line contains session ID and command.
 	if !strings.Contains(line, "sess-1") {
 		t.Fatalf("expected session ID in formatted line: %s", line)
 	}
@@ -224,10 +224,10 @@ func TestTruncate_Details(t *testing.T) {
 		{"something", 9, "something"},
 	}
 	for _, test := range tests {
-		// Given: a longer string, and a limit
-		// When: calling truncate providing longString and limit
+		// Given: a longer string, and a limit.
+		// When: calling truncate providing longString and limit.
 		result := truncate(test.longString, test.limit)
-		// Then: result is as expected
+		// Then: result is as expected.
 		if result != test.expected {
 			t.Fatalf("Expected: %s, got: %s", test.expected, result)
 		}

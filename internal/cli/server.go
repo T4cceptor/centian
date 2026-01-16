@@ -1,10 +1,10 @@
-// Copyright 2025 CentianCLI Contributors
+// Copyright 2025 CentianCLI Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// You may obtain a copy of the License at.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0.
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,7 +27,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// ServerCommand provides server management functionality
+// ServerCommand provides server management functionality.
 var ServerCommand = &cli.Command{
 	Name:  "server",
 	Usage: "Manage Centian proxy server",
@@ -36,7 +36,7 @@ var ServerCommand = &cli.Command{
 	},
 }
 
-// ServerStartCommand starts the Centian proxy server
+// ServerStartCommand starts the Centian proxy server.
 var ServerStartCommand = &cli.Command{
 	Name:  "start",
 	Usage: "centian server start [--config-path <path>]",
@@ -105,7 +105,7 @@ func printServerInfo(config *config.GlobalConfig) error {
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Total MCP servers: %d\n", totalServers)
 	fmt.Fprintf(os.Stderr, "\n")
 
-	// Print endpoint information
+	// Print endpoint information.
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Configured endpoints:\n")
 	for gatewayName, gateway := range config.Gateways {
 		for serverName, server := range gateway.MCPServers {
@@ -118,11 +118,11 @@ func printServerInfo(config *config.GlobalConfig) error {
 	return nil
 }
 
-// handleServerStartCommand handles the server start command
+// handleServerStartCommand handles the server start command.
 func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	configPath := cmd.String("config-path")
 
-	// Load configuration
+	// Load configuration.
 	var globalConfig *config.GlobalConfig
 	var err error
 
@@ -135,7 +135,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	}
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
 
-	// Validate that we have proxy configuration
+	// Validate that we have proxy configuration.
 	if globalConfig.Proxy == nil {
 		return fmt.Errorf("proxy settings are required in config")
 	}
@@ -144,23 +144,23 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
 	}
 
-	// Display server information
+	// Display server information.
 	if err := printServerInfo(globalConfig); err != nil {
 		return err
 	}
 
-	// Create HTTP proxy server
-	// TODO: handle stdio as well - requires cross-transport support
+	// Create HTTP proxy server.
+	// TODO: handle stdio as well - requires cross-transport support.
 	server, err := proxy.NewCentianHTTPProxy(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP proxy server: %w", err)
 	}
 
-	// Set up signal handling for graceful shutdown
+	// Set up signal handling for graceful shutdown.
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start server in background
+	// Start server in background.
 	errChan := make(chan error, 1)
 	go func() {
 		if err := server.StartCentianServer(); err != nil {
@@ -171,7 +171,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	fmt.Fprintf(os.Stderr, "[CENTIAN] HTTP proxy server started successfully\n")
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Press Ctrl+C to stop\n\n")
 
-	// Wait for either signal or server error
+	// Wait for either signal or server error.
 	select {
 	case <-sigChan:
 		fmt.Fprintf(os.Stderr, "\n[CENTIAN] Received shutdown signal, stopping server...\n")

@@ -28,7 +28,7 @@ func StreamPrint(speed float64, format string, a ...any) {
 	}
 }
 
-// GetCurrentWorkingDir gets the current working directory
+// GetCurrentWorkingDir gets the current working directory.
 func GetCurrentWorkingDir() string {
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -37,7 +37,7 @@ func GetCurrentWorkingDir() string {
 	return pwd
 }
 
-// GetSecondsFromInt returns a duration (in seconds) for a provided int value
+// GetSecondsFromInt returns a duration (in seconds) for a provided int value.
 func GetSecondsFromInt(i int) time.Duration {
 	return time.Duration(i) * time.Second
 }

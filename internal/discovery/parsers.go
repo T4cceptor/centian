@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
-// matchesPattern checks if a file matches a discovery pattern
+// matchesPattern checks if a file matches a discovery pattern.
 func (r *RegexDiscoverer) matchesPattern(filePath string, pattern Pattern) (bool, error) {
-	// Check file path regex
+	// Check file path regex.
 	matched, err := regexp.MatchString(pattern.FileRegex, filePath)
 	if err != nil {
 		return false, fmt.Errorf("invalid file regex: %w", err)
@@ -21,18 +23,18 @@ func (r *RegexDiscoverer) matchesPattern(filePath string, pattern Pattern) (bool
 		return false, nil
 	}
 
-	// If no content regex specified, file regex match is sufficient
+	// If no content regex specified, file regex match is sufficient.
 	if len(pattern.ContentRegex) == 0 {
 		return true, nil
 	}
 
-	// Check content regex patterns
+	// Check content regex patterns.
 	return r.matchesContentRegex(filePath, pattern.ContentRegex)
 }
 
-// matchesContentRegex checks if file content matches any of the content patterns
+// matchesContentRegex checks if file content matches any of the content patterns.
 func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns []string) (bool, error) {
-	// Read file content (limit to first 10KB for performance)
+	// Read file content (limit to first 10KB for performance).
 	filePath = filepath.Clean(filePath)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -40,7 +42,7 @@ func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns [
 	}
 	defer func() { _ = file.Close() }()
 
-	// Read up to 10KB
+	// Read up to 10KB.
 	buffer := make([]byte, 10240)
 	n, err := file.Read(buffer)
 	if err != nil && n == 0 {
@@ -49,7 +51,7 @@ func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns [
 
 	content := string(buffer[:n])
 
-	// Check each content pattern
+	// Check each content pattern.
 	for _, pattern := range contentPatterns {
 		regex, err := regexp.Compile(pattern)
 		if err != nil {
@@ -64,7 +66,7 @@ func (r *RegexDiscoverer) matchesContentRegex(filePath string, contentPatterns [
 	return false, nil
 }
 
-// parseFile extracts MCP servers from a matched file
+// parseFile extracts MCP servers from a matched file.
 func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server, error) {
 	filePath = filepath.Clean(filePath)
 	data, err := os.ReadFile(filePath)
@@ -72,7 +74,7 @@ func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server,
 		return nil, err
 	}
 
-	// Get the appropriate parser
+	// Get the appropriate parser.
 	parser := getParser(pattern.Parser)
 	if parser == nil {
 		return nil, fmt.Errorf("unknown parser: %s", pattern.Parser)
@@ -83,10 +85,10 @@ func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server,
 		return nil, err
 	}
 
-	// Set source type for replacement logic
+	// Set source type for replacement logic.
 	for i := range servers {
 		if pattern.SourceType == "auto-detect" {
-			// Auto-detect based on file path
+			// Auto-detect based on file path.
 			servers[i].Source = detectSourceType(filePath)
 		}
 	}
@@ -94,7 +96,7 @@ func (r *RegexDiscoverer) parseFile(filePath string, pattern Pattern) ([]Server,
 	return servers, nil
 }
 
-// getParser returns the appropriate parser function for the given name
+// getParser returns the appropriate parser function for the given name.
 func getParser(parserName string) ConfigParserFunc {
 	parsers := map[string]ConfigParserFunc{
 		"detectAndParse":      detectAndParseConfig,
@@ -107,7 +109,7 @@ func getParser(parserName string) ConfigParserFunc {
 	return parsers[parserName]
 }
 
-// detectSourceType automatically determines source type from file path
+// detectSourceType automatically determines source type from file path.
 func detectSourceType(filePath string) string {
 	path := strings.ToLower(filePath)
 
@@ -130,37 +132,37 @@ func detectSourceType(filePath string) string {
 	return "generic"
 }
 
-// Parser implementations
+// Parser implementations.
 
-// detectAndParseConfig automatically detects config format and parses appropriately
+// detectAndParseConfig automatically detects config format and parses appropriately.
 func detectAndParseConfig(data []byte, filePath string) ([]Server, error) {
-	// Try to parse as JSON first
+	// Try to parse as JSON first.
 	var config map[string]interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
-	// Check for different config formats
+	// Check for different config formats.
 	if _, exists := config["mcpServers"]; exists {
-		// Claude Desktop format
+		// Claude Desktop format.
 		return parseClaudeDesktopConfig(data, filePath)
 	}
 
 	if _, exists := config["servers"]; exists {
-		// VS Code MCP format or generic servers section
+		// VS Code MCP format or generic servers section.
 		return parseVSCodeConfig(data, filePath)
 	}
 
 	if _, exists := config["mcp.servers"]; exists {
-		// VS Code settings format
+		// VS Code settings format.
 		return parseSettingsConfig(data, filePath)
 	}
 
-	// Try generic parsing for unknown formats
+	// Try generic parsing for unknown formats.
 	return parseGenericConfig(data, filePath)
 }
 
-// parseClaudeDesktopConfig parses Claude Desktop configuration format
+// parseClaudeDesktopConfig parses Claude Desktop configuration format.
 func parseClaudeDesktopConfig(data []byte, filePath string) ([]Server, error) {
 	var config struct {
 		MCPServers map[string]struct {
@@ -196,7 +198,7 @@ func parseClaudeDesktopConfig(data []byte, filePath string) ([]Server, error) {
 	return servers, nil
 }
 
-// parseVSCodeConfig parses VS Code MCP configuration format
+// parseVSCodeConfig parses VS Code MCP configuration format.
 func parseVSCodeConfig(data []byte, filePath string) ([]Server, error) {
 	var config struct {
 		Servers map[string]struct {
@@ -215,27 +217,27 @@ func parseVSCodeConfig(data []byte, filePath string) ([]Server, error) {
 
 	var servers []Server
 	for name, serverConfig := range config.Servers {
-		// Validate based on type field
-		switch serverConfig.Type {
-		case "stdio":
-			// For stdio type, command is required
+		// Validate based on type field.
+		switch common.McpTransportType(serverConfig.Type) {
+		case common.StdioTransport:
+			// For stdio type, command is required.
 			if serverConfig.Command == "" {
 				continue // Skip invalid stdio servers
 			}
-		case "http":
-			// For http type, url is required
+		case common.HTTPTransport:
+			// For http type, url is required.
 			if serverConfig.URL == "" {
 				continue // Skip invalid http servers
 			}
 		default:
-			// Skip servers with unknown or missing type
+			// Skip servers with unknown or missing type.
 			continue
 		}
 
-		// Set transport and url based on type
+		// Set transport and url based on type.
 		transport := serverConfig.Type
 		var url string
-		if serverConfig.Type == "http" {
+		if common.IsHTTPTransport(serverConfig.Type) {
 			url = serverConfig.URL
 		}
 
@@ -257,7 +259,7 @@ func parseVSCodeConfig(data []byte, filePath string) ([]Server, error) {
 	return servers, nil
 }
 
-// parseSettingsConfig parses VS Code settings.json MCP configuration
+// parseSettingsConfig parses VS Code settings.json MCP configuration.
 func parseSettingsConfig(data []byte, filePath string) ([]Server, error) {
 	var config map[string]interface{}
 
@@ -267,7 +269,7 @@ func parseSettingsConfig(data []byte, filePath string) ([]Server, error) {
 
 	var servers []Server
 
-	// Look for MCP-related settings
+	// Look for MCP-related settings.
 	if mcpConfig, exists := config["mcp.servers"]; exists {
 		if serversMap, ok := mcpConfig.(map[string]interface{}); ok {
 			for name, serverData := range serversMap {
@@ -284,7 +286,7 @@ func parseSettingsConfig(data []byte, filePath string) ([]Server, error) {
 	return servers, nil
 }
 
-// parseGenericConfig attempts to parse unknown configuration formats
+// parseGenericConfig attempts to parse unknown configuration formats.
 func parseGenericConfig(data []byte, filePath string) ([]Server, error) {
 	var config map[string]interface{}
 
@@ -294,7 +296,7 @@ func parseGenericConfig(data []byte, filePath string) ([]Server, error) {
 
 	var servers []Server
 
-	// Look for common patterns that might indicate MCP servers
+	// Look for common patterns that might indicate MCP servers.
 	commonKeys := []string{"servers", "mcpServers", "mcp", "tools", "services"}
 
 	for _, key := range commonKeys {
@@ -315,7 +317,7 @@ func parseGenericConfig(data []byte, filePath string) ([]Server, error) {
 	return servers, nil
 }
 
-// Helper function to extract server from settings format
+// Helper function to extract server from settings format.
 func extractServerFromSettings(name string, serverInfo map[string]interface{}, sourcePath string) *Server {
 	server := &Server{
 		Name:        name,
@@ -326,7 +328,7 @@ func extractServerFromSettings(name string, serverInfo map[string]interface{}, s
 		Transport:   "stdio", // default
 	}
 
-	// Extract common fields
+	// Extract common fields.
 	if cmd, ok := serverInfo["command"].(string); ok {
 		server.Command = cmd
 	}
@@ -340,7 +342,7 @@ func extractServerFromSettings(name string, serverInfo map[string]interface{}, s
 		return nil // Skip servers without command or URL
 	}
 
-	// Extract args
+	// Extract args.
 	if argsInterface, ok := serverInfo["args"]; ok {
 		if argsList, ok := argsInterface.([]interface{}); ok {
 			for _, arg := range argsList {
@@ -351,7 +353,7 @@ func extractServerFromSettings(name string, serverInfo map[string]interface{}, s
 		}
 	}
 
-	// Extract environment variables
+	// Extract environment variables.
 	if envInterface, ok := serverInfo["env"]; ok {
 		if env, ok := envInterface.(map[string]interface{}); ok {
 			for key, value := range env {
@@ -365,7 +367,7 @@ func extractServerFromSettings(name string, serverInfo map[string]interface{}, s
 	return server
 }
 
-// Helper function to extract server from generic format
+// Helper function to extract server from generic format.
 func extractServerFromGeneric(name string, serverInfo map[string]interface{}, sourcePath string, section string) *Server {
 	server := &Server{
 		Name:        name,
@@ -376,12 +378,12 @@ func extractServerFromGeneric(name string, serverInfo map[string]interface{}, so
 		Transport:   "stdio", // default
 	}
 
-	// Try to extract common field names
+	// Try to extract common field names.
 	possibleCommandKeys := []string{"command", "cmd", "executable", "exec"}
 	possibleURLKeys := []string{"url", "endpoint", "uri", "address"}
 	possibleArgsKeys := []string{"args", "arguments", "params", "parameters"}
 
-	// Extract command
+	// Extract command.
 	for _, key := range possibleCommandKeys {
 		if cmd, ok := serverInfo[key].(string); ok && cmd != "" {
 			server.Command = cmd
@@ -389,7 +391,7 @@ func extractServerFromGeneric(name string, serverInfo map[string]interface{}, so
 		}
 	}
 
-	// Extract URL
+	// Extract URL.
 	for _, key := range possibleURLKeys {
 		if url, ok := serverInfo[key].(string); ok && url != "" {
 			server.URL = url
@@ -402,7 +404,7 @@ func extractServerFromGeneric(name string, serverInfo map[string]interface{}, so
 		return nil // Skip servers without command or URL
 	}
 
-	// Extract args
+	// Extract args.
 	for _, key := range possibleArgsKeys {
 		if argsInterface, ok := serverInfo[key]; ok {
 			if argsList, ok := argsInterface.([]interface{}); ok {

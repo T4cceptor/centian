@@ -16,7 +16,7 @@ type InternalLogger struct {
 
 // newInternalLogger creates a new logger instance that writes to ~/.centian/centian.log.
 func newInternalLogger() (*InternalLogger, error) {
-	// Get user home directory
+	// Get user home directory.
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
@@ -37,7 +37,7 @@ func newInternalLogger() (*InternalLogger, error) {
 		return nil, fmt.Errorf("failed to open log file: %w", err)
 	}
 
-	// Create logger with timestamp and prefix
+	// Create logger with timestamp and prefix.
 	logger := log.New(logFile, "", log.LstdFlags)
 
 	return &InternalLogger{

@@ -6,7 +6,7 @@ import (
 	"runtime"
 )
 
-// GetDefaultRegexDiscoverer creates a RegexDiscoverer with default patterns for common MCP configs
+// GetDefaultRegexDiscoverer creates a RegexDiscoverer with default patterns for common MCP configs.
 func GetDefaultRegexDiscoverer() *RegexDiscoverer {
 	return &RegexDiscoverer{
 		DiscovererName:        "Regex MCP Config Discoverer",
@@ -18,10 +18,10 @@ func GetDefaultRegexDiscoverer() *RegexDiscoverer {
 	}
 }
 
-// GetDefaultPatterns returns the default discovery patterns for common MCP config files
+// GetDefaultPatterns returns the default discovery patterns for common MCP config files.
 func GetDefaultPatterns() []Pattern {
 	return []Pattern{
-		// High-priority specific patterns
+		// High-priority specific patterns.
 		{
 			FileRegex:    `claude_desktop_config\.json$`,
 			ContentRegex: []string{`"mcpServers"`},
@@ -44,7 +44,7 @@ func GetDefaultPatterns() []Pattern {
 			Priority:     90,
 		},
 
-		// Medium-priority MCP-specific patterns
+		// Medium-priority MCP-specific patterns.
 		{
 			FileRegex:    `.*mcp.*\.json$`,
 			ContentRegex: []string{`"servers":`, `"command":`, `"url":`},
@@ -67,7 +67,7 @@ func GetDefaultPatterns() []Pattern {
 			Priority:     70,
 		},
 
-		// Claude Code specific patterns
+		// Claude Code specific patterns.
 		{
 			FileRegex:    `CLAUDE\.md$`,
 			ContentRegex: []string{`mcp`, `server`},
@@ -76,7 +76,7 @@ func GetDefaultPatterns() []Pattern {
 			Priority:     65,
 		},
 
-		// Editor-specific patterns
+		// Editor-specific patterns.
 		{
 			FileRegex:    `.*/Zed/settings\.json$`,
 			ContentRegex: []string{`"mcp"`, `"servers"`},
@@ -92,7 +92,7 @@ func GetDefaultPatterns() []Pattern {
 			Priority:     55,
 		},
 
-		// Generic config patterns with content filtering
+		// Generic config patterns with content filtering.
 		{
 			FileRegex:    `.*config\.json$`,
 			ContentRegex: []string{`"mcp"`, `"servers".*"command"`, `"mcpServers"`},
@@ -108,7 +108,7 @@ func GetDefaultPatterns() []Pattern {
 			Priority:     30,
 		},
 
-		// Lower priority broad patterns
+		// Lower priority broad patterns.
 		{
 			FileRegex:    `\.mcp/.*\.json$`,
 			ContentRegex: []string{`"servers":`, `"command":`, `"url":`},
@@ -119,7 +119,7 @@ func GetDefaultPatterns() []Pattern {
 	}
 }
 
-// getExcludedDirectories returns directories to exclude from search to avoid permission issues
+// getExcludedDirectories returns directories to exclude from search to avoid permission issues.
 func getExcludedDirectories() []string {
 	switch runtime.GOOS {
 	case "darwin": // macOS
@@ -150,23 +150,23 @@ func getExcludedDirectories() []string {
 	}
 }
 
-// GetDefaultSearchPaths returns the default paths to search for MCP configurations
+// GetDefaultSearchPaths returns the default paths to search for MCP configurations.
 func GetDefaultSearchPaths() []string {
 	homeDir, _ := os.UserHomeDir()
 
 	paths := []string{
-		// Current directory and common project locations
+		// Current directory and common project locations.
 		"./",
 		"./.vscode",
 		"./.claude",
 		"./.continue",
 		"./.mcp",
 
-		// Search entire home directory (exclusions handled in shouldSkipDirectory)
+		// Search entire home directory (exclusions handled in shouldSkipDirectory).
 		homeDir,
 	}
 
-	// Add platform-specific config directories
+	// Add platform-specific config directories.
 	switch runtime.GOOS {
 	case "darwin": // macOS
 		paths = append(paths,
@@ -216,11 +216,11 @@ func GetDefaultSearchPaths() []string {
 	return paths
 }
 
-// GetPriorityPatterns returns patterns sorted by priority (highest first)
+// GetPriorityPatterns returns patterns sorted by priority (highest first).
 func GetPriorityPatterns() []Pattern {
 	patterns := GetDefaultPatterns()
 
-	// Sort by priority (higher first)
+	// Sort by priority (higher first).
 	for i := 0; i < len(patterns); i++ {
 		for j := 0; j < len(patterns)-1-i; j++ {
 			if patterns[j].Priority < patterns[j+1].Priority {
@@ -232,7 +232,7 @@ func GetPriorityPatterns() []Pattern {
 	return patterns
 }
 
-// CreateCustomRegexDiscoverer creates a RegexDiscoverer with custom patterns
+// CreateCustomRegexDiscoverer creates a RegexDiscoverer with custom patterns.
 func CreateCustomRegexDiscoverer(name, description string, patterns []Pattern, searchPaths []string) *RegexDiscoverer {
 	if len(searchPaths) == 0 {
 		searchPaths = GetDefaultSearchPaths()

@@ -20,11 +20,11 @@ import (
 // ========================================
 
 func setupTestEnv(t *testing.T) func() {
-	// Create temp directory
+	// Create temp directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 
-	// Set HOME to temp directory
+	// Set HOME to temp directory.
 	os.Setenv("HOME", tempDir)
 
 	cleanup := func() {
@@ -45,25 +45,25 @@ func createTestConfig(t *testing.T) {
 // ========================================
 
 func TestInitConfig_CreatesDefaultConfig(t *testing.T) {
-	// Given: a clean environment
+	// Given: a clean environment.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// When: initializing config
+	// When: initializing config.
 	err := initConfig(ctx, cmd)
 
-	// Then: should create config successfully
+	// Then: should create config successfully.
 	assert.NilError(t, err)
 
-	// And: config file should exist
+	// And: config file should exist.
 	configPath, _ := GetConfigPath()
 	_, err = os.Stat(configPath)
 	assert.NilError(t, err)
 
-	// And: should be able to load the config
+	// And: should be able to load the config.
 	config, err := LoadConfig()
 	assert.NilError(t, err)
 	assert.Assert(t, config != nil)
@@ -71,7 +71,7 @@ func TestInitConfig_CreatesDefaultConfig(t *testing.T) {
 }
 
 func TestInitConfig_FailsIfConfigExists(t *testing.T) {
-	// Given: an existing config
+	// Given: an existing config.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
@@ -80,10 +80,10 @@ func TestInitConfig_FailsIfConfigExists(t *testing.T) {
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// When: trying to initialize config again
+	// When: trying to initialize config again.
 	err := initConfig(ctx, cmd)
 
-	// Then: should return error
+	// Then: should return error.
 	assert.ErrorContains(t, err, "configuration already exists")
 }
 
@@ -92,7 +92,7 @@ func TestInitConfig_FailsIfConfigExists(t *testing.T) {
 // ========================================
 
 func TestShowConfig_DisplaysTextFormat(t *testing.T) {
-	// Given: an existing config
+	// Given: an existing config.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
@@ -105,27 +105,27 @@ func TestShowConfig_DisplaysTextFormat(t *testing.T) {
 		},
 	}
 
-	// Capture stdout
+	// Capture stdout.
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// When: showing config in text format
+	// When: showing config in text format.
 	err := showConfig(ctx, cmd)
 
-	// Restore stdout
+	// Restore stdout.
 	w.Close()
 	os.Stdout = oldStdout
 
-	// Read output
+	// Read output.
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	// Then: should succeed
+	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: should display key information
+	// And: should display key information.
 	assert.Assert(t, strings.Contains(output, "Configuration path:"))
 	assert.Assert(t, strings.Contains(output, "Version: 1.0.0"))
 	assert.Assert(t, strings.Contains(output, "Gateways:"))
@@ -133,57 +133,57 @@ func TestShowConfig_DisplaysTextFormat(t *testing.T) {
 }
 
 func TestShowConfig_DisplaysJSONFormat(t *testing.T) {
-	// Given: an existing config
+	// Given: an existing config.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	createTestConfig(t)
 
 	ctx := context.Background()
-	// Create a mock command that returns true for Bool("json")
+	// Create a mock command that returns true for Bool("json").
 	cmd := &cli.Command{
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "json", Value: true},
 		},
 	}
 
-	// Capture stdout
+	// Capture stdout.
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// When: showing config in JSON format
+	// When: showing config in JSON format.
 	err := showConfig(ctx, cmd)
 
-	// Restore stdout
+	// Restore stdout.
 	w.Close()
 	os.Stdout = oldStdout
 
-	// Read output
+	// Read output.
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	// Then: should succeed
+	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: should output valid JSON
+	// And: should output valid JSON.
 	assert.Assert(t, strings.Contains(output, "\"version\""))
 	assert.Assert(t, strings.Contains(output, "\"proxy\""))
 }
 
 func TestShowConfig_FailsIfNoConfig(t *testing.T) {
-	// Given: no config file
+	// Given: no config file.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// When: trying to show config
+	// When: trying to show config.
 	err := showConfig(ctx, cmd)
 
-	// Then: should return error
+	// Then: should return error.
 	assert.ErrorContains(t, err, "failed to load configuration")
 }
 
@@ -192,7 +192,7 @@ func TestShowConfig_FailsIfNoConfig(t *testing.T) {
 // ========================================
 
 func TestValidateConfig_SucceedsForValidConfig(t *testing.T) {
-	// Given: a valid config
+	// Given: a valid config.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
@@ -201,56 +201,56 @@ func TestValidateConfig_SucceedsForValidConfig(t *testing.T) {
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// Capture stdout
+	// Capture stdout.
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// When: validating config
+	// When: validating config.
 	err := validateConfig(ctx, cmd)
 
-	// Restore stdout
+	// Restore stdout.
 	w.Close()
 	os.Stdout = oldStdout
 
-	// Read output
+	// Read output.
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	// Then: should succeed
+	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: should display success message
+	// And: should display success message.
 	assert.Assert(t, strings.Contains(output, "✅ Configuration is valid"))
 }
 
 func TestValidateConfig_FailsIfNoConfig(t *testing.T) {
-	// Given: no config file
+	// Given: no config file.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// When: validating config
+	// When: validating config.
 	err := validateConfig(ctx, cmd)
 
-	// Then: should return error
+	// Then: should return error.
 	assert.ErrorContains(t, err, "Configuration validation failed")
 }
 
 func TestValidateConfig_FailsForInvalidConfig(t *testing.T) {
-	// Given: an invalid config file
+	// Given: an invalid config file.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	// Create .centian directory
+	// Create .centian directory.
 	centianDir := filepath.Join(os.Getenv("HOME"), ".centian")
 	err := os.MkdirAll(centianDir, 0o755)
 	assert.NilError(t, err)
 
-	// Write invalid JSON
+	// Write invalid JSON.
 	configPath := filepath.Join(centianDir, "config.jsonc")
 	err = os.WriteFile(configPath, []byte("{invalid json}"), 0o644)
 	assert.NilError(t, err)
@@ -258,10 +258,10 @@ func TestValidateConfig_FailsForInvalidConfig(t *testing.T) {
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// When: validating config
+	// When: validating config.
 	err = validateConfig(ctx, cmd)
 
-	// Then: should return error
+	// Then: should return error.
 	assert.ErrorContains(t, err, "Configuration validation failed")
 }
 
@@ -270,13 +270,13 @@ func TestValidateConfig_FailsForInvalidConfig(t *testing.T) {
 // ========================================
 
 func TestListServers_DisplaysAllServers(t *testing.T) {
-	// Given: a config with servers
+	// Given: a config with servers.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	createTestConfig(t)
 
-	// Add a test server
+	// Add a test server.
 	config, _ := LoadConfig()
 	gateway := &GatewayConfig{
 		MCPServers: map[string]*MCPServerConfig{
@@ -307,27 +307,27 @@ func TestListServers_DisplaysAllServers(t *testing.T) {
 		},
 	}
 
-	// Capture stdout
+	// Capture stdout.
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// When: listing servers
+	// When: listing servers.
 	err := listServers(ctx, cmd)
 
-	// Restore stdout
+	// Restore stdout.
 	w.Close()
 	os.Stdout = oldStdout
 
-	// Read output
+	// Read output.
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	// Then: should succeed
+	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: should display both servers
+	// And: should display both servers.
 	assert.Assert(t, strings.Contains(output, "test-server"))
 	assert.Assert(t, strings.Contains(output, "disabled-server"))
 }
@@ -356,8 +356,8 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 func TestListServers_Details(t *testing.T) {
-	// Given: no config, context and command
-	// prep no config:
+	// Given: no config, context and command.
+	// prep no config:.
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
@@ -372,14 +372,14 @@ func TestListServers_Details(t *testing.T) {
 		},
 	}
 
-	// When: calling listServers
+	// When: calling listServers.
 	failedToLoadConfig1 := listServers(ctx, cmd)
 
-	// Then: err is as expected (due to no config)
+	// Then: err is as expected (due to no config).
 	assert.ErrorContains(t, failedToLoadConfig1, "failed to load configuration")
 
 	got := captureStdout(t, func() {
-		// When: adding a real config and calling listServers
+		// When: adding a real config and calling listServers.
 		newConfig := GlobalConfig{
 			Name:    "test config",
 			Version: "1.0.0",
@@ -397,7 +397,7 @@ func TestListServers_Details(t *testing.T) {
 	gatewayName := fmt.Sprintf("my-gateway-%d", time.Now().UnixNano())
 	serverName := fmt.Sprintf("my-server-%d", time.Now().UnixNano())
 	got = captureStdout(t, func() {
-		// When: adding a real config WITH Gateways and servers and calling listServers
+		// When: adding a real config WITH Gateways and servers and calling listServers.
 		newConfig := GlobalConfig{
 			Name:    "test config",
 			Version: "1.0.0",
@@ -444,7 +444,7 @@ func TestAddServer_Details(t *testing.T) {
 		},
 	}
 
-	// existing config prep
+	// existing config prep.
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
@@ -452,13 +452,13 @@ func TestAddServer_Details(t *testing.T) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
-	// When: calling addServer without an existing config
+	// When: calling addServer without an existing config.
 	failedToLoadConfig1 := addServer(ctx, cmd)
 
-	// Then: err is as expected (due to no config)
+	// Then: err is as expected (due to no config).
 	assert.ErrorContains(t, failedToLoadConfig1, "failed to load configuration")
 
-	// When: calling addServer WITH an existing config and NO gateways
+	// When: calling addServer WITH an existing config and NO gateways.
 	newConfig := GlobalConfig{
 		Name:     "test config",
 		Version:  "1.0.0",
@@ -477,7 +477,7 @@ func TestAddServer_Details(t *testing.T) {
 	}
 	noError := addServer(ctx, cmd)
 
-	// Then: the command works as expected, and a new server is added under the "default" gateway
+	// Then: the command works as expected, and a new server is added under the "default" gateway.
 	assert.NilError(t, noError)
 	config, err := LoadConfig()
 	assert.NilError(t, err)
@@ -488,7 +488,7 @@ func TestAddServer_Details(t *testing.T) {
 	assert.Equal(t, ok, true)
 	assert.Equal(t, mcpServer.Command, "npx")
 
-	// When: adding an existing servername
+	// When: adding an existing servername.
 	cmd = &cli.Command{
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "gateway", Value: "default"},
@@ -497,7 +497,7 @@ func TestAddServer_Details(t *testing.T) {
 	}
 	serverExistsErr := addServer(ctx, cmd)
 
-	// Then: there is a an error "server '%s' already exists"
+	// Then: there is a an error "server '%s' already exists".
 	expectedError := fmt.Sprintf("server '%s' already exists", serverName)
 	assert.Error(t, serverExistsErr, expectedError)
 }
@@ -557,7 +557,7 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 
 	got := captureStdout(t, func() {
 		result, err := promptUserToSelectServer(results, "server1")
-		// TODO: put stdin, then expect certain result - then check out
+		// TODO: put stdin, then expect certain result - then check out.
 		assert.NilError(t, err)
 		assert.Assert(t, result.server.Name == "server1")
 		assert.Assert(t, result.gatewayName == "gateway1")
@@ -583,7 +583,7 @@ func TestRemoveServer_Details(t *testing.T) {
 		},
 	}
 
-	// handle existing config
+	// handle existing config.
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
@@ -591,12 +591,12 @@ func TestRemoveServer_Details(t *testing.T) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
-	// When: calling removeServer without config
+	// When: calling removeServer without config.
 	noConfigError := removeServer(ctx, cmd)
-	// Then: correct error is returned
+	// Then: correct error is returned.
 	assert.ErrorContains(t, noConfigError, "failed to load configuration")
 
-	// Given: existing config without server
+	// Given: existing config without server.
 	newConfig := GlobalConfig{
 		Name:    "test config",
 		Version: "1.0.0",
@@ -604,9 +604,9 @@ func TestRemoveServer_Details(t *testing.T) {
 	saveError := SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
 
-	// When: calling removeServer
+	// When: calling removeServer.
 	noServerError := removeServer(ctx, cmd)
-	// Unable to find server '%s' in config
+	// Unable to find server '%s' in config.
 	assert.ErrorContains(t, noServerError, "unable to find server 'my-test-server-2' in config")
 
 	server := MCPServerConfig{
@@ -627,10 +627,10 @@ func TestRemoveServer_Details(t *testing.T) {
 	saveError = SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
 
-	// When: calling remnoveServer
+	// When: calling remnoveServer.
 	noError := removeServer(ctx, cmd)
 
-	// Then: it successfully removes the server
+	// Then: it successfully removes the server.
 	assert.NilError(t, noError)
 	config, err := LoadConfig()
 	assert.NilError(t, err)
@@ -641,7 +641,7 @@ func TestRemoveServer_Details(t *testing.T) {
 func TestToggleServer_Details(t *testing.T) {
 	serverName := "my-test-server-2"
 
-	// handle existing config
+	// handle existing config.
 	configPath, confErr := GetConfigPath()
 	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
@@ -649,12 +649,12 @@ func TestToggleServer_Details(t *testing.T) {
 		os.Rename(configPath, tmpConfPath)
 	}
 
-	// When: calling removeServer without config
+	// When: calling removeServer without config.
 	noConfigError := toggleServer(serverName, false)
-	// Then: correct error is returned
+	// Then: correct error is returned.
 	assert.ErrorContains(t, noConfigError, "failed to load configuration")
 
-	// Given: existing config without server
+	// Given: existing config without server.
 	newConfig := GlobalConfig{
 		Name:    "test config",
 		Version: "1.0.0",
@@ -662,9 +662,9 @@ func TestToggleServer_Details(t *testing.T) {
 	saveError := SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
 
-	// When: calling removeServer
+	// When: calling removeServer.
 	noServerError := toggleServer(serverName, false)
-	// Unable to find server '%s' in config
+	// Unable to find server '%s' in config.
 	assert.ErrorContains(t, noServerError, "unable to find server 'my-test-server-2' in config")
 
 	server := MCPServerConfig{
@@ -686,11 +686,11 @@ func TestToggleServer_Details(t *testing.T) {
 	saveError = SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
 
-	// When: calling remnoveServer
+	// When: calling remnoveServer.
 	expectedValue := false
 	noError := toggleServer(serverName, expectedValue)
 
-	// Then: it successfully removes the server
+	// Then: it successfully removes the server.
 	assert.NilError(t, noError)
 	config, err := LoadConfig()
 	assert.NilError(t, err)
@@ -698,7 +698,7 @@ func TestToggleServer_Details(t *testing.T) {
 	assert.Assert(t, ok)
 	assert.Assert(t, loadedServer.Enabled == expectedValue)
 
-	// When: calling enableServer
+	// When: calling enableServer.
 	ctx := context.Background()
 	cmd := &cli.Command{
 		Flags: []cli.Flag{
@@ -707,7 +707,7 @@ func TestToggleServer_Details(t *testing.T) {
 	}
 	noError = enableServer(ctx, cmd)
 
-	// Then: server is enabled, and no errors are given
+	// Then: server is enabled, and no errors are given.
 	assert.NilError(t, noError)
 	config, err = LoadConfig()
 	assert.NilError(t, err)
@@ -715,7 +715,7 @@ func TestToggleServer_Details(t *testing.T) {
 	assert.Assert(t, ok)
 	assert.Assert(t, loadedServer.Enabled)
 
-	// When: calling disableServer
+	// When: calling disableServer.
 	ctx = context.Background()
 	cmd = &cli.Command{
 		Flags: []cli.Flag{
@@ -724,7 +724,7 @@ func TestToggleServer_Details(t *testing.T) {
 	}
 	noError = disableServer(ctx, cmd)
 
-	// Then: server is enabled, and no errors are given
+	// Then: server is enabled, and no errors are given.
 	assert.NilError(t, noError)
 	config, err = LoadConfig()
 	assert.NilError(t, err)
@@ -734,7 +734,7 @@ func TestToggleServer_Details(t *testing.T) {
 }
 
 func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
-	// Given: a config with enabled and disabled servers
+	// Given: a config with enabled and disabled servers.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
@@ -770,43 +770,43 @@ func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
 		},
 	}
 
-	// Capture stdout
+	// Capture stdout.
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	// When: listing only enabled servers
+	// When: listing only enabled servers.
 	err := listServers(ctx, cmd)
 
-	// Restore stdout
+	// Restore stdout.
 	w.Close()
 	os.Stdout = oldStdout
 
-	// Read output
+	// Read output.
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
 	output := buf.String()
 
-	// Then: should succeed
+	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: should display only enabled server
+	// And: should display only enabled server.
 	assert.Assert(t, strings.Contains(output, "enabled-server"))
 	assert.Assert(t, !strings.Contains(output, "disabled-server"))
 }
 
 func TestListServers_FailsIfNoConfig(t *testing.T) {
-	// Given: no config file
+	// Given: no config file.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	cmd := &cli.Command{}
 
-	// When: listing servers
+	// When: listing servers.
 	err := listServers(ctx, cmd)
 
-	// Then: should return error
+	// Then: should return error.
 	assert.ErrorContains(t, err, "failed to load configuration")
 }
 
@@ -815,7 +815,7 @@ func TestListServers_FailsIfNoConfig(t *testing.T) {
 // ========================================
 
 func TestRemoveConfig_RemovesConfigWithForceFlag(t *testing.T) {
-	// Given: an existing config
+	// Given: an existing config.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
@@ -824,7 +824,7 @@ func TestRemoveConfig_RemovesConfigWithForceFlag(t *testing.T) {
 	configPath, _ := GetConfigPath()
 	centianDir := filepath.Dir(configPath)
 
-	// Verify config exists
+	// Verify config exists.
 	_, err := os.Stat(configPath)
 	assert.NilError(t, err)
 
@@ -835,19 +835,19 @@ func TestRemoveConfig_RemovesConfigWithForceFlag(t *testing.T) {
 		},
 	}
 
-	// When: removing config with force flag
+	// When: removing config with force flag.
 	err = removeConfig(ctx, cmd)
 
-	// Then: should succeed
+	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: centian directory should be removed
+	// And: centian directory should be removed.
 	_, err = os.Stat(centianDir)
 	assert.Assert(t, os.IsNotExist(err))
 }
 
 func TestRemoveConfig_SucceedsIfNoConfig(t *testing.T) {
-	// Given: no config file
+	// Given: no config file.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
@@ -858,9 +858,9 @@ func TestRemoveConfig_SucceedsIfNoConfig(t *testing.T) {
 		},
 	}
 
-	// When: trying to remove non-existent config
+	// When: trying to remove non-existent config.
 	err := removeConfig(ctx, cmd)
 
-	// Then: should return error
+	// Then: should return error.
 	assert.NilError(t, err)
 }

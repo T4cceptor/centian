@@ -1,10 +1,10 @@
-// Copyright 2025 CentianCLI Contributors
+// Copyright 2025 CentianCLI Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// You may obtain a copy of the License at.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0.
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package main contains the entry point for centian - it uses internal packages to provide the following CLI commands:
-// - centian init
-// - centian stdio
-// - centian server
-// - centian logs
-// - centian config
+// Package main contains the entry point for centian - it uses internal packages to provide the following CLI commands:.
+// - centian init.
+// - centian stdio.
+// - centian server.
+// - centian logs.
+// - centian config.
 package main
 
 import (
@@ -34,7 +34,7 @@ import (
 var version = "dev"
 
 func main() {
-	// Create CLI app
+	// Create CLI app.
 	app := &urfavecli.Command{
 		Name:                  "centian",
 		Description:           "Proxy and modify your MCP server and tools.",
@@ -50,7 +50,7 @@ func main() {
 		},
 	}
 
-	// Run the CLI app
+	// Run the CLI app.
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}

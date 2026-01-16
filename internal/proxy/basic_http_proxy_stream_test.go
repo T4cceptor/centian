@@ -13,8 +13,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// TestDeepWikiHTTPProxyWithSDKClient tests the HTTP proxy with DeepWiki's public MCP server
-// This test connects to a real public MCP endpoint and performs actual searches
+// TestDeepWikiHTTPProxyWithSDKClient tests the HTTP proxy with DeepWiki's public MCP server.
+// This test connects to a real public MCP endpoint and performs actual searches.
 func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test with external service in short mode")
@@ -22,7 +22,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 
 	downstreamURL := "https://mcp.deepwiki.com/mcp"
 
-	// Given: a GlobalConfig with HTTP proxy settings pointing to DeepWiki
+	// Given: a GlobalConfig with HTTP proxy settings pointing to DeepWiki.
 	globalConfig := &config.GlobalConfig{
 		Name:    "Test Proxy Server",
 		Version: "1.0.0",
@@ -35,7 +35,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 				MCPServers: map[string]*config.MCPServerConfig{
 					"deepwiki": {
 						URL: downstreamURL,
-						// Headers: map[string]string{
+						// Headers: map[string]string{.
 						// 	"Content-Type": "application/json",
 						// },
 					},
@@ -44,7 +44,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 		},
 	}
 
-	// When: starting the proxy server in background
+	// When: starting the proxy server in background.
 	server, err := NewCentianHTTPProxy(globalConfig)
 	if err != nil {
 		t.Fatalf("Failed to create proxy server: %v", err)
@@ -56,7 +56,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 		}
 	}()
 
-	// Wait for server to start
+	// Wait for server to start.
 	time.Sleep(2 * time.Second)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -66,7 +66,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 
 	ctx := context.Background()
 
-	// When: creating an MCP client and connecting through the proxy
+	// When: creating an MCP client and connecting through the proxy.
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "centian-test-client",
 		Version: "1.0.0",
@@ -95,7 +95,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 
 	log.Println("✅ Connected to proxy server successfully")
 
-	// Then: listing tools should return DeepWiki's available tools
+	// Then: listing tools should return DeepWiki's available tools.
 	log.Println("\n=== Test 1: List Available Tools ===")
 	toolsResult, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -111,10 +111,10 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 		log.Printf("  - %s: %s", tool.Name, tool.Description)
 	}
 
-	// Then: calling a tool should return valid results
+	// Then: calling a tool should return valid results.
 	log.Println("\n=== Test 2: Ask Question about 'modelcontextprotocol/servers' ===")
 
-	// Use ask_question tool with proper parameters
+	// Use ask_question tool with proper parameters.
 	toolName := "ask_question"
 	found := false
 	for _, tool := range toolsResult.Tools {
@@ -151,7 +151,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 
 	log.Println("✅ Tool call successful (via proxy)")
 
-	// Verify we got content back
+	// Verify we got content back.
 	if len(res.Content) == 0 {
 		t.Fatal("Expected content in tool response, got none")
 	}
@@ -166,7 +166,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 		}
 	}
 
-	// Summary
+	// Summary.
 	log.Println("\n=== Test Results ===")
 	log.Println("✅ Proxy successfully forwarded requests to DeepWiki")
 	log.Println("✅ Tools list retrieved via proxy")
