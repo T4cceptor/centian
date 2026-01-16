@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.24]
+        go-version: [1.25]
 
     steps:
       - name: Checkout code
@@ -87,5 +87,5 @@ jobs:
 
       - name: Test build with version
         run: |
-          go build -ldflags "-X main.version=test-build" -o centian-cli ./cmd/main.go
-          ./centian-cli --version
+          go build -ldflags "-X main.version=test-build" -o centian ./cmd/main.go
+          ./centian --version

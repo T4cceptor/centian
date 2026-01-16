@@ -41,6 +41,9 @@ Coming soon...
 
 #### From Source
 
+Requirements:
+- Go - Version `1.25.0`
+
 ```bash
 git clone https://github.com/CentianAI/centian-cli.git
 cd centian-cli
@@ -52,6 +55,8 @@ go build -o build/centian ./cmd/main.go
 There are two fundamental ways Centian CLI can be used:
 1. as a drop-in replacement for any stdio-based MCP (currently only supports stdio transport)
 2. as a http server, using a config file (currently only supports http transport)
+
+Note: cross-transport (http-stdio and stdio-http) is planned and likely to be available mid 2026.
 
 #### To proxy stdio MCP server
 Use `centian stdio` as a drop-in replacement for `npx` (or other MCP server commands):
@@ -74,17 +79,24 @@ Use `centian stdio` as a drop-in replacement for `npx` (or other MCP server comm
   "mcpServers": {
     "memory": {
       "command": "centian",
-      "args": ["stdio", "--", "-y", "@modelcontextprotocol/server-memory"]
+      "args": [
+        "stdio",
+        "--",
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
     }
   }
 }
 ```
+Note: the command defaults to `npx`, if you want/need a different CLI command you can using `--cmd` like so:
+`"args": ["stdio", "--cmd", "python", "--", "my_python_mcp.py"]`
 
 #### To proxy HTTP MCP server
 
 - Use a config file (create one via `centian init` and follow the process)
 - Then start the HTTP proxy via `centian server start`
-  - Note: server parameters can be defined in the config file, default path `~/.centian/config.jsonc`
+  - Note: server parameters can be defined in the config file, default path: `~/.centian/config.jsonc`
 - This brings up a HTTP server that proxies all MCP requests.
 - The endpoints are based on the provided `gateway` and `mcpServer` name.
 
@@ -159,7 +171,7 @@ Server management commands.
 
 Centian automatically logs all MCP interactions to provide complete audit trails:
 
-**Log Location:** `~/.centian/logs/`
+**Log Location:** `s~/.centian/logs/`
 
 **Log Files:**
 - `requests.jsonl` - All MCP requests with timestamps and session IDs

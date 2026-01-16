@@ -23,23 +23,23 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-            name: linux-amd64
+            name: linux_amd64
           - goos: linux
             goarch: arm64
-            name: linux-arm64
+            name: linux_arm64
           - goos: darwin
             goarch: amd64
-            name: darwin-amd64
+            name: darwin_amd64
           - goos: darwin
             goarch: arm64
-            name: darwin-arm64
+            name: darwin_arm64
           - goos: windows
             goarch: amd64
-            name: windows-amd64
+            name: windows_amd64
             ext: .exe
           - goos: freebsd
             goarch: amd64
-            name: freebsd-amd64
+            name: freebsd_amd64
 
     steps:
       - name: Checkout code
@@ -75,11 +75,11 @@ jobs:
           fi
           
           # Build binary
-          BINARY_NAME="centian-cli${{ matrix.ext }}"
+          BINARY_NAME="centian${{ matrix.ext }}"
           go build -ldflags "-s -w -X main.version=${VERSION}" -o "${BINARY_NAME}" ./cmd/main.go
-          
+
           # Create archive
-          ARCHIVE_NAME="centian-cli-${VERSION}-${{ matrix.name }}"
+          ARCHIVE_NAME="centian_${VERSION}_${{ matrix.name }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             zip "${ARCHIVE_NAME}.zip" "${BINARY_NAME}" README.md LICENSE
             echo "ASSET_PATH=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
@@ -151,8 +151,8 @@ jobs:
 
             ### Using curl (Linux/macOS)
             ```bash
-            curl -L https://github.com/CentianAI/centian-cli/releases/download/${{ steps.version.outputs.version }}/centian-cli-${{ steps.version.outputs.version }}-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/').tar.gz | tar -xz
-            sudo mv centian-cli /usr/local/bin/
+            curl -L https://github.com/CentianAI/centian-cli/releases/download/${{ steps.version.outputs.version }}/centian_${{ steps.version.outputs.version }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz | tar -xz
+            sudo mv centian /usr/local/bin/
             ```
 
             ## Checksums
