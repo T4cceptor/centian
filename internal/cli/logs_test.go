@@ -14,7 +14,7 @@ import (
 	urfavecli "github.com/urfave/cli/v3"
 )
 
-// TestHandleLogsCommandOutputsEntries verifies that the logs command correctly.
+// TestHandleLogsCommandOutputsEntries verifies that the logs command correctly
 // reads and displays log entries from a JSONL file.
 //
 // Given: a logs directory with one test log entry containing session "sess-123".
@@ -79,7 +79,7 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	}
 }
 
-// TestHandleLogsCommandNoDirectory verifies that the logs command handles.
+// TestHandleLogsCommandNoDirectory verifies that the logs command handles
 // missing log directories gracefully with a helpful error message.
 //
 // Given: CENTIAN_LOG_DIR points to a non-existent directory.

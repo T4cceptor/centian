@@ -40,8 +40,13 @@ linters:
       - path: '(.+)_test\.go'
         linters:
           - gosec # we have quite a few file operations during testing, thus deactivating gosec for these
-          - goconst # makes no sense to flag const usage in test cases
-          - errcheck # due to the file operations we are potentially ignoring errors during testing, this will fail the tests anyway
+          - goconst # makes no sense to flag const usage in test cases where a lot of hardcoded values are used
+          - errcheck # due to the file operations we are potentially not dealing with errors during test setup, this will fail the tests anyway
+      - path: 'internal/common*'
+      # we accept the fact that "common" is the most common name for this type of code - pun intended
+        text: "var-naming: avoid meaningless package names"
+        linters:
+          - revive
 
 formatters:
   enable:
