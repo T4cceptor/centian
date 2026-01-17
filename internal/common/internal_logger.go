@@ -106,36 +106,36 @@ func initInternalLogger() error {
 
 // CloseLogger closes the global logger.
 func CloseLogger() error {
-	if err := initInternalLogger(); err != nil {
-		return err
+	if globalLogger != nil {
+		return globalLogger.Close()
 	}
-	return globalLogger.Close()
+	return nil
 }
 
 // LogInfo logs an info message using the global logger.
 func LogInfo(message string, args ...interface{}) {
-	if err := initInternalLogger(); err == nil {
+	if globalLogger != nil {
 		globalLogger.Info(message, args...)
 	}
 }
 
 // LogError logs an error message using the global logger.
 func LogError(message string, args ...interface{}) {
-	if err := initInternalLogger(); err == nil {
+	if globalLogger != nil {
 		globalLogger.Error(message, args...)
 	}
 }
 
 // LogDebug logs a debug message using the global logger.
 func LogDebug(message string, args ...interface{}) {
-	if err := initInternalLogger(); err == nil {
+	if globalLogger != nil {
 		globalLogger.Debug(message, args...)
 	}
 }
 
 // LogWarn logs a warning message using the global logger.
 func LogWarn(message string, args ...interface{}) {
-	if err := initInternalLogger(); err == nil {
+	if globalLogger != nil {
 		globalLogger.Warn(message, args...)
 	}
 }
