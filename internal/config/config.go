@@ -8,7 +8,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
 // ProcessorType defines the type of processor, e.g. cli, webhook, internal, etc.
@@ -369,19 +370,6 @@ func validatedGateways(gateways map[string]*GatewayConfig) error {
 	return nil
 }
 
-// isURLCompliant checks if a name is URL-safe (alphanumeric, dash, underscore only).
-// Names must start with alphanumeric character and can contain alphanumeric, dash, or underscore.
-// This ensures names can be safely used in URL paths like /mcp/<gateway>/<server>.
-func isURLCompliant(name string) bool {
-	if name == "" {
-		return false
-	}
-	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore.
-	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
-	matched, _ := regexp.MatchString(pattern, name)
-	return matched
-}
-
 // isValidHTTPURL validates that a URL string is a properly formatted HTTP/HTTPS URL.
 // Returns true if the URL has a valid http:// or https:// scheme and a host component.
 func isValidHTTPURL(urlStr string) bool {
@@ -396,7 +384,7 @@ func isValidHTTPURL(urlStr string) bool {
 // validateGateway validates a gateway configuration.
 func validateGateway(name string, config GatewayConfig) error {
 	// Validate gateway name is URL compliant (used in endpoint paths).
-	if !isURLCompliant(name) {
+	if !common.IsURLCompliant(name) {
 		return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 
@@ -418,7 +406,7 @@ func validateGateway(name string, config GatewayConfig) error {
 // validateServer validates a single server configuration.
 func validateServer(name string, server *MCPServerConfig) error {
 	// Validate server name is URL compliant (used in endpoint paths).
-	if !isURLCompliant(name) {
+	if !common.IsURLCompliant(name) {
 		return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 

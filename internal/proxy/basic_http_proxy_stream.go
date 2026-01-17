@@ -194,10 +194,6 @@ func getServerID(globalConfig *config.GlobalConfig) string {
 //
 // Note: the server does not have gateways and endpoints attached until StartCentianServer is called.
 func NewCentianHTTPProxy(globalConfig *config.GlobalConfig) (*CentianServer, error) {
-	// TODO: we might want to refactor this to have a dedicated setup method before.
-	// calling StartCentianServer which attaches proxy endpoints and handler functions,
-	// but before serving those downstream this would allow modifying the server,
-	// e.g. for testing, or special use-cases.
 	mux := http.NewServeMux()
 	server := &http.Server{
 		Addr:         ":" + globalConfig.Proxy.Port,
@@ -234,10 +230,12 @@ func (c *CentianServer) GetNewGateway(
 }
 
 // getEndpoint returns a new endpoint path for the given gatewayName and mcpServerName.
-func getEndpoint(gatewayName, mcpServerName string) string {
-	// TODO: add verification for both gatewayName and serverName to be used in a URL.
-	// TODO: allow custom endpoint patterns.
-	return fmt.Sprintf("/mcp/%s/%s", gatewayName, mcpServerName)
+func getEndpoint(gatewayName, mcpServerName string) (string, error) {
+	result := fmt.Sprintf("/mcp/%s/%s", gatewayName, mcpServerName)
+	if !common.IsURLCompliant(result) {
+		return "", fmt.Errorf("endpoint '%s' is not a compliant URL", result)
+	}
+	return result, nil
 }
 
 // StartCentianServer uses CentianServer.config to create all gateways and endpoints,
@@ -266,7 +264,11 @@ func (c *CentianServer) StartCentianServer() error {
 		// 2. Iterate through each mcp server config for this gateway.
 		for mcpServerName, mcpServerConfig := range gatewayConfig.MCPServers {
 			// 3. create new endpoint for MCP server to be proxied.
-			endpoint := getEndpoint(gatewayName, mcpServerName)
+			endpoint, err := getEndpoint(gatewayName, mcpServerName)
+			if err != nil {
+				common.LogError(err.Error())
+				continue // we do not proceed if we receive an error during endpoint creation
+			}
 			proxyEndpoint := CreateProxyEndpoint(
 				mcpServerConfig,
 				&gateway,

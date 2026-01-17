@@ -2,6 +2,8 @@ package config
 
 import (
 	"testing"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
 // TestIsURLCompliant tests URL-safe name validation.
@@ -40,7 +42,7 @@ func TestIsURLCompliant(t *testing.T) {
 			// Given: a name string.
 
 			// When: checking if it's URL compliant.
-			result := isURLCompliant(tt.input)
+			result := common.IsURLCompliant(tt.input)
 
 			// Then: verify the result matches expected.
 			if result != tt.expected {
