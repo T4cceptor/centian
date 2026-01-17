@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // InternalLogger provides basic logging functionality to .centian folder.
@@ -72,23 +71,6 @@ func (l *InternalLogger) Debug(message string, args ...interface{}) {
 // Warn logs a warning message.
 func (l *InternalLogger) Warn(message string, args ...interface{}) {
 	l.logger.Printf("[WARN] "+message, args...)
-}
-
-// LogOperation logs the start and completion of an operation.
-func (l *InternalLogger) LogOperation(operation string, fn func() error) error {
-	l.Info("Starting operation: %s", operation)
-	start := time.Now()
-
-	err := fn()
-	duration := time.Since(start)
-
-	if err != nil {
-		l.Error("Operation failed: %s (duration: %v) - %v", operation, duration, err)
-	} else {
-		l.Info("Operation completed: %s (duration: %v)", operation, duration)
-	}
-
-	return err
 }
 
 // Global logger instance.

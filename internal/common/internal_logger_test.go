@@ -46,10 +46,6 @@ func TestLogging(t *testing.T) {
 		"[ERROR] Test error message: 123",
 		"[DEBUG] Test debug message",
 		"[WARN] Test warning message",
-		"[INFO] Starting operation: test operation",
-		"[INFO] Operation completed: test operation",
-		"[INFO] Starting operation: failing operation",
-		"[ERROR] Operation failed: failing operation",
 	}
 
 	for _, expected := range expectedMessages {
