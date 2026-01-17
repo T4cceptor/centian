@@ -180,11 +180,11 @@ func (e *CentianProxyEndpoint) logSystemMessage(message string) {
 }
 
 // getServerID returns a new serverID using the server name.
-func getServerID(config *config.GlobalConfig) string {
+func getServerID(globalConfig *config.GlobalConfig) string {
 	// TODO: better way of determining server ID.
 	serverStr := "centian_server"
-	if config.Name != "" {
-		serverStr = config.Name
+	if globalConfig.Name != "" {
+		serverStr = globalConfig.Name
 	}
 	timestamp := time.Now().UnixNano()
 	return fmt.Sprintf("%s_%d", serverStr, timestamp)
@@ -193,17 +193,17 @@ func getServerID(config *config.GlobalConfig) string {
 // NewCentianHTTPProxy takes a GlobalConfig struct and returns a new CentianServer.
 //
 // Note: the server does not have gateways and endpoints attached until StartCentianServer is called.
-func NewCentianHTTPProxy(config *config.GlobalConfig) (*CentianServer, error) {
+func NewCentianHTTPProxy(globalConfig *config.GlobalConfig) (*CentianServer, error) {
 	// TODO: we might want to refactor this to have a dedicated setup method before.
 	// calling StartCentianServer which attaches proxy endpoints and handler functions,
 	// but before serving those downstream this would allow modifying the server,
 	// e.g. for testing, or special use-cases.
 	mux := http.NewServeMux()
 	server := &http.Server{
-		Addr:         ":" + config.Proxy.Port,
+		Addr:         ":" + globalConfig.Proxy.Port,
 		Handler:      mux,
-		ReadTimeout:  common.GetSecondsFromInt(config.Proxy.Timeout),
-		WriteTimeout: common.GetSecondsFromInt(config.Proxy.Timeout),
+		ReadTimeout:  common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
+		WriteTimeout: common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
 	}
 	logger, err := logging.NewLogger()
 	if err != nil {
@@ -211,11 +211,11 @@ func NewCentianHTTPProxy(config *config.GlobalConfig) (*CentianServer, error) {
 	}
 
 	return &CentianServer{
-		config:   config,
+		config:   globalConfig,
 		mux:      mux,
 		server:   server,
 		logger:   logger,
-		serverID: getServerID(config),
+		serverID: getServerID(globalConfig),
 		gateways: make(map[string]*CentianProxyGateway),
 	}, nil
 }
@@ -223,10 +223,10 @@ func NewCentianHTTPProxy(config *config.GlobalConfig) (*CentianServer, error) {
 // GetNewGateway returns a new CentianProxyGateway for the given parameters.
 func (c *CentianServer) GetNewGateway(
 	gatewayName string,
-	config *config.GatewayConfig,
+	gatewayConfig *config.GatewayConfig,
 ) CentianProxyGateway {
 	return CentianProxyGateway{
-		config:    config,
+		config:    gatewayConfig,
 		name:      gatewayName,
 		endpoints: make([]*CentianProxyEndpoint, 0),
 		server:    c,
@@ -243,7 +243,7 @@ func getEndpoint(gatewayName, mcpServerName string) string {
 // StartCentianServer uses CentianServer.config to create all gateways and endpoints,
 // and start listening on the configured endpoints.
 func (c *CentianServer) StartCentianServer() error {
-	config := c.config
+	serverConfig := c.config
 
 	// 1. Iterate through each gateway to create proxy endpoints.
 	// Note: we are leaving out.
@@ -258,7 +258,7 @@ func (c *CentianServer) StartCentianServer() error {
 	// this is VERY similar to using an endpoint, only that the client.
 	// has a different way to provide the endpoint,
 	// e.g. through the tool name "<servername>__<actual_toolname>".
-	for gatewayName, gatewayConfig := range config.Gateways {
+	for gatewayName, gatewayConfig := range serverConfig.Gateways {
 		gateway := c.GetNewGateway(gatewayName, gatewayConfig)
 
 		c.gateways[gatewayName] = &gateway
@@ -311,7 +311,7 @@ func (c *CentianServer) StartCentianServer() error {
 	}
 
 	// 5. Start the (proxy) Server.
-	log.Printf("Starting proxy server on :%s", config.Proxy.Port)
+	log.Printf("Starting proxy server on :%s", serverConfig.Proxy.Port)
 	return c.server.ListenAndServe()
 }
 

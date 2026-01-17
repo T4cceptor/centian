@@ -83,13 +83,13 @@ Examples:
 	},
 }
 
-func printServerInfo(config *config.GlobalConfig) error {
-	serverName := config.Name
+func printServerInfo(globalConfig *config.GlobalConfig) error {
+	serverName := globalConfig.Name
 	if serverName == "" {
 		serverName = "Centian Proxy Server"
 	}
 	totalServers := 0
-	for _, gateway := range config.Gateways {
+	for _, gateway := range globalConfig.Gateways {
 		totalServers += len(gateway.MCPServers)
 	}
 
@@ -99,19 +99,19 @@ func printServerInfo(config *config.GlobalConfig) error {
 
 	fmt.Fprintf(os.Stderr, "[CENTIAN] %s\n", serverName)
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting HTTP proxy server...\n")
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Port: %s\n", config.Proxy.Port)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Timeout: %ds\n", config.Proxy.Timeout)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Gateways: %d\n", len(config.Gateways))
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Port: %s\n", globalConfig.Proxy.Port)
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Timeout: %ds\n", globalConfig.Proxy.Timeout)
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Gateways: %d\n", len(globalConfig.Gateways))
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Total MCP servers: %d\n", totalServers)
 	fmt.Fprintf(os.Stderr, "\n")
 
 	// Print endpoint information.
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Configured endpoints:\n")
-	for gatewayName, gateway := range config.Gateways {
+	for gatewayName, gateway := range globalConfig.Gateways {
 		for serverName, server := range gateway.MCPServers {
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 			fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
-				config.Proxy.Port, endpoint, server.URL)
+				globalConfig.Proxy.Port, endpoint, server.URL)
 		}
 	}
 	fmt.Fprintf(os.Stderr, "\n")
