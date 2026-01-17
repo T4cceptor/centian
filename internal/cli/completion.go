@@ -1,10 +1,10 @@
-// Copyright 2025 CentianCLI Contributors
+// Copyright 2025 CentianCLI Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// You may obtain a copy of the License at.
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0.
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,25 +22,25 @@ import (
 	"strings"
 )
 
-// ShellInfo contains information about the current shell and its configuration
+// ShellInfo contains information about the current shell and its configuration.
 type ShellInfo struct {
 	Name           string // bash, zsh, fish, etc.
 	RCFile         string // path to RC file (~/.bashrc, ~/.zshrc, etc.)
 	CompletionLine string // the line to add for completion
 }
 
-// DetectShell detects the current shell and returns shell information
+// DetectShell detects the current shell and returns shell information.
 func DetectShell() (*ShellInfo, error) {
-	// Get shell from SHELL environment variable
+	// Get shell from SHELL environment variable.
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		return nil, fmt.Errorf("unable to detect shell: SHELL environment variable not set")
 	}
 
-	// Extract shell name from path
+	// Extract shell name from path.
 	shellName := filepath.Base(shell)
 
-	// Get user home directory
+	// Get user home directory.
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get home directory: %w", err)
@@ -51,7 +51,7 @@ func DetectShell() (*ShellInfo, error) {
 
 	switch shellName {
 	case "bash":
-		// Try .bash_profile first (macOS), then .bashrc (Linux)
+		// Try .bash_profile first (macOS), then .bashrc (Linux).
 		bashProfile := filepath.Join(homeDir, ".bash_profile")
 		bashrc := filepath.Join(homeDir, ".bashrc")
 
@@ -66,8 +66,9 @@ func DetectShell() (*ShellInfo, error) {
 		info.RCFile = filepath.Join(homeDir, ".zshrc")
 		info.CompletionLine = "source <(centian completion zsh)"
 
+	//nolint:goconst // ignoring "fish" constant for now
 	case "fish":
-		// Fish uses a different approach - completion files
+		// Fish uses a different approach - completion files.
 		fishCompDir := filepath.Join(homeDir, ".config", "fish", "completions")
 		info.RCFile = filepath.Join(fishCompDir, "centian.fish")
 		info.CompletionLine = "" // Fish doesn't need a line in RC file
@@ -79,12 +80,12 @@ func DetectShell() (*ShellInfo, error) {
 	return &info, nil
 }
 
-// SetupShellCompletion offers to set up shell completion for the user
+// SetupShellCompletion offers to set up shell completion for the user.
 func SetupShellCompletion() error {
 	fmt.Println("\n🔧 Shell Completion Setup")
 	fmt.Println("========================")
 
-	// Detect shell
+	// Detect shell.
 	shellInfo, err := DetectShell()
 	if err != nil {
 		fmt.Printf("⚠️  Could not detect shell: %s\n", err)
@@ -105,7 +106,7 @@ func SetupShellCompletion() error {
 		fmt.Println("   This enables tab completion for centian commands and subcommands.")
 	}
 
-	// Ask for user consent
+	// Ask for user consent.
 	fmt.Print("\n❓ Would you like to set up shell completion? (y/N): ")
 	reader := bufio.NewReader(os.Stdin)
 	response, err := reader.ReadString('\n')
@@ -120,17 +121,16 @@ func SetupShellCompletion() error {
 		return nil
 	}
 
-	// Set up completion based on shell type
+	// Set up completion based on shell type.
 	if shellInfo.Name == "fish" {
 		return setupFishCompletion(shellInfo.RCFile)
-	} else {
-		return setupShellCompletion(shellInfo)
 	}
+	return setupShellCompletion(shellInfo)
 }
 
-// setupShellCompletion sets up completion for bash/zsh shells
+// setupShellCompletion sets up completion for bash/zsh shells.
 func setupShellCompletion(shellInfo *ShellInfo) error {
-	// Check if completion line already exists
+	// Check if completion line already exists.
 	exists, err := completionExists(shellInfo.RCFile, shellInfo.CompletionLine)
 	if err != nil {
 		return fmt.Errorf("failed to check existing completion: %w", err)
@@ -141,7 +141,7 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 		return nil
 	}
 
-	// Create RC file if it doesn't exist
+	// Create RC file if it doesn't exist.
 	if _, err := os.Stat(shellInfo.RCFile); os.IsNotExist(err) {
 		fmt.Printf("📄 Creating %s...\n", shellInfo.RCFile)
 		file, err := os.Create(shellInfo.RCFile)
@@ -151,7 +151,8 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 		_ = file.Close()
 	}
 
-	// Add completion line
+	// Add completion line.
+	//nolint:gosec // We are dealing with a file without sensitive data.
 	file, err := os.OpenFile(shellInfo.RCFile, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open RC file: %w", err)
@@ -169,29 +170,29 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 	return nil
 }
 
-// setupFishCompletion sets up completion for fish shell
+// setupFishCompletion sets up completion for fish shell.
 func setupFishCompletion(completionFile string) error {
-	// Check if completion file already exists
+	// Check if completion file already exists.
 	if _, err := os.Stat(completionFile); err == nil {
 		fmt.Println("✅ Fish completion is already configured!")
 		return nil
 	}
 
-	// Create completions directory if it doesn't exist
+	// Create completions directory if it doesn't exist.
 	completionDir := filepath.Dir(completionFile)
-	if err := os.MkdirAll(completionDir, 0o755); err != nil {
+	if err := os.MkdirAll(completionDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create completions directory: %w", err)
 	}
 
-	// Generate fish completion script
+	// Generate fish completion script.
 	fmt.Println("🐟 Generating fish completion script...")
 
-	// We'll use the centian binary to generate the completion
-	// For now, we'll create a simple script that calls the completion command
+	// We'll use the centian binary to generate the completion.
+	// For now, we'll create a simple script that calls the completion command.
 	fishScript := `# Centian CLI fish completion
 complete -c centian -f -a "(centian --generate-shell-completion)"
 `
-
+	//nolint:gosec // We are writing a file without sensitive data.
 	if err := os.WriteFile(completionFile, []byte(fishScript), 0o644); err != nil {
 		return fmt.Errorf("failed to write fish completion file: %w", err)
 	}
@@ -202,9 +203,9 @@ complete -c centian -f -a "(centian --generate-shell-completion)"
 	return nil
 }
 
-// completionExists checks if the completion line already exists in the RC file
+// completionExists checks if the completion line already exists in the RC file.
 func completionExists(rcFile, completionLine string) (bool, error) {
-	file, err := os.Open(rcFile)
+	file, err := os.Open(filepath.Clean(rcFile))
 	if os.IsNotExist(err) {
 		return false, nil // File doesn't exist, so completion doesn't exist
 	}

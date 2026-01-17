@@ -1,3 +1,5 @@
+// Package cli provides all CLI commands centian offers,
+// including init, stdio, server, logs, config and all of their sub-commands.
 package cli
 
 import (
@@ -11,7 +13,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-// InitCommand initializes a new centian setup with default configuration
+// InitCommand initializes a new centian setup with default configuration.
 var InitCommand = &cli.Command{
 	Name:        "init",
 	Usage:       "Initialize centian with default configuration",
@@ -33,13 +35,13 @@ var InitCommand = &cli.Command{
 
 // initCentian initializes the centian configuration and provides setup guidance.
 // This is the main entry point for new users to get started with centian.
-func initCentian(ctx context.Context, cmd *cli.Command) error {
+func initCentian(_ context.Context, cmd *cli.Command) error {
 	configPath, err := config.GetConfigPath()
 	if err != nil {
 		return fmt.Errorf("failed to determine config path: %w", err)
 	}
 
-	// Check if config already exists
+	// Check if config already exists.
 	if !cmd.Bool("force") {
 		if _, err := config.LoadConfig(); err == nil {
 			fmt.Printf("✅ Configuration already exists at %s\n", configPath)
@@ -49,16 +51,16 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	// Create default config
+	// Create default config.
 	cfg := config.DefaultConfig()
 
-	// Run auto-discovery unless disabled
+	// Run auto-discovery unless disabled.
 	var imported int
 	if !cmd.Bool("no-discovery") {
 		imported = runAutoDiscovery(cfg)
 	}
 
-	// Save config (either default or with discovered servers)
+	// Save config (either default or with discovered servers).
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
@@ -78,7 +80,7 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 
 	fmt.Printf("💡 Use 'centian config --help' for more configuration options\n")
 
-	// Offer to set up shell completion
+	// Offer to set up shell completion.
 	if err := SetupShellCompletion(); err != nil {
 		fmt.Printf("⚠️  Shell completion setup failed: %v\n", err)
 		fmt.Printf("   You can set it up manually later using: centian completion <shell>\n")
@@ -87,16 +89,19 @@ func initCentian(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// runAutoDiscovery performs MCP server auto-discovery and handles user interaction
-func runAutoDiscovery(cfg *config.GlobalConfig) int {
+// runAutoDiscovery performs MCP server auto-discovery and handles user interaction.
+func runAutoDiscovery(_ *config.GlobalConfig) int {
+	// TODO: instead of adding the found servers to the file it
+	// should add it to the cfg object, then use existing methods to store that config.
+
 	common.StreamPrint(10, "🔍 Scanning for existing MCP configurations...\n")
 	time.Sleep(1 * time.Second)
 
-	// Create discovery manager and run discovery
+	// Create discovery manager and run discovery.
 	dm := discovery.NewDiscoveryManager()
 	result := dm.DiscoverAll()
 
-	// Show results and get user consent
+	// Show results and get user consent.
 	ui := discovery.NewDiscoveryUI()
 	selectedServers, err := ui.ShowDiscoveryResults(result)
 	if err != nil {
@@ -108,11 +113,11 @@ func runAutoDiscovery(cfg *config.GlobalConfig) int {
 		return 0
 	}
 
-	// Import selected servers
-	imported := discovery.ImportServers(selectedServers, cfg)
+	// Import selected servers.
+	imported := discovery.ImportServers(selectedServers)
 
-	// Show import summary
-	discovery.ShowImportSummary(imported, len(selectedServers))
+	// Show import summary.
+	discovery.ShowImportSummary(imported)
 
 	return imported
 }

@@ -9,7 +9,7 @@ Integration tests verify that real processor scripts work correctly with the pro
 ### Directory Structure
 
 ```
-integration_tests/
+integrationtests/
 ├── README.md                      # This file
 ├── processor_test.go              # Go integration tests
 ├── processors/                    # Example processor scripts
@@ -59,19 +59,19 @@ make test-integration
 Or directly with Go:
 
 ```bash
-go test -v ./integration_tests/...
+go test -v ./integrationtests/...
 ```
 
 #### Run Specific Test
 
 ```bash
-go test -v ./integration_tests -run TestPassthroughProcessor
+go test -v ./integrationtests -run TestPassthroughProcessor
 ```
 
 #### Run with Coverage
 
 ```bash
-go test -v -coverprofile=coverage.out ./integration_tests/...
+go test -v -coverprofile=coverage.out ./integrationtests/...
 go tool cover -html=coverage.out
 ```
 
@@ -247,7 +247,7 @@ func TestMyNewProcessor(t *testing.T) {
 #### 4. Run Tests
 
 ```bash
-go test -v ./integration_tests -run TestMyNewProcessor
+go test -v ./integrationtests -run TestMyNewProcessor
 ```
 
 ### Processor Contract
@@ -303,7 +303,7 @@ All processors must adhere to the processor contract:
 1. Test Fails with "permission denied"
     - Ensure processor scripts are executable:
       ```bash
-      chmod +x integration_tests/processors/*.py
+      chmod +x integrationtests/processors/*.py
       ```
 2. Test Fails with "python3: command not found"
     - Install Python 3 or update processor config to use correct interpreter path.

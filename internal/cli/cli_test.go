@@ -11,19 +11,19 @@ import (
 	urfavecli "github.com/urfave/cli/v3"
 )
 
-// TestInitCommandWorkflow tests the complete init command workflow
+// TestInitCommandWorkflow tests the complete init command workflow.
 func TestInitCommandWorkflow(t *testing.T) {
-	// Setup - create temporary directory for testing
+	// Setup - create temporary directory for testing.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "cli_test")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Test 1: First time init (no existing config)
+	// Test 1: First time init (no existing config).
 	ctx := context.Background()
 
-	// Create a test command with the no-discovery flag
+	// Create a test command with the no-discovery flag.
 	cmd := &urfavecli.Command{
 		Name: "init",
 		Flags: []urfavecli.Flag{
@@ -32,16 +32,16 @@ func TestInitCommandWorkflow(t *testing.T) {
 		},
 	}
 
-	// Set the no-discovery flag to avoid complex discovery testing
+	// Set the no-discovery flag to avoid complex discovery testing.
 	cmd.Set("no-discovery", "true")
 
-	// Run the init command
+	// Run the init command.
 	err := initCentian(ctx, cmd)
 	if err != nil {
 		t.Fatalf("First init failed: %v", err)
 	}
 
-	// Verify config was created
+	// Verify config was created.
 	configPath, err := config.GetConfigPath()
 	if err != nil {
 		t.Fatalf("GetConfigPath failed: %v", err)
@@ -51,7 +51,7 @@ func TestInitCommandWorkflow(t *testing.T) {
 		t.Fatalf("Config file was not created at %s", configPath)
 	}
 
-	// Verify config content
+	// Verify config content.
 	loadedConfig, err := config.LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig after init failed: %v", err)
@@ -64,50 +64,50 @@ func TestInitCommandWorkflow(t *testing.T) {
 	t.Log("Init command workflow test completed successfully")
 }
 
-// TestRunAutoDiscovery tests the auto-discovery function logic
+// TestRunAutoDiscovery tests the auto-discovery function logic.
 func TestRunAutoDiscovery(t *testing.T) {
-	// Setup
+	// Setup.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "autodiscovery_test")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Create a test config
+	// Create a test config.
 	cfg := config.DefaultConfig()
 
-	// Test runAutoDiscovery function
-	// Note: This will run actual discovery which may find real MCP configs
+	// Test runAutoDiscovery function.
+	// Note: This will run actual discovery which may find real MCP configs.
 	imported := runAutoDiscovery(cfg)
 
-	// Verify the function completes without error
+	// Verify the function completes without error.
 	if imported < 0 {
 		t.Error("runAutoDiscovery returned negative import count")
 	}
 
-	// The number of imported servers depends on what's on the system
-	// but the function should complete without crashing
+	// The number of imported servers depends on what's on the system.
+	// but the function should complete without crashing.
 	t.Logf("Auto-discovery imported %d servers", imported)
 
-	// Verify config structure is preserved
+	// Verify config structure is preserved.
 	if cfg.Version != "1.0.0" {
 		t.Error("Config version changed during auto-discovery")
 	}
 
-	if cfg.Servers == nil {
-		t.Error("Config servers map should not be nil after auto-discovery")
+	if cfg.Gateways == nil {
+		t.Error("Config gateway map should not be nil after auto-discovery")
 	}
 
 	t.Log("Auto-discovery function test completed successfully")
 }
 
-// TestShellDetection tests shell detection functionality
+// TestShellDetection tests shell detection functionality.
 func TestShellDetection(t *testing.T) {
-	// Save original SHELL env var
+	// Save original SHELL env var.
 	originalShell := os.Getenv("SHELL")
 	defer os.Setenv("SHELL", originalShell)
 
-	// Test common shells
+	// Test common shells.
 	shells := []string{
 		"/bin/bash",
 		"/bin/zsh",
@@ -135,14 +135,14 @@ func TestShellDetection(t *testing.T) {
 		t.Logf("Detected shell: %s, RC file: %s", shellInfo.Name, shellInfo.RCFile)
 	}
 
-	// Test missing SHELL env var
+	// Test missing SHELL env var.
 	os.Setenv("SHELL", "")
 	_, err := DetectShell()
 	if err == nil {
 		t.Error("Expected error when SHELL env var is empty")
 	}
 
-	// Test unsupported shell
+	// Test unsupported shell.
 	os.Setenv("SHELL", "/bin/unsupported")
 	_, err = DetectShell()
 	if err == nil {
@@ -150,22 +150,22 @@ func TestShellDetection(t *testing.T) {
 	}
 }
 
-// TestCompletionFileOperations tests completion file operations
+// TestCompletionFileOperations tests completion file operations.
 func TestCompletionFileOperations(t *testing.T) {
-	// Setup
+	// Setup.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
 	testHome := filepath.Join(tempDir, "completion_test")
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Create test home directory
+	// Create test home directory.
 	err := os.MkdirAll(testHome, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create test home directory: %v", err)
 	}
 
-	// Create test RC file with proper escaped string
+	// Create test RC file with proper escaped string.
 	testRCFile := filepath.Join(testHome, ".testrc")
 	testContent := "# Test RC file\nexport TEST_VAR=1\n"
 	err = os.WriteFile(testRCFile, []byte(testContent), 0o644)
@@ -173,7 +173,7 @@ func TestCompletionFileOperations(t *testing.T) {
 		t.Fatalf("Failed to create test RC file: %v", err)
 	}
 
-	// Test completion existence check (should be false)
+	// Test completion existence check (should be false).
 	completionLine := "source <(centian completion bash)"
 	exists, err := completionExists(testRCFile, completionLine)
 	if err != nil {
@@ -184,7 +184,7 @@ func TestCompletionFileOperations(t *testing.T) {
 		t.Error("Completion should not exist in fresh RC file")
 	}
 
-	// Add completion line
+	// Add completion line.
 	file, err := os.OpenFile(testRCFile, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatalf("Failed to open RC file for append: %v", err)
@@ -197,7 +197,7 @@ func TestCompletionFileOperations(t *testing.T) {
 		t.Fatalf("Failed to write completion block: %v", err)
 	}
 
-	// Test completion existence check (should be true now)
+	// Test completion existence check (should be true now).
 	exists, err = completionExists(testRCFile, completionLine)
 	if err != nil {
 		t.Fatalf("completionExists check failed: %v", err)
@@ -207,7 +207,7 @@ func TestCompletionFileOperations(t *testing.T) {
 		t.Error("Completion should exist after adding")
 	}
 
-	// Test with non-existent file
+	// Test with non-existent file.
 	nonExistentFile := filepath.Join(testHome, ".nonexistent")
 	exists, err = completionExists(nonExistentFile, completionLine)
 	if err != nil {
@@ -221,9 +221,9 @@ func TestCompletionFileOperations(t *testing.T) {
 	t.Log("Completion file operations test completed successfully")
 }
 
-// TestCLICommandStructure tests the CLI command structure and flags
+// TestCLICommandStructure tests the CLI command structure and flags.
 func TestCLICommandStructure(t *testing.T) {
-	// Test InitCommand structure
+	// Test InitCommand structure.
 	if InitCommand == nil {
 		t.Fatal("InitCommand is nil")
 	}
@@ -244,7 +244,7 @@ func TestCLICommandStructure(t *testing.T) {
 		t.Error("InitCommand should have action function")
 	}
 
-	// Verify flags exist
+	// Verify flags exist.
 	expectedFlags := []string{"force", "no-discovery"}
 	flagNames := make(map[string]bool)
 

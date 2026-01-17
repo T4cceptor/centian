@@ -1,50 +1,153 @@
-// Package internal provides configuration management and MCP proxy functionality
+// Package config provides configuration management and MCP proxy functionality
 // for the Centian CLI tool.
 package config
 
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+)
+
+// ProcessorType defines the type of processor, e.g. cli, webhook, internal, etc.
+type ProcessorType string
+
+const (
+	// CLIProcessor represents the type of a CLI-based processor -> "cli".
+	CLIProcessor ProcessorType = "cli"
 )
 
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.jsonc.
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
 type GlobalConfig struct {
-	Version    string                 `json:"version"`              // Config schema version
-	Servers    map[string]*MCPServer  `json:"servers"`              // Named MCP servers
-	Proxy      *ProxySettings         `json:"proxy,omitempty"`      // Proxy-level settings
-	Processors []*ProcessorConfig     `json:"processors,omitempty"` // Processor chain
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`   // Additional metadata
+	Name       string                    `json:"name"`                 // Name of the server - simplifies server identification
+	Version    string                    `json:"version"`              // Config schema version
+	Proxy      *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
+	Gateways   map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
+	Processors []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
+	Metadata   map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
 }
 
-// MCPServer represents a single MCP server configuration.
+// ServerSearchResult captures data and references
+// when searching for a specific server in the config.
+type ServerSearchResult struct {
+	gatewayName string
+	gateway     *GatewayConfig
+	server      *MCPServerConfig
+}
+
+// SearchServerByName searches for a server given a name,
+// can return multiple results for different gateways.
+func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
+	foundServers := make([]ServerSearchResult, 0)
+	for gatewayName, gatewayConfig := range g.Gateways {
+		if gatewayConfig.HasServer(name) {
+			foundServers = append(foundServers, ServerSearchResult{
+				gatewayName: gatewayName,
+				gateway:     gatewayConfig,
+				server:      gatewayConfig.MCPServers[name],
+			})
+		}
+	}
+	return foundServers
+}
+
+// MCPServerConfig represents a single MCP server configuration.
 // Each server defines how to start and connect to an MCP server process,
-// including command, arguments, environment variables, and metadata.
-type MCPServer struct {
+// including all necessary arguments, e.g. command, arguments,
+// environment variables, and metadata.
+type MCPServerConfig struct {
 	Name        string                 `json:"name"`                  // Display name
 	Command     string                 `json:"command,omitempty"`     // Executable command (for stdio/process transport)
 	Args        []string               `json:"args,omitempty"`        // Command arguments
 	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
-	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/ws transport)
-	Transport   string                 `json:"transport,omitempty"`   // Transport type: stdio, http, websocket
+	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/sse transport)
+	Headers     map[string]string      `json:"headers,omitempty"`     // HTTP headers (supports ${ENV_VAR} substitution)
 	Enabled     bool                   `json:"enabled"`               // Whether server is active
 	Description string                 `json:"description,omitempty"` // Human readable description
 	Source      string                 `json:"source,omitempty"`      // Source file path for auto-discovered servers
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
 }
 
+// GetSubstitutedHeaders returns headers with environment variables substituted.
+// Supports both ${VAR_NAME} and $VAR_NAME syntax.
+// Example: "Bearer ${GITHUB_TOKEN}" -> "Bearer ghp_abc123...".
+func (s *MCPServerConfig) GetSubstitutedHeaders() map[string]string {
+	if s.Headers == nil {
+		return make(map[string]string)
+	}
+
+	result := make(map[string]string)
+	for key, value := range s.Headers {
+		// Use os.Expand to substitute environment variables.
+		// Supports both ${VAR} and $VAR syntax.
+		result[key] = os.Expand(value, os.Getenv)
+	}
+	return result
+}
+
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Port      int    `json:"port,omitempty"`     // HTTP proxy port (if enabled)
-	Transport string `json:"transport"`          // stdio, http, websocket
-	LogLevel  string `json:"logLevel,omitempty"` // debug, info, warn, error
-	LogFile   string `json:"logFile,omitempty"`  // Log file path
-	Timeout   int    `json:"timeout,omitempty"`  // Request timeout in seconds
+	Port     string `json:"port,omitempty"`     // HTTP proxy port (if enabled)
+	LogLevel string `json:"logLevel,omitempty"` // debug, info, warn, error
+	LogFile  string `json:"logFile,omitempty"`  // Log file path
+	Timeout  int    `json:"timeout,omitempty"`  // Request timeout in seconds
 }
+
+// NewDefaultProxySettings creates a new ProxySettings with default values.
+func NewDefaultProxySettings() ProxySettings {
+	return ProxySettings{
+		Port:     "8080",
+		Timeout:  30,
+		LogLevel: "info",
+	}
+}
+
+// GatewayConfig represents a logical grouping of HTTP MCP servers.
+type GatewayConfig struct {
+	AllowDynamic         bool                        `json:"allowDynamic,omitempty"` // Allow dynamic proxy endpoints
+	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"` // Setup gateway endpoint with namespacing
+	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`             // HTTP MCP servers in this gateway
+	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
+}
+
+// ListServers returns a slice of all available MCPServerConfigs for this GatewayConfig.
+func (g *GatewayConfig) ListServers() []*MCPServerConfig {
+	result := make([]*MCPServerConfig, 0)
+	for _, server := range g.MCPServers {
+		result = append(result, server)
+	}
+	return result
+}
+
+// AddServer adds a the provided server to the gateways MCP servers using name as key.
+func (g *GatewayConfig) AddServer(name string, server *MCPServerConfig) {
+	if g.MCPServers == nil {
+		g.MCPServers = make(map[string]*MCPServerConfig)
+	}
+	g.MCPServers[name] = server
+}
+
+// RemoveServer removes server identified via name.
+func (g *GatewayConfig) RemoveServer(name string) {
+	delete(g.MCPServers, name)
+}
+
+// HasServer returns true if a server with the provided name exists in this gateway.
+func (g *GatewayConfig) HasServer(name string) bool {
+	for serverName := range g.MCPServers {
+		if serverName == name {
+			return true
+		}
+	}
+	return false
+}
+
+//////// PROCESSOR CONFIG STRUCTS ///////.
 
 // ProcessorConfig defines a single processor that executes during MCP request/response flow.
 // Processors are composable units that can inspect, modify, or reject MCP messages.
@@ -52,13 +155,13 @@ type ProxySettings struct {
 // TODO: move below documentation into a better place
 // Type-specific configuration (Config field):
 //
-// For "cli" type processors:
-//   - "command" (string, required): Executable command to run (e.g., "python", "bash", "node")
-//   - "args" (array of strings, optional): Command-line arguments (e.g., ["script.py", "--flag"])
+// For CLIProcessor processors:
+//   - "command" (string, required): Executable command to run (e.g., "python", "bash", "node").
+//   - "args" (array of strings, optional): Command-line arguments (e.g., ["script.py", "--flag"]).
 //
 // Example CLI processor:
 //
-//	{
+//	{.
 //	  "name": "security-validator",
 //	  "type": "cli",
 //	  "enabled": true,
@@ -67,7 +170,7 @@ type ProxySettings struct {
 //	    "command": "python",
 //	    "args": ["~/processors/security.py", "--strict"]
 //	  }
-//	}
+//	}.
 type ProcessorConfig struct {
 	Name    string                 `json:"name"`              // Unique processor name
 	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
@@ -91,6 +194,7 @@ type ConnectionContext struct {
 	ServerName string `json:"server_name"` // Name of the MCP server
 	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
 	SessionID  string `json:"session_id"`  // Unique session identifier
+	// TODO: potentially add server data in here like URL/CMD, headers/args, etc.
 }
 
 // ProcessorMetadata contains additional context for processor execution.
@@ -108,22 +212,20 @@ type ProcessorOutput struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"` // Processor-specific metadata
 }
 
-// DefaultConfig returns a default configuration
+// DefaultConfig returns a default configuration.
 func DefaultConfig() *GlobalConfig {
+	proxySettings := NewDefaultProxySettings()
 	return &GlobalConfig{
-		Version: "1.0.0",
-		Servers: make(map[string]*MCPServer),
-		Proxy: &ProxySettings{
-			Transport: "stdio",
-			LogLevel:  "info",
-			Timeout:   30,
-		},
+		Name:       "Centian Server",
+		Version:    "1.0.0",
+		Proxy:      &proxySettings,
+		Gateways:   make(map[string]*GatewayConfig),
 		Processors: []*ProcessorConfig{}, // Empty processor list is valid (no-op)
 		Metadata:   make(map[string]interface{}),
 	}
 }
 
-// GetConfigDir returns the centian config directory path
+// GetConfigDir returns the centian config directory path.
 func GetConfigDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -132,7 +234,7 @@ func GetConfigDir() (string, error) {
 	return filepath.Join(homeDir, ".centian"), nil
 }
 
-// GetConfigPath returns the full path to config.jsonc
+// GetConfigPath returns the full path to config.jsonc.
 func GetConfigPath() (string, error) {
 	configDir, err := GetConfigDir()
 	if err != nil {
@@ -141,14 +243,14 @@ func GetConfigPath() (string, error) {
 	return filepath.Join(configDir, "config.jsonc"), nil
 }
 
-// EnsureConfigDir creates the config directory if it doesn't exist
+// EnsureConfigDir creates the config directory if it doesn't exist.
 func EnsureConfigDir() error {
 	configDir, err := GetConfigDir()
 	if err != nil {
 		return err
 	}
 
-	return os.MkdirAll(configDir, 0o755)
+	return os.MkdirAll(configDir, 0o750)
 }
 
 // LoadConfig loads the global configuration from ~/.centian/config.jsonc.
@@ -160,29 +262,52 @@ func LoadConfig() (*GlobalConfig, error) {
 		return nil, err
 	}
 
-	// Check if config file exists
+	// Check if config file exists.
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("configuration file not found at %s", configPath)
 	}
 
-	// Read config file
-	data, err := os.ReadFile(configPath)
+	// Read config file.
+	data, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Parse JSON (note: JSONC support would need additional parsing)
+	// Parse JSON (note: JSONC support would need additional parsing).
 	var config GlobalConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Validate config
+	// Validate config.
 	if err := ValidateConfig(&config); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	return &config, nil
+}
+
+// LoadConfigFromPath loads configuration from a custom file path.
+// The configuration is validated after loading.
+func LoadConfigFromPath(path string) (*GlobalConfig, error) {
+	// Read config file.
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Parse JSON.
+	var cfg GlobalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Validate config.
+	if err := ValidateConfig(&cfg); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return &cfg, nil
 }
 
 // SaveConfig saves the configuration to ~/.centian/config.jsonc.
@@ -198,13 +323,14 @@ func SaveConfig(config *GlobalConfig) error {
 		return err
 	}
 
-	// Marshall with indentation for readability
+	// Marshall with indentation for readability.
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file
+	// Write to file.
+	//nolint:gosec // We are writing a file without sensitive data.
 	if err := os.WriteFile(configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
@@ -219,90 +345,119 @@ func ValidateConfig(config *GlobalConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
-
-	if err := validateProxy(config.Proxy); err != nil {
+	if err := validatedGateways(config.Gateways); err != nil {
 		return err
 	}
-
-	if err := validateServers(config.Servers); err != nil {
-		return err
-	}
-
 	if err := validateProcessors(config.Processors); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// validateProxy validates proxy configuration
-func validateProxy(proxy *ProxySettings) error {
-	if proxy == nil {
-		return nil
-	}
-
-	if proxy.Transport == "" {
-		return fmt.Errorf("proxy.transport is required")
-	}
-
-	validTransports := []string{"stdio", "http", "websocket"}
-	valid := false
-	for _, t := range validTransports {
-		if proxy.Transport == t {
-			valid = true
-			break
-		}
-	}
-	if !valid {
-		return fmt.Errorf("proxy.transport must be one of: %v", validTransports)
-	}
-
-	return nil
-}
-
-// validateServers validates server configurations
-func validateServers(servers map[string]*MCPServer) error {
-	for name, server := range servers {
-		if err := validateServer(name, server); err != nil {
+// validatedGateways validates server configurations.
+func validatedGateways(gateways map[string]*GatewayConfig) error {
+	for gatewayName, gatewayConfig := range gateways {
+		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err
 		}
+		for name, server := range gatewayConfig.MCPServers {
+			if err := validateServer(name, server); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-// validateServer validates a single server configuration
-func validateServer(name string, server *MCPServer) error {
-	if server.Name == "" {
-		server.Name = name // Use key as name if not specified
+// isURLCompliant checks if a name is URL-safe (alphanumeric, dash, underscore only).
+// Names must start with alphanumeric character and can contain alphanumeric, dash, or underscore.
+// This ensures names can be safely used in URL paths like /mcp/<gateway>/<server>.
+func isURLCompliant(name string) bool {
+	if name == "" {
+		return false
+	}
+	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore.
+	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
+	matched, _ := regexp.MatchString(pattern, name)
+	return matched
+}
+
+// isValidHTTPURL validates that a URL string is a properly formatted HTTP/HTTPS URL.
+// Returns true if the URL has a valid http:// or https:// scheme and a host component.
+func isValidHTTPURL(urlStr string) bool {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	// Must have http or https scheme and a host.
+	return (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") && parsedURL.Host != ""
+}
+
+// validateGateway validates a gateway configuration.
+func validateGateway(name string, config GatewayConfig) error {
+	// Validate gateway name is URL compliant (used in endpoint paths).
+	if !isURLCompliant(name) {
+		return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 
-	// Set default transport if not specified
-	if server.Transport == "" {
-		if server.URL != "" {
-			server.Transport = "http" // Default to HTTP if URL is provided
-		} else {
-			server.Transport = "stdio" // Default to stdio for command-based servers
-		}
+	// Validate at least one server exists.
+	if len(config.MCPServers) == 0 {
+		return fmt.Errorf("gateway '%s': must have at least one MCP server", name)
 	}
 
-	// Validate based on transport type
-	switch server.Transport {
-	case "stdio", "process":
-		if server.Command == "" {
-			return fmt.Errorf("server '%s': command is required for %s transport", name, server.Transport)
+	// Validate gateway-level processors if present.
+	if len(config.Processors) > 0 {
+		if err := validateProcessors(config.Processors); err != nil {
+			return fmt.Errorf("gateway '%s': %w", name, err)
 		}
-	case "http", "https", "websocket", "ws":
-		if server.URL == "" {
-			return fmt.Errorf("server '%s': URL is required for %s transport", name, server.Transport)
-		}
-	default:
-		return fmt.Errorf("server '%s': unsupported transport '%s' (supported: stdio, http, websocket)", name, server.Transport)
 	}
 
 	return nil
 }
 
-// validateProcessors validates processor configurations
+// validateServer validates a single server configuration.
+func validateServer(name string, server *MCPServerConfig) error {
+	// Validate server name is URL compliant (used in endpoint paths).
+	if !isURLCompliant(name) {
+		return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
+	}
+
+	// Validate transport consistency - must have either Command (stdio) OR URL (http), not both.
+	hasCommand := server.Command != ""
+	hasURL := server.URL != ""
+
+	if !hasCommand && !hasURL {
+		return fmt.Errorf("server '%s': must specify either 'command' (stdio transport) or 'url' (http transport)", name)
+	}
+
+	if hasCommand && hasURL {
+		return fmt.Errorf("server '%s': cannot specify both 'command' and 'url' - choose either stdio or http transport", name)
+	}
+
+	// Validate URL format if URL is specified.
+	if hasURL {
+		if !isValidHTTPURL(server.URL) {
+			return fmt.Errorf("server '%s': invalid URL format - must be a valid http:// or https:// URL", name)
+		}
+
+		// Headers only make sense for HTTP transport.
+		// (For stdio transport, headers would be ignored).
+	}
+
+	// Validate Headers format - all values must be strings.
+	for headerKey, headerValue := range server.Headers {
+		if headerKey == "" {
+			return fmt.Errorf("server '%s': header keys cannot be empty", name)
+		}
+		if headerValue == "" {
+			return fmt.Errorf("server '%s': header '%s' has empty value", name, headerKey)
+		}
+	}
+
+	return nil
+}
+
+// validateProcessors validates processor configurations.
 func validateProcessors(processors []*ProcessorConfig) error {
 	processorNames := make(map[string]bool)
 	for i, processor := range processors {
@@ -313,14 +468,14 @@ func validateProcessors(processors []*ProcessorConfig) error {
 	return nil
 }
 
-// validateProcessor validates a single processor configuration
+// validateProcessor validates a single processor configuration.
 func validateProcessor(index int, processor *ProcessorConfig, processorNames map[string]bool) error {
-	// Required fields
+	// Required fields.
 	if processor.Name == "" {
 		return fmt.Errorf("processor[%d]: name is required", index)
 	}
 
-	// Check for duplicate processor names
+	// Check for duplicate processor names.
 	if processorNames[processor.Name] {
 		return fmt.Errorf("processor '%s': duplicate processor name", processor.Name)
 	}
@@ -330,31 +485,31 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 		return fmt.Errorf("processor '%s': type is required", processor.Name)
 	}
 
-	// Validate type
-	if processor.Type != "cli" {
+	// Validate type.
+	if ProcessorType(processor.Type) != CLIProcessor {
 		return fmt.Errorf("processor '%s': unsupported type '%s' (v1 only supports 'cli')", processor.Name, processor.Type)
 	}
 
-	// Set default timeout if not specified
+	// Set default timeout if not specified.
 	if processor.Timeout == 0 {
 		processor.Timeout = 15 // Default 15 seconds
 	}
 
-	// Validate config field is present
+	// Validate config field is present.
 	if processor.Config == nil {
 		return fmt.Errorf("processor '%s': config is required", processor.Name)
 	}
 
-	// Validate type-specific config
+	// Validate type-specific config.
 	return validateProcessorTypeConfig(processor)
 }
 
-// validateProcessorTypeConfig validates type-specific processor configuration
+// validateProcessorTypeConfig validates type-specific processor configuration.
 func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 	//nolint:gocritic // switch used for future extensibility with additional processor types
-	switch processor.Type {
-	case "cli":
-		// CLI processors require command field in config
+	switch ProcessorType(processor.Type) {
+	case CLIProcessor:
+		// CLI processors require command field in config.
 		command, ok := processor.Config["command"]
 		if !ok {
 			return fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
@@ -363,7 +518,7 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 			return fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
 		}
 
-		// Args is optional but must be array if present
+		// Args is optional but must be array if present.
 		if args, exists := processor.Config["args"]; exists {
 			if _, ok := args.([]interface{}); !ok {
 				return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)
@@ -371,40 +526,4 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 		}
 	}
 	return nil
-}
-
-// GetServer returns a server configuration by name
-func (c *GlobalConfig) GetServer(name string) (*MCPServer, error) {
-	server, exists := c.Servers[name]
-	if !exists {
-		return nil, fmt.Errorf("server '%s' not found", name)
-	}
-	if !server.Enabled {
-		return nil, fmt.Errorf("server '%s' is disabled", name)
-	}
-	return server, nil
-}
-
-// AddServer adds a new server configuration
-func (c *GlobalConfig) AddServer(name string, server *MCPServer) {
-	if c.Servers == nil {
-		c.Servers = make(map[string]*MCPServer)
-	}
-	c.Servers[name] = server
-}
-
-// RemoveServer removes a server configuration
-func (c *GlobalConfig) RemoveServer(name string) {
-	delete(c.Servers, name)
-}
-
-// ListEnabledServers returns names of enabled servers only
-func (c *GlobalConfig) ListEnabledServers() []string {
-	var names []string
-	for name, server := range c.Servers {
-		if server.Enabled {
-			names = append(names, name)
-		}
-	}
-	return names
 }

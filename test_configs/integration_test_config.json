@@ -1,0 +1,51 @@
+{
+  "name": "Centian Integration Test Server",
+  "version": "1.0.0",
+  "proxy": {
+    "port": "9001",
+    "timeout": 30,
+    "logLevel": "info"
+  },
+  "gateways": {
+    "test-gateway": {
+      "mcpServers": {
+        "weather-service": {
+          "url": "http://localhost:8888/mcp/weather",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Client-Name": "centian-test"
+          },
+          "enabled": true,
+          "description": "Mock weather service for integration testing"
+        },
+        "time-service": {
+          "url": "http://localhost:8888/mcp/time",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "enabled": true,
+          "description": "Mock time service for integration testing"
+        }
+      }
+    },
+    "public-gateway": {
+      "mcpServers": {
+        "example-service": {
+          "url": "http://localhost:8889/mcp/example",
+          "headers": {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          "enabled": true,
+          "description": "Example public MCP server for demonstration"
+        }
+      }
+    }
+  },
+  "processors": [],
+  "metadata": {
+    "environment": "test",
+    "purpose": "Integration testing with mock MCP servers",
+    "notes": "This config uses local mock servers on ports 8888 and 8889"
+  }
+}

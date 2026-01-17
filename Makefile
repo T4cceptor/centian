@@ -12,7 +12,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test test-integration test-all lint fmt vet tidy run dev
+.PHONY: help build clean test test-integration test-all test-coverage test-coverage-html lint fmt vet tidy run dev
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -31,13 +31,36 @@ clean: ## Clean build artifacts
 
 test: ## Run unit tests
 	@echo "Running unit tests..."
-	go test -v -race ./internal/... ./cmd/...
+	@if command -v gotestsum >/dev/null 2>&1; then \
+		gotestsum --format testname -- -race ./internal/... ./cmd/...; \
+	else \
+		echo "Note: gotestsum not found, using default go test output"; \
+		echo "Install with: go install gotest.tools/gotestsum@latest"; \
+		go test -v -race ./internal/... ./cmd/...; \
+	fi
 
 test-integration: ## Run integration tests
 	@echo "Running integration tests..."
-	go test -v ./integration_tests/...
+	go test -v ./integrationtests/...
 
 test-all: test test-integration ## Run all tests (unit + integration)
+
+test-coverage: ## Run tests with coverage report
+	@echo "Running tests with coverage..."
+	@mkdir -p build
+	@go test -coverprofile=build/coverage.out -covermode=atomic ./internal/... ./cmd/...
+	@echo ""
+	@echo "=== Coverage by File ==="
+	@go tool cover -func=build/coverage.out
+	@echo ""
+	@echo "Coverage report saved to: build/coverage.out"
+	@echo "Generate HTML report with: go tool cover -html=build/coverage.out -o build/coverage.html"
+
+test-coverage-html: test-coverage ## Run tests with coverage and open HTML report
+	@echo "Generating HTML coverage report..."
+	@go tool cover -html=build/coverage.out -o build/coverage.html
+	@echo "Opening coverage report in browser..."
+	@open build/coverage.html || xdg-open build/coverage.html || echo "Please open build/coverage.html in your browser"
 
 lint: ## Run linter (requires golangci-lint)
 	@echo "Running linter..."
