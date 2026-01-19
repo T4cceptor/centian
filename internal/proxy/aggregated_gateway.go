@@ -85,6 +85,7 @@ func (ag *AggregatedGateway) getServerForRequest(r *http.Request) *mcp.Server {
 	if sessionID == "" {
 		sessionID = getNewUUIDV7()
 	}
+	log.Printf("Getting server for %s\n", sessionID)
 
 	ag.mu.Lock()
 	defer ag.mu.Unlock()
@@ -94,7 +95,6 @@ func (ag *AggregatedGateway) getServerForRequest(r *http.Request) *mcp.Server {
 		session = ag.createSession(sessionID, r)
 		ag.sessions[sessionID] = session
 	}
-
 	return ag.createServerForSession(session)
 }
 
@@ -127,11 +127,6 @@ func (ag *AggregatedGateway) createServerForSession(session *AggregatedSession) 
 			ag.handleInitialize(ctx, server, session, req)
 		},
 	})
-
-	if session.initialized {
-		ag.registerToolsForSession(server, session)
-	}
-
 	return server
 }
 
@@ -145,20 +140,17 @@ func (ag *AggregatedGateway) handleInitialize(
 	if session.initialized {
 		return ag.buildInitializeResult(session), nil
 	}
-
 	log.Printf("Initializing aggregated session %s", session.id)
-
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errors []string
-
 	for serverName, connTemplate := range ag.downstreams {
 		wg.Add(1)
 		go func(name string, template *DownstreamConnection) {
 			defer wg.Done()
-
 			conn := NewDownstreamConnection(name, template.config)
 
+			// TODO: log
 			if err := conn.Connect(ctx, session.authHeaders); err != nil {
 				mu.Lock()
 				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
@@ -172,13 +164,7 @@ func (ag *AggregatedGateway) handleInitialize(
 			mu.Unlock()
 
 			log.Printf("Connected to downstream %s, found %d tools", name, len(conn.Tools()))
-
-			for _, tool := range conn.Tools() {
-				// TODO: double check if this is appropriate / correct
-				// if this works as expected, we might want to remove all
-				// other occurrences of RegisterToolAtServer
-				ag.RegisterToolAtServer(serverName, server, tool, session)
-			}
+			ag.registerToolsForSession(server, session)
 		}(serverName, connTemplate)
 	}
 
@@ -216,18 +202,16 @@ func (ag *AggregatedGateway) buildInitializeResult(session *AggregatedSession) *
 }
 
 func (ag *AggregatedGateway) RegisterToolAtServer(serverName string, server *mcp.Server, tool *mcp.Tool, session *AggregatedSession) {
+	// 1. create namespaced tool name to avoid collision with other servers
 	namespacedName := fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
-	originalName := tool.Name
-	sName := serverName
+	// 2. deep clone provided tool
+	namespacedTool := deepCloneTool(tool)
+	namespacedTool.Name = namespacedName
+	namespacedTool.Description = fmt.Sprintf("[%s] %s", serverName, tool.Description)
 
-	namespacedTool := &mcp.Tool{
-		Name:        namespacedName,
-		Description: fmt.Sprintf("[%s] %s", serverName, tool.Description),
-		InputSchema: tool.InputSchema,
-	}
-
+	// 3. attach tool at server
 	server.AddTool(namespacedTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return ag.handleToolCall(ctx, session, sName, originalName, req)
+		return ag.handleToolCall(ctx, session, serverName, tool.Name, req)
 	})
 }
 

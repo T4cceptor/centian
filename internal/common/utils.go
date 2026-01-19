@@ -51,7 +51,7 @@ func IsURLCompliant(name string) bool {
 		return false
 	}
 	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore.
-	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
+	pattern := `^[a-zA-Z0-9\/][a-zA-Z0-9_\/-]*$`
 	matched, _ := regexp.MatchString(pattern, name)
 	return matched
 }

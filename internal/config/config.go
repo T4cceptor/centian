@@ -250,7 +250,6 @@ func EnsureConfigDir() error {
 	if err != nil {
 		return err
 	}
-
 	return os.MkdirAll(configDir, 0o750)
 }
 
@@ -262,35 +261,18 @@ func LoadConfig() (*GlobalConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Check if config file exists.
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("configuration file not found at %s", configPath)
-	}
-
-	// Read config file.
-	data, err := os.ReadFile(filepath.Clean(configPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// Parse JSON (note: JSONC support would need additional parsing).
-	var config GlobalConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Validate config.
-	if err := ValidateConfig(&config); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return &config, nil
+	config, err := LoadConfigFromPath(configPath)
+	return config, err
 }
 
 // LoadConfigFromPath loads configuration from a custom file path.
 // The configuration is validated after loading.
 func LoadConfigFromPath(path string) (*GlobalConfig, error) {
+	// Check if config file exists.
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("configuration file not found at %s", path)
+	}
+
 	// Read config file.
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -346,6 +328,9 @@ func ValidateConfig(config *GlobalConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
+	if config.Proxy == nil {
+		return fmt.Errorf("proxy settings are required in config")
+	}
 	if err := validatedGateways(config.Gateways); err != nil {
 		return err
 	}
@@ -356,7 +341,12 @@ func ValidateConfig(config *GlobalConfig) error {
 }
 
 // validatedGateways validates server configurations.
+//
+// Note: there has to be at least one GatewayConfig in the map, otherwise an error will be returned.
 func validatedGateways(gateways map[string]*GatewayConfig) error {
+	if len(gateways) == 0 {
+		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
+	}
 	for gatewayName, gatewayConfig := range gateways {
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err

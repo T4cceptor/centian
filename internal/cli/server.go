@@ -135,23 +135,14 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	}
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
 
-	// Validate that we have proxy configuration.
-	if globalConfig.Proxy == nil {
-		return fmt.Errorf("proxy settings are required in config")
-	}
-
-	if len(globalConfig.Gateways) == 0 {
-		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
-	}
-
 	// Display server information.
 	if err := printServerInfo(globalConfig); err != nil {
 		return err
 	}
 
 	// Create HTTP proxy server.
-	// TODO: handle stdio as well - requires cross-transport support.
-	server, err := proxy.NewCentianHTTPProxy(globalConfig)
+
+	server, err := proxy.NewProxyServer(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP proxy server: %w", err)
 	}
@@ -168,7 +159,8 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "[CENTIAN] HTTP proxy server started successfully\n")
+	// TODO: add info about started servers/endpoints
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Proxy servers started successfully\n")
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Press Ctrl+C to stop\n\n")
 
 	// Wait for either signal or server error.

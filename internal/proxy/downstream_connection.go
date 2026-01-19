@@ -45,8 +45,8 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 	}
 
 	dc.client = mcp.NewClient(&mcp.Implementation{
-		Name:    dc.serverName, // TODO: replaced with server name // TODO: double check gateway?
-		Version: "1.0.0",       // TODO: replace with gateway version
+		Name:    dc.serverName,
+		Version: "1.0.0", // TODO: replace with gateway version
 	}, nil)
 
 	transport, err := dc.createTransport(authHeaders)
@@ -54,7 +54,7 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 		return fmt.Errorf("failed to create transport: %w", err)
 	}
 
-	// TODO: logging & processing ?
+	// TODO: logging & processing -> we are now connecting to downstream server
 	session, err := dc.client.Connect(ctx, transport, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
@@ -94,16 +94,22 @@ func (rt HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 }
 
 func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (mcp.Transport, error) {
-	// Merge config headers with passed auth headers
-	allHeaders := make(map[string]string)
-	for k, v := range dc.config.Headers {
-		allHeaders[k] = v
-	}
-	for k, v := range authHeaders {
-		allHeaders[k] = v // Auth headers override config
+	isHTTPtransport := dc.config.URL != ""
+	isStdioTransport := dc.config.Command != ""
+	if isHTTPtransport && isStdioTransport {
+		return nil, fmt.Errorf("both URL or Command configured for server %s", dc.serverName)
 	}
 
-	if dc.config.URL != "" {
+	if isHTTPtransport {
+		// Merge config headers with passed auth headers
+		allHeaders := make(map[string]string)
+		for k, v := range dc.config.Headers {
+			allHeaders[k] = v
+		}
+		for k, v := range authHeaders {
+			allHeaders[k] = v // Auth headers override config
+		}
+
 		// HTTP transport
 		httpClient := &http.Client{
 			Transport: HeaderRoundTripper{
@@ -121,7 +127,7 @@ func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (
 		return transport, nil
 	}
 
-	if dc.config.Command != "" {
+	if isStdioTransport {
 		// Stdio transport
 		cmd := exec.Command(dc.config.Command, dc.config.Args...)
 		// Add environment variables
@@ -158,12 +164,13 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, a
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
 
-	// TODO: logging & processing
-
-	return dc.session.CallTool(ctx, &mcp.CallToolParams{
+	// TODO: logging & processing - pre-tool call
+	result, err := dc.session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: args,
 	})
+	// TODO: logging & processing - post-tool call
+	return result, err
 }
 
 // Close terminates the downstream connection
@@ -172,6 +179,7 @@ func (dc *DownstreamConnection) Close() error {
 	defer dc.mu.Unlock()
 
 	if dc.session != nil {
+		// TODO: log
 		dc.session.Close()
 	}
 	dc.connected = false

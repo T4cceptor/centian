@@ -63,9 +63,17 @@ func TestAggragetedGatewaySimpleMcpRequest(t *testing.T) {
 				Enabled: true,
 			},
 			serverName2: {
-				URL: downstreamURL,
+				URL:     "https://mcp.deepwiki.com/mcp",
 				Headers: map[string]string{
-					"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
+					//"Authorization": fmt.Sprintf("Bearer %s", githubPAT),
+				},
+				Enabled: true,
+			},
+			"local-memory": {
+				Command: "npx", // tests cross-transport feature
+				Args: []string{
+					"-y",
+					"@modelcontextprotocol/server-memory",
 				},
 				Enabled: true,
 			},
@@ -84,13 +92,14 @@ func TestAggragetedGatewaySimpleMcpRequest(t *testing.T) {
 		},
 	}
 	go func() {
-		server, err := NewCentianHTTPProxy(globalConfig)
+		log.Printf("Creating proxy: %#v", globalConfig)
+		server, err := NewProxyServer(globalConfig)
 		if err != nil {
 			log.Fatal("Unable to create proxy server:", err)
 		}
-		gw := NewAggregatedGateway(gatewayName, &gwConfig, server)
-		gw.RegisterHandler(server.mux) // registers an /all handler
-		if err := server.server.ListenAndServe(); err != nil {
+		server.Setup()
+		// gw.RegisterHandler(server.Mux) // registers an /all handler
+		if err := server.Server.ListenAndServe(); err != nil {
 			log.Fatal("Unable to start proxy server:", err)
 		}
 	}()

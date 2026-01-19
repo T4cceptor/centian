@@ -90,38 +90,6 @@ func readBody(body io.ReadCloser, headers http.Header) ([]byte, error) {
 	return bodyBytes, nil
 }
 
-/*
-CentianServer is the main server struct.
-
-It holds 4 critical components:
-- mux - used to register URL paths
-- server - used to serve the mux
-- logger - main logger for all events in the proxied endpoints
-- gateways - holds all gateways and proxy endpoints for easy access
-
-Additionally it has a reference to the global config which was loaded to
-initialize this server.
-*/
-type CentianServer struct {
-	config   *config.GlobalConfig
-	mux      *http.ServeMux
-	server   *http.Server
-	logger   *logging.Logger // Shared base logger (ONE file handle)
-	serverID string          // used to uniquely identify this specific object instance
-	gateways map[string]*CentianProxyGateway
-}
-
-// CentianProxyGateway represents a gateway holding one or multiple CentianProxyEndpoint.
-//
-// The gateway provides a way to group MCP servers together that should all apply
-// the same processing configuration.
-type CentianProxyGateway struct {
-	config    *config.GatewayConfig
-	name      string
-	endpoints []*CentianProxyEndpoint
-	server    *CentianServer
-}
-
 // CentianProxyEndpoint is the main struct representing a proxy, forwarding requrests on.
 // "endpoint" to the configured downstream MCP server (see downstreamURL).
 type CentianProxyEndpoint struct {
@@ -152,7 +120,7 @@ func (e *CentianProxyEndpoint) logSystemMessage(message string) {
 	baseEvent := common.BaseMcpEvent{
 		Timestamp:        time.Now(),
 		SessionID:        e.sessionID,
-		ServerID:         e.server.serverID,
+		ServerID:         e.server.ServerID,
 		Transport:        "http",
 		RequestID:        requestID,
 		Direction:        common.DirectionSystem,
@@ -172,22 +140,11 @@ func (e *CentianProxyEndpoint) logSystemMessage(message string) {
 		ServerName:    e.mcpServerName,
 		Endpoint:      e.endpoint,
 		DownstreamURL: e.config.URL,
-		ProxyPort:     e.server.config.Proxy.Port,
+		ProxyPort:     e.server.Config.Proxy.Port,
 	}
-	if err := e.server.logger.LogMcpEvent(mcpEvent); err != nil {
+	if err := e.server.Logger.LogMcpEvent(mcpEvent); err != nil {
 		common.LogError(err.Error())
 	}
-}
-
-// getServerID returns a new serverID using the server name.
-func getServerID(globalConfig *config.GlobalConfig) string {
-	// TODO: better way of determining server ID.
-	serverStr := "centian_server"
-	if globalConfig.Name != "" {
-		serverStr = globalConfig.Name
-	}
-	timestamp := time.Now().UnixNano()
-	return fmt.Sprintf("%s_%d", serverStr, timestamp)
 }
 
 // NewCentianHTTPProxy takes a GlobalConfig struct and returns a new CentianServer.
@@ -207,41 +164,19 @@ func NewCentianHTTPProxy(globalConfig *config.GlobalConfig) (*CentianServer, err
 	}
 
 	return &CentianServer{
-		config:   globalConfig,
-		mux:      mux,
-		server:   server,
-		logger:   logger,
-		serverID: getServerID(globalConfig),
-		gateways: make(map[string]*CentianProxyGateway),
+		Config:   globalConfig,
+		Mux:      mux,
+		Server:   server,
+		Logger:   logger,
+		ServerID: getServerID(globalConfig),
+		Gateways: make(map[string]*CentianProxyGateway),
 	}, nil
-}
-
-// GetNewGateway returns a new CentianProxyGateway for the given parameters.
-func (c *CentianServer) GetNewGateway(
-	gatewayName string,
-	gatewayConfig *config.GatewayConfig,
-) CentianProxyGateway {
-	return CentianProxyGateway{
-		config:    gatewayConfig,
-		name:      gatewayName,
-		endpoints: make([]*CentianProxyEndpoint, 0),
-		server:    c,
-	}
-}
-
-// getEndpoint returns a new endpoint path for the given gatewayName and mcpServerName.
-func getEndpoint(gatewayName, mcpServerName string) (string, error) {
-	result := fmt.Sprintf("/mcp/%s/%s", gatewayName, mcpServerName)
-	if !common.IsURLCompliant(result) {
-		return "", fmt.Errorf("endpoint '%s' is not a compliant URL", result)
-	}
-	return result, nil
 }
 
 // StartCentianServer uses CentianServer.config to create all gateways and endpoints,
 // and start listening on the configured endpoints.
 func (c *CentianServer) StartCentianServer() error {
-	serverConfig := c.config
+	serverConfig := c.Config
 
 	// 1. Iterate through each gateway to create proxy endpoints.
 	// Note: we are leaving out.
@@ -257,21 +192,21 @@ func (c *CentianServer) StartCentianServer() error {
 	// has a different way to provide the endpoint,
 	// e.g. through the tool name "<servername>__<actual_toolname>".
 	for gatewayName, gatewayConfig := range serverConfig.Gateways {
-		gateway := c.GetNewGateway(gatewayName, gatewayConfig)
+		gateway, _ := GetNewGateway(c, gatewayName, gatewayConfig)
 
-		c.gateways[gatewayName] = &gateway
+		c.Gateways[gatewayName] = gateway
 
 		// 2. Iterate through each mcp server config for this gateway.
 		for mcpServerName, mcpServerConfig := range gatewayConfig.MCPServers {
 			// 3. create new endpoint for MCP server to be proxied.
-			endpoint, err := getEndpoint(gatewayName, mcpServerName)
+			endpoint, err := getEndpointString(gatewayName, mcpServerName)
 			if err != nil {
 				common.LogError(err.Error())
 				continue // we do not proceed if we receive an error during endpoint creation
 			}
 			proxyEndpoint := CreateProxyEndpoint(
 				mcpServerConfig,
-				&gateway,
+				gateway,
 				endpoint,
 				mcpServerName,
 				c, // sever
@@ -314,7 +249,7 @@ func (c *CentianServer) StartCentianServer() error {
 
 	// 5. Start the (proxy) Server.
 	log.Printf("Starting proxy server on :%s", serverConfig.Proxy.Port)
-	return c.server.ListenAndServe()
+	return c.Server.ListenAndServe()
 }
 
 // GetRequestID returns a new requestID using UUIDv7.
@@ -362,7 +297,7 @@ func (c *CentianServer) RegisterProxy(endpoint *CentianProxyEndpoint) error {
 	endpoint.proxy.ModifyResponse = endpoint.ModifyResponseHandler
 
 	// 7. Create the handler function.
-	c.mux.HandleFunc(endpoint.endpoint, func(w http.ResponseWriter, r *http.Request) {
+	c.Mux.HandleFunc(endpoint.endpoint, func(w http.ResponseWriter, r *http.Request) {
 		mcpEvent := endpoint.RequestHandler(r)
 		if mcpEvent.Status > 299 {
 			// If status indicates an error we return to the client immediately.
@@ -386,18 +321,18 @@ func (c *CentianServer) Shutdown(ctx context.Context) error {
 	log.Println("Shutting down proxy server...")
 
 	// Log shutdown for all endpoints.
-	for _, gateway := range c.gateways {
+	for _, gateway := range c.Gateways {
 		for _, endpoint := range gateway.endpoints {
 			endpoint.LogProxyStop()
 		}
 	}
 
 	// Close shared base logger (ONE close for all endpoints).
-	if c.logger != nil {
-		_ = c.logger.Close()
+	if c.Logger != nil {
+		_ = c.Logger.Close()
 	}
 
-	return c.server.Shutdown(ctx)
+	return c.Server.Shutdown(ctx)
 }
 
 // CreateProxyEndpoint takes both MCPServerConfig and a CentianProxyGateway to create a new CentianProxyEndpoint for the provided parameters.
@@ -434,15 +369,15 @@ func CreateProxyEndpoint(
 	allProcessors := append(
 		append(
 			[]*config.ProcessorConfig{},
-			server.config.Processors...,
+			server.Config.Processors...,
 		),
 		gateway.config.Processors...,
 	)
-	processorChain, err := processor.NewChain(allProcessors, server.config.Name, sessionID)
+	processorChain, err := processor.NewChain(allProcessors, server.Config.Name, sessionID)
 	if err != nil {
 		common.LogError(err.Error())
 	}
-	proxyEndpoint.processor = NewEventProcessor(server.logger, processorChain)
+	proxyEndpoint.processor = NewEventProcessor(server.Logger, processorChain)
 	return proxyEndpoint
 }
 
@@ -491,7 +426,7 @@ func (e *CentianProxyEndpoint) getHTTPMcpEvent(
 		Transport:        "http",
 		RequestID:        requestID,
 		SessionID:        e.sessionID,
-		ServerID:         e.server.serverID,
+		ServerID:         e.server.ServerID,
 		Direction:        direction,
 		MessageType:      messageType,
 		Success:          success,
@@ -506,7 +441,7 @@ func (e *CentianProxyEndpoint) getHTTPMcpEvent(
 		ServerName:    e.mcpServerName,
 		Endpoint:      e.endpoint,
 		DownstreamURL: e.config.URL,
-		ProxyPort:     e.server.config.Proxy.Port,
+		ProxyPort:     e.server.Config.Proxy.Port,
 	}
 }
 
