@@ -5,15 +5,32 @@ import (
 	"time"
 
 	"github.com/CentianAI/centian-cli/internal/common"
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/google/uuid"
 )
 
+// MaxBodySize represents the maximal allowed size of a request/response body.
+const MaxBodySize = 10 * 1024 * 1024 // 10MB
+
+// NamespaceSeparator is used to create tool names in an aggregated proxy server
+const NamespaceSeparator = "___"
+
+func getNewUUIDV7() string {
+	result := ""
+	if id, err := uuid.NewV7(); err == nil {
+		result = id.String()
+	}
+	if result == "" {
+		result = fmt.Sprintf("req_%d", time.Now().UnixMicro())
+	}
+	return result
+}
+
 // getServerID returns a new serverID using the server name.
-func getServerID(globalConfig *config.GlobalConfig) string {
+func getServerID(serverName string) string {
 	// TODO: better way of determining server ID.
 	serverStr := "centian_server"
-	if globalConfig.Name != "" {
-		serverStr = globalConfig.Name
+	if serverName != "" {
+		serverStr = serverName
 	}
 	timestamp := time.Now().UnixNano()
 	return fmt.Sprintf("%s_%d", serverStr, timestamp)

@@ -49,14 +49,18 @@ func TestServerStartIntegration(t *testing.T) {
 	}
 
 	// When: starting the Centian proxy server.
-	server, err := proxy.NewCentianHTTPProxy(globalConfig)
+	server, err := proxy.NewCentianProxy(globalConfig)
 	if err != nil {
-		t.Fatalf("Failed to create proxy server: %v", err)
+		log.Fatal("Unable to create proxy server:", err)
+	}
+	setupErr := server.Setup()
+	if setupErr != nil {
+		log.Fatal("Unable to setup proxy server:", setupErr)
 	}
 
 	// Start server in background.
 	go func() {
-		if err := server.StartCentianServer(); err != nil && errors.Is(err, http.ErrServerClosed) {
+		if err := server.Server.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
 		}
 	}()
@@ -66,7 +70,7 @@ func TestServerStartIntegration(t *testing.T) {
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(ctx)
+		server.Server.Shutdown(ctx)
 	}()
 
 	// When: connecting an MCP client to the proxy.

@@ -15,23 +15,12 @@ import (
 type DownstreamConnection struct {
 	serverName string
 	config     *config.MCPServerConfig
-
-	client    *mcp.Client
-	session   *mcp.ClientSession
-	tools     []*mcp.Tool
-	resources []*mcp.Resource // If we support resources
-
+	client     *mcp.Client
+	session    *mcp.ClientSession
+	tools      []*mcp.Tool
+	// TODO: resources []*mcp.Resource // If we support resources
 	connected bool
 	mu        sync.RWMutex
-}
-
-// NewDownstreamConnection creates an unconnected downstream wrapper
-func NewDownstreamConnection(name string, cfg *config.MCPServerConfig) *DownstreamConnection {
-	return &DownstreamConnection{
-		serverName: name,
-		config:     cfg,
-		connected:  false,
-	}
 }
 
 // Connect establishes connection to downstream server
@@ -71,11 +60,24 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 	return nil
 }
 
+// NewDownstreamConnection creates an unconnected downstream wrapper
+func NewDownstreamConnection(name string, cfg *config.MCPServerConfig) *DownstreamConnection {
+	return &DownstreamConnection{
+		serverName: name,
+		config:     cfg,
+		connected:  false,
+	}
+}
+
+// HeaderRoundTripper is used to store
 type HeaderRoundTripper struct {
 	Base    http.RoundTripper
 	Headers map[string]string
 }
 
+// RoundTrip adds the header from HeaderRoundTripper to the request.
+// This is done so both configured headers as well as headers from the client
+// are included in the request.
 func (rt HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := rt.Base
 	if base == nil {
@@ -194,6 +196,7 @@ func (dc *DownstreamConnection) Tools() []*mcp.Tool {
 	return dc.tools
 }
 
+// IsConnected returns true if connection was established and not yet closed
 func (dc *DownstreamConnection) IsConnected() bool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()

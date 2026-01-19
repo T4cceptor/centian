@@ -162,6 +162,13 @@ func detectAndParseConfig(data []byte, filePath string) ([]Server, error) {
 	return parseGenericConfig(data, filePath)
 }
 
+
+// ParseConfigFile parses an MCP configuration file and returns discovered servers.
+// This is the exported entry point for parsing config files from external packages.
+func ParseConfigFile(data []byte, filePath string) ([]Server, error) {
+	return detectAndParseConfig(data, filePath)
+}
+
 // parseClaudeDesktopConfig parses Claude Desktop configuration format.
 func parseClaudeDesktopConfig(data []byte, filePath string) ([]Server, error) {
 	var config struct {

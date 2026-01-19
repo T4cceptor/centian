@@ -3,8 +3,11 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/CentianAI/centian-cli/internal/common"
@@ -12,6 +15,111 @@ import (
 	"github.com/CentianAI/centian-cli/internal/discovery"
 	"github.com/urfave/cli/v3"
 )
+
+// InitOption represents the user's choice for initialization method.
+type InitOption int
+
+const (
+	// InitOptionEmpty creates an empty config with no servers.
+	InitOptionEmpty InitOption = iota
+	// InitOptionDiscovery auto-discovers existing MCP servers.
+	InitOptionDiscovery
+	// InitOptionFromPath imports servers from a specific config file.
+	InitOptionFromPath
+)
+
+// InitUI provides user interface functions for the init command.
+type InitUI struct {
+	reader *bufio.Reader
+}
+
+// NewInitUI creates a new init UI interface.
+func NewInitUI() *InitUI {
+	return &InitUI{
+		reader: bufio.NewReader(os.Stdin),
+	}
+}
+
+// promptInitOption asks the user how they want to initialize centian.
+func (ui *InitUI) promptInitOption() (InitOption, error) {
+	fmt.Printf("\n🎉 Welcome to Centian!\n\n")
+	fmt.Printf("How would you like to initialize your configuration?\n\n")
+	fmt.Printf("  [1] Start fresh (empty config)\n")
+	fmt.Printf("  [2] Auto-discover existing MCP servers (recommended)\n")
+	fmt.Printf("  [3] Import from a specific config file\n\n")
+	fmt.Printf("Choice [1/2/3]: ")
+
+	response, err := ui.reader.ReadString('\n')
+	if err != nil {
+		return InitOptionEmpty, fmt.Errorf("failed to read input: %w", err)
+	}
+
+	response = strings.TrimSpace(response)
+
+	switch response {
+	case "1":
+		return InitOptionEmpty, nil
+	case "2", "":
+		return InitOptionDiscovery, nil
+	case "3":
+		return InitOptionFromPath, nil
+	default:
+		fmt.Printf("Invalid choice '%s'. Using empty config.\n", response)
+		return InitOptionEmpty, nil
+	}
+}
+
+// promptConfigPath asks the user for a config file path.
+func (ui *InitUI) promptConfigPath() (string, error) {
+	fmt.Printf("\nEnter the path to your MCP config file: ")
+
+	response, err := ui.reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read input: %w", err)
+	}
+
+	path := strings.TrimSpace(response)
+	if path == "" {
+		return "", fmt.Errorf("no path provided")
+	}
+
+	// Validate file exists.
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return "", fmt.Errorf("file does not exist: %s", path)
+	}
+
+	return path, nil
+}
+
+// importFromPath imports servers from a specific config file path.
+// Note: cfg parameter is currently unused as discovery.ImportServers doesn't
+// add servers to cfg yet (see TODO in runAutoDiscovery).
+//
+//nolint:gosec // G304: path is user-provided intentionally for config import
+func importFromPath(_ *config.GlobalConfig, path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	servers, err := discovery.ParseConfigFile(data, path)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	if len(servers) == 0 {
+		fmt.Printf("⚠️  No servers found in %s\n", path)
+		return 0, nil
+	}
+
+	fmt.Printf("📦 Found %d server(s) in %s\n", len(servers), path)
+
+	// Import servers using existing discovery import logic.
+	imported := discovery.ImportServers(servers)
+	discovery.ShowImportSummary(imported)
+
+	return imported, nil
+}
 
 // InitCommand initializes a new centian setup with default configuration.
 var InitCommand = &cli.Command{
@@ -28,9 +136,44 @@ var InitCommand = &cli.Command{
 		&cli.BoolFlag{
 			Name:    "no-discovery",
 			Aliases: []string{"n"},
-			Usage:   "Skip auto-discovery of existing MCP configurations",
+			Usage:   "Skip auto-discovery and start with empty configuration",
+		},
+		&cli.StringFlag{
+			Name:    "from-path",
+			Aliases: []string{"p"},
+			Usage:   "Import servers from a specific MCP config file path",
 		},
 	},
+}
+
+// handleInteractiveInit prompts the user for initialization method and performs import.
+func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) int {
+	option, err := ui.promptInitOption()
+	if err != nil {
+		fmt.Printf("⚠️  %v. Starting with empty config.\n", err)
+		return 0
+	}
+
+	switch option {
+	case InitOptionEmpty:
+		return 0
+	case InitOptionDiscovery:
+		return runAutoDiscovery(cfg)
+	case InitOptionFromPath:
+		path, pathErr := ui.promptConfigPath()
+		if pathErr != nil {
+			fmt.Printf("⚠️  %v. Starting with empty config.\n", pathErr)
+			return 0
+		}
+		imported, importErr := importFromPath(cfg, path)
+		if importErr != nil {
+			fmt.Printf("⚠️  %v. Starting with empty config.\n", importErr)
+			return 0
+		}
+		return imported
+	default:
+		return 0
+	}
 }
 
 // initCentian initializes the centian configuration and provides setup guidance.
@@ -54,18 +197,31 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 	// Create default config.
 	cfg := config.DefaultConfig()
 
-	// Run auto-discovery unless disabled.
 	var imported int
-	if !cmd.Bool("no-discovery") {
-		imported = runAutoDiscovery(cfg)
+	ui := NewInitUI()
+
+	// Determine initialization mode based on flags or interactive prompt.
+	if cmd.Bool("no-discovery") {
+		// Flag: empty config.
+		imported = 0
+	} else if fromPath := cmd.String("from-path"); fromPath != "" {
+		// Flag: import from specific path.
+		var importErr error
+		imported, importErr = importFromPath(cfg, fromPath)
+		if importErr != nil {
+			return fmt.Errorf("failed to import from path: %w", importErr)
+		}
+	} else {
+		// Interactive mode: prompt user.
+		imported = handleInteractiveInit(cfg, ui)
 	}
 
-	// Save config (either default or with discovered servers).
+	// Save config (either default or with imported servers).
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
-	fmt.Printf("🎉 Centian initialized successfully!\n\n")
+	fmt.Printf("\n🎉 Centian initialized successfully!\n\n")
 	fmt.Printf("📁 Configuration created at: %s\n\n", configPath)
 
 	fmt.Printf("📋 Next steps:\n")

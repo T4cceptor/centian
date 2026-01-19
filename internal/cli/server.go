@@ -141,10 +141,12 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	}
 
 	// Create HTTP proxy server.
-
-	server, err := proxy.NewProxyServer(globalConfig)
+	server, err := proxy.NewCentianProxy(globalConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP proxy server: %w", err)
+		return fmt.Errorf("failed to create centian server: %w", err)
+	}
+	if setupErr := server.Setup(); setupErr != nil {
+		return fmt.Errorf("failed to setup centian server: %w", setupErr)
 	}
 
 	// Set up signal handling for graceful shutdown.
@@ -154,7 +156,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	// Start server in background.
 	errChan := make(chan error, 1)
 	go func() {
-		if err := server.StartCentianServer(); err != nil {
+		if err := server.Server.ListenAndServe(); err != nil {
 			errChan <- fmt.Errorf("HTTP proxy server error: %w", err)
 		}
 	}()
@@ -169,7 +171,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(os.Stderr, "\n[CENTIAN] Received shutdown signal, stopping server...\n")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
+		if err := server.Server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("error during shutdown: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[CENTIAN] Server stopped successfully\n")
