@@ -245,7 +245,7 @@ func (ag *CentianProxyGateway) handleInitialize(
 			mu.Unlock()
 
 			log.Printf("Connected to downstream %s, found %d tools", name, len(conn.Tools()))
-			ag.registerToolsForSession(server, session)
+			registerToolsForSession(server, session)
 		}(serverName, connTemplate)
 	}
 
@@ -295,7 +295,7 @@ func deepCloneTool(tool *mcp.Tool) *mcp.Tool {
 	}
 }
 
-func (ag *CentianProxyGateway) RegisterToolAtServer(serverName string, server *mcp.Server, tool *mcp.Tool, session *CentianSession) {
+func RegisterToolAtServer(serverName string, server *mcp.Server, tool *mcp.Tool, session *CentianSession) {
 	// 1. create namespaced tool name to avoid collision with other servers
 	namespacedName := fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
 	// 2. deep clone provided tool
@@ -305,29 +305,31 @@ func (ag *CentianProxyGateway) RegisterToolAtServer(serverName string, server *m
 
 	// 3. attach tool at server
 	server.AddTool(namespacedTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return ag.handleToolCall(ctx, session, serverName, tool.Name, req)
+		return handleToolCall(ctx, session, serverName, req)
 	})
 }
 
-func (ag *CentianProxyGateway) registerToolsForSession(server *mcp.Server, session *CentianSession) {
+func registerToolsForSession(server *mcp.Server, session *CentianSession) {
 	for serverName, conn := range session.downstreamConns {
 		for _, tool := range conn.Tools() {
-			ag.RegisterToolAtServer(serverName, server, tool, session)
+			RegisterToolAtServer(serverName, server, tool, session)
 		}
 	}
 }
 
-func (ag *CentianProxyGateway) handleToolCall(
+func handleToolCall(
 	ctx context.Context,
 	session *CentianSession,
 	serverName string,
-	toolName string,
 	req *mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
+	// 1. get downstream connection from session
 	conn, exists := session.downstreamConns[serverName]
 	if !exists || !conn.IsConnected() {
 		return nil, fmt.Errorf("server %s not available", serverName)
 	}
+
+	// 2. unmarshal tool args
 	var args map[string]any
 	if err := json.Unmarshal(req.Params.Arguments, &args); err != nil {
 		return nil, err
@@ -335,7 +337,9 @@ func (ag *CentianProxyGateway) handleToolCall(
 	// TODO: validate args based on tool
 	// TODO: logging and processing -> this should likely not be on the
 	// gateway but instead on the server wrapper!
-	return conn.CallTool(ctx, toolName, args)
+
+	// 3. call downstream tool
+	return conn.CallTool(ctx, req.Params.Name, args)
 }
 
 func (ag *CentianProxyGateway) Endpoint() string {
