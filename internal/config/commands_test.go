@@ -40,6 +40,25 @@ func createTestConfig(t *testing.T) {
 	assert.NilError(t, err)
 }
 
+// createValidTestConfigWithGateway creates a test config with a valid gateway and server.
+// Use this for tests that require a fully valid config (e.g., validation tests).
+func createValidTestConfigWithGateway(t *testing.T) {
+	config := DefaultConfig()
+	config.Gateways = map[string]*GatewayConfig{
+		"test-gateway": {
+			MCPServers: map[string]*MCPServerConfig{
+				"test-server": {
+					Name:    "test-server",
+					Enabled: true,
+					URL:     "https://example.com/mcp",
+				},
+			},
+		},
+	}
+	err := SaveConfig(config)
+	assert.NilError(t, err)
+}
+
 // ========================================
 // initConfig Tests
 // ========================================
@@ -192,11 +211,11 @@ func TestShowConfig_FailsIfNoConfig(t *testing.T) {
 // ========================================
 
 func TestValidateConfig_SucceedsForValidConfig(t *testing.T) {
-	// Given: a valid config.
+	// Given: a valid config with gateway (required for server operation).
 	cleanup := setupTestEnv(t)
 	defer cleanup()
 
-	createTestConfig(t)
+	createValidTestConfigWithGateway(t)
 
 	ctx := context.Background()
 	cmd := &cli.Command{}
@@ -380,9 +399,11 @@ func TestListServers_Details(t *testing.T) {
 
 	got := captureStdout(t, func() {
 		// When: adding a real config and calling listServers.
+		proxySettings := NewDefaultProxySettings()
 		newConfig := GlobalConfig{
 			Name:    "test config",
 			Version: "1.0.0",
+			Proxy:   &proxySettings,
 		}
 		saveError := SaveConfig(&newConfig)
 		assert.NilError(t, saveError)
@@ -459,9 +480,11 @@ func TestAddServer_Details(t *testing.T) {
 	assert.ErrorContains(t, failedToLoadConfig1, "failed to load configuration")
 
 	// When: calling addServer WITH an existing config and NO gateways.
+	proxySettings := NewDefaultProxySettings()
 	newConfig := GlobalConfig{
 		Name:     "test config",
 		Version:  "1.0.0",
+		Proxy:    &proxySettings,
 		Gateways: map[string]*GatewayConfig{},
 	}
 	saveError := SaveConfig(&newConfig)

@@ -110,8 +110,15 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 	for gatewayName, gateway := range globalConfig.Gateways {
 		for serverName, server := range gateway.MCPServers {
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-			fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
-				globalConfig.Proxy.Port, endpoint, server.URL)
+			if server.URL != "" {
+				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
+					globalConfig.Proxy.Port, endpoint, server.URL)
+			}
+			if server.Command != "" {
+				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s -- %#v\n",
+					globalConfig.Proxy.Port, endpoint, server.Command, server.Args)
+			}
+
 		}
 	}
 	fmt.Fprintf(os.Stderr, "\n")

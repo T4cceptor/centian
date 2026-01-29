@@ -1,6 +1,6 @@
 module github.com/CentianAI/centian-cli
 
-go 1.25.0
+go 1.25.6
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.2.0

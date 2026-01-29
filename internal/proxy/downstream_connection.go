@@ -105,7 +105,7 @@ func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (
 	if isHTTPtransport {
 		// Merge config headers with passed auth headers
 		allHeaders := make(map[string]string)
-		for k, v := range dc.config.Headers {
+		for k, v := range dc.config.GetSubstitutedHeaders() {
 			allHeaders[k] = v
 		}
 		for k, v := range authHeaders {

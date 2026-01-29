@@ -12,6 +12,7 @@ import (
 	"github.com/CentianAI/centian-cli/internal/common"
 	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/CentianAI/centian-cli/internal/logging"
+	"github.com/CentianAI/centian-cli/internal/processor"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -71,6 +72,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 type CentianProxySession struct {
 	id              string
 	initialized     bool
+	upstreamServer  *mcp.Server
 	downstreamConns map[string]*DownstreamConnection // serverName → connection
 	authHeaders     map[string]string
 }
@@ -98,12 +100,12 @@ type MCPProxy struct {
 	// - false = pass-through for a single MCP server
 	isAggregatedProxy bool
 
-	// Tool registry for aggregated mode: namespacedTool → serverName
-	toolRegistry map[string]string
-
-	// Back-reference to parent server (for old CentianProxyEndpoint compatibility)
+	// Back-reference to parent server
 	server *CentianProxy
 	config *config.GatewayConfig
+
+	// Event processor for logging and processing hooks
+	eventProcessor *EventProcessor
 
 	mu sync.RWMutex
 }
@@ -118,7 +120,6 @@ func NewAggregatedProxy(name string, endpoint string, gatewayConfig *config.Gate
 		downstreams:       make(map[string]*DownstreamConnection),
 		sessions:          make(map[string]*CentianProxySession),
 		isAggregatedProxy: true,
-		toolRegistry:      make(map[string]string),
 	}
 
 	// Pre-create downstream templates from config
@@ -160,9 +161,15 @@ func (p *MCPProxy) GetServerForRequest(r *http.Request) *mcp.Server {
 	if !exists {
 		session = p.createSession(sessionID, r)
 		p.sessions[sessionID] = session
+		upstreamServer, err := p.getServerForSession(session)
+		if err != nil {
+			common.LogError(err.Error())
+			return nil
+		} else {
+			session.upstreamServer = upstreamServer
+		}
 	}
-
-	return p.createServerForSession(session)
+	return session.upstreamServer
 }
 
 func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySession {
@@ -182,31 +189,16 @@ func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySessio
 	}
 }
 
-func (p *MCPProxy) createServerForSession(session *CentianProxySession) *mcp.Server {
-	var server *mcp.Server
-	serverName := "centian-proxy-" + p.name
-	if p.isAggregatedProxy {
-		serverName = "centian-gateway-" + p.name
-	}
-
-	server = mcp.NewServer(&mcp.Implementation{
-		Name:    serverName,
-		Version: "1.0.0",
-	}, &mcp.ServerOptions{
-		InitializedHandler: func(ctx context.Context, _ *mcp.InitializedRequest) {
-			p.handleInitialize(ctx, server, session)
-		},
-	})
-	return server
-}
-
 // handleInitialize connects to downstream server(s) and registers their tools.
-func (p *MCPProxy) handleInitialize(ctx context.Context, server *mcp.Server, session *CentianProxySession) (*mcp.InitializeResult, error) {
+func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Server, error) {
 	if session.initialized {
-		return p.buildInitializeResult(), nil
+		return session.upstreamServer, nil
 	}
 
 	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, session.id)
+
+	// Log session initialization event
+	p.logSessionEvent(session, "session_init", "Session initialization started")
 
 	// Connect to all downstreams (parallel for aggregated, single iteration for single mode)
 	var wg sync.WaitGroup
@@ -220,7 +212,7 @@ func (p *MCPProxy) handleInitialize(ctx context.Context, server *mcp.Server, ses
 
 			// Create fresh connection for this session
 			conn := NewDownstreamConnection(name, template.config)
-
+			ctx := context.Background()
 			if err := conn.Connect(ctx, session.authHeaders); err != nil {
 				mu.Lock()
 				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
@@ -234,49 +226,42 @@ func (p *MCPProxy) handleInitialize(ctx context.Context, server *mcp.Server, ses
 			mu.Unlock()
 
 			log.Printf("MCPProxy[%s]: Connected to %s, found %d tools", p.name, name, len(conn.Tools()))
+
 		}(serverName, connTemplate)
 	}
 
 	wg.Wait()
-
 	if len(session.downstreamConns) == 0 {
 		return nil, fmt.Errorf("failed to connect to any downstream servers: %v", errors)
 	}
 
 	// Register tools from all connected downstreams
+	server := p.NewMcpServer()
 	p.registerToolsForSession(server, session)
-
-	// Update tool registry (for aggregated mode)
-	if p.isAggregatedProxy {
-		p.mu.Lock()
-		for serverName, conn := range session.downstreamConns {
-			for _, tool := range conn.Tools() {
-				namespacedName := fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
-				p.toolRegistry[namespacedName] = serverName
-			}
-		}
-		p.mu.Unlock()
-	}
-
 	session.initialized = true
-	return p.buildInitializeResult(), nil
+	return server, nil
 }
 
-func (p *MCPProxy) buildInitializeResult() *mcp.InitializeResult {
+// NewMcpServer returns a new *mcp.Server based on the MCPProxy name
+func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	serverName := "centian-proxy-" + p.name
 	if p.isAggregatedProxy {
 		serverName = "centian-gateway-" + p.name
 	}
-	return &mcp.InitializeResult{
-		ProtocolVersion: "2025-11-25",
+	return mcp.NewServer(&mcp.Implementation{
+		Name:    serverName,
+		Version: "1.0.0",
+	}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{
-			Tools: &mcp.ToolCapabilities{},
+			Tools: &mcp.ToolCapabilities{
+				ListChanged: true,
+				// NOTE: this is important as we want the client to know we support tools,
+				// however these are NOT added initially and will only be available on the
+				// first connect
+				// TODO: double check how this can work with auth flows
+			},
 		},
-		ServerInfo: &mcp.Implementation{
-			Name:    serverName,
-			Version: "1.0.0",
-		},
-	}
+	})
 }
 
 // registerToolsForSession registers tools from all downstream connections.
@@ -316,9 +301,121 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 		return nil, fmt.Errorf("failed to unmarshal tool arguments: %w", err)
 	}
 
-	// TODO: logging and processing hooks
+	// =========================================================================
+	// INFLECTION POINT 1: Process REQUEST (Client → Server)
+	// =========================================================================
+	var reqEvent *common.MCPEvent
+	if p.eventProcessor != nil {
+		reqEvent = p.buildRequestEvent(session, serverName, req)
+		if err := p.eventProcessor.Process(reqEvent); err != nil {
+			common.LogError("request processing error: %s", err.Error())
+		}
 
-	return conn.CallTool(ctx, req.Params.Name, args)
+		// Check if request was rejected by processor
+		if reqEvent.Status >= 400 {
+			errMsg := "Request rejected by processor"
+			if reqEvent.Error != "" {
+				errMsg = reqEvent.Error
+			}
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: errMsg},
+				},
+			}, nil
+		}
+	}
+
+	// =========================================================================
+	// Call downstream MCP server
+	// =========================================================================
+	result, err := conn.CallTool(ctx, req.Params.Name, args)
+	if err != nil {
+		return nil, err
+	}
+
+	// =========================================================================
+	// INFLECTION POINT 2: Process RESPONSE (Server → Client)
+	// =========================================================================
+	if p.eventProcessor != nil {
+		respEvent := p.buildResponseEvent(session, serverName, req, result, reqEvent)
+		if err := p.eventProcessor.Process(respEvent); err != nil {
+			common.LogError("response processing error: %s", err.Error())
+		}
+
+		// If response was modified by processor, we could update result here
+		// For now, we just log - modification would require parsing respEvent.RawMessage()
+	}
+
+	return result, nil
+}
+
+// buildRequestEvent creates an MCPEvent for a tool call request.
+func (p *MCPProxy) buildRequestEvent(session *CentianProxySession, serverName string, req *mcp.CallToolRequest) *common.MCPEvent {
+	serverID := ""
+	if p.server != nil {
+		serverID = p.server.ServerID
+	}
+
+	// Build JSON-RPC message
+	rawMsg, _ := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name":      req.Params.Name,
+			"arguments": req.Params.Arguments,
+		},
+	})
+
+	event := common.NewMCPRequestEvent("sdk").
+		WithRequestID(getNewUUIDV7()).
+		WithSessionID(session.id).
+		WithServerID(serverID).
+		WithRouting(p.name, serverName, p.endpoint).
+		WithToolCall(req.Params.Name, req.Params.Arguments).
+		WithRawMessage(string(rawMsg))
+
+	return event
+}
+
+// buildResponseEvent creates an MCPEvent for a tool call response.
+func (p *MCPProxy) buildResponseEvent(
+	session *CentianProxySession,
+	serverName string,
+	req *mcp.CallToolRequest,
+	result *mcp.CallToolResult,
+	reqEvent *common.MCPEvent,
+) *common.MCPEvent {
+	serverID := ""
+	if p.server != nil {
+		serverID = p.server.ServerID
+	}
+
+	// Use request ID from request event if available
+	requestID := getNewUUIDV7()
+	if reqEvent != nil {
+		requestID = reqEvent.RequestID
+	}
+
+	// Marshal result for raw message
+	resultJSON, _ := json.Marshal(result)
+	rawMsg, _ := json.Marshal(map[string]interface{}{
+		"jsonrpc": "2.0",
+		"result":  result,
+	})
+
+	event := common.NewMCPResponseEvent("sdk").
+		WithRequestID(requestID).
+		WithSessionID(session.id).
+		WithServerID(serverID).
+		WithRouting(p.name, serverName, p.endpoint).
+		WithToolCall(req.Params.Name, req.Params.Arguments).
+		WithToolResult(resultJSON, result.IsError).
+		WithRawMessage(string(rawMsg))
+
+	event.Success = !result.IsError
+
+	return event
 }
 
 func deepCloneTool(tool *mcp.Tool) *mcp.Tool {
@@ -389,6 +486,9 @@ func (c *CentianProxy) Setup() error {
 		gateway.server = c
 		c.Gateways[gatewayName] = gateway
 
+		// Initialize event processor for the gateway
+		gateway.initEventProcessor()
+
 		// Register aggregated endpoint
 		// TODO: make this configurable
 		// TODO: allow "tool registry mode" where we provide tool search
@@ -400,10 +500,74 @@ func (c *CentianProxy) Setup() error {
 			if serverCfg.Enabled {
 				singleEndpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 				singleProxy := NewSingleProxy(serverName, singleEndpoint, serverCfg)
+				singleProxy.server = c
+				singleProxy.initEventProcessor()
 				RegisterHandler(singleEndpoint, singleProxy, c.Mux, nil)
 			}
 		}
 	}
 
 	return nil
+}
+
+// logSessionEvent logs a system event for session lifecycle.
+func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, message string) {
+	if p.eventProcessor == nil {
+		return
+	}
+
+	serverID := ""
+	if p.server != nil {
+		serverID = p.server.ServerID
+	}
+
+	event := common.NewMCPSystemEvent("sdk").
+		WithRequestID(getNewUUIDV7()).
+		WithSessionID(session.id).
+		WithServerID(serverID).
+		WithRouting(p.name, "", p.endpoint).
+		WithRawMessage(fmt.Sprintf(`{"event_type":"%s","message":"%s"}`, eventType, message))
+
+	event.Metadata["event_type"] = eventType
+
+	// Only log, don't run through processor chain for system events
+	if p.server != nil && p.server.Logger != nil {
+		if err := p.server.Logger.LogMcpEvent(event); err != nil {
+			common.LogError("failed to log session event: %s", err.Error())
+		}
+	}
+}
+
+// initEventProcessor initializes the event processor for this MCPProxy.
+// It combines global processors with gateway-specific processors.
+func (p *MCPProxy) initEventProcessor() {
+	if p.server == nil {
+		common.LogWarn("MCPProxy[%s]: Cannot initialize processor - no server reference", p.name)
+		return
+	}
+
+	// Collect all processor configs (global + gateway-specific)
+	var allProcessors []*config.ProcessorConfig
+
+	// Add global processors
+	if p.server.Config.Processors != nil {
+		allProcessors = append(allProcessors, p.server.Config.Processors...)
+	}
+
+	// Add gateway-specific processors
+	if p.config != nil && p.config.Processors != nil {
+		allProcessors = append(allProcessors, p.config.Processors...)
+	}
+
+	// Create processor chain
+	sessionID := fmt.Sprintf("gateway_%s_%d", p.name, time.Now().UnixNano())
+	processorChain, err := processor.NewChain(allProcessors, p.server.Config.Name, sessionID)
+	if err != nil {
+		common.LogError("MCPProxy[%s]: Failed to create processor chain: %s", p.name, err.Error())
+		return
+	}
+
+	// Create event processor
+	p.eventProcessor = NewEventProcessor(p.server.Logger, processorChain)
+	common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, len(allProcessors))
 }

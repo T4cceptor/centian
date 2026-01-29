@@ -199,7 +199,7 @@ func TestMultiRequestsOnIndividualServerOfGateway(t *testing.T) {
 		Name:    "Test Proxy Server",
 		Version: "1.0.0",
 		Proxy: &config.ProxySettings{
-			Port:    "9000",
+			Port:    "9015",
 			Timeout: 30,
 		},
 		Gateways: map[string]*config.GatewayConfig{

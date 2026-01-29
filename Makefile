@@ -118,3 +118,6 @@ release: ## Create and push a new patch release
 	git tag $$NEW_TAG; \
 	git push origin $$NEW_TAG; \
 	echo "✅ Released $$NEW_TAG - check GitHub Actions for build status"
+
+inspect:
+	npx @modelcontextprotocol/inspector centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory

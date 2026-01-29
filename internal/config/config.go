@@ -285,8 +285,9 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Validate config.
-	if err := ValidateConfig(&cfg); err != nil {
+	// Validate config schema (allows empty gateways for config management).
+	// Server startup should call ValidateConfigForServer for operational validation.
+	if err := ValidateConfigSchema(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -321,17 +322,18 @@ func SaveConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// ValidateConfig performs basic validation on the configuration to ensure
-// required fields are present and values are within acceptable ranges.
-// Returns an error if any validation rules fail.
-func ValidateConfig(config *GlobalConfig) error {
+// ValidateConfigSchema performs basic schema validation on the configuration.
+// This validates required fields and structure but allows empty gateways.
+// Use ValidateConfigForServer for operational validation before starting a server.
+func ValidateConfigSchema(config *GlobalConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
 	if config.Proxy == nil {
 		return fmt.Errorf("proxy settings are required in config")
 	}
-	if err := validatedGateways(config.Gateways); err != nil {
+	// Validate gateways that exist (but allow empty)
+	if err := validateExistingGateways(config.Gateways); err != nil {
 		return err
 	}
 	if err := validateProcessors(config.Processors); err != nil {
@@ -340,13 +342,28 @@ func ValidateConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// validatedGateways validates server configurations.
-//
-// Note: there has to be at least one GatewayConfig in the map, otherwise an error will be returned.
-func validatedGateways(gateways map[string]*GatewayConfig) error {
-	if len(gateways) == 0 {
+// ValidateConfig performs full validation including operational requirements.
+// This requires at least one gateway to be configured.
+// Deprecated: Use ValidateConfigSchema for loading and ValidateConfigForServer for startup.
+func ValidateConfig(config *GlobalConfig) error {
+	if err := ValidateConfigSchema(config); err != nil {
+		return err
+	}
+	return ValidateConfigForServer(config)
+}
+
+// ValidateConfigForServer validates the config is ready for server operation.
+// This checks operational requirements like having at least one gateway configured.
+func ValidateConfigForServer(config *GlobalConfig) error {
+	if len(config.Gateways) == 0 {
 		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
 	}
+	return nil
+}
+
+// validateExistingGateways validates gateway configurations without requiring any.
+// This allows empty gateway maps (for freshly initialized configs).
+func validateExistingGateways(gateways map[string]*GatewayConfig) error {
 	for gatewayName, gatewayConfig := range gateways {
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err
@@ -358,6 +375,17 @@ func validatedGateways(gateways map[string]*GatewayConfig) error {
 		}
 	}
 	return nil
+}
+
+// validatedGateways validates server configurations.
+//
+// Note: there has to be at least one GatewayConfig in the map, otherwise an error will be returned.
+// Deprecated: Use validateExistingGateways for schema validation and ValidateConfigForServer for operational checks.
+func validatedGateways(gateways map[string]*GatewayConfig) error {
+	if len(gateways) == 0 {
+		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
+	}
+	return validateExistingGateways(gateways)
 }
 
 // isValidHTTPURL validates that a URL string is a properly formatted HTTP/HTTPS URL.
