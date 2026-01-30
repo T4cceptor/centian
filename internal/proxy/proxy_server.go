@@ -112,7 +112,7 @@ type MCPProxy struct {
 
 // NewAggregatedProxy creates a proxy that aggregates multiple downstream servers.
 // Tools from each server are namespaced as "serverName__toolName" to avoid collisions.
-func NewAggregatedProxy(name string, endpoint string, gatewayConfig *config.GatewayConfig) *MCPProxy {
+func NewAggregatedProxy(name, endpoint string, gatewayConfig *config.GatewayConfig) *MCPProxy {
 	proxy := &MCPProxy{
 		name:              name,
 		endpoint:          endpoint,
@@ -134,7 +134,7 @@ func NewAggregatedProxy(name string, endpoint string, gatewayConfig *config.Gate
 
 // NewSingleProxy creates a proxy for a single downstream server.
 // Tools pass through with their original names (no namespacing).
-func NewSingleProxy(serverName string, endpoint string, serverConfig *config.MCPServerConfig) *MCPProxy {
+func NewSingleProxy(serverName, endpoint string, serverConfig *config.MCPServerConfig) *MCPProxy {
 	return &MCPProxy{
 		name:     serverName,
 		endpoint: endpoint,

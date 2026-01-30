@@ -9,7 +9,7 @@ import (
 // TestProcessorValidation tests processor configuration validation.
 func TestProcessorValidation(t *testing.T) {
 	defaultGateways := map[string]*GatewayConfig{
-		"default": &GatewayConfig{
+		"default": {
 			MCPServers: map[string]*MCPServerConfig{
 				"test": {URL: "https://test123.com"},
 			},

@@ -73,6 +73,7 @@ type MCPServerConfig struct {
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
 }
 
+// IsEnabled returns true if the MCP server is either explicitly enabled or the flag is unset (nil).
 func (s *MCPServerConfig) IsEnabled() bool {
 	if s.Enabled == nil {
 		return true // default
