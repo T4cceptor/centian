@@ -8,9 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// MaxBodySize represents the maximal allowed size of a request/response body.
-const MaxBodySize = 10 * 1024 * 1024 // 10MB
-
 // NamespaceSeparator is used to create tool names in an aggregated proxy server.
 const NamespaceSeparator = "___"
 

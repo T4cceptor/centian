@@ -358,7 +358,18 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	// =========================================================================
 	// Call downstream MCP server
 	// =========================================================================
-	result, err := conn.CallTool(ctx, req.Params.Name, args)
+	toolName := req.Params.Name
+	if p.isAggregatedProxy {
+		// here we need to modify the tool name to restore the original downstream
+		// name, otherwise the tool will not be found (it does not exist on the
+		// downstream server)
+		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("failed to recreate original tool name from: %s", req.Params.Name)
+		}
+		toolName = strings.Join(parts[1:], "")
+	}
+	result, err := conn.CallTool(ctx, toolName, args)
 	if err != nil {
 		return nil, err
 	}
@@ -396,6 +407,7 @@ func (p *MCPProxy) buildRequestEvent(session *CentianProxySession, serverName st
 		},
 	})
 
+	// TODO: "sdk" should be replaced by the true transport!
 	event := common.NewMCPRequestEvent("sdk").
 		WithRequestID(getNewUUIDV7()).
 		WithSessionID(session.id).

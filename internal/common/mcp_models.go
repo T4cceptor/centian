@@ -2,7 +2,6 @@ package common
 
 import (
 	"encoding/json"
-	"net/http"
 	"time"
 )
 
@@ -16,16 +15,6 @@ const (
 	// StdioTransport represents stdio transport -> "stdio".
 	StdioTransport McpTransportType = "stdio"
 )
-
-// IsHTTPTransport checks if the provided transport value is "http".
-func IsHTTPTransport(transport string) bool {
-	return McpTransportType(transport) == HTTPTransport
-}
-
-// IsStdioTransport checks if the provided transport value is "stdio".
-func IsStdioTransport(transport string) bool {
-	return McpTransportType(transport) == StdioTransport
-}
 
 // McpEventDirection represents the event direction, e.g. CLIENT to SERVER, CENTIAN to CLIENT etc.
 type McpEventDirection string
@@ -191,225 +180,6 @@ type BaseMcpEvent struct {
 	Modified bool `json:"modified"`
 }
 
-// HTTPEvent captures HTTP request and response data for tracking MCP communication over HTTP transport.
-//
-// This struct stores both request metadata (method, URL, headers) and response data (status, headers, body)
-// to provide complete visibility into HTTP-based MCP interactions. The Body field may be nil or truncated
-// for large payloads or streaming responses.
-type HTTPEvent struct {
-	// ReqID uniquely identifies this HTTP request.
-	ReqID string
-
-	// Method is the HTTP method (GET, POST, etc.).
-	Method string
-
-	// URL is the full request URL.
-	URL string
-
-	// ReqHeaders contains the HTTP request headers.
-	ReqHeaders http.Header
-
-	// RespStatus is the HTTP response status code (-1 if no response yet).
-	RespStatus int
-
-	// RespHeaders contains the HTTP response headers (nil if no response yet).
-	RespHeaders http.Header
-
-	// Body contains the captured request/response body (may be nil, truncated, or empty for streaming).
-	Body []byte
-
-	// BodySize is the original content length.
-	BodySize int64
-
-	// Truncated indicates if the body was truncated due to size limits.
-	Truncated bool
-
-	// Streaming indicates if this is a streaming response.
-	Streaming bool
-
-	// ContentType is the Content-Type header value.
-	ContentType string
-}
-
-// NewHTTPEventFromRequest creates a new HTTPEvent from an HTTP request.
-//
-// This constructor initializes an HTTPEvent with request metadata and placeholder values
-// for response fields. Response status is set to -1 and headers to nil to indicate no
-// response has been received yet. The Body field is initially nil and should be set
-// during request processing.
-func NewHTTPEventFromRequest(r *http.Request, requestID string) *HTTPEvent {
-	responseStatus := -1
-	var responseHeaders http.Header
-	if r.Response != nil {
-		responseStatus = r.Response.StatusCode
-		responseHeaders = r.Response.Header
-	}
-	return &HTTPEvent{
-		ReqID:       requestID,
-		Method:      r.Method,
-		URL:         r.URL.String(),
-		ReqHeaders:  r.Header,
-		RespStatus:  responseStatus,  // -1 means there is no response yet.
-		RespHeaders: responseHeaders, // nil means there is no response yet.
-		Body:        nil,             // will be set during processing.
-		BodySize:    r.ContentLength,
-		Truncated:   false,                        // TODO.
-		Streaming:   false,                        // TODO.
-		ContentType: r.Header.Get("Content-Type"), // TODO: check if this is correct and appropriate.
-	}
-}
-
-// NewHTTPEventFromResponse creates a new HTTPEvent from an HTTP response.
-//
-// This constructor initializes an HTTPEvent with both request and response metadata extracted
-// from the response object. The request details are obtained from resp.Request, while response
-// status and headers are taken directly from the response. The Body field is initially nil
-// and should be set during response processing.
-func NewHTTPEventFromResponse(resp *http.Response, requestID string) *HTTPEvent {
-	return &HTTPEvent{
-		ReqID:       requestID,
-		Method:      resp.Request.Method,
-		URL:         resp.Request.URL.String(),
-		ReqHeaders:  resp.Request.Header,
-		RespStatus:  resp.StatusCode,
-		RespHeaders: resp.Header,
-		Body:        nil, // Set during processing.
-		BodySize:    resp.ContentLength,
-		ContentType: resp.Header.Get("Content-Type"),
-	}
-}
-
-// HTTPMcpEvent holds data for an HTTP-based MCP event.
-type HTTPMcpEvent struct {
-	BaseMcpEvent
-
-	HTTPEvent *HTTPEvent
-
-	// Gateway is the logical grouping of MCP servers (e.g., "my-gateway").
-	Gateway string `json:"gateway"`
-
-	// ServerName identifies the specific MCP server within the gateway.
-	ServerName string `json:"server_name"`
-
-	// Endpoint is the HTTP path this server is mounted at (e.g., "/mcp/my-gateway/github").
-	//.
-	// Follows the pattern: /mcp/<gateway_name>/<server_name>.
-	Endpoint string `json:"endpoint"`
-
-	// DownstreamURL is the target MCP server URL being proxied to.
-	DownstreamURL string `json:"downstream_url"`
-
-	// ProxyPort is the port the proxy server is listening on.
-	ProxyPort string `json:"proxy_port,omitempty"`
-}
-
-// RawMessage returns the message content of the HTTPMcpEvent, is based on HTTPEvent.Body.
-//
-// If the original HTTPEvent has no Body (e.g. GET, DELETE methods) it returns an empty string.
-func (h *HTTPMcpEvent) RawMessage() string {
-	rawMessage := ""
-	if h.HTTPEvent != nil && len(h.HTTPEvent.Body) > 0 {
-		rawMessage = string(h.HTTPEvent.Body)
-	}
-	return rawMessage
-}
-
-// SetRawMessage overwrites the mcp event content - used for writing back processed MCP event data.
-//
-// For HTTPMcpEvent this overwrites the original HTTPEvent.Body.
-func (h *HTTPMcpEvent) SetRawMessage(newMessage string) {
-	if h.HTTPEvent == nil {
-		// Note: this should never happen - except during testing.
-		LogWarn("HTTPEvent is nil, creating new for message: %s", newMessage)
-		h.HTTPEvent = &HTTPEvent{} // we create a new HTTPEvent.
-	}
-	h.HTTPEvent.Body = []byte(newMessage)
-}
-
-// SetModified sets the modified flag.
-func (h *HTTPMcpEvent) SetModified(b bool) {
-	h.Modified = b
-}
-
-// HasContent returns true if HTTPEvent.Body has content, false otherwise.
-func (h *HTTPMcpEvent) HasContent() bool {
-	return h.HTTPEvent != nil && len(h.HTTPEvent.Body) > 0
-}
-
-// IsRequest returns true if MessageType is MessageTypeRequest.
-func (h *HTTPMcpEvent) IsRequest() bool {
-	return h.MessageType == MessageTypeRequest
-}
-
-// IsResponse returns true if MessageType is MessageTypeResponse.
-func (h *HTTPMcpEvent) IsResponse() bool {
-	return h.MessageType == MessageTypeResponse
-}
-
-// GetBaseEvent returns the BaseMcpEvent for this HTTPMcpEvent.
-func (h *HTTPMcpEvent) GetBaseEvent() BaseMcpEvent {
-	return h.BaseMcpEvent
-}
-
-// SetStatus sets the status for this MCP event.
-func (h *HTTPMcpEvent) SetStatus(status int) {
-	h.Status = status
-}
-
-// MarshalJSON implements custom JSON marshaling for HTTPMcpEvent.
-//
-// This method injects the raw message content into the JSON output using an alias type
-// to prevent infinite recursion. Uses a value receiver to implement json.Marshaler
-// for both value and pointer types, enabling marshaling of HTTPMcpEvent regardless
-// of whether it's passed by value or by pointer.
-//
-//nolint:gocritic // Intentional value receiver to implement json.Marshaler for both value and pointer types.
-func (h HTTPMcpEvent) MarshalJSON() ([]byte, error) {
-	type Alias HTTPMcpEvent
-	return marshalWithRaw(h.RawMessage(), Alias(h))
-}
-
-// DeepClone creates a deep copy of the HTTPMcpEvent.
-//
-// This method performs a complete deep copy of the event including all nested structures
-// (ProcessingErrors map, Metadata map, HTTPEvent with headers and body). The returned copy
-// is completely independent from the original, allowing safe concurrent modifications
-// without affecting the source event.
-func (h *HTTPMcpEvent) DeepClone() *HTTPMcpEvent {
-	// Shallow copy value fields (dereference pointer to get value).
-	processedEvent := *h
-
-	// Deep copy ProcessingErrors map.
-	processedEvent.ProcessingErrors = make(map[string]error)
-	for k, v := range h.ProcessingErrors {
-		processedEvent.ProcessingErrors[k] = v // Copy original errors.
-	}
-	processedEvent.Metadata = make(map[string]string)
-	for k, v := range h.Metadata {
-		processedEvent.Metadata[k] = v // Copy original metadata.
-	}
-	if processedEvent.HTTPEvent != nil {
-		processedEvent.HTTPEvent = &HTTPEvent{
-			ReqID:       h.HTTPEvent.ReqID,
-			Method:      h.HTTPEvent.Method,
-			URL:         h.HTTPEvent.URL,
-			ReqHeaders:  h.HTTPEvent.ReqHeaders.Clone(), // ✅ Deep copy.
-			RespStatus:  h.HTTPEvent.RespStatus,
-			RespHeaders: h.HTTPEvent.RespHeaders.Clone(), // ✅ Deep copy.
-			Body:        make([]byte, len(h.HTTPEvent.Body)),
-			BodySize:    h.HTTPEvent.BodySize,
-			Truncated:   h.HTTPEvent.Truncated,
-			Streaming:   h.HTTPEvent.Streaming,
-			ContentType: h.HTTPEvent.ContentType,
-		}
-		copy(processedEvent.HTTPEvent.Body, h.HTTPEvent.Body)
-	} else {
-		processedEvent.HTTPEvent = nil
-	}
-
-	return &processedEvent
-}
-
 // StdioMcpEvent holds data for a stdio-based MCP event.
 //
 // This event type represents MCP communication that occurs via standard input/output streams,
@@ -515,7 +285,7 @@ func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
 //
 // This interface enables polymorphic handling of MCP events across different transport
 // mechanisms (stdio, HTTP, etc.) without requiring type assertions. All event types
-// (StdioMcpEvent, HTTPMcpEvent) implement this interface, allowing unified processing
+// (StdioMcpEvent) implement this interface, allowing unified processing
 // of events regardless of their underlying transport implementation.
 //
 // The interface provides methods for:

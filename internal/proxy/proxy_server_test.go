@@ -37,9 +37,6 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 				MCPServers: map[string]*config.MCPServerConfig{
 					"deepwiki": {
 						URL: downstreamURL,
-						// Headers: map[string]string{.
-						// 	"Content-Type": "application/json",
-						// },
 					},
 				},
 			},

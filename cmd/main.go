@@ -44,7 +44,7 @@ func main() {
 		Commands: []*urfavecli.Command{
 			cli.InitCommand,
 			cli.ServerCommand,
-			cli.StdioCommand,
+			cli.ProcessorCommand,
 			cli.LogsCommand,
 			config.ConfigCommand,
 		},

@@ -79,7 +79,7 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 				// Fall through and forward original response.
 			} else {
 				outputLine = string(modifiedJSON)
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Response modified by processors\n")
+				fmt.Fprintf(os.Stderr, "[PROCESSOR-] Response modified by processors\n")
 			}
 		}
 		event.SetStatus(result.Status)

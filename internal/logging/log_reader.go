@@ -126,14 +126,11 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 
 	// Extract transport-specific details.
 	command := ""
-	switch e := entry.Event.(type) {
-	case *common.StdioMcpEvent:
+	if e, ok := entry.Event.(*common.StdioMcpEvent); ok {
 		command = e.Command
 		if len(e.Args) > 0 {
 			command = fmt.Sprintf("%s %s", command, strings.Join(e.Args, " "))
 		}
-	case *common.HTTPMcpEvent:
-		command = fmt.Sprintf("%s %s", e.ServerName, e.Endpoint)
 	}
 
 	detail := entry.Event.RawMessage()
@@ -202,12 +199,6 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 				continue
 			}
 			event = &stdioEvent
-		case "http":
-			var httpEvent common.HTTPMcpEvent
-			if err := json.Unmarshal([]byte(line), &httpEvent); err != nil {
-				continue
-			}
-			event = &httpEvent
 		default:
 			// Skip unknown transport types.
 			continue
