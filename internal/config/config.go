@@ -34,7 +34,8 @@ type GlobalConfig struct {
 	Metadata    map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
 }
 
-const defaultAuthHeader = "X-Centian-Auth"
+// DefaultAuthHeader represents the default header for authentication at the Centian server.
+const DefaultAuthHeader = "X-Centian-Auth"
 
 // IsAuthEnabled returns true when auth is enabled or unset.
 func (g *GlobalConfig) IsAuthEnabled() bool {
@@ -47,7 +48,7 @@ func (g *GlobalConfig) IsAuthEnabled() bool {
 // GetAuthHeader returns the configured auth header name or the default.
 func (g *GlobalConfig) GetAuthHeader() string {
 	if g == nil || g.AuthHeader == "" {
-		return defaultAuthHeader
+		return DefaultAuthHeader
 	}
 	return g.AuthHeader
 }
@@ -249,7 +250,7 @@ func DefaultConfig() *GlobalConfig {
 		Name:        "Centian Server",
 		Version:     "1.0.0",
 		AuthEnabled: &authEnabled,
-		AuthHeader:  defaultAuthHeader,
+		AuthHeader:  DefaultAuthHeader,
 		Proxy:       &proxySettings,
 		Gateways:    make(map[string]*GatewayConfig),
 		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)

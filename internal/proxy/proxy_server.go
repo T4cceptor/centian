@@ -541,7 +541,7 @@ func RegisterHandler(endpoint string, proxy *MCPProxy, mux *http.ServeMux, optio
 	if proxy.server != nil && proxy.server.APIKeys != nil {
 		headerName := proxy.server.AuthHeader
 		if headerName == "" {
-			headerName = "X-Centian-Auth"
+			headerName = strings.Clone(config.DefaultAuthHeader)
 		}
 		handler = apiKeyMiddlewareWithHeader(proxy.server.APIKeys, headerName, handler)
 	}
