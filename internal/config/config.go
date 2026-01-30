@@ -20,7 +20,7 @@ const (
 	CLIProcessor ProcessorType = "cli"
 )
 
-// GlobalConfig represents the main configuration structure stored at ~/.centian/config.jsonc.
+// GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
 type GlobalConfig struct {
@@ -267,13 +267,13 @@ func GetConfigDir() (string, error) {
 	return filepath.Join(homeDir, ".centian"), nil
 }
 
-// GetConfigPath returns the full path to config.jsonc.
+// GetConfigPath returns the full path to config.json.
 func GetConfigPath() (string, error) {
 	configDir, err := GetConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, "config.jsonc"), nil
+	return filepath.Join(configDir, "config.json"), nil
 }
 
 // EnsureConfigDir creates the config directory if it doesn't exist.
@@ -285,7 +285,7 @@ func EnsureConfigDir() error {
 	return os.MkdirAll(configDir, 0o750)
 }
 
-// LoadConfig loads the global configuration from ~/.centian/config.jsonc.
+// LoadConfig loads the global configuration from ~/.centian/config.json.
 // If the config file doesn't exist, it creates a new one with default settings.
 // The configuration is validated after loading to ensure it's properly formatted.
 func LoadConfig() (*GlobalConfig, error) {
@@ -326,7 +326,7 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 	return &cfg, nil
 }
 
-// SaveConfig saves the configuration to ~/.centian/config.jsonc.
+// SaveConfig saves the configuration to ~/.centian/config.json.
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
 func SaveConfig(config *GlobalConfig) error {

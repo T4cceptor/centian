@@ -225,25 +225,3 @@ func (e *MCPEvent) IsResponse() bool {
 func (e *MCPEvent) SetStatus(status int) {
 	e.Status = status
 }
-
-// ============================================================================
-// JSON Marshaling
-// ============================================================================
-
-// MarshalJSON implements custom JSON marshaling for MCPEvent.
-// It includes the raw_message field in the JSON output.
-//
-//nolint:gocritic // Intentional value receiver for json.Marshaler compatibility
-func (e MCPEvent) MarshalJSON() ([]byte, error) {
-	type Alias MCPEvent
-	data, err := json.Marshal(Alias(e))
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	m["raw_message"] = e.RawMessage
-	return json.Marshal(m)
-}

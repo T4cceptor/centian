@@ -52,7 +52,7 @@
                         <mxPoint y="-2" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="14" value="ready config at:&lt;br&gt;~/.centian/config.jsonc" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                <mxCell id="14" value="ready config at:&lt;br&gt;~/.centian/config.json" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
                     <mxGeometry x="420" y="200" width="160" height="30" as="geometry"/>
                 </mxCell>
                 <mxCell id="15" value="" style="endArrow=classic;html=1;" edge="1" parent="1">

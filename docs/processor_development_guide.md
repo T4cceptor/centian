@@ -52,8 +52,8 @@ Quick-start to get a processor running in minutes:
    ./scripts/create-processor.sh
    ```
 2. Modify the scaffolding and implement your processor logic.
-3. Wire it into config (`~/.centian/config.jsonc`):
-   ```jsonc
+3. Wire it into config (`~/.centian/config.json`):
+   ```json
    {
      "processors": [
        {
@@ -90,7 +90,7 @@ MCP Client → Centian Proxy → [Processor 1] → [Processor 2] → MCP Server
                               Can modify      Can reject
 ```
 
-- Processors execute sequentially in the order defined in your configuration (see `~/.centian/config.jsonc`).
+- Processors execute sequentially in the order defined in your configuration (see `~/.centian/config.json`).
 - Processors receive the message type (request/response), payload, timestamp, and other metadata (see below for more details)
 - Each processor can:
   - **Allow**: Return status 200 to continue to the next processor
@@ -538,9 +538,9 @@ fi
 
 ### Add to Config File
 
-Edit `~/.centian/config.jsonc`:
+Edit `~/.centian/config.json`:
 
-```jsonc
+```json
 {
   "processors": [
     {
@@ -568,7 +568,7 @@ Edit `~/.centian/config.jsonc`:
 
 Processors execute in order:
 
-```jsonc
+```json
 {
   "processors": [
     {

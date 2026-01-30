@@ -17,7 +17,7 @@ import (
 var ConfigCommand = &cli.Command{
 	Name:        "config",
 	Usage:       "Manage centian configuration",
-	Description: "Commands to manage the global centian configuration at ~/.centian/config.jsonc",
+	Description: "Commands to manage the global centian configuration at ~/.centian/config.json",
 	Commands: []*cli.Command{
 		configInitCommand,
 		configShowCommand,
@@ -30,14 +30,14 @@ var ConfigCommand = &cli.Command{
 var configInitCommand = &cli.Command{
 	Name:        "init",
 	Usage:       "Initialize configuration with defaults",
-	Description: "Creates ~/.centian/config.jsonc with default settings if it doesn't exist",
+	Description: "Creates ~/.centian/config.json with default settings if it doesn't exist",
 	Action:      initConfig,
 }
 
 var configShowCommand = &cli.Command{
 	Name:        "show",
 	Usage:       "Display current configuration",
-	Description: "Shows the current configuration from ~/.centian/config.jsonc",
+	Description: "Shows the current configuration from ~/.centian/config.json",
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:    "json",
@@ -51,14 +51,14 @@ var configShowCommand = &cli.Command{
 var configValidateCommand = &cli.Command{
 	Name:        "validate",
 	Usage:       "Validate configuration file",
-	Description: "Validates the syntax and content of ~/.centian/config.jsonc",
+	Description: "Validates the syntax and content of ~/.centian/config.json",
 	Action:      validateConfig,
 }
 
 var configRemoveCommand = &cli.Command{
 	Name:        "remove",
 	Usage:       "Remove configuration file",
-	Description: "Removes ~/.centian/config.jsonc and the entire ~/.centian directory",
+	Description: "Removes ~/.centian/config.json and the entire ~/.centian directory",
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:    "force",
@@ -183,7 +183,7 @@ var configServerCommand = &cli.Command{
 }
 
 // initConfig initializes a new configuration file with default settings.
-// Creates ~/.centian/config.jsonc if it doesn't exist, fails if file already exists.
+// Creates ~/.centian/config.json if it doesn't exist, fails if file already exists.
 func initConfig(_ context.Context, _ *cli.Command) error {
 	configPath, err := GetConfigPath()
 	if err != nil {

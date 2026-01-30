@@ -637,7 +637,7 @@ case $LANGUAGE in
 esac
 
 echo ""
-echo -e "${YELLOW}2. Add to Centian config (~/.centian/config.jsonc):${NC}"
+echo -e "${YELLOW}2. Add to Centian config (~/.centian/config.json):${NC}"
 echo '   {'
 echo '     "processors": ['
 echo '       {'

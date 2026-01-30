@@ -269,7 +269,7 @@ func TestValidateConfig_FailsForInvalidConfig(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Write invalid JSON.
-	configPath := filepath.Join(centianDir, "config.jsonc")
+	configPath := filepath.Join(centianDir, "config.json")
 	err = os.WriteFile(configPath, []byte("{invalid json}"), 0o644)
 	assert.NilError(t, err)
 
@@ -377,7 +377,7 @@ func TestListServers_Details(t *testing.T) {
 	// Given: no config, context and command.
 	// prep no config:.
 	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
 	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
@@ -468,7 +468,7 @@ func TestAddServer_Details(t *testing.T) {
 
 	// existing config prep.
 	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
 	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
@@ -609,7 +609,7 @@ func TestRemoveServer_Details(t *testing.T) {
 
 	// handle existing config.
 	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
 	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)
@@ -669,7 +669,7 @@ func TestToggleServer_Details(t *testing.T) {
 
 	// handle existing config.
 	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.jsonc", time.Now().UnixNano())
+	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
 	_, statErr := os.Stat(configPath)
 	if statErr == nil && (configPath != "" || confErr != nil) {
 		os.Rename(configPath, tmpConfPath)

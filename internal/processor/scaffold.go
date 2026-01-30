@@ -492,7 +492,7 @@ func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile, test
 	}
 	fmt.Fprintln(out)
 
-	fmt.Fprintln(out, "2. Add to Centian config (~/.centian/config.jsonc):")
+	fmt.Fprintln(out, "2. Add to Centian config (~/.centian/config.json):")
 	fmt.Fprintln(out, "   {")
 	fmt.Fprintln(out, "     \"processors\": [")
 	fmt.Fprintln(out, "       {")

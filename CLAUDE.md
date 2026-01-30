@@ -25,7 +25,7 @@ The CLI tool is built in Go and provides a unified interface to interact with mu
 ## Global Configuration System
 
   Key Features:
-  - Config Location: ~/.centian/config.jsonc
+  - Config Location: ~/.centian/config.json
   - Auto-initialization: Creates default config if none exists
   - Server Management: Add, remove, enable/disable MCP servers
   - Lifecycle Hooks: Pre/post request hooks and connection events

@@ -357,7 +357,7 @@ func TestGetConfigPath(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	expected := "/" + filepath.Join("test", "home", ".centian", "config.jsonc")
+	expected := "/" + filepath.Join("test", "home", ".centian", "config.json")
 	if path != expected {
 		t.Errorf("Expected path '%s', got '%s'", expected, path)
 	}

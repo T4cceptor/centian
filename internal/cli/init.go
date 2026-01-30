@@ -125,7 +125,7 @@ func importFromPath(_ *config.GlobalConfig, path string) (int, error) {
 var InitCommand = &cli.Command{
 	Name:        "init",
 	Usage:       "Initialize centian with default configuration",
-	Description: "Creates ~/.centian/config.jsonc with default settings and guides initial setup",
+	Description: "Creates ~/.centian/config.json with default settings and guides initial setup",
 	Action:      initCentian,
 	Flags: []cli.Flag{
 		&cli.BoolFlag{

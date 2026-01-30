@@ -48,7 +48,7 @@ Currently supports HTTP transport. The HTTP proxy creates endpoints for each
 configured HTTP MCP server at:
   /mcp/<gateway_name>/<server_name>
 
-Configuration is loaded from ~/.centian/config.jsonc by default.
+Configuration is loaded from ~/.centian/config.json by default.
 
 Example config structure:
   {
@@ -80,7 +80,7 @@ Examples:
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "config-path",
-			Usage: "Path to config file (default: ~/.centian/config.jsonc)",
+			Usage: "Path to config file (default: ~/.centian/config.json)",
 		},
 	},
 }

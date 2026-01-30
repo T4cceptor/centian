@@ -6,7 +6,7 @@ The `centian server start` command launches an HTTP proxy server that forwards r
 
 ### 1. Create a Configuration File
 
-Create `~/.centian/config.jsonc` with your MCP server configurations:
+Create `~/.centian/config.json` with your MCP server configurations:
 
 ```json
 {
@@ -69,7 +69,7 @@ export GITHUB_PAT=your_github_personal_access_token
 ### 4. Start the Server
 
 ```bash
-# Using default config path (~/.centian/config.jsonc)
+# Using default config path (~/.centian/config.json)
 centian server start
 
 # Or specify a custom config path

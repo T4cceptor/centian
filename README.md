@@ -62,9 +62,9 @@ Some brief concepts before we dive into the config:
 #### How to proxy MCP server
 
 - Use a config file (create one via `centian init` and follow the process or run `centian config init` to create a skeleton config)
-- Configure gateways and downstream MCP servers in `~/.centian/config.jsonc`
+- Configure gateways and downstream MCP servers in `~/.centian/config.json`
   - Example:
-  ```jsonc
+  ```json
   {
     // some other config fields
     "gateways": {
@@ -120,7 +120,7 @@ centian stdio --cmd node -- ./server.js
 Configuration management commands.
 
 #### `centian config init`
-Initialize default configuration file at `~/.centian/config.jsonc`.
+Initialize default configuration file at `~/.centian/config.json`.
 
 #### `centian config show`
 Display current configuration.
@@ -136,7 +136,7 @@ Show recent MCP logs from `~/.centian/logs/`.
 
 Server management commands.
 
-- `centian server start --config-path <path>` - starts the server given the provided config, default path is `~/.centian/config.jsonc`
+- `centian server start --config-path <path>` - starts the server given the provided config, default path is `~/.centian/config.json`
 
 ## Logging
 
