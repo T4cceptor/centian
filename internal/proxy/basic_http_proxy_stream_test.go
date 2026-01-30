@@ -23,9 +23,11 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	downstreamURL := "https://mcp.deepwiki.com/mcp"
 
 	// Given: a GlobalConfig with HTTP proxy settings pointing to DeepWiki.
+	authDisabled := false
 	globalConfig := &config.GlobalConfig{
-		Name:    "Test Proxy Server",
-		Version: "1.0.0",
+		Name:        "Test Proxy Server",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
 		Proxy: &config.ProxySettings{
 			Port:    "9002",
 			Timeout: 30,

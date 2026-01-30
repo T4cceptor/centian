@@ -263,9 +263,11 @@ func createMockMCPServer() *httptest.Server {
 func createTestConfigFile(t *testing.T, mockServerURL string) string {
 	t.Helper()
 
+	authDisabled := false
 	testConfig := &config.GlobalConfig{
-		Name:    "Test Integration Server",
-		Version: "1.0.0",
+		Name:        "Test Integration Server",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
 		Proxy: &config.ProxySettings{
 			Port:    "9001",
 			Timeout: 30,

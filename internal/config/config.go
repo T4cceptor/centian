@@ -24,12 +24,21 @@ const (
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
 type GlobalConfig struct {
-	Name       string                    `json:"name"`                 // Name of the server - simplifies server identification
-	Version    string                    `json:"version"`              // Config schema version
-	Proxy      *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
-	Gateways   map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
-	Processors []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
-	Metadata   map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+	Name        string                    `json:"name"`                 // Name of the server - simplifies server identification
+	Version     string                    `json:"version"`              // Config schema version
+	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable proxy auth
+	Proxy       *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
+	Gateways    map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
+	Processors  []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
+	Metadata    map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+}
+
+// IsAuthEnabled returns true when auth is enabled or unset.
+func (g *GlobalConfig) IsAuthEnabled() bool {
+	if g == nil || g.AuthEnabled == nil {
+		return true
+	}
+	return *g.AuthEnabled
 }
 
 // ServerSearchResult captures data and references
@@ -223,14 +232,16 @@ type ProcessorOutput struct {
 
 // DefaultConfig returns a default configuration.
 func DefaultConfig() *GlobalConfig {
+	authEnabled := true
 	proxySettings := NewDefaultProxySettings()
 	return &GlobalConfig{
-		Name:       "Centian Server",
-		Version:    "1.0.0",
-		Proxy:      &proxySettings,
-		Gateways:   make(map[string]*GatewayConfig),
-		Processors: []*ProcessorConfig{}, // Empty processor list is valid (no-op)
-		Metadata:   make(map[string]interface{}),
+		Name:        "Centian Server",
+		Version:     "1.0.0",
+		AuthEnabled: &authEnabled,
+		Proxy:       &proxySettings,
+		Gateways:    make(map[string]*GatewayConfig),
+		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
+		Metadata:    make(map[string]interface{}),
 	}
 }
 

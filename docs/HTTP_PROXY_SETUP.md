@@ -12,6 +12,7 @@ Create `~/.centian/config.jsonc` with your MCP server configurations:
 {
   "name": "My Centian Server",
   "version": "1.0.0",
+  "auth": true,
   "proxy": {
     "port": "8080",
     "timeout": 30,
@@ -35,7 +36,20 @@ Create `~/.centian/config.jsonc` with your MCP server configurations:
 }
 ```
 
-### 2. Set Environment Variables
+### 2. Create API Keys (Required When auth=true)
+
+Generate a key and store its hash:
+
+```bash
+centian server get-key
+```
+
+This prints the API key once and writes the hashed entry to:
+`~/.centian/api_keys.json`.
+
+If you want to disable auth for local testing, set `"auth": false` in your config instead.
+
+### 3. Set Environment Variables
 
 If your configuration uses environment variable substitution:
 
@@ -43,7 +57,7 @@ If your configuration uses environment variable substitution:
 export GITHUB_PAT=your_github_personal_access_token
 ```
 
-### 3. Start the Server
+### 4. Start the Server
 
 ```bash
 # Using default config path (~/.centian/config.jsonc)
@@ -53,7 +67,7 @@ centian server start
 centian server start --config-path ./my-config.json
 ```
 
-### 4. Access Your MCP Servers
+### 5. Access Your MCP Servers
 
 Your configured servers are now accessible at:
 
@@ -73,6 +87,7 @@ Example:
 {
   "name": "string",           // Server name for identification
   "version": "string",        // Config schema version (required)
+  "auth": boolean,            // Enable/disable proxy auth (default: true)
   "proxy": {
     "port": "string",         // HTTP server port (e.g., "8080")
     "timeout": number,        // Request timeout in seconds
@@ -112,6 +127,22 @@ Headers support automatic environment variable substitution:
 ```
 
 Supports both `${VAR}` and `$VAR` syntax.
+
+### API Key Storage Format
+
+API keys are stored hashed with bcrypt in `~/.centian/api_keys.json`:
+
+```json
+{
+  "keys": [
+    {
+      "id": "key_8f2a9c4d2f5b1a0c",
+      "hash": "$2a$10$...",
+      "created_at": "2026-01-30T12:00:00Z"
+    }
+  ]
+}
+```
 
 ### Multiple Gateways
 

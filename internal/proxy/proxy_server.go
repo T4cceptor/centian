@@ -3,12 +3,15 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/auth"
 	"github.com/CentianAI/centian-cli/internal/common"
 	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/CentianAI/centian-cli/internal/logging"
@@ -36,6 +39,7 @@ type CentianProxy struct {
 	Server   *http.Server
 	Logger   *logging.Logger // Shared base logger (ONE file handle)
 	Gateways map[string]*MCPProxy
+	APIKeys  *auth.APIKeyStore
 }
 
 // NewCentianProxy takes a GlobalConfig struct and returns a new CentianProxy.
@@ -52,6 +56,22 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
 
+	// loading API Key store
+	var apiKeyStore *auth.APIKeyStore
+	if globalConfig == nil || globalConfig.IsAuthEnabled() {
+		loadedStore, err := auth.LoadDefaultAPIKeys()
+		if err != nil {
+			if errors.Is(err, auth.ErrAPIKeysNotFound) {
+				return nil, fmt.Errorf("api key auth enabled but key file not found: %w", err)
+			}
+			return nil, fmt.Errorf("failed to load api keys: %w", err)
+		}
+		apiKeyStore = loadedStore
+		common.LogInfo("Loaded %d API keys from %s", apiKeyStore.Count(), apiKeyStore.Path())
+	} else {
+		common.LogInfo("API key auth disabled via config")
+	}
+
 	return &CentianProxy{
 		Config:   globalConfig,
 		Mux:      mux,
@@ -59,6 +79,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 		Logger:   logger,
 		ServerID: getServerID(globalConfig.Name),
 		Gateways: make(map[string]*MCPProxy),
+		APIKeys:  apiKeyStore,
 	}, nil
 }
 
@@ -203,7 +224,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 	// Connect to all downstreams (parallel for aggregated, single iteration for single mode)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var errors []string
+	var connectionErrors []string
 
 	for serverName, connTemplate := range p.downstreams {
 		wg.Add(1)
@@ -215,7 +236,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 			ctx := context.Background()
 			if err := conn.Connect(ctx, session.authHeaders); err != nil {
 				mu.Lock()
-				errors = append(errors, fmt.Sprintf("%s: %v", name, err))
+				connectionErrors = append(connectionErrors, fmt.Sprintf("%s: %v", name, err))
 				mu.Unlock()
 				log.Printf("MCPProxy[%s]: Failed to connect to %s: %v", p.name, name, err)
 				return
@@ -231,7 +252,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 
 	wg.Wait()
 	if len(session.downstreamConns) == 0 {
-		return nil, fmt.Errorf("failed to connect to any downstream servers: %v", errors)
+		return nil, fmt.Errorf("failed to connect to any downstream servers: %v", connectionErrors)
 	}
 
 	// Register tools from all connected downstreams
@@ -448,6 +469,48 @@ func (p *MCPProxy) Close() error {
 // HTTP Handler Registration
 // ============================================================================
 
+func apiKeyMiddleware(store *auth.APIKeyStore, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		token := extractBearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			writeUnauthorized(w)
+			common.LogWarn("Unauthorized request: missing bearer token from %s", r.RemoteAddr)
+			return
+		}
+
+		if !store.Validate(token) {
+			writeUnauthorized(w)
+			common.LogWarn("Unauthorized request: invalid bearer token from %s", r.RemoteAddr)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func extractBearerToken(header string) string {
+	parts := strings.Fields(header)
+	if len(parts) != 2 {
+		return ""
+	}
+	if !strings.EqualFold(parts[0], "Bearer") {
+		return ""
+	}
+	return parts[1]
+}
+
+func writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+}
+
 // RegisterHandler registers a ServerProvider with the HTTP mux.
 func RegisterHandler(endpoint string, proxy *MCPProxy, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
 	if options == nil {
@@ -456,12 +519,18 @@ func RegisterHandler(endpoint string, proxy *MCPProxy, mux *http.ServeMux, optio
 			Stateless:      false,
 		}
 	}
-	handler := mcp.NewStreamableHTTPHandler(
+	baseHandler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server {
 			return proxy.GetServerForRequest(r)
 		},
 		options,
 	)
+
+	var handler http.Handler = baseHandler
+	if proxy.server != nil && proxy.server.APIKeys != nil {
+		handler = apiKeyMiddleware(proxy.server.APIKeys, handler)
+	}
+
 	mux.Handle(endpoint, handler)
 	common.LogInfo("Registered handler at %s", endpoint)
 }
@@ -507,7 +576,6 @@ func (c *CentianProxy) Setup() error {
 			RegisterHandler(singleEndpoint, singleProxy, c.Mux, nil)
 		}
 	}
-
 	return nil
 }
 

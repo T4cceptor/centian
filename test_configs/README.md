@@ -48,6 +48,9 @@ centian server start --config-path ./test_configs/example_http_proxy_config.json
 
 # Note: You'll need to set environment variables referenced in configs
 export GITHUB_PAT=your_github_token_here
+
+# Note: With auth enabled, generate a key and store it
+centian server get-key
 ```
 
 ## Config Structure
@@ -58,6 +61,7 @@ All HTTP proxy configs follow this structure:
 {
   "name": "Server Name",
   "version": "1.0.0",
+  "auth": true,
   "proxy": {
     "port": "8080",
     "timeout": 30,

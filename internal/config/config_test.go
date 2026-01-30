@@ -34,6 +34,9 @@ func TestConfigLifecycle(t *testing.T) {
 	if config != nil && config.Processors == nil {
 		t.Fatal("Expected processors to be initialized")
 	}
+	if config != nil && !config.IsAuthEnabled() {
+		t.Fatal("Expected auth to be enabled by default")
+	}
 
 	// Test 2: Save configuration.
 	err := SaveConfig(config)
