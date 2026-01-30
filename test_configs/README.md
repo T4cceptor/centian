@@ -62,6 +62,7 @@ All HTTP proxy configs follow this structure:
   "name": "Server Name",
   "version": "1.0.0",
   "auth": true,
+  "authHeader": "X-Centian-Auth",
   "proxy": {
     "port": "8080",
     "timeout": 30,

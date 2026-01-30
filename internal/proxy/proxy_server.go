@@ -32,14 +32,15 @@ Additionally it has a reference to the global config which was loaded to
 initialize this server.
 */
 type CentianProxy struct {
-	Name     string
-	ServerID string // used to uniquely identify this specific object instance
-	Config   *config.GlobalConfig
-	Mux      *http.ServeMux
-	Server   *http.Server
-	Logger   *logging.Logger // Shared base logger (ONE file handle)
-	Gateways map[string]*MCPProxy
-	APIKeys  *auth.APIKeyStore
+	Name       string
+	ServerID   string // used to uniquely identify this specific object instance
+	Config     *config.GlobalConfig
+	Mux        *http.ServeMux
+	Server     *http.Server
+	Logger     *logging.Logger // Shared base logger (ONE file handle)
+	Gateways   map[string]*MCPProxy
+	APIKeys    *auth.APIKeyStore
+	AuthHeader string
 }
 
 // NewCentianProxy takes a GlobalConfig struct and returns a new CentianProxy.
@@ -58,6 +59,10 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 
 	// loading API Key store
 	var apiKeyStore *auth.APIKeyStore
+	authHeader := ""
+	if globalConfig != nil {
+		authHeader = globalConfig.GetAuthHeader()
+	}
 	if globalConfig == nil || globalConfig.IsAuthEnabled() {
 		loadedStore, err := auth.LoadDefaultAPIKeys()
 		if err != nil {
@@ -73,13 +78,14 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 	}
 
 	return &CentianProxy{
-		Config:   globalConfig,
-		Mux:      mux,
-		Server:   server,
-		Logger:   logger,
-		ServerID: getServerID(globalConfig.Name),
-		Gateways: make(map[string]*MCPProxy),
-		APIKeys:  apiKeyStore,
+		Config:     globalConfig,
+		Mux:        mux,
+		Server:     server,
+		Logger:     logger,
+		ServerID:   getServerID(globalConfig.Name),
+		Gateways:   make(map[string]*MCPProxy),
+		APIKeys:    apiKeyStore,
+		AuthHeader: authHeader,
 	}, nil
 }
 
@@ -198,6 +204,9 @@ func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySessio
 	// Capture auth headers from upstream request for passthrough
 	// TODO: make these headers configurable
 	for _, h := range []string{"Authorization", "X-API-Key", "X-Auth-Token"} {
+		if p.server != nil && p.server.AuthHeader != "" && strings.EqualFold(h, p.server.AuthHeader) {
+			continue
+		}
 		if v := r.Header.Get(h); v != "" {
 			authHeaders[h] = v
 		}
@@ -469,23 +478,23 @@ func (p *MCPProxy) Close() error {
 // HTTP Handler Registration
 // ============================================================================
 
-func apiKeyMiddleware(store *auth.APIKeyStore, next http.Handler) http.Handler {
+func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		token := extractBearerToken(r.Header.Get("Authorization"))
+		token := extractAuthToken(r.Header.Get(headerName))
 		if token == "" {
-			writeUnauthorized(w)
-			common.LogWarn("Unauthorized request: missing bearer token from %s", r.RemoteAddr)
+			writeUnauthorized(w, headerName)
+			common.LogWarn("Unauthorized request: missing auth token from %s", r.RemoteAddr)
 			return
 		}
 
 		if !store.Validate(token) {
-			writeUnauthorized(w)
-			common.LogWarn("Unauthorized request: invalid bearer token from %s", r.RemoteAddr)
+			writeUnauthorized(w, headerName)
+			common.LogWarn("Unauthorized request: invalid auth token from %s", r.RemoteAddr)
 			return
 		}
 
@@ -493,19 +502,21 @@ func apiKeyMiddleware(store *auth.APIKeyStore, next http.Handler) http.Handler {
 	})
 }
 
-func extractBearerToken(header string) string {
+func extractAuthToken(header string) string {
+	if header == "" {
+		return ""
+	}
 	parts := strings.Fields(header)
-	if len(parts) != 2 {
-		return ""
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
 	}
-	if !strings.EqualFold(parts[0], "Bearer") {
-		return ""
-	}
-	return parts[1]
+	return header
 }
 
-func writeUnauthorized(w http.ResponseWriter) {
-	w.Header().Set("WWW-Authenticate", "Bearer")
+func writeUnauthorized(w http.ResponseWriter, headerName string) {
+	if strings.EqualFold(headerName, "Authorization") {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
@@ -528,7 +539,11 @@ func RegisterHandler(endpoint string, proxy *MCPProxy, mux *http.ServeMux, optio
 
 	var handler http.Handler = baseHandler
 	if proxy.server != nil && proxy.server.APIKeys != nil {
-		handler = apiKeyMiddleware(proxy.server.APIKeys, handler)
+		headerName := proxy.server.AuthHeader
+		if headerName == "" {
+			headerName = "X-Centian-Auth"
+		}
+		handler = apiKeyMiddlewareWithHeader(proxy.server.APIKeys, headerName, handler)
 	}
 
 	mux.Handle(endpoint, handler)

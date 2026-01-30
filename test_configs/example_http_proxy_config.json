@@ -2,6 +2,7 @@
   "name": "Centian HTTP Proxy Example",
   "version": "1.0.0",
   "auth": true,
+  "authHeader": "X-Centian-Auth",
   "proxy": {
     "port": "8080",
     "timeout": 30,

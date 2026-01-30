@@ -13,6 +13,7 @@ Create `~/.centian/config.jsonc` with your MCP server configurations:
   "name": "My Centian Server",
   "version": "1.0.0",
   "auth": true,
+  "authHeader": "X-Centian-Auth",
   "proxy": {
     "port": "8080",
     "timeout": 30,
@@ -48,6 +49,14 @@ This prints the API key once and writes the hashed entry to:
 `~/.centian/api_keys.json`.
 
 If you want to disable auth for local testing, set `"auth": false` in your config instead.
+
+Clients must include the proxy auth header in requests:
+
+```
+X-Centian-Auth: <your-api-key>
+```
+
+This header is reserved for proxy auth and is not forwarded to downstream servers.
 
 ### 3. Set Environment Variables
 
@@ -88,6 +97,7 @@ Example:
   "name": "string",           // Server name for identification
   "version": "string",        // Config schema version (required)
   "auth": boolean,            // Enable/disable proxy auth (default: true)
+  "authHeader": "string",     // Header name for proxy auth (default: X-Centian-Auth)
   "proxy": {
     "port": "string",         // HTTP server port (e.g., "8080")
     "timeout": number,        // Request timeout in seconds

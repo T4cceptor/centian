@@ -37,6 +37,9 @@ func TestConfigLifecycle(t *testing.T) {
 	if config != nil && !config.IsAuthEnabled() {
 		t.Fatal("Expected auth to be enabled by default")
 	}
+	if config != nil && config.GetAuthHeader() == "" {
+		t.Fatal("Expected default auth header to be set")
+	}
 
 	// Test 2: Save configuration.
 	err := SaveConfig(config)

@@ -27,11 +27,14 @@ type GlobalConfig struct {
 	Name        string                    `json:"name"`                 // Name of the server - simplifies server identification
 	Version     string                    `json:"version"`              // Config schema version
 	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable proxy auth
+	AuthHeader  string                    `json:"authHeader,omitempty"` // Header name for proxy auth
 	Proxy       *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
 	Gateways    map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
 	Processors  []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
 	Metadata    map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
 }
+
+const defaultAuthHeader = "X-Centian-Auth"
 
 // IsAuthEnabled returns true when auth is enabled or unset.
 func (g *GlobalConfig) IsAuthEnabled() bool {
@@ -39,6 +42,14 @@ func (g *GlobalConfig) IsAuthEnabled() bool {
 		return true
 	}
 	return *g.AuthEnabled
+}
+
+// GetAuthHeader returns the configured auth header name or the default.
+func (g *GlobalConfig) GetAuthHeader() string {
+	if g == nil || g.AuthHeader == "" {
+		return defaultAuthHeader
+	}
+	return g.AuthHeader
 }
 
 // ServerSearchResult captures data and references
@@ -238,6 +249,7 @@ func DefaultConfig() *GlobalConfig {
 		Name:        "Centian Server",
 		Version:     "1.0.0",
 		AuthEnabled: &authEnabled,
+		AuthHeader:  defaultAuthHeader,
 		Proxy:       &proxySettings,
 		Gateways:    make(map[string]*GatewayConfig),
 		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
