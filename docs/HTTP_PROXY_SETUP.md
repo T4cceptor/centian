@@ -321,6 +321,8 @@ go test -v ./internal/cli -run TestConfigFileValidation
 - Run `centian init` to create default config
 - Or specify config path: `centian server start --config-path ./config.json`
 
+You can also run `centian config init` to create an empty config and work from there.
+
 ### Connection Refused
 
 **Problem**: Client can't connect to proxy
