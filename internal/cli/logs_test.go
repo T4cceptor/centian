@@ -27,23 +27,25 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 	os.Setenv("CENTIAN_LOG_DIR", tempDir)
 
 	// Given: a log file with a log entry.
-	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []common.StdioMcpEvent{
-		{
-			BaseMcpEvent: common.BaseMcpEvent{
-				Timestamp:        time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
-				Transport:        "stdio",
-				RequestID:        "req-test",
-				Direction:        common.DirectionClientToServer,
-				MessageType:      common.MessageTypeRequest,
-				SessionID:        "sess-123",
-				Success:          true,
-				ProcessingErrors: make(map[string]error),
-			},
-			Command: "npx",
-			Args:    []string{"@server"},
-			Message: "ping",
+	e := common.MCPEvent{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:        time.Date(2025, 1, 5, 10, 0, 0, 0, time.UTC),
+			Transport:        "stdio",
+			RequestID:        "req-test",
+			Direction:        common.DirectionClientToServer,
+			MessageType:      common.MessageTypeRequest,
+			SessionID:        "sess-123",
+			Success:          true,
+			ProcessingErrors: make(map[string]error),
 		},
-	})
+		Routing: common.RoutingContext{
+			DownstreamCommand: "npx",
+			Args:              []string{"@server"},
+		},
+	}
+	e.SetRawMessage("ping")
+
+	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []common.MCPEvent{e})
 
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
@@ -125,7 +127,7 @@ func TestHandleLogsCommandNoDirectory(t *testing.T) {
 // writeTestLogFile creates a JSONL log file at the specified path with the given entries.
 // Each entry is encoded as a single JSON line, matching the format used by the logging system.
 // The function creates parent directories if needed and truncates any existing file.
-func writeTestLogFile(t *testing.T, path string, entries []common.StdioMcpEvent) {
+func writeTestLogFile(t *testing.T, path string, entries []common.MCPEvent) {
 	t.Helper()
 
 	// Create parent directories if they don't exist.

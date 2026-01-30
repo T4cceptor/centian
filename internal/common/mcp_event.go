@@ -21,11 +21,14 @@ type MCPEvent struct {
 	ToolCall *ToolCallContext `json:"tool_call,omitempty"`
 
 	// Raw message content (the JSON-RPC payload)
-	rawMessage string
+	RawMessage string `json:"raw_message,omitempty"`
 }
 
 // RoutingContext captures where the request is going.
 type RoutingContext struct {
+	// Transport describes the used transport for this connection (http or stdio)
+	Transport McpTransportType `json:"transport,omitempty"`
+
 	// Gateway is the logical grouping of MCP servers
 	Gateway string `json:"gateway,omitempty"`
 
@@ -37,6 +40,14 @@ type RoutingContext struct {
 
 	// DownstreamURL is the target MCP server URL being proxied to
 	DownstreamURL string `json:"downstream_url,omitempty"`
+
+	// DownstreamCommand is the target MCP server command being proxied to
+	DownstreamCommand string `json:"downstream_cmd,omitempty"`
+
+	// Args is the target MCP server command args being used
+	Args []string `json:"args,omitempty"`
+
+	// TODO: add headers as well - Challenge: requires redaction of sensitive headers like auth tokens when logging
 }
 
 // HTTPContext captures HTTP-specific transport details.
@@ -140,16 +151,6 @@ func (e *MCPEvent) WithServerID(id string) *MCPEvent {
 	return e
 }
 
-// WithRouting sets the routing context.
-func (e *MCPEvent) WithRouting(gateway, serverName, endpoint string) *MCPEvent {
-	e.Routing = RoutingContext{
-		Gateway:    gateway,
-		ServerName: serverName,
-		Endpoint:   endpoint,
-	}
-	return e
-}
-
 // WithToolCall sets the tool call context.
 func (e *MCPEvent) WithToolCall(name string, arguments json.RawMessage) *MCPEvent {
 	e.ToolCall = &ToolCallContext{
@@ -177,7 +178,7 @@ func (e *MCPEvent) WithHTTPContext(ctx *HTTPContext) *MCPEvent {
 
 // WithRawMessage sets the raw message content.
 func (e *MCPEvent) WithRawMessage(msg string) *MCPEvent {
-	e.rawMessage = msg
+	e.RawMessage = msg
 	return e
 }
 
@@ -185,14 +186,14 @@ func (e *MCPEvent) WithRawMessage(msg string) *MCPEvent {
 // McpEventInterface implementation
 // ============================================================================
 
-// RawMessage returns the JSON-RPC message content.
-func (e *MCPEvent) RawMessage() string {
-	return e.rawMessage
+// GetRawMessage returns the JSON-RPC message content.
+func (e *MCPEvent) GetRawMessage() string {
+	return e.RawMessage
 }
 
 // SetRawMessage overwrites the message content.
 func (e *MCPEvent) SetRawMessage(newMessage string) {
-	e.rawMessage = newMessage
+	e.RawMessage = newMessage
 }
 
 // SetModified sets the modified flag.
@@ -202,7 +203,7 @@ func (e *MCPEvent) SetModified(b bool) {
 
 // HasContent returns true if the event has message content.
 func (e *MCPEvent) HasContent() bool {
-	return e.rawMessage != ""
+	return e.RawMessage != ""
 }
 
 // GetBaseEvent returns the BaseMcpEvent.
@@ -243,6 +244,6 @@ func (e MCPEvent) MarshalJSON() ([]byte, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
-	m["raw_message"] = e.rawMessage
+	m["raw_message"] = e.RawMessage
 	return json.Marshal(m)
 }

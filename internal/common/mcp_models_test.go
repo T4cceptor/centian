@@ -172,12 +172,11 @@ func TestMcpMessageType_UnmarshalJSON_UnknownType(t *testing.T) {
 
 func TestStdioMcpEvent_RawMessage(t *testing.T) {
 	// Given: a StdioMcpEvent with message.
-	event := StdioMcpEvent{
-		Message: "stdio test message",
-	}
+	event := MCPEvent{}
+	event.SetRawMessage("stdio test message")
 
 	// When: calling RawMessage.
-	result := event.RawMessage()
+	result := event.GetRawMessage()
 
 	// Then: should return message.
 	assert.Equal(t, "stdio test message", result)
@@ -185,12 +184,11 @@ func TestStdioMcpEvent_RawMessage(t *testing.T) {
 
 func TestStdioMcpEvent_RawMessage_EmptyMessage(t *testing.T) {
 	// Given: a StdioMcpEvent with empty message.
-	event := StdioMcpEvent{
-		Message: "",
-	}
+	event := MCPEvent{}
+	event.SetRawMessage("")
 
 	// When: calling RawMessage.
-	result := event.RawMessage()
+	result := event.GetRawMessage()
 
 	// Then: should return empty string.
 	assert.Equal(t, "", result)
@@ -202,7 +200,7 @@ func TestStdioMcpEvent_RawMessage_EmptyMessage(t *testing.T) {
 
 func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
 	// Given: a complete StdioMcpEvent.
-	event := StdioMcpEvent{
+	event := MCPEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			Timestamp:   time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
 			Transport:   "stdio",
@@ -211,12 +209,12 @@ func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
 			MessageType: MessageTypeRequest,
 			Success:     true,
 		},
-		Command:      "npx",
-		Args:         []string{"--version"},
-		ProjectPath:  "/project",
-		ConfigSource: "global",
-		Message:      "stdio message content",
+		Routing: RoutingContext{
+			DownstreamCommand: "npx",
+			Args:              []string{"--version"},
+		},
 	}
+	event.SetRawMessage("stdio message content")
 
 	// When: marshaling to JSON.
 	data, err := json.Marshal(event)
@@ -230,7 +228,7 @@ func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
 
 	assert.Equal(t, "stdio message content", result["raw_message"])
 	assert.Equal(t, "stdio", result["transport"])
-	assert.Equal(t, "npx", result["command"])
+	assert.Equal(t, "npx", result["routing"].(map[string]any)["downstream_cmd"])
 }
 
 // ========================================.
@@ -239,7 +237,7 @@ func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
 
 func TestStdioMcpEvent_RoundTripJSON(t *testing.T) {
 	// Given: a complete StdioMcpEvent.
-	original := StdioMcpEvent{
+	original := MCPEvent{
 		BaseMcpEvent: BaseMcpEvent{
 			Timestamp:   time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC),
 			Transport:   "stdio",
@@ -248,10 +246,12 @@ func TestStdioMcpEvent_RoundTripJSON(t *testing.T) {
 			MessageType: MessageTypeRequest,
 			Success:     true,
 		},
-		Command: "npx",
-		Args:    []string{"-v"},
-		Message: "stdio round trip",
+		Routing: RoutingContext{
+			DownstreamCommand: "npx",
+			Args:              []string{"-v"},
+		},
 	}
+	original.SetRawMessage("stdio round trip")
 
 	// When: marshaling and unmarshaling.
 	data, err := json.Marshal(original)
@@ -264,61 +264,12 @@ func TestStdioMcpEvent_RoundTripJSON(t *testing.T) {
 	// Then: should preserve all fields including raw_message.
 	assert.Equal(t, "stdio round trip", decoded["raw_message"])
 	assert.Equal(t, "stdio", decoded["transport"])
-	assert.Equal(t, "npx", decoded["command"])
+	assert.Equal(t, "npx", decoded["routing"].(map[string]any)["downstream_cmd"])
 }
 
 // ========================================.
 // Edge Cases.
 // ========================================.
-
-func TestMarshalWithRaw_InvalidJSON(t *testing.T) {
-	// Given: a value that cannot be marshaled (e.g., contains channels).
-	type InvalidStruct struct {
-		Ch chan int
-	}
-
-	// When: attempting to marshal with raw.
-	_, err := marshalWithRaw("test", InvalidStruct{Ch: make(chan int)})
-
-	// Then: should return error.
-	assert.Assert(t, err != nil)
-}
-
-func TestMcpEventInterface_IsRequestIsResponse_Works(t *testing.T) {
-	// Given: some MCP Events.
-	mcpEvents := []McpEventInterface{
-		&StdioMcpEvent{
-			BaseMcpEvent: BaseMcpEvent{
-				MessageType: MessageTypeRequest,
-			},
-		},
-		&StdioMcpEvent{
-			BaseMcpEvent: BaseMcpEvent{
-				MessageType: MessageTypeResponse,
-			},
-		},
-		&StdioMcpEvent{
-			BaseMcpEvent: BaseMcpEvent{
-				MessageType: MessageTypeSystem,
-			},
-		},
-		&StdioMcpEvent{
-			BaseMcpEvent: BaseMcpEvent{
-				MessageType: MessageTypeUnknown,
-			},
-		},
-	}
-
-	for _, event := range mcpEvents {
-		// When: calling IsRequest and IsResponse.
-		isRequest := event.IsRequest()
-		isResponse := event.IsResponse()
-
-		// Then: the values map to the MessageType property on the base event.
-		assert.Equal(t, isRequest, event.GetBaseEvent().MessageType == MessageTypeRequest)
-		assert.Equal(t, isResponse, event.GetBaseEvent().MessageType == MessageTypeResponse)
-	}
-}
 
 func TestGetBaseEvent_Works(t *testing.T) {
 	// Given: some MCP Events.
@@ -326,7 +277,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 		Transport: "my-test-transport",
 	}
 	mcpEvents := []McpEventInterface{
-		&StdioMcpEvent{
+		&MCPEvent{
 			BaseMcpEvent: baseMcpEvent,
 		},
 	}
@@ -343,7 +294,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 func TestSetStatus_Works(t *testing.T) {
 	// Given: some MCP Events.
 	mcpEvents := []McpEventInterface{
-		&StdioMcpEvent{},
+		&MCPEvent{},
 	}
 
 	for _, event := range mcpEvents {

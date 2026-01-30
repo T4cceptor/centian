@@ -41,7 +41,7 @@ func newMockMcpEvent(rawMessage string, hasContent bool) *mockMcpEvent {
 	}
 }
 
-func (m *mockMcpEvent) RawMessage() string                { return m.rawMessage }
+func (m *mockMcpEvent) GetRawMessage() string             { return m.rawMessage }
 func (m *mockMcpEvent) SetRawMessage(msg string)          { m.rawMessage = msg }
 func (m *mockMcpEvent) SetModified(modified bool)         { m.modified = modified }
 func (m *mockMcpEvent) HasContent() bool                  { return m.hasContent }
@@ -125,7 +125,7 @@ func TestProcess_WithNoProcessors_LogsEvent(t *testing.T) {
 
 	// Then: should process successfully.
 	assert.NilError(t, err)
-	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":"test"}`, event.RawMessage())
+	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":"test"}`, event.GetRawMessage())
 }
 
 func TestProcess_WithNoProcessors_NoContent(t *testing.T) {
@@ -141,7 +141,7 @@ func TestProcess_WithNoProcessors_NoContent(t *testing.T) {
 
 	// Then: should process successfully without modification.
 	assert.NilError(t, err)
-	assert.Equal(t, "", event.RawMessage())
+	assert.Equal(t, "", event.GetRawMessage())
 }
 
 func TestProcess_WithEmptyProcessorChain_SkipsProcessing(t *testing.T) {
@@ -160,7 +160,7 @@ func TestProcess_WithEmptyProcessorChain_SkipsProcessing(t *testing.T) {
 
 	// Then: should skip processing (no processors in chain).
 	assert.NilError(t, err)
-	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":"test"}`, event.RawMessage())
+	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":"test"}`, event.GetRawMessage())
 }
 
 // ========================================.
@@ -181,7 +181,7 @@ func TestProcess_WithInvalidJSON_HandlesGracefully(t *testing.T) {
 	// Then: should handle gracefully.
 	assert.NilError(t, err)
 	// Invalid JSON should be preserved as-is.
-	assert.Equal(t, `{invalid json}`, event.RawMessage())
+	assert.Equal(t, `{invalid json}`, event.GetRawMessage())
 }
 
 func TestProcess_LoggingDisabled_SkipsLogging(t *testing.T) {
@@ -216,7 +216,7 @@ func TestProcess_WithEmptyMessage_ProcessesSuccessfully(t *testing.T) {
 
 	// Then: should process successfully.
 	assert.NilError(t, err)
-	assert.Equal(t, "", event.RawMessage())
+	assert.Equal(t, "", event.GetRawMessage())
 }
 
 func TestProcess_EventWithoutContent_SkipsProcessors(t *testing.T) {
@@ -235,7 +235,7 @@ func TestProcess_EventWithoutContent_SkipsProcessors(t *testing.T) {
 
 	// Then: should skip processors.
 	assert.NilError(t, err)
-	assert.Equal(t, "", event.RawMessage())
+	assert.Equal(t, "", event.GetRawMessage())
 }
 
 // ========================================.
@@ -342,7 +342,7 @@ func TestProcess_WithPayloadTransformer_ModifiesPayload(t *testing.T) {
 	assert.Equal(t, 200, event.status)
 	assert.Equal(t, true, event.modified)
 	// Message should be different from original.
-	assert.Assert(t, event.RawMessage() != originalMsg)
+	assert.Assert(t, event.GetRawMessage() != originalMsg)
 }
 
 func TestProcess_WithSecurityValidator_RejectsDeleteRequests(t *testing.T) {
@@ -429,7 +429,7 @@ func TestProcess_WithDisabledProcessor_SkipsProcessor(t *testing.T) {
 
 	// Then: should skip processor (no modification).
 	assert.NilError(t, err)
-	assert.Equal(t, originalMsg, event.RawMessage())
+	assert.Equal(t, originalMsg, event.GetRawMessage())
 	assert.Equal(t, false, event.modified)
 }
 

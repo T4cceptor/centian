@@ -104,6 +104,15 @@ type CentianProxySession struct {
 	authHeaders     map[string]string
 }
 
+// GetConnectionByName returns a MCP connection for the given server name.
+func (s *CentianProxySession) GetConnectionByName(serverName string) (*DownstreamConnection, error) {
+	conn, ok := s.downstreamConns[serverName]
+	if !ok {
+		return nil, fmt.Errorf("no connection to server '%s' found", serverName)
+	}
+	return conn, nil
+}
+
 // MCPProxy is a unified proxy that handles both aggregated (multiple servers
 // with namespaced tools) and single-server (pass-through) modes.
 //
@@ -390,6 +399,31 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	return result, nil
 }
 
+func getRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingContext {
+	connection, err := session.GetConnectionByName(serverName)
+	if err != nil {
+		common.LogError(err.Error())
+		return &common.RoutingContext{
+			Gateway:    proxy.name,
+			ServerName: serverName,
+			Endpoint:   proxy.endpoint,
+		}
+	}
+	transport := common.HTTPTransport
+	if connection.config.URL == "" && connection.config.Command != "" {
+		transport = common.StdioTransport
+	}
+	return &common.RoutingContext{
+		Transport:         transport,
+		Gateway:           proxy.name,
+		ServerName:        serverName,
+		Endpoint:          proxy.endpoint,
+		DownstreamURL:     connection.config.URL,
+		DownstreamCommand: connection.config.Command,
+		Args:              connection.config.Args,
+	}
+}
+
 // buildRequestEvent creates an MCPEvent for a tool call request.
 func (p *MCPProxy) buildRequestEvent(session *CentianProxySession, serverName string, req *mcp.CallToolRequest) *common.MCPEvent {
 	serverID := ""
@@ -406,16 +440,14 @@ func (p *MCPProxy) buildRequestEvent(session *CentianProxySession, serverName st
 			"arguments": req.Params.Arguments,
 		},
 	})
-
-	// TODO: "sdk" should be replaced by the true transport!
-	event := common.NewMCPRequestEvent("sdk").
+	routing := getRoutingContext(p, session, serverName)
+	event := common.NewMCPRequestEvent(string(routing.Transport)).
 		WithRequestID(getNewUUIDV7()).
 		WithSessionID(session.id).
 		WithServerID(serverID).
-		WithRouting(p.name, serverName, p.endpoint).
 		WithToolCall(req.Params.Name, req.Params.Arguments).
 		WithRawMessage(string(rawMsg))
-
+	event.Routing = *routing
 	return event
 }
 
@@ -445,17 +477,16 @@ func (p *MCPProxy) buildResponseEvent(
 		"result":  result,
 	})
 
-	event := common.NewMCPResponseEvent("sdk").
+	routing := getRoutingContext(p, session, serverName)
+	event := common.NewMCPResponseEvent(string(routing.Transport)).
 		WithRequestID(requestID).
 		WithSessionID(session.id).
 		WithServerID(serverID).
-		WithRouting(p.name, serverName, p.endpoint).
 		WithToolCall(req.Params.Name, req.Params.Arguments).
 		WithToolResult(resultJSON, result.IsError).
 		WithRawMessage(string(rawMsg))
-
+	event.Routing = *routing
 	event.Success = !result.IsError
-
 	return event
 }
 
@@ -617,13 +648,17 @@ func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, mess
 		serverID = p.server.ServerID
 	}
 
+	routing := common.RoutingContext{
+		Gateway:    p.name,
+		ServerName: "",
+		Endpoint:   p.endpoint,
+	}
 	event := common.NewMCPSystemEvent("sdk").
 		WithRequestID(getNewUUIDV7()).
 		WithSessionID(session.id).
 		WithServerID(serverID).
-		WithRouting(p.name, "", p.endpoint).
 		WithRawMessage(fmt.Sprintf(`{"event_type":%q,"message":%q}`, eventType, message))
-
+	event.Routing = routing
 	event.Metadata["event_type"] = eventType
 
 	// Only log, don't run through processor chain for system events

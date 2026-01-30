@@ -682,17 +682,18 @@ func TestFormatMCPError(t *testing.T) {
 
 // Helper functions.
 
-// createTestEvent creates a test StdioMcpEvent with the given JSON message.
+// createTestEvent creates a test MCPEvent with the given JSON message.
 func createTestEvent(jsonMessage string) common.McpEventInterface {
-	return &common.StdioMcpEvent{
+	result := &common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			MessageType: common.MessageTypeRequest,
 			Transport:   "stdio",
 			SessionID:   "test-session",
 			Timestamp:   time.Now(),
 		},
-		Message: jsonMessage,
 	}
+	result.SetRawMessage(jsonMessage)
+	return result
 }
 
 // strPtr returns a pointer to a string.

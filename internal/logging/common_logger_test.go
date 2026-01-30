@@ -33,7 +33,7 @@ func getBaseMcpEvent() common.BaseMcpEvent {
 	}
 }
 
-func TestLogStdioMcpEvent(t *testing.T) {
+func TestLogMcpEvent(t *testing.T) {
 	// Setup: create temporary directory.
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")
@@ -54,21 +54,19 @@ func TestLogStdioMcpEvent(t *testing.T) {
 		"-y",
 		"@modelcontextprotocol/server-sequential-thinking",
 	}
-	projectPath := "/my/path/to/project"
-	configSource := "global"
 
 	baseMcpEvent := getBaseMcpEvent()
-	stdioMcpEvent := common.StdioMcpEvent{
+	mcpEvent := common.MCPEvent{
 		BaseMcpEvent: baseMcpEvent,
-		Command:      command,
-		Args:         args,
-		ProjectPath:  projectPath,
-		ConfigSource: configSource,
-		Message:      "{\"method\":\"ping\"}",
+		Routing: common.RoutingContext{
+			DownstreamCommand: command,
+			Args:              args,
+		},
 	}
+	mcpEvent.SetRawMessage("{\"method\":\"ping\"}")
 
 	// When: logging a request.
-	err = logger.LogMcpEvent(&stdioMcpEvent)
+	err = logger.LogMcpEvent(&mcpEvent)
 
 	// Then: the log should be written successfully.
 	if err != nil {
@@ -85,7 +83,7 @@ func TestLogStdioMcpEvent(t *testing.T) {
 	}
 
 	// Parse the log line as JSON.
-	var logEntry common.StdioMcpEvent
+	var logEntry common.MCPEvent
 	err = json.Unmarshal(logContent, &logEntry)
 	if err != nil {
 		t.Fatalf("Failed to parse log entry: %v", err)
@@ -105,9 +103,11 @@ func TestLogStdioMcpEvent(t *testing.T) {
 		t.Errorf("Expected direction %v', got '%v'", expectedDirection, logEntry.Direction)
 	}
 
+	fmt.Printf("logEntry: %#v", logEntry.GetRawMessage())
+
 	// Parse the message field as JSON.
 	var messageData map[string]interface{}
-	err = json.Unmarshal([]byte(logEntry.RawMessage()), &messageData)
+	err = json.Unmarshal([]byte(logEntry.GetRawMessage()), &messageData)
 	if err != nil {
 		t.Fatalf("Failed to parse message content: %v", err)
 	}
@@ -117,20 +117,12 @@ func TestLogStdioMcpEvent(t *testing.T) {
 		t.Errorf("Expected method 'ping', got '%v'", messageData["method"])
 	}
 
-	if logEntry.Command != command {
-		t.Errorf("Expected command '%s', got '%v'", command, logEntry.Command)
+	if logEntry.Routing.DownstreamCommand != command {
+		t.Errorf("Expected command '%s', got '%v'", command, logEntry.Routing.DownstreamCommand)
 	}
 
-	if !slices.Equal(args, logEntry.Args) {
-		t.Errorf("Expected args '%v', got '%v'", args, logEntry.Args)
-	}
-
-	if logEntry.ProjectPath != projectPath {
-		t.Errorf("Expected project_path '%s', got '%v'", projectPath, logEntry.ProjectPath)
-	}
-
-	if logEntry.ConfigSource != configSource {
-		t.Errorf("Expected config_source '%s', got '%v'", configSource, logEntry.ConfigSource)
+	if !slices.Equal(args, logEntry.Routing.Args) {
+		t.Errorf("Expected args '%v', got '%v'", args, logEntry.Routing.Args)
 	}
 }
 

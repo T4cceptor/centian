@@ -126,14 +126,18 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 
 	// Extract transport-specific details.
 	command := ""
-	if e, ok := entry.Event.(*common.StdioMcpEvent); ok {
-		command = e.Command
-		if len(e.Args) > 0 {
-			command = fmt.Sprintf("%s %s", command, strings.Join(e.Args, " "))
+	if e, ok := entry.Event.(*common.MCPEvent); ok {
+		if e.Routing.Transport == common.HTTPTransport {
+			command = e.Routing.DownstreamURL
+		} else {
+			command = e.Routing.DownstreamCommand
+			if len(e.Routing.Args) > 0 {
+				command = fmt.Sprintf("%s %s", command, strings.Join(e.Routing.Args, " "))
+			}
 		}
 	}
 
-	detail := entry.Event.RawMessage()
+	detail := entry.Event.GetRawMessage()
 	if baseEvent.Error != "" {
 		detail = baseEvent.Error
 	}
@@ -191,16 +195,8 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 		}
 
 		// Unmarshal to appropriate type based on transport.
-		var event common.McpEventInterface
-		switch peek.Transport {
-		case "stdio":
-			var stdioEvent common.StdioMcpEvent
-			if err := json.Unmarshal([]byte(line), &stdioEvent); err != nil {
-				continue
-			}
-			event = &stdioEvent
-		default:
-			// Skip unknown transport types.
+		var event *common.MCPEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			continue
 		}
 

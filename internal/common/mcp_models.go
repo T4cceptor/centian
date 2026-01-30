@@ -180,107 +180,6 @@ type BaseMcpEvent struct {
 	Modified bool `json:"modified"`
 }
 
-// StdioMcpEvent holds data for a stdio-based MCP event.
-//
-// This event type represents MCP communication that occurs via standard input/output streams,
-// typically with processes spawned via commands like npx or python. It captures both the
-// command execution context and the message content exchanged with the MCP server.
-type StdioMcpEvent struct {
-	BaseMcpEvent
-
-	// Command is the executable being proxied (e.g., "npx", "python").
-	Command string `json:"command"`
-
-	// Args are the command-line arguments passed to the command.
-	Args []string `json:"args"`
-
-	// ProjectPath is the working directory where the command executes.
-	ProjectPath string `json:"project_path"`
-
-	// ConfigSource indicates where configuration originated: "global", "project", or "profile".
-	ConfigSource string `json:"config_source"`
-
-	// Message contains the actual MCP message content (request or response payload).
-	Message string `json:"message"`
-}
-
-// RawMessage returns the message content of the StdioMcpEvent.
-//
-// For stdio events, this returns the Message field directly which contains
-// the MCP request or response payload.
-func (s *StdioMcpEvent) RawMessage() string {
-	return s.Message
-}
-
-// SetRawMessage overwrites the message content - used for writing back processed MCP event data.
-//
-// For StdioMcpEvent this overwrites the Message field.
-func (s *StdioMcpEvent) SetRawMessage(newMessage string) {
-	s.Message = newMessage
-}
-
-// SetModified sets the modified flag to indicate the event has been altered.
-func (s *StdioMcpEvent) SetModified(b bool) {
-	s.Modified = b
-}
-
-// HasContent returns true if Message field is non-empty, false otherwise.
-func (s *StdioMcpEvent) HasContent() bool {
-	return s.Message != ""
-}
-
-// GetBaseEvent returns the BaseMcpEvent for this StdioMcpEvent.
-func (s *StdioMcpEvent) GetBaseEvent() BaseMcpEvent {
-	return s.BaseMcpEvent
-}
-
-// IsRequest returns true if MessageType is MessageTypeRequest.
-func (s *StdioMcpEvent) IsRequest() bool {
-	return s.MessageType == MessageTypeRequest
-}
-
-// IsResponse returns true if MessageType is MessageTypeResponse.
-func (s *StdioMcpEvent) IsResponse() bool {
-	return s.MessageType == MessageTypeResponse
-}
-
-// SetStatus sets the status for this MCP event.
-func (s *StdioMcpEvent) SetStatus(status int) {
-	s.Status = status
-}
-
-// marshalWithRaw marshals a struct to JSON and adds a "raw_message" field.
-//
-// This helper function is used by MarshalJSON implementations to inject the raw message
-// content into the JSON output without modifying the original struct definition. The parameter v
-// must be an alias type to prevent infinite recursion during marshaling.
-func marshalWithRaw(raw string, v any) ([]byte, error) {
-	// v should be an alias type (so it won't recurse).
-	data, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	m["raw_message"] = raw
-	return json.Marshal(m)
-}
-
-// MarshalJSON implements custom JSON marshaling for StdioMcpEvent.
-//
-// This method injects the raw message content into the JSON output using an alias type
-// to prevent infinite recursion. Uses a value receiver to implement json.Marshaler
-// for both value and pointer types, enabling marshaling of StdioMcpEvent regardless
-// of whether it's passed by value or by pointer.
-//
-//nolint:gocritic // Intentional value receiver to implement json.Marshaler for both value and pointer types.
-func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
-	type Alias StdioMcpEvent
-	return marshalWithRaw(s.RawMessage(), Alias(s))
-}
-
 // McpEventInterface provides a transport-agnostic abstraction for all MCP events.
 //
 // This interface enables polymorphic handling of MCP events across different transport
@@ -294,7 +193,7 @@ func (s StdioMcpEvent) MarshalJSON() ([]byte, error) {
 //   - Metadata access (GetBaseEvent)
 //   - Type identification (IsRequest, IsResponse).
 type McpEventInterface interface {
-	RawMessage() string
+	GetRawMessage() string
 	SetRawMessage(newMessage string)
 	SetModified(b bool)
 	HasContent() bool
