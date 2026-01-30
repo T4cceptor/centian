@@ -27,7 +27,7 @@ func TestNewStdioProxy(t *testing.T) {
 		t.Fatal("Proxy should not be nil")
 	}
 
-	if proxy.command != command {
+	if proxy != nil && proxy.command != command {
 		t.Errorf("Expected command %s, got %s", command, proxy.command)
 	}
 

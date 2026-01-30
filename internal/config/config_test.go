@@ -25,13 +25,13 @@ func TestConfigLifecycle(t *testing.T) {
 	}
 
 	// Verify default config structure.
-	if config.Version != "1.0.0" {
+	if config != nil && config.Version != "1.0.0" {
 		t.Errorf("Expected version 1.0.0, got %s", config.Version)
 	}
-	if config.Proxy == nil {
+	if config != nil && config.Proxy == nil {
 		t.Fatal("Expected proxy settings to be initialized")
 	}
-	if config.Processors == nil {
+	if config != nil && config.Processors == nil {
 		t.Fatal("Expected processors to be initialized")
 	}
 

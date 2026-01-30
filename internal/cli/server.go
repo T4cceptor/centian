@@ -88,6 +88,9 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 	if serverName == "" {
 		serverName = "Centian Proxy Server"
 	}
+	if len(globalConfig.Gateways) < 1 {
+		return fmt.Errorf("no gateways configured")
+	}
 	totalServers := 0
 	for _, gateway := range globalConfig.Gateways {
 		totalServers += len(gateway.MCPServers)
@@ -118,7 +121,6 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s -- %#v\n",
 					globalConfig.Proxy.Port, endpoint, server.Command, server.Args)
 			}
-
 		}
 	}
 	fmt.Fprintf(os.Stderr, "\n")

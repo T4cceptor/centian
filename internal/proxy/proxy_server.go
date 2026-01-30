@@ -38,7 +38,7 @@ type CentianProxy struct {
 	Gateways map[string]*MCPProxy
 }
 
-// NewCentianProxy takes a GlobalConfig struct and returns a new CentianProxy
+// NewCentianProxy takes a GlobalConfig struct and returns a new CentianProxy.
 func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 	mux := http.NewServeMux()
 	server := &http.Server{
@@ -124,7 +124,7 @@ func NewAggregatedProxy(name string, endpoint string, gatewayConfig *config.Gate
 
 	// Pre-create downstream templates from config
 	for serverName, serverCfg := range gatewayConfig.MCPServers {
-		if serverCfg.Enabled {
+		if serverCfg.IsEnabled() {
 			proxy.downstreams[serverName] = NewDownstreamConnection(serverName, serverCfg)
 		}
 	}
@@ -226,7 +226,6 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 			mu.Unlock()
 
 			log.Printf("MCPProxy[%s]: Connected to %s, found %d tools", p.name, name, len(conn.Tools()))
-
 		}(serverName, connTemplate)
 	}
 
@@ -242,7 +241,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 	return server, nil
 }
 
-// NewMcpServer returns a new *mcp.Server based on the MCPProxy name
+// NewMcpServer returns a new *mcp.Server based on the MCPProxy name.
 func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	serverName := "centian-proxy-" + p.name
 	if p.isAggregatedProxy {
@@ -436,12 +435,13 @@ func (p *MCPProxy) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	var err error = nil
 	for _, session := range p.sessions {
 		for _, conn := range session.downstreamConns {
-			conn.Close()
+			err = conn.Close()
 		}
 	}
-	return nil
+	return err
 }
 
 // ============================================================================
@@ -497,13 +497,14 @@ func (c *CentianProxy) Setup() error {
 		// Optionally: register individual endpoints for each server
 		// TODO: make this configurable
 		for serverName, serverCfg := range gatewayConfig.MCPServers {
-			if serverCfg.Enabled {
-				singleEndpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-				singleProxy := NewSingleProxy(serverName, singleEndpoint, serverCfg)
-				singleProxy.server = c
-				singleProxy.initEventProcessor()
-				RegisterHandler(singleEndpoint, singleProxy, c.Mux, nil)
+			if !serverCfg.IsEnabled() {
+				continue
 			}
+			singleEndpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+			singleProxy := NewSingleProxy(serverName, singleEndpoint, serverCfg)
+			singleProxy.server = c
+			singleProxy.initEventProcessor()
+			RegisterHandler(singleEndpoint, singleProxy, c.Mux, nil)
 		}
 	}
 
@@ -526,7 +527,7 @@ func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, mess
 		WithSessionID(session.id).
 		WithServerID(serverID).
 		WithRouting(p.name, "", p.endpoint).
-		WithRawMessage(fmt.Sprintf(`{"event_type":"%s","message":"%s"}`, eventType, message))
+		WithRawMessage(fmt.Sprintf(`{"event_type":%q,"message":%q}`, eventType, message))
 
 	event.Metadata["event_type"] = eventType
 

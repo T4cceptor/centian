@@ -67,10 +67,17 @@ type MCPServerConfig struct {
 	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
 	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/sse transport)
 	Headers     map[string]string      `json:"headers,omitempty"`     // HTTP headers (supports ${ENV_VAR} substitution)
-	Enabled     bool                   `json:"enabled"`               // Whether server is active
+	Enabled     *bool                  `json:"enabled,omitempty"`     // Whether server is active
 	Description string                 `json:"description,omitempty"` // Human readable description
 	Source      string                 `json:"source,omitempty"`      // Source file path for auto-discovered servers
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
+}
+
+func (s *MCPServerConfig) IsEnabled() bool {
+	if s.Enabled == nil {
+		return true // default
+	}
+	return *s.Enabled
 }
 
 // GetSubstitutedHeaders returns headers with environment variables substituted.
@@ -344,7 +351,6 @@ func ValidateConfigSchema(config *GlobalConfig) error {
 
 // ValidateConfig performs full validation including operational requirements.
 // This requires at least one gateway to be configured.
-// Deprecated: Use ValidateConfigSchema for loading and ValidateConfigForServer for startup.
 func ValidateConfig(config *GlobalConfig) error {
 	if err := ValidateConfigSchema(config); err != nil {
 		return err
@@ -356,6 +362,7 @@ func ValidateConfig(config *GlobalConfig) error {
 // This checks operational requirements like having at least one gateway configured.
 func ValidateConfigForServer(config *GlobalConfig) error {
 	if len(config.Gateways) == 0 {
+		// TODO: default config should already include gateways and not throw an error!
 		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
 	}
 	return nil
@@ -375,17 +382,6 @@ func validateExistingGateways(gateways map[string]*GatewayConfig) error {
 		}
 	}
 	return nil
-}
-
-// validatedGateways validates server configurations.
-//
-// Note: there has to be at least one GatewayConfig in the map, otherwise an error will be returned.
-// Deprecated: Use validateExistingGateways for schema validation and ValidateConfigForServer for operational checks.
-func validatedGateways(gateways map[string]*GatewayConfig) error {
-	if len(gateways) == 0 {
-		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
-	}
-	return validateExistingGateways(gateways)
 }
 
 // isValidHTTPURL validates that a URL string is a properly formatted HTTP/HTTPS URL.

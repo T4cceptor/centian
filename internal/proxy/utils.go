@@ -11,7 +11,7 @@ import (
 // MaxBodySize represents the maximal allowed size of a request/response body.
 const MaxBodySize = 10 * 1024 * 1024 // 10MB
 
-// NamespaceSeparator is used to create tool names in an aggregated proxy server
+// NamespaceSeparator is used to create tool names in an aggregated proxy server.
 const NamespaceSeparator = "___"
 
 func getNewUUIDV7() string {
@@ -38,12 +38,15 @@ func getServerID(serverName string) string {
 
 // getEndpointString returns a new endpoint path for the given gatewayName and mcpServerName.
 func getEndpointString(gatewayName, mcpServerName string) (string, error) {
+	if !common.IsURLCompliant(gatewayName) {
+		return "", fmt.Errorf("gatewayName '%s' is not a compliant URL", gatewayName)
+	}
+	if mcpServerName != "" && !common.IsURLCompliant(mcpServerName) {
+		return "", fmt.Errorf("mcpServerName '%s' is not a compliant URL", mcpServerName)
+	}
 	result := fmt.Sprintf("/mcp/%s", gatewayName)
 	if mcpServerName != "" {
 		result = fmt.Sprintf("%s/%s", result, mcpServerName)
-	}
-	if !common.IsURLCompliant(result) {
-		return "", fmt.Errorf("endpoint '%s' is not a compliant URL", result)
 	}
 	return result, nil
 }

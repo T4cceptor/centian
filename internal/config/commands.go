@@ -236,7 +236,7 @@ func showConfig(_ context.Context, cmd *cli.Command) error {
 
 		enabled := []*MCPServerConfig{}
 		for _, serverConfig := range allServers {
-			if serverConfig.Enabled {
+			if serverConfig.IsEnabled() {
 				enabled = append(enabled, serverConfig)
 			}
 		}
@@ -280,11 +280,11 @@ func listServers(_ context.Context, cmd *cli.Command) error {
 	for gatewayName, gatewayConfig := range gateways {
 		fmt.Printf("- %s\n", gatewayName)
 		for serverName, server := range gatewayConfig.MCPServers {
-			if enabledOnly && !server.Enabled {
+			if enabledOnly && !server.IsEnabled() {
 				continue
 			}
 			status := "✅ enabled"
-			if !server.Enabled {
+			if !server.IsEnabled() {
 				status = "❌ disabled"
 			}
 
@@ -345,6 +345,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	enabled := cmd.Bool("enabled")
 	serverConfig := &MCPServerConfig{
 		Name:        name,
 		Command:     cmd.String("command"),
@@ -352,7 +353,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		URL:         cmd.String("URL"),
 		Headers:     cmd.StringMap("headers"),
 		Description: cmd.String("description"),
-		Enabled:     cmd.Bool("enabled"),
+		Enabled:     &enabled,
 	}
 	existingGateway.AddServer(name, serverConfig)
 
@@ -372,7 +373,7 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 	// Display all matches with context.
 	for i, result := range foundServers {
 		status := "✅ enabled"
-		if !result.server.Enabled {
+		if !result.server.IsEnabled() {
 			status = "❌ disabled"
 		}
 
@@ -478,14 +479,14 @@ func toggleServer(name string, enabled bool) error {
 	case 1:
 		// expected, "good" case -> we just toggle this single server.
 		result := foundServers[0]
-		result.server.Enabled = enabled
+		result.server.Enabled = &enabled
 	default:
 		// Multiple matches - prompt user to select.
 		selected, err := promptUserToSelectServer(foundServers, name)
 		if err != nil {
 			return err
 		}
-		selected.server.Enabled = enabled
+		selected.server.Enabled = &enabled
 	}
 
 	if err := SaveConfig(config); err != nil {

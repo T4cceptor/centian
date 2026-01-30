@@ -51,11 +51,11 @@ func TestServerStartIntegration(t *testing.T) {
 	// When: starting the Centian proxy server.
 	server, err := proxy.NewCentianProxy(globalConfig)
 	if err != nil {
-		log.Fatal("Unable to create proxy server:", err)
+		t.Fatal("Unable to create proxy server:", err)
 	}
 	setupErr := server.Setup()
 	if setupErr != nil {
-		log.Fatal("Unable to setup proxy server:", setupErr)
+		t.Fatal("Unable to setup proxy server:", setupErr)
 	}
 
 	// Start server in background.
@@ -278,7 +278,6 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 						Headers: map[string]string{
 							"Content-Type": "application/json",
 						},
-						Enabled:     true,
 						Description: "Mock MCP server for integration testing",
 					},
 					"second-mock": {
@@ -287,7 +286,6 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 							"Content-Type":  "application/json",
 							"X-Test-Header": "test-value",
 						},
-						Enabled:     true,
 						Description: "Second mock server to test multiple endpoints",
 					},
 				},
@@ -334,8 +332,7 @@ func TestConfigFileValidation(t *testing.T) {
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{
 							"server1": {
-								URL:     "http://example.com",
-								Enabled: true,
+								URL: "http://example.com",
 							},
 						},
 					},

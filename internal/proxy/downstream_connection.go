@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// DownstreamConnection represents a connection to a downstream MCP server.
 type DownstreamConnection struct {
 	serverName string
 	config     *config.MCPServerConfig
@@ -24,7 +25,7 @@ type DownstreamConnection struct {
 }
 
 // Connect establishes connection to downstream server
-// authHeaders: additional headers from upstream request (for passthrough auth)
+// authHeaders: additional headers from upstream request (for passthrough auth).
 func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[string]string) error {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
@@ -52,7 +53,7 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 
 	// Discover tools // TODO: resources
 	if err := dc.discoverTools(ctx); err != nil {
-		dc.session.Close()
+		dc.session.Close() //nolint:errcheck // we are already returning an error
 		return fmt.Errorf("failed to discover tools: %w", err)
 	}
 
@@ -60,7 +61,7 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 	return nil
 }
 
-// NewDownstreamConnection creates an unconnected downstream wrapper
+// NewDownstreamConnection creates an unconnected downstream wrapper.
 func NewDownstreamConnection(name string, cfg *config.MCPServerConfig) *DownstreamConnection {
 	return &DownstreamConnection{
 		serverName: name,
@@ -69,7 +70,7 @@ func NewDownstreamConnection(name string, cfg *config.MCPServerConfig) *Downstre
 	}
 }
 
-// HeaderRoundTripper is used to store
+// HeaderRoundTripper is used to store.
 type HeaderRoundTripper struct {
 	Base    http.RoundTripper
 	Headers map[string]string
@@ -131,6 +132,8 @@ func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (
 
 	if isStdioTransport {
 		// Stdio transport
+		//nolint:gosec // dc.config.Command comes from user config
+		// this is the responsibility of the user setting up the config.
 		cmd := exec.Command(dc.config.Command, dc.config.Args...)
 		// Add environment variables
 		for k, v := range dc.config.Env {
@@ -157,7 +160,7 @@ func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
 	return nil
 }
 
-// CallTool forwards a tool call to the downstream server
+// CallTool forwards a tool call to the downstream server.
 func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -175,20 +178,21 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, a
 	return result, err
 }
 
-// Close terminates the downstream connection
+// Close terminates the downstream connection.
 func (dc *DownstreamConnection) Close() error {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 
 	if dc.session != nil {
-		// TODO: log
-		dc.session.Close()
+		if err := dc.session.Close(); err != nil {
+			return err
+		}
 	}
 	dc.connected = false
 	return nil
 }
 
-// Tools returns the cached tools (nil if not connected)
+// Tools returns the cached tools (nil if not connected).
 func (dc *DownstreamConnection) Tools() []*mcp.Tool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -196,7 +200,7 @@ func (dc *DownstreamConnection) Tools() []*mcp.Tool {
 	return dc.tools
 }
 
-// IsConnected returns true if connection was established and not yet closed
+// IsConnected returns true if connection was established and not yet closed.
 func (dc *DownstreamConnection) IsConnected() bool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()

@@ -20,7 +20,7 @@ func TestSearchServerByName(t *testing.T) {
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node", Enabled: true},
+							"server1": {Name: "server1", Command: "node"},
 						},
 					},
 				},
@@ -35,12 +35,12 @@ func TestSearchServerByName(t *testing.T) {
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node", Enabled: true},
+							"server1": {Name: "server1", Command: "node"},
 						},
 					},
 					"gateway2": {
 						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "python", Enabled: true},
+							"server1": {Name: "server1", Command: "python"},
 						},
 					},
 				},
@@ -54,7 +54,7 @@ func TestSearchServerByName(t *testing.T) {
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node", Enabled: true},
+							"server1": {Name: "server1", Command: "node"},
 						},
 					},
 				},
@@ -338,6 +338,7 @@ func TestGatewayListServers(t *testing.T) {
 
 // TestGatewayAddServer tests the AddServer method on GatewayConfig.
 func TestGatewayAddServer(t *testing.T) {
+	disabled := false
 	tests := []struct {
 		name           string
 		initialServers map[string]*MCPServerConfig
@@ -352,7 +353,6 @@ func TestGatewayAddServer(t *testing.T) {
 			addServer: &MCPServerConfig{
 				Name:    "server1",
 				Command: "node",
-				Enabled: true,
 			},
 			expectedCount: 1,
 		},
@@ -365,7 +365,6 @@ func TestGatewayAddServer(t *testing.T) {
 			addServer: &MCPServerConfig{
 				Name:    "server2",
 				Command: "python",
-				Enabled: true,
 			},
 			expectedCount: 2,
 		},
@@ -378,7 +377,7 @@ func TestGatewayAddServer(t *testing.T) {
 			addServer: &MCPServerConfig{
 				Name:    "server1",
 				Command: "python",
-				Enabled: false,
+				Enabled: &disabled,
 			},
 			expectedCount: 1,
 		},
@@ -569,9 +568,10 @@ func TestGatewayServerOperationsIntegration(t *testing.T) {
 	}
 
 	// When: adding multiple servers.
-	server1 := &MCPServerConfig{Name: "server1", Command: "node", Enabled: true}
-	server2 := &MCPServerConfig{Name: "server2", Command: "python", Enabled: true}
-	server3 := &MCPServerConfig{Name: "server3", Command: "go", Enabled: false}
+	disabled := false
+	server1 := &MCPServerConfig{Name: "server1", Command: "node"}
+	server2 := &MCPServerConfig{Name: "server2", Command: "python"}
+	server3 := &MCPServerConfig{Name: "server3", Command: "go", Enabled: &disabled}
 
 	gateway.AddServer("server1", server1)
 	gateway.AddServer("server2", server2)
@@ -614,7 +614,7 @@ func TestGatewayServerOperationsIntegration(t *testing.T) {
 	}
 
 	// When: updating an existing server.
-	updatedServer1 := &MCPServerConfig{Name: "server1", Command: "deno", Enabled: false}
+	updatedServer1 := &MCPServerConfig{Name: "server1", Command: "deno"}
 	gateway.AddServer("server1", updatedServer1)
 
 	// Then: verify server was updated.

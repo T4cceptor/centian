@@ -47,13 +47,11 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	// When: starting the proxy server in background.
 	server, err := NewCentianProxy(globalConfig)
 	if err != nil {
-		log.Fatal("Unable to create proxy server:", err)
+		t.Fatal("Unable to create proxy server:", err)
 	}
-	setupErr := server.Setup()
-	if setupErr != nil {
-		log.Fatal("Unable to setup proxy server:", setupErr)
+	if setupErr := server.Setup(); setupErr != nil {
+		t.Fatal("failed to setup centian server:", setupErr)
 	}
-
 	go func() {
 		if err := server.Server.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
@@ -61,7 +59,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	}()
 
 	// Wait for server to start.
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * time.Second)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

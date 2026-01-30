@@ -48,9 +48,8 @@ func createValidTestConfigWithGateway(t *testing.T) {
 		"test-gateway": {
 			MCPServers: map[string]*MCPServerConfig{
 				"test-server": {
-					Name:    "test-server",
-					Enabled: true,
-					URL:     "https://example.com/mcp",
+					Name: "test-server",
+					URL:  "https://example.com/mcp",
 				},
 			},
 		},
@@ -297,17 +296,17 @@ func TestListServers_DisplaysAllServers(t *testing.T) {
 
 	// Add a test server.
 	config, _ := LoadConfig()
+	disabled := false
 	gateway := &GatewayConfig{
 		MCPServers: map[string]*MCPServerConfig{
 			"test-server": {
 				Name:    "test-server",
-				Enabled: true,
 				Command: "npx",
 				Args:    []string{"test"},
 			},
 			"disabled-server": {
 				Name:    "disabled-server",
-				Enabled: false,
+				Enabled: &disabled,
 				Command: "npx",
 				Args:    []string{"disabled"},
 			},
@@ -419,9 +418,11 @@ func TestListServers_Details(t *testing.T) {
 	serverName := fmt.Sprintf("my-server-%d", time.Now().UnixNano())
 	got = captureStdout(t, func() {
 		// When: adding a real config WITH Gateways and servers and calling listServers.
+		proxySettings := NewDefaultProxySettings()
 		newConfig := GlobalConfig{
 			Name:    "test config",
 			Version: "1.0.0",
+			Proxy:   &proxySettings,
 			Gateways: map[string]*GatewayConfig{
 				gatewayName: {
 					MCPServers: map[string]*MCPServerConfig{
@@ -530,13 +531,13 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 		Name:    "server1",
 		Command: "npx",
 		Args:    []string{"1", "2", "3"},
-		Enabled: true,
 	}
+	disabled := false
 	server2 := MCPServerConfig{
 		Name:        "server2",
 		URL:         "https://awesomemcp.test123",
 		Headers:     make(map[string]string),
-		Enabled:     false,
+		Enabled:     &disabled,
 		Description: "test123",
 	}
 	results := []ServerSearchResult{
@@ -620,9 +621,11 @@ func TestRemoveServer_Details(t *testing.T) {
 	assert.ErrorContains(t, noConfigError, "failed to load configuration")
 
 	// Given: existing config without server.
+	proxySettings := NewDefaultProxySettings()
 	newConfig := GlobalConfig{
 		Name:    "test config",
 		Version: "1.0.0",
+		Proxy:   &proxySettings,
 	}
 	saveError := SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
@@ -678,9 +681,11 @@ func TestToggleServer_Details(t *testing.T) {
 	assert.ErrorContains(t, noConfigError, "failed to load configuration")
 
 	// Given: existing config without server.
+	proxySettings := NewDefaultProxySettings()
 	newConfig := GlobalConfig{
 		Name:    "test config",
 		Version: "1.0.0",
+		Proxy:   &proxySettings,
 	}
 	saveError := SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
@@ -693,7 +698,6 @@ func TestToggleServer_Details(t *testing.T) {
 	server := MCPServerConfig{
 		Name:    serverName,
 		Command: "npx",
-		Enabled: true,
 	}
 	newConfig.Gateways = map[string]*GatewayConfig{
 		"gateway1": {
@@ -719,7 +723,7 @@ func TestToggleServer_Details(t *testing.T) {
 	assert.NilError(t, err)
 	loadedServer, ok := config.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, ok)
-	assert.Assert(t, loadedServer.Enabled == expectedValue)
+	assert.Assert(t, loadedServer.IsEnabled() == expectedValue)
 
 	// When: calling enableServer.
 	ctx := context.Background()
@@ -736,7 +740,7 @@ func TestToggleServer_Details(t *testing.T) {
 	assert.NilError(t, err)
 	loadedServer, ok = config.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, ok)
-	assert.Assert(t, loadedServer.Enabled)
+	assert.Assert(t, loadedServer.IsEnabled())
 
 	// When: calling disableServer.
 	ctx = context.Background()
@@ -753,7 +757,7 @@ func TestToggleServer_Details(t *testing.T) {
 	assert.NilError(t, err)
 	loadedServer, ok = config.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, ok)
-	assert.Assert(t, !loadedServer.Enabled)
+	assert.Assert(t, !loadedServer.IsEnabled())
 }
 
 func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
@@ -764,17 +768,17 @@ func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
 	createTestConfig(t)
 
 	config, _ := LoadConfig()
+	disabled := false
 	gateway := &GatewayConfig{
 		MCPServers: map[string]*MCPServerConfig{
 			"enabled-server": {
 				Name:    "enabled-server",
-				Enabled: true,
 				Command: "npx",
 				Args:    []string{"enabled"},
 			},
 			"disabled-server": {
 				Name:    "disabled-server",
-				Enabled: false,
+				Enabled: &disabled,
 				Command: "npx",
 				Args:    []string{"disabled"},
 			},
