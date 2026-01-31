@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/common"
 	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/CentianAI/centian-cli/internal/discovery"
 	"github.com/urfave/cli/v3"
@@ -250,7 +249,7 @@ func runAutoDiscovery(_ *config.GlobalConfig) int {
 	// TODO: instead of adding the found servers to the file it
 	// should add it to the cfg object, then use existing methods to store that config.
 
-	common.StreamPrint(10, "🔍 Scanning for existing MCP configurations...\n")
+	fmt.Printf("🔍 Scanning for existing MCP configurations...\n")
 	time.Sleep(1 * time.Second)
 
 	// Create discovery manager and run discovery.

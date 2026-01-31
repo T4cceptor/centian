@@ -2,12 +2,84 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
+	"gotest.tools/assert"
 )
+
+func TestDefaultAPIKeysPath(t *testing.T) {
+	// Given: the DefaultAPIKeysPath method
+	// When: calling it
+	result, err := DefaultAPIKeysPath()
+
+	// Then:
+	assert.NilError(t, err)
+	homeDir, _ := os.UserHomeDir()
+	expected := fmt.Sprintf("%s/.centian/api_keys.json", homeDir)
+	assert.Equal(t, result, expected)
+}
+
+func TestLoadDefaultAPIKeys(t *testing.T) {
+	// Given: a temp home directory with a default api key file
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	path, err := DefaultAPIKeysPath()
+	assert.NilError(t, err)
+
+	plain := "sk-test-default"
+	file := &APIKeyFile{
+		Keys: []APIKeyEntry{
+			{
+				ID:        "key_1",
+				Hash:      hashKey(t, plain),
+				CreatedAt: "2025-01-01T00:00:00Z",
+			},
+		},
+	}
+	assert.NilError(t, WriteAPIKeyFile(path, file))
+
+	// When: loading API keys from the default path
+	store, err := LoadDefaultAPIKeys()
+
+	// Then: the key should validate and path should match
+	assert.NilError(t, err)
+	assert.Equal(t, store.Path(), path)
+	assert.Equal(t, store.Count(), 1)
+	if !store.Validate(plain) {
+		t.Fatalf("expected key to validate")
+	}
+}
+
+func TestPath(t *testing.T) {
+	// Given: an APIKeyStore
+	set_path := "testpath1"
+	keystore := APIKeyStore{
+		path: set_path,
+	}
+
+	// When: calling Path
+	path := keystore.Path()
+
+	// Then: the set path is returned
+	assert.Equal(t, path, set_path)
+}
+
+func TestGenerateAPIKey(t *testing.T) {
+	// Given: GenerateAPIKey method
+	// When: calling GenerateAPIKey
+	new_key, err := GenerateAPIKey()
+
+	// Then: no error, and key is as expected
+	assert.NilError(t, err)
+	sk_prefix := new_key[:3]
+	assert.Assert(t, sk_prefix == "sk-")
+	assert.Assert(t, len(new_key) == 46)
+}
 
 func TestLoadAPIKeys_NotFound(t *testing.T) {
 	// Given: a path that does not exist

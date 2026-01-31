@@ -1,3 +1,4 @@
+//nolint:errcheck
 package discovery
 
 import (
@@ -80,7 +81,7 @@ func (ui *UserInterface) ShowDiscoveryResults(result *Result) ([]Server, error) 
 	// Group the results by source file.
 	grouped := GroupDiscoveryResults(result)
 
-	common.StreamPrint(10, "🔍 Found MCP configurations in %d file(s):\n\n", len(grouped.Groups))
+	fmt.Printf("🔍 Found MCP configurations in %d file(s):\n\n", len(grouped.Groups))
 
 	// Display grouped servers.
 	for _, group := range grouped.Groups {
@@ -304,15 +305,13 @@ func (ui *UserInterface) selectAndReplace(servers []Server) ([]Server, error) {
 
 // promptForReplacement asks user about replacing discovered configs with centian proxy.
 func (ui *UserInterface) promptForReplacement(servers []Server) ([]Server, error) {
-	common.StreamPrint(8, "🔄 Configuration Replacement\n")
-	common.StreamPrint(10, "============================\n")
-	common.StreamPrint(8, "💡 This centralizes MCP management through centian.\n")
-
-	common.StreamPrint(8, "Performed steps:\n")
-	common.StreamPrint(7, "  1. Import all discovered servers into centian\n")
-	common.StreamPrint(8, "  2. Automatically replace MCP configs with Centian proxy (and create a backup file for the old config just in case)\n")
-
-	common.StreamPrint(10, "Proceed with replacement config generation? (y/N): ")
+	fmt.Printf("🔄 Configuration Replacement\n")
+	fmt.Printf("============================\n")
+	fmt.Printf("💡 This centralizes MCP management through centian.\n")
+	fmt.Printf("Performed steps:\n")
+	fmt.Printf("  1. Import all discovered servers into centian\n")
+	fmt.Printf("  2. Automatically replace MCP configs with Centian proxy (and create a backup file for the old config just in case)\n")
+	fmt.Printf("Proceed with replacement config generation? (y/N): ")
 	response, err := ui.reader.ReadString('\n')
 	if err != nil {
 		return nil, fmt.Errorf("failed to read input: %w", err)
@@ -486,8 +485,8 @@ func generateGenericMCPReplacement() string {
 
 // showReplacementConfigs displays the replacement configurations to the user.
 func applyReplacementConfigs(configs []ReplacementConfig) {
-	common.StreamPrint(10, "🔄 Updating Configuration Files\n")
-	common.StreamPrint(15, "===============================\n")
+	fmt.Printf("🔄 Updating Configuration Files\n")
+	fmt.Printf("===============================\n")
 
 	// Group configs by source file.
 	configGroups := make(map[string][]ReplacementConfig)
