@@ -375,13 +375,8 @@ func captureStdout(t *testing.T, fn func()) string {
 
 func TestListServers_Details(t *testing.T) {
 	// Given: no config, context and command.
-	// prep no config:.
-	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
-	_, statErr := os.Stat(configPath)
-	if statErr == nil && (configPath != "" || confErr != nil) {
-		os.Rename(configPath, tmpConfPath)
-	}
+	cleanup := setupTestEnv(t)
+	defer cleanup()
 
 	ctx := context.Background()
 	cmd := &cli.Command{
@@ -448,30 +443,18 @@ func TestListServers_Details(t *testing.T) {
 	if !strings.Contains(got, serverName) {
 		t.Fatalf("got %q, which does not include serverName %q", got, serverName)
 	}
-
-	if statErr == nil && configPath != "" || confErr != nil {
-		e1 := os.Rename(tmpConfPath, configPath)
-		assert.NilError(t, e1) // sanity check
-		_, e := LoadConfig()
-		assert.NilError(t, e) // sanity check
-	}
 }
 
 func TestAddServer_Details(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
 	ctx := context.Background()
 	serverCmdVal := "my-test-server-2"
 	cmd := &cli.Command{
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "name", Value: serverCmdVal},
 		},
-	}
-
-	// existing config prep.
-	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
-	_, statErr := os.Stat(configPath)
-	if statErr == nil && (configPath != "" || confErr != nil) {
-		os.Rename(configPath, tmpConfPath)
 	}
 
 	// When: calling addServer without an existing config.
@@ -599,20 +582,15 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 }
 
 func TestRemoveServer_Details(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
 	ctx := context.Background()
 	serverName := "my-test-server-2"
 	cmd := &cli.Command{
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "name", Value: serverName},
 		},
-	}
-
-	// handle existing config.
-	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
-	_, statErr := os.Stat(configPath)
-	if statErr == nil && (configPath != "" || confErr != nil) {
-		os.Rename(configPath, tmpConfPath)
 	}
 
 	// When: calling removeServer without config.
@@ -665,15 +643,10 @@ func TestRemoveServer_Details(t *testing.T) {
 }
 
 func TestToggleServer_Details(t *testing.T) {
-	serverName := "my-test-server-2"
+	cleanup := setupTestEnv(t)
+	defer cleanup()
 
-	// handle existing config.
-	configPath, confErr := GetConfigPath()
-	tmpConfPath := fmt.Sprintf("/tmp/centian_test_config_%d.json", time.Now().UnixNano())
-	_, statErr := os.Stat(configPath)
-	if statErr == nil && (configPath != "" || confErr != nil) {
-		os.Rename(configPath, tmpConfPath)
-	}
+	serverName := "my-test-server-2"
 
 	// When: calling removeServer without config.
 	noConfigError := toggleServer(serverName, false)
