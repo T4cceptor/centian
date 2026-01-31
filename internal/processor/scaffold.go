@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/CentianAI/centian-cli/internal/config"
 )
 
 type scaffoldLanguage string
@@ -103,7 +106,18 @@ func RunScaffoldInteractive(in io.Reader, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "Test input created: %s\n\n", testInput)
 
-	printNextSteps(out, lang, name, outputFile, testInput)
+	addToConfig, err := promptAddToConfig(reader, out)
+	if err != nil {
+		return err
+	}
+	if addToConfig {
+		if err := addProcessorToConfig(name, lang, outputFile); err != nil {
+			return err
+		}
+		fmt.Fprint(out, "Processor added to config.\n")
+	}
+
+	printNextSteps(out, lang, name, outputFile, testInput, addToConfig)
 	return nil
 }
 
@@ -203,6 +217,16 @@ func promptOverwrite(reader *bufio.Reader, out io.Writer, path string) (bool, er
 	return line == "y" || line == "Y", nil
 }
 
+func promptAddToConfig(reader *bufio.Reader, out io.Writer) (bool, error) {
+	fmt.Fprintln(out, "Step 5: Add to centian config")
+	line, err := prompt(reader, out, "Add this processor to ~/.centian/config.json now? [y/N]: ")
+	if err != nil {
+		return false, err
+	}
+	line = strings.TrimSpace(line)
+	return line == "y" || line == "Y", nil
+}
+
 func prompt(reader *bufio.Reader, out io.Writer, label string) (string, error) {
 	fmt.Fprint(out, label)
 	line, err := reader.ReadString('\n')
@@ -224,11 +248,11 @@ func sanitizeName(name string) string {
 }
 
 func defaultProcessorDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve home directory: %w", err)
+	workingDir := common.GetCurrentWorkingDir()
+	if workingDir == "" {
+		return "", fmt.Errorf("failed to resolve working directory")
 	}
-	return filepath.Join(homeDir, "centian", "processors"), nil
+	return workingDir, nil
 }
 
 func extensionForLanguage(lang scaffoldLanguage) string {
@@ -243,6 +267,21 @@ func extensionForLanguage(lang scaffoldLanguage) string {
 		return "sh"
 	default:
 		return "txt"
+	}
+}
+
+func commandForLanguage(lang scaffoldLanguage) string {
+	switch lang {
+	case langPython:
+		return "python3"
+	case langJavaScript:
+		return "node"
+	case langTypeScript:
+		return "ts-node"
+	case langBash:
+		return "bash"
+	default:
+		return ""
 	}
 }
 
@@ -474,48 +513,66 @@ func writeTestInput(path string) error {
 	return nil
 }
 
-func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile, testInput string) {
-	fmt.Fprintln(out, "==============================================")
-	fmt.Fprintln(out, "  Next Steps")
-	fmt.Fprintln(out, "==============================================")
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, "1. Test your processor:")
-	switch lang {
-	case langPython:
-		fmt.Fprintf(out, "   cat \"%s\" | \"%s\" | jq\n", testInput, outputFile)
-	case langJavaScript:
-		fmt.Fprintf(out, "   cat \"%s\" | node \"%s\" | jq\n", testInput, outputFile)
-	case langTypeScript:
-		fmt.Fprintf(out, "   cat \"%s\" | ts-node \"%s\" | jq\n", testInput, outputFile)
-	case langBash:
-		fmt.Fprintf(out, "   cat \"%s\" | \"%s\" | jq\n", testInput, outputFile)
+func addProcessorToConfig(name string, lang scaffoldLanguage, outputFile string) error {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
 	}
-	fmt.Fprintln(out)
-
-	fmt.Fprintln(out, "2. Add to Centian config (~/.centian/config.json):")
-	fmt.Fprintln(out, "   {")
-	fmt.Fprintln(out, "     \"processors\": [")
-	fmt.Fprintln(out, "       {")
-	fmt.Fprintf(out, "         \"name\": \"%s\",\n", name)
-	fmt.Fprintln(out, "         \"type\": \"cli\",")
-	switch lang {
-	case langPython:
-		fmt.Fprintln(out, "         \"command\": \"python3\",")
-	case langJavaScript:
-		fmt.Fprintln(out, "         \"command\": \"node\",")
-	case langTypeScript:
-		fmt.Fprintln(out, "         \"command\": \"ts-node\",")
-	case langBash:
-		fmt.Fprintln(out, "         \"command\": \"bash\",")
+	if cfg.Processors == nil {
+		cfg.Processors = []*config.ProcessorConfig{}
 	}
-	fmt.Fprintf(out, "         \"args\": [\"%s\"],\n", outputFile)
-	fmt.Fprintln(out, "         \"enabled\": true")
-	fmt.Fprintln(out, "       }")
-	fmt.Fprintln(out, "     ]")
-	fmt.Fprintln(out, "   }")
-	fmt.Fprintln(out)
+	for _, processor := range cfg.Processors {
+		if processor.Name == name {
+			return fmt.Errorf("processor '%s' already exists in config", name)
+		}
+	}
+	command := commandForLanguage(lang)
+	if command == "" {
+		return fmt.Errorf("unsupported language")
+	}
+	cfg.Processors = append(cfg.Processors, &config.ProcessorConfig{
+		Name:    name,
+		Type:    string(config.CLIProcessor),
+		Enabled: true,
+		Timeout: 15,
+		Config: map[string]interface{}{
+			"command": command,
+			"args":    []interface{}{outputFile},
+		},
+	})
+	return config.SaveConfig(cfg)
+}
 
-	fmt.Fprintln(out, "3. Read the full documentation:")
+func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile, testInput string, addedToConfig bool) {
+	fmt.Fprintln(out)
+	step := 1
+	if !addedToConfig {
+		fmt.Fprintf(out, "Add to Centian config (~/.centian/config.json):\n")
+		fmt.Fprintln(out, "   {")
+		fmt.Fprintln(out, "     \"processors\": [")
+		fmt.Fprintln(out, "       {")
+		fmt.Fprintf(out, "         \"name\": \"%s\",\n", name)
+		fmt.Fprintln(out, "         \"type\": \"cli\",")
+		switch lang {
+		case langPython:
+			fmt.Fprintln(out, "         \"command\": \"python3\",")
+		case langJavaScript:
+			fmt.Fprintln(out, "         \"command\": \"node\",")
+		case langTypeScript:
+			fmt.Fprintln(out, "         \"command\": \"ts-node\",")
+		case langBash:
+			fmt.Fprintln(out, "         \"command\": \"bash\",")
+		}
+		fmt.Fprintf(out, "         \"args\": [\"%s\"],\n", outputFile)
+		fmt.Fprintln(out, "         \"enabled\": true")
+		fmt.Fprintln(out, "       }")
+		fmt.Fprintln(out, "     ]")
+		fmt.Fprintln(out, "   }")
+		fmt.Fprintln(out)
+		step++
+	}
+
+	fmt.Fprintf(out, "For further information read the full documentation at:\n")
 	fmt.Fprintln(out, "   docs/processor_development_guide.md")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Happy coding!")

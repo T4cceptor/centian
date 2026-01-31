@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/CentianAI/centian-cli/internal/config"
 	"gotest.tools/assert"
 )
 
@@ -20,7 +22,7 @@ func TestRunScaffoldInteractive(t *testing.T) {
 		"1",
 		"my_processor",
 		tempDir,
-		"",
+		"n",
 	}, "\n")
 	var output bytes.Buffer
 
@@ -167,9 +169,14 @@ func TestPromptProcessorName(t *testing.T) {
 }
 
 func TestPromptOutputDir(t *testing.T) {
-	// Given: a temp home directory
-	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	// Given: a temp working directory
+	tempDir := t.TempDir()
+	originalDir, err := os.Getwd()
+	assert.NilError(t, err)
+	assert.NilError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(originalDir)
+	})
 
 	// When: selecting default output directory
 	defaultDir, err := defaultProcessorDir()
@@ -181,7 +188,7 @@ func TestPromptOutputDir(t *testing.T) {
 	assert.Equal(t, output, defaultDir)
 
 	// When: entering a custom output directory
-	customDir := filepath.Join(tempHome, "custom")
+	customDir := filepath.Join(tempDir, "custom")
 	output, err = promptOutputDir(bufioReader(customDir+"\n"), &bytes.Buffer{})
 
 	// Then: custom directory is returned
@@ -249,16 +256,22 @@ func TestSanitizeName(t *testing.T) {
 }
 
 func TestDefaultProcessorDir(t *testing.T) {
-	// Given: a temp home directory
-	tempHome := t.TempDir()
-	t.Setenv("HOME", tempHome)
+	// Given: a temp working directory
+	tempDir := t.TempDir()
+	originalDir, err := os.Getwd()
+	assert.NilError(t, err)
+	assert.NilError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(originalDir)
+	})
 
 	// When: resolving the default processor directory
 	dir, err := defaultProcessorDir()
 
-	// Then: it points to the temp home
+	// Then: it points to the working directory
 	assert.NilError(t, err)
-	assert.Equal(t, dir, filepath.Join(tempHome, "centian", "processors"))
+	expected := fmt.Sprintf("/private%s", tempDir)
+	assert.Equal(t, dir, expected)
 }
 
 func TestExtensionForLanguage(t *testing.T) {
@@ -382,27 +395,48 @@ func TestWriteTestInput(t *testing.T) {
 	assert.Equal(t, payload["type"], "request")
 }
 
+func TestAddProcessorToConfig(t *testing.T) {
+	// Given: a temp config and processor details
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	cfg := config.DefaultConfig()
+	assert.NilError(t, config.SaveConfig(cfg))
+
+	// When: adding a processor to config
+	err := addProcessorToConfig("demo", langPython, "/tmp/demo.py")
+
+	// Then: processor is persisted
+	assert.NilError(t, err)
+	loaded, err := config.LoadConfig()
+	assert.NilError(t, err)
+	assert.Equal(t, len(loaded.Processors), 1)
+	assert.Equal(t, loaded.Processors[0].Name, "demo")
+}
+
 func TestPrintNextSteps(t *testing.T) {
 	// Given: languages and expected commands
+	expected := `For further information read the full documentation at:
+   docs/processor_development_guide.md
+
+Happy coding!`
 	cases := []struct {
-		name     string
-		lang     scaffoldLanguage
-		expected string
+		name string
+		lang scaffoldLanguage
 	}{
-		{"python", langPython, "python3"},
-		{"javascript", langJavaScript, "node"},
-		{"typescript", langTypeScript, "ts-node"},
-		{"bash", langBash, "bash"},
+		{"python", langPython},
+		{"javascript", langJavaScript},
+		{"typescript", langTypeScript},
+		{"bash", langBash},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			var output bytes.Buffer
 			// When: printing next steps
-			printNextSteps(&output, testCase.lang, "demo", "demo_path", "input_path")
+			printNextSteps(&output, testCase.lang, "demo", "demo_path", "input_path", true)
 
 			// Then: output includes the runner command
-			assert.Assert(t, strings.Contains(output.String(), testCase.expected))
+			assert.Assert(t, strings.Contains(output.String(), expected))
 		})
 	}
 }
