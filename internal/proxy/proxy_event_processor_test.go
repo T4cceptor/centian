@@ -305,7 +305,7 @@ func TestProcess_WithPassthroughProcessor_ModifiesMessage(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	processorConfig := createTestProcessor("passthrough", "../../integrationtests/processors/passthrough.py")
+	processorConfig := createTestProcessor("passthrough", "../../tests/integrationtests/processors/passthrough.py")
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
@@ -326,7 +326,7 @@ func TestProcess_WithPayloadTransformer_ModifiesPayload(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	processorConfig := createTestProcessor("payload_transformer", "../../integrationtests/processors/payload_transformer.py")
+	processorConfig := createTestProcessor("payload_transformer", "../../tests/integrationtests/processors/payload_transformer.py")
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
@@ -350,7 +350,7 @@ func TestProcess_WithSecurityValidator_RejectsDeleteRequests(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	processorConfig := createTestProcessor("security_validator", "../../integrationtests/processors/security_validator.py")
+	processorConfig := createTestProcessor("security_validator", "../../tests/integrationtests/processors/security_validator.py")
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
@@ -373,7 +373,7 @@ func TestProcess_WithSecurityValidator_AllowsNormalRequests(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	processorConfig := createTestProcessor("security_validator", "../../integrationtests/processors/security_validator.py")
+	processorConfig := createTestProcessor("security_validator", "../../tests/integrationtests/processors/security_validator.py")
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
@@ -394,8 +394,8 @@ func TestProcess_WithMultipleProcessors_ExecutesInOrder(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	processor1 := createTestProcessor("passthrough", "../../integrationtests/processors/passthrough.py")
-	processor2 := createTestProcessor("request_logger", "../../integrationtests/processors/request_logger.py")
+	processor1 := createTestProcessor("passthrough", "../../tests/integrationtests/processors/passthrough.py")
+	processor2 := createTestProcessor("request_logger", "../../tests/integrationtests/processors/request_logger.py")
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processor1, processor2}, "test-server", "test-session")
 	assert.NilError(t, err)
 
@@ -415,7 +415,7 @@ func TestProcess_WithDisabledProcessor_SkipsProcessor(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	processorConfig := createTestProcessor("passthrough", "../../integrationtests/processors/passthrough.py")
+	processorConfig := createTestProcessor("passthrough", "../../tests/integrationtests/processors/passthrough.py")
 	processorConfig.Enabled = false
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)

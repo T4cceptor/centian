@@ -300,7 +300,7 @@ go test -v ./internal/cli -run TestConfigFileValidation
 
 1. Start the server:
    ```bash
-   centian server start --config-path ./test_configs/example_http_proxy_config.json
+   centian server start --config-path ./tests/test_configs/example_http_proxy_config.json
    ```
 
 2. In another terminal, test with curl:

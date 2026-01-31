@@ -106,21 +106,21 @@ func getServerNames(servers map[string]interface{}) []string {
 
 func TestReplacement(_ *testing.T) {
 	// Test with Claude Desktop config.
-	if err := testCurrentLogic("test_configs/claude_desktop_config.json", "claude-desktop"); err != nil {
+	if err := testCurrentLogic("tests/test_configs/claude_desktop_config.json", "claude-desktop"); err != nil {
 		fmt.Printf("Error testing Claude Desktop config: %v\n", err)
 	}
 
 	fmt.Println("================================================================================")
 
 	// Test with VS Code mcp.json.
-	if err := testCurrentLogic("test_configs/vscode_mcp.json", "vscode-mcp"); err != nil {
+	if err := testCurrentLogic("tests/test_configs/vscode_mcp.json", "vscode-mcp"); err != nil {
 		fmt.Printf("Error testing VS Code mcp.json: %v\n", err)
 	}
 
 	fmt.Println("================================================================================")
 
 	// Test with VS Code settings.
-	if err := testCurrentLogic("test_configs/vscode_settings.json", "vscode-settings"); err != nil {
+	if err := testCurrentLogic("tests/test_configs/vscode_settings.json", "vscode-settings"); err != nil {
 		fmt.Printf("Error testing VS Code settings: %v\n", err)
 	}
 }
