@@ -49,6 +49,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.serena/
 
 # Logs
 *.log
@@ -67,7 +68,8 @@ tmp/
 
 # Binary name specific to this project
 centian-cli
-centian-cli
+centian
 
 # Local-only test files (may contain credentials or environment-specific configs)
 *.local.go
+
