@@ -4,6 +4,12 @@ BUILD_DIR=build
 MAIN_PATH=./cmd/main.go
 LOG_DIR=$(HOME)/.centian/logs
 
+# Release bump (defaults to patch, can be set via `make release minor`)
+BUMP ?= patch
+ifneq ($(filter major minor patch,$(MAKECMDGOALS)),)
+BUMP := $(filter major minor patch,$(MAKECMDGOALS))
+endif
+
 # Version info
 VERSION ?= dev
 COMMIT_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -12,7 +18,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test test-integration test-all test-coverage test-coverage-html lint fmt vet tidy run dev
+.PHONY: help build clean test test-integration test-all test-coverage test-coverage-html lint fmt vet tidy run dev tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -108,16 +114,17 @@ tail-log: ## Tail the latest Centian log file
 		echo "Log directory $(LOG_DIR) not found"; \
 	fi
 
-release: ## Create and push a new patch release
-	@echo "Creating new patch release..."
-	@# Get the latest tag, increment patch version
-	@LATEST_TAG=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
-	echo "Latest tag: $$LATEST_TAG"; \
-	NEW_TAG=$$(echo $$LATEST_TAG | awk -F. '{$$NF = $$NF + 1;} 1' | sed 's/ /./g'); \
-	echo "New tag: $$NEW_TAG"; \
-	git tag $$NEW_TAG; \
-	git push origin $$NEW_TAG; \
-	echo "✅ Released $$NEW_TAG - check GitHub Actions for build status"
+tag-release: ## Create and push a release tag (BUMP=major|minor|patch)
+	@bash ./scripts/tag-release.sh $(BUMP)
+
+
+
+# Release commands
+release: ## Tag a new release (usage: make tag-release [major|minor|patch], defaults to patch)
+	@./scripts/tag-release.sh $(filter-out $@,$(MAKECMDGOALS))
+
+major minor patch:
+	@:
 
 inspect:
 	npx @modelcontextprotocol/inspector centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory

@@ -86,8 +86,10 @@ func (c *Chain) Execute(event common.McpEventInterface) (*ChainResult, error) {
 			Type:      string(event.GetBaseEvent().MessageType),
 			Timestamp: time.Now().Format(time.RFC3339),
 			Connection: config.ConnectionContext{
+				// TODO: think about providing the full event to downstream instead of only parts of it
+				// this also aligns well with the processors being able to re-write headers, e.g. for auth federation
 				ServerName: c.serverName,
-				Transport:  event.GetBaseEvent().Transport, // TODO - this is wrong
+				Transport:  event.GetBaseEvent().Transport,
 				SessionID:  event.GetBaseEvent().SessionID,
 			},
 			Payload: payload,

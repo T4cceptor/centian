@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/config"
 	"gotest.tools/assert"
 )
 
@@ -117,6 +118,26 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 
 	// Then: unauthorized response is returned
 	assert.Equal(t, recorder.Result().StatusCode, http.StatusUnauthorized)
+}
+
+func TestNewCentianProxy_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
+	// Given: proxy settings that bind to all interfaces with auth unset
+	globalConfig := &config.GlobalConfig{
+		Name:    "Test Proxy Server",
+		Version: "1.0.0",
+		Proxy: &config.ProxySettings{
+			Host:    "0.0.0.0",
+			Port:    "8080",
+			Timeout: 5,
+		},
+	}
+
+	// When: creating the proxy
+	proxy, err := NewCentianProxy(globalConfig)
+
+	// Then: an error is returned and no proxy is created
+	assert.ErrorContains(t, err, "auth must be explicitly set when binding to 0.0.0.0")
+	assert.Assert(t, proxy == nil)
 }
 
 func createTestAPIKeyStore(t *testing.T, plain string) *auth.APIKeyStore {
