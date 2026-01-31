@@ -1,0 +1,50 @@
+{
+  "name": "Centian HTTP Proxy Example",
+  "version": "1.0.0",
+  "auth": true,
+  "authHeader": "X-Centian-Auth",
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "8080",
+    "timeout": 30,
+    "logLevel": "info"
+  },
+  "gateways": {
+    "production": {
+      "mcpServers": {
+        "github": {
+          "url": "https://api.githubcopilot.com/mcp/",
+          "headers": {
+            "Authorization": "Bearer ${GITHUB_PAT}",
+            "Content-Type": "application/json"
+          },
+          "enabled": true,
+          "description": "GitHub MCP server with authentication via environment variable"
+        }
+      }
+    },
+    "development": {
+      "mcpServers": {
+        "local-test": {
+          "url": "http://localhost:3000/mcp/",
+          "headers": {
+            "Content-Type": "application/json",
+            "X-Environment": "development"
+          },
+          "enabled": true,
+          "description": "Local development MCP server"
+        }
+      }
+    }
+  },
+  "processors": [],
+  "metadata": {
+    "environment": "example",
+    "notes": [
+      "This is an example configuration showing HTTP proxy setup",
+      "Environment variables like ${GITHUB_PAT} are automatically substituted",
+      "Multiple gateways can organize servers by environment or purpose",
+      "Endpoints are accessible at: http://127.0.0.1:8080/mcp/<gateway>/<server>"
+    ]
+  }
+}

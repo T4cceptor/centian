@@ -1,0 +1,36 @@
+{
+  "type": "response",
+  "timestamp": "2025-12-28T10:00:05Z",
+  "connection": {
+    "server_name": "test_server",
+    "transport": "stdio",
+    "session_id": "test_session_123"
+  },
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Query executed successfully"
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "processor_chain": [],
+    "original_payload": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Query executed successfully"
+          }
+        ]
+      }
+    }
+  }
+}

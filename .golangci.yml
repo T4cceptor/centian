@@ -1,0 +1,109 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # Default/Core linters
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+    # Code quality
+    - gocritic
+    - gocyclo
+    - godot
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+
+    # Security & Bug detection
+    - gosec
+    - bodyclose
+    - errorlint
+    - nilerr
+    - nilnil
+
+    # Modern Go best practices
+    - copyloopvar
+    - wastedassign
+    - predeclared
+    - goconst
+  exclusions:
+    paths:
+      - internal/discovery
+      - '(.+)_test\.local\.go'
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - gosec # we have quite a few file operations during testing, thus deactivating gosec for these
+          - goconst # makes no sense to flag const usage in test cases where a lot of hardcoded values are used
+          - errcheck # due to the file operations we are potentially not dealing with errors during test setup, this will fail the tests anyway
+      - path: 'internal/common*'
+      # we accept the fact that "common" is the most common name for this type of code - pun intended
+        text: "var-naming: avoid meaningless package names"
+        linters:
+          - revive
+      # Exclude some linters from running on tests files
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - dupl
+      # Exclude known false positives
+      # - text: "Use of weak random number generator"
+      #   linters:
+      #     - gosec
+      # Ignore revive naming suggestions for OpenAPI types (deliberate naming for clarity)
+      - text: "type name will be used as openapi\\."
+        linters:
+          - revive
+      # Ignore gocritic TODO detail requirements (TODOs are intentionally brief)
+      - text: "todoCommentWithoutDetail:"
+        linters:
+          - gocritic
+      # Ignore unnamed result suggestions (return types are clear from context)
+      - text: "unnamedResult:"
+        linters:
+          - gocritic
+  settings:
+    gocyclo:
+      min-complexity: 15
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+          arguments:
+            - checkPrivateReceivers
+            - sayRepetitiveInsteadOfStutters
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+    gosec:
+      excludes:
+        - G104  # Audit errors not checked (we use errcheck for this)
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

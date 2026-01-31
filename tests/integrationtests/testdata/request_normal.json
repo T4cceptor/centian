@@ -1,0 +1,34 @@
+{
+  "type": "request",
+  "timestamp": "2025-12-28T10:00:00Z",
+  "connection": {
+    "server_name": "test_server",
+    "transport": "stdio",
+    "session_id": "test_session_123"
+  },
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "query_database",
+      "arguments": {
+        "query": "SELECT * FROM users WHERE id = 1"
+      }
+    }
+  },
+  "metadata": {
+    "processor_chain": [],
+    "original_payload": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "tools/call",
+      "params": {
+        "name": "query_database",
+        "arguments": {
+          "query": "SELECT * FROM users WHERE id = 1"
+        }
+      }
+    }
+  }
+}

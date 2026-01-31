@@ -1,0 +1,30 @@
+{
+  "inputs": [],
+  "servers": {
+    "mcp-proxy-1": {
+      "headers": {
+        "CONTEXT7_API_KEY": "ctx7sk-00000000-0000-0000-0000-000000000000"
+      },
+      "type": "http",
+      "url": "http://localhost:8001/"
+    },
+    "mcp-proxy-2-2": {
+      "headers": {
+        "centian-url": "https://mcp.deepwiki.com/mcp"
+      },
+      "type": "http",
+      "url": "http://localhost:8001"
+    },
+    "mcp-proxy-3-3": {
+      "type": "http",
+      "url": "https://mcp.deepwiki.com/mcp"
+    },
+    "mcp_proxy-stdio-4": {
+      "type": "stdio",
+      "args": [
+        "start"
+      ],
+      "command": "centian"
+    }
+  }
+}
