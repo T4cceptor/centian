@@ -100,12 +100,6 @@ func RunScaffoldInteractive(in io.Reader, out io.Writer) error {
 
 	fmt.Fprintf(out, "Processor created: %s\n\n", outputFile)
 
-	testInput := filepath.Join(outputDir, fmt.Sprintf("%s_test.json", name))
-	if err := writeTestInput(testInput); err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "Test input created: %s\n\n", testInput)
-
 	addToConfig, err := promptAddToConfig(reader, out)
 	if err != nil {
 		return err
@@ -117,7 +111,7 @@ func RunScaffoldInteractive(in io.Reader, out io.Writer) error {
 		fmt.Fprint(out, "Processor added to config.\n")
 	}
 
-	printNextSteps(out, lang, name, outputFile, testInput, addToConfig)
+	printNextSteps(out, lang, name, outputFile, addToConfig)
 	return nil
 }
 
@@ -543,9 +537,8 @@ func addProcessorToConfig(name string, lang scaffoldLanguage, outputFile string)
 	return config.SaveConfig(cfg)
 }
 
-func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile, testInput string, addedToConfig bool) {
+func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile string, addedToConfig bool) {
 	fmt.Fprintln(out)
-	step := 1
 	if !addedToConfig {
 		fmt.Fprintf(out, "Add to Centian config (~/.centian/config.json):\n")
 		fmt.Fprintln(out, "   {")
@@ -569,7 +562,6 @@ func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile, test
 		fmt.Fprintln(out, "     ]")
 		fmt.Fprintln(out, "   }")
 		fmt.Fprintln(out)
-		step++
 	}
 
 	fmt.Fprintf(out, "For further information read the full documentation at:\n")

@@ -43,6 +43,7 @@ A lightweight MCP (Model Context Protocol) proxy that provides logging and lifec
     ```
 5. (optional) Create your first processor
     - Run `centian processor init` and follow the instructions on the screen. This guides you through a setup for a basic processor code skeleton, and adds it to your centian config.
+    - You can use processors to perform various actions and transformations on MCP requests and responses
 
 
 ## Installation

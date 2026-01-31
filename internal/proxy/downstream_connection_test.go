@@ -26,7 +26,7 @@ func TestHeaderRoundTripperRoundTrip(t *testing.T) {
 	rt := HeaderRoundTripper{
 		Headers: map[string]string{"X-Test": "value"},
 	}
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, nil)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, http.NoBody)
 	assert.NilError(t, err)
 
 	// When: performing the round trip

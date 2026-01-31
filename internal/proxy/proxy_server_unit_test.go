@@ -47,7 +47,7 @@ func TestAPIKeyMiddlewareWithHeader_NoStore(t *testing.T) {
 
 	// When: calling the handler
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	handler.ServeHTTP(recorder, request)
 
 	// Then: request passes through
@@ -67,7 +67,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 
 	// When: request is missing token
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	handler.ServeHTTP(recorder, request)
 
 	// Then: unauthorized and handler not called
@@ -76,7 +76,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 
 	// When: request has invalid token
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/", nil)
+	request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	request.Header.Set("Authorization", "Bearer bad")
 	handler.ServeHTTP(recorder, request)
 
@@ -86,7 +86,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 
 	// When: request has valid token
 	recorder = httptest.NewRecorder()
-	request = httptest.NewRequest(http.MethodGet, "/", nil)
+	request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	request.Header.Set("Authorization", "Bearer plain-key")
 	handler.ServeHTTP(recorder, request)
 
@@ -110,7 +110,7 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 
 	// When: registering handler and calling without auth
 	RegisterHandler("/mcp/gateway", proxy, mux, nil)
-	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", nil)
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
 	recorder := httptest.NewRecorder()
 	handler, _ := mux.Handler(request)
 	handler.ServeHTTP(recorder, request)

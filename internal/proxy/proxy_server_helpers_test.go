@@ -19,7 +19,7 @@ func TestCreateSession_AuthHeaders(t *testing.T) {
 		endpoint: "/mcp/gateway",
 		server:   &CentianProxy{AuthHeader: "Authorization"},
 	}
-	request, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	request, err := http.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 	assert.NilError(t, err)
 	request.Header.Set("Authorization", "Bearer skip")
 	request.Header.Set("X-API-Key", "keep")
@@ -38,7 +38,7 @@ func TestCreateSession_AuthHeaders(t *testing.T) {
 func TestCreateSession_IncludesAuthorizationWhenNotConfigured(t *testing.T) {
 	// Given: a proxy without a configured auth header
 	proxy := &MCPProxy{}
-	request, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+	request, err := http.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 	assert.NilError(t, err)
 	request.Header.Set("Authorization", "Bearer token")
 

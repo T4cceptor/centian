@@ -42,18 +42,18 @@ func TestCentianProxySetup_RegistersHandlers(t *testing.T) {
 	// Then: aggregated and single endpoints are registered
 	assert.NilError(t, err)
 
-	aggregatedReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", nil)
+	aggregatedReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
 	aggregatedHandler, aggregatedPattern := proxy.Mux.Handler(aggregatedReq)
 	assert.Assert(t, aggregatedHandler != nil)
 	assert.Equal(t, aggregatedPattern, "/mcp/gateway")
 
-	singleReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/enabled", nil)
+	singleReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/enabled", http.NoBody)
 	singleHandler, singlePattern := proxy.Mux.Handler(singleReq)
 	assert.Assert(t, singleHandler != nil)
 	assert.Equal(t, singlePattern, "/mcp/gateway/enabled")
 
 	// Then: disabled endpoint is not registered
-	disabledReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/disabled", nil)
+	disabledReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/disabled", http.NoBody)
 	_, disabledPattern := proxy.Mux.Handler(disabledReq)
 	assert.Equal(t, disabledPattern, "")
 }

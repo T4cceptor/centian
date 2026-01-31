@@ -39,10 +39,7 @@ func TestRunScaffoldInteractive(t *testing.T) {
 	assert.Assert(t, strings.Contains(output.String(), "Processor created"))
 
 	testInputPath := filepath.Join(tempDir, "my_processor_test.json")
-	assert.Assert(t, exists(testInputPath))
-	inputData, readErr := os.ReadFile(testInputPath)
-	assert.NilError(t, readErr)
-	assert.Assert(t, strings.Contains(string(inputData), "\"type\": \"request\""))
+	assert.Assert(t, !exists(testInputPath))
 }
 
 func TestRunScaffoldInteractive_CancelOverwrite(t *testing.T) {
@@ -394,7 +391,6 @@ func TestWriteTestInput(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(data, &payload))
 	assert.Equal(t, payload["type"], "request")
 }
-
 func TestAddProcessorToConfig(t *testing.T) {
 	// Given: a temp config and processor details
 	tempHome := t.TempDir()
@@ -433,7 +429,7 @@ Happy coding!`
 		t.Run(testCase.name, func(t *testing.T) {
 			var output bytes.Buffer
 			// When: printing next steps
-			printNextSteps(&output, testCase.lang, "demo", "demo_path", "input_path", true)
+			printNextSteps(&output, testCase.lang, "demo", "demo_path", true)
 
 			// Then: output includes the runner command
 			assert.Assert(t, strings.Contains(output.String(), expected))

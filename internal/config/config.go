@@ -36,6 +36,8 @@ type GlobalConfig struct {
 
 // DefaultAuthHeader represents the default header for authentication at the Centian server.
 const DefaultAuthHeader = "X-Centian-Auth"
+
+// DefaultProxyHost represents the default bind address for the Centian server.
 const DefaultProxyHost = "127.0.0.1"
 
 // IsAuthEnabled returns true when auth is enabled or unset.
