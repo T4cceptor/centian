@@ -36,6 +36,7 @@ type GlobalConfig struct {
 
 // DefaultAuthHeader represents the default header for authentication at the Centian server.
 const DefaultAuthHeader = "X-Centian-Auth"
+const DefaultProxyHost = "127.0.0.1"
 
 // IsAuthEnabled returns true when auth is enabled or unset.
 func (g *GlobalConfig) IsAuthEnabled() bool {
@@ -122,6 +123,7 @@ func (s *MCPServerConfig) GetSubstitutedHeaders() map[string]string {
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
+	Host     string `json:"host,omitempty"`     // Bind address for the proxy
 	Port     string `json:"port,omitempty"`     // HTTP proxy port (if enabled)
 	LogLevel string `json:"logLevel,omitempty"` // debug, info, warn, error
 	LogFile  string `json:"logFile,omitempty"`  // Log file path
@@ -131,6 +133,7 @@ type ProxySettings struct {
 // NewDefaultProxySettings creates a new ProxySettings with default values.
 func NewDefaultProxySettings() ProxySettings {
 	return ProxySettings{
+		Host:     DefaultProxyHost,
 		Port:     "8080",
 		Timeout:  30,
 		LogLevel: "info",

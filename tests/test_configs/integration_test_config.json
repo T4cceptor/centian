@@ -4,6 +4,7 @@
   "auth": true,
   "authHeader": "X-Centian-Auth",
   "proxy": {
+    "host": "127.0.0.1",
     "port": "9001",
     "timeout": 30,
     "logLevel": "info"

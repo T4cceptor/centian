@@ -116,6 +116,11 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 
 	fmt.Fprintf(os.Stderr, "[CENTIAN] %s\n", serverName)
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting HTTP proxy server...\n")
+	host := globalConfig.Proxy.Host
+	if host == "" {
+		host = config.DefaultProxyHost
+	}
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Host: %s\n", host)
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Port: %s\n", globalConfig.Proxy.Port)
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Timeout: %ds\n", globalConfig.Proxy.Timeout)
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Gateways: %d\n", len(globalConfig.Gateways))
@@ -128,12 +133,12 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 		for serverName, server := range gateway.MCPServers {
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 			if server.URL != "" {
-				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
-					globalConfig.Proxy.Port, endpoint, server.URL)
+				fmt.Fprintf(os.Stderr, "  - http://%s:%s%s -> %s\n",
+					host, globalConfig.Proxy.Port, endpoint, server.URL)
 			}
 			if server.Command != "" {
-				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s -- %#v\n",
-					globalConfig.Proxy.Port, endpoint, server.Command, server.Args)
+				fmt.Fprintf(os.Stderr, "  - http://%s:%s%s -> %s -- %#v\n",
+					host, globalConfig.Proxy.Port, endpoint, server.Command, server.Args)
 			}
 		}
 	}

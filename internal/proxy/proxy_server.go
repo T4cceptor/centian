@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -45,9 +46,21 @@ type CentianProxy struct {
 
 // NewCentianProxy takes a GlobalConfig struct and returns a new CentianProxy.
 func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
+	if globalConfig == nil || globalConfig.Proxy == nil {
+		return nil, fmt.Errorf("proxy settings are required")
+	}
+
+	host := globalConfig.Proxy.Host
+	if host == "" {
+		host = config.DefaultProxyHost
+	}
+	if host == "0.0.0.0" && globalConfig.AuthEnabled == nil {
+		return nil, fmt.Errorf("auth must be explicitly set when binding to 0.0.0.0")
+	}
+
 	mux := http.NewServeMux()
 	server := &http.Server{
-		Addr:         ":" + globalConfig.Proxy.Port,
+		Addr:         net.JoinHostPort(host, globalConfig.Proxy.Port),
 		Handler:      mux,
 		ReadTimeout:  common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
 		WriteTimeout: common.GetSecondsFromInt(globalConfig.Proxy.Timeout),

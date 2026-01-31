@@ -1,4 +1,4 @@
-# Centian CLI
+# Centian - the MCP Proxy
 
 A lightweight MCP (Model Context Protocol) proxy that provides logging and lifecycle hooks for all MCP server communications.
 
@@ -11,9 +11,43 @@ A lightweight MCP (Model Context Protocol) proxy that provides logging and lifec
 
 ## Quick Start
 
-### Installation
+1. Install:
+    - via script: ```curl -fsSL https://raw.githubusercontent.com/CentianAI/centian-cli/main/scripts/install.sh | bash```
+    - via homebrew: coming soon...
 
-#### Via Script (Recommended)
+2. Setup:
+    - run `centian init` - then follow the instructions on the screen
+    - this creates a config file at `~/.centian/config.json`
+    - create a new API key using `centian server get-key` OR disable auth in the config (only advised for local testing! - see below)
+
+3. Start:
+    - Run `centian server start` to start the proxy server locally (default bind and port is `127.0.0.1:8080`)
+        - IMPORTANT: by default the binding address is `127.0.0.1` in order to prevent making the proxy available in the network. This is configurable via the config. However host `0.0.0.0` is used, the `auth` flag has to be set explicitly (can be `true` or `false`). Only disable auth if you know what you are doing, especially if you are using sensible secrets in your config (e.g. auth headers)!
+    - uses the previously created config file to start proxying configured MCP servers
+
+4. Use:
+    - point your favorite MCP client to the available endpoints
+    - for the default config you can find proxied servers aggregated at: `http://localhost:8080/mcp/default`
+    - Example:
+    ```json
+    {
+        "mcpServers": {
+            "centian-default": {
+                "url": "http://localhost:8080/mcp/default",
+                "headers": {
+                    "X-Centian-Auth": <your auth token> // this is not required if you previously disabled auth
+                }
+            }
+        }
+    }
+    ```
+5. (optional) Create your first processor
+    - Run `centian processor init` and follow the instructions on the screen. This guides you through a setup for a basic processor code skeleton, and shows you how to add it to your config.
+
+
+## Installation
+
+### Via Script (Recommended)
 
 Download and run the installation script:
 
@@ -37,21 +71,25 @@ The script will:
 - Install to `/usr/local/bin` (or custom directory)
 - Verify the installation
 
-#### Homebrew
+### Homebrew
 Coming soon...
 
-#### From Source
+### From Source
 
 Requirements:
-- Go - Version `1.25.0`
+- Go - Version `1.25`
 
 ```bash
 git clone https://github.com/CentianAI/centian-cli.git
 cd centian-cli
 go build -o build/centian ./cmd/main.go
+
+# or
+
+make install
 ```
 
-### Usage
+## Usage
 
 Centian is intended as a light-weight http-based MCP proxy for both stdio and http MCP servers.
 
@@ -60,7 +98,7 @@ Some brief concepts before we dive into the config:
 - MCP server configuration is purposefully made very similar to how other popular MCP clients configure their MCP servers, e.g. Claude Code, Copilot, Cursor, etc.
 - For authentication, Centian currently supports light-weight header auth under a centian-specific header ("X-Centian-Auth"), in order to allow forwarding of downstream auth headers from the MCP client (e.g. "Authorization" header)
 
-#### How to proxy MCP server
+### How to proxy MCP server
 
 - Use a config file (create one via `centian init` and follow the process or run `centian config init` to create a skeleton config)
 - Configure gateways and downstream MCP servers in `~/.centian/config.json`
