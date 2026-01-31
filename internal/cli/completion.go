@@ -159,7 +159,7 @@ func setupShellCompletion(shellInfo *ShellInfo) error {
 	}
 	defer func() { _ = file.Close() }()
 
-	completionBlock := fmt.Sprintf("\n# Centian CLI completion\n%s\n", shellInfo.CompletionLine)
+	completionBlock := fmt.Sprintf("\n# Centian completion\n%s\n", shellInfo.CompletionLine)
 	if _, err := file.WriteString(completionBlock); err != nil {
 		return fmt.Errorf("failed to write completion line: %w", err)
 	}
@@ -189,7 +189,7 @@ func setupFishCompletion(completionFile string) error {
 
 	// We'll use the centian binary to generate the completion.
 	// For now, we'll create a simple script that calls the completion command.
-	fishScript := `# Centian CLI fish completion
+	fishScript := `# Centian fish completion
 complete -c centian -f -a "(centian --generate-shell-completion)"
 `
 	//nolint:gosec // We are writing a file without sensitive data.

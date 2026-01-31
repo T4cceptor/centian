@@ -142,7 +142,7 @@ Coming soon.
 
 ```bash
 git clone https://github.com/T4cceptor/centian.git
-cd centian-cli
+cd centian
 go build -o build/centian ./cmd/main.go
 ```
 

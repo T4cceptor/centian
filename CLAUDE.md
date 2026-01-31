@@ -1,6 +1,6 @@
-# Centian CLI
+# Centian
 
-**Project Name:** Centian CLI
+**Project Name:** Centian
 
 **Repository:** https://github.com/T4cceptor/centian
 **Repo Owner:** T4cceptor (User)
@@ -10,7 +10,7 @@
 
 ## Purpose
 
-Centian CLI serves as a centralized proxy for Model Context Protocol (MCP) servers, providing:
+Centian serves as a centralized proxy for Model Context Protocol (MCP) servers, providing:
 
 - **MCP Server Proxy**: Acts as a proxy layer for multiple MCP servers
 - **Centralized Configuration**: Collect and manage configurations for all MCP servers in one place

@@ -1,5 +1,5 @@
 // Package config provides configuration management and MCP proxy functionality
-// for the Centian CLI tool.
+// for the Centian tool.
 package config
 
 import (

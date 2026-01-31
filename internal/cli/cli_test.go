@@ -190,7 +190,7 @@ func TestCompletionFileOperations(t *testing.T) {
 		t.Fatalf("Failed to open RC file for append: %v", err)
 	}
 
-	completionBlock := fmt.Sprintf("\n# Centian CLI completion\n%s\n", completionLine)
+	completionBlock := fmt.Sprintf("\n# Centian completion\n%s\n", completionLine)
 	_, err = file.WriteString(completionBlock)
 	file.Close()
 	if err != nil {

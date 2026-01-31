@@ -4,7 +4,7 @@ This file is authoritative for repo workflows, structure, and expectations.
 Other agent guidance should link here and avoid duplication.
 
 ## Project Structure & Module Organization
-Centian CLI is a Go workspace. The executable entrypoint lives in `cmd/main.go`, while feature modules sit under `internal/cli`, `internal/proxy`, `internal/logging`, and `internal/config`. Shared libraries that need to be exported reside in `pkg/`. Generated binaries and artifacts belong in `build/`. Test data and configuration fixtures are kept in `tests/test_configs/`—keep new fixtures there to avoid polluting source directories.
+Centian is a Go workspace. The executable entrypoint lives in `cmd/main.go`, while feature modules sit under `internal/cli`, `internal/proxy`, `internal/logging`, and `internal/config`. Shared libraries that need to be exported reside in `pkg/`. Generated binaries and artifacts belong in `build/`. Test data and configuration fixtures are kept in `tests/test_configs/`—keep new fixtures there to avoid polluting source directories.
 
 ## Build, Test, and Development Commands
 Use Go tools or the Makefile targets. `go build -o build/centian ./cmd/main.go` compiles the CLI once. `make build` wraps the same build with version metadata. `make dev` runs the full developer loop (`clean`, `fmt`, `vet`, `test`, `build`). Run unit tests with `go test ./...`; add `-race` locally when touching concurrency. `make test` enables verbose race-detected tests. Run `golangci-lint run` when available; the Makefile exposes it via `make lint`.

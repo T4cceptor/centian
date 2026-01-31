@@ -1,6 +1,6 @@
 # Tests
 
-This folder contains end-to-end integration tests and test configuration fixtures for Centian CLI.
+This folder contains end-to-end integration tests and test configuration fixtures for Centian.
 
 ## Directory Structure
 
