@@ -44,9 +44,9 @@ func (ui *InitUI) promptInitOption() (InitOption, error) {
 	fmt.Printf("\n🎉 Welcome to Centian!\n\n")
 	fmt.Printf("How would you like to initialize your configuration?\n\n")
 	fmt.Printf("  [1] Start fresh (empty config)\n")
-	fmt.Printf("  [2] Auto-discover existing MCP servers (recommended)\n")
-	fmt.Printf("  [3] Import from a specific config file\n\n")
-	fmt.Printf("Choice [1/2/3]: ")
+	// TODO: add this back in once discovery is fixed: fmt.Printf("  [2] Auto-discover existing MCP servers (recommended)\n")
+	fmt.Printf("  [2] Import from a specific config file\n\n")
+	fmt.Printf("Choice [1/2]: ")
 
 	response, err := ui.reader.ReadString('\n')
 	if err != nil {
@@ -58,9 +58,8 @@ func (ui *InitUI) promptInitOption() (InitOption, error) {
 	switch response {
 	case "1":
 		return InitOptionEmpty, nil
-	case "2", "":
-		return InitOptionDiscovery, nil
-	case "3":
+	// TODO: add discovery again (return InitOptionDiscovery, nil) - requires refactoring/fixing of current discovery
+	case "2":
 		return InitOptionFromPath, nil
 	default:
 		fmt.Printf("Invalid choice '%s'. Using empty config.\n", response)

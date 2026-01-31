@@ -72,15 +72,11 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 
 	// loading API Key store
 	var apiKeyStore *auth.APIKeyStore
-	authHeader := ""
-	if globalConfig != nil {
-		authHeader = globalConfig.GetAuthHeader()
-	}
-	if globalConfig == nil || globalConfig.IsAuthEnabled() {
+	if globalConfig.IsAuthEnabled() {
 		loadedStore, err := auth.LoadDefaultAPIKeys()
 		if err != nil {
 			if errors.Is(err, auth.ErrAPIKeysNotFound) {
-				return nil, fmt.Errorf("api key auth enabled but key file not found: %w", err)
+				return nil, fmt.Errorf("api key auth enabled but key file not found - run `centian server get-key` to create a new api key: %w", err)
 			}
 			return nil, fmt.Errorf("failed to load api keys: %w", err)
 		}
@@ -98,7 +94,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 		ServerID:   getServerID(globalConfig.Name),
 		Gateways:   make(map[string]*MCPProxy),
 		APIKeys:    apiKeyStore,
-		AuthHeader: authHeader,
+		AuthHeader: globalConfig.GetAuthHeader(),
 	}, nil
 }
 
