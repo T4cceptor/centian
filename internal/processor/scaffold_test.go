@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,8 +266,11 @@ func TestDefaultProcessorDir(t *testing.T) {
 
 	// Then: it points to the working directory
 	assert.NilError(t, err)
-	expected := fmt.Sprintf("/private%s", tempDir)
-	assert.Equal(t, dir, expected)
+	expected, err := filepath.EvalSymlinks(tempDir)
+	assert.NilError(t, err)
+	actual, err := filepath.EvalSymlinks(dir)
+	assert.NilError(t, err)
+	assert.Equal(t, actual, expected)
 }
 
 func TestExtensionForLanguage(t *testing.T) {

@@ -105,7 +105,21 @@ func TestParseSettingsConfig(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(servers), 2)
 	assert.Equal(t, servers[0].Source, "VS Code Settings")
-	assert.Equal(t, servers[1].Transport, "http")
+
+	var foundHTTP bool
+	var foundStdio bool
+	for _, server := range servers {
+		switch server.Name {
+		case "server-one":
+			assert.Equal(t, server.Transport, "stdio")
+			foundStdio = true
+		case "server-two":
+			assert.Equal(t, server.Transport, "http")
+			foundHTTP = true
+		}
+	}
+	assert.Assert(t, foundStdio)
+	assert.Assert(t, foundHTTP)
 }
 
 func TestParseGenericConfig(t *testing.T) {
@@ -304,7 +318,7 @@ func TestRegexDiscovererProcessFile(t *testing.T) {
 
 func TestRegexDiscovererScanPath(t *testing.T) {
 	// Given: a directory with a config file
-	tmpDir := t.TempDir()
+	tmpDir := createSearchRoot(t)
 	filePath := filepath.Join(tmpDir, "mcp.json")
 	assert.NilError(t, os.WriteFile(filePath, []byte(`{"servers":{"demo":{"type":"stdio","command":"node"}}}`), 0o644))
 
@@ -327,7 +341,7 @@ func TestRegexDiscovererScanPath(t *testing.T) {
 
 func TestRegexDiscovererDiscover(t *testing.T) {
 	// Given: a discoverer with a temp search path
-	tmpDir := t.TempDir()
+	tmpDir := createSearchRoot(t)
 	filePath := filepath.Join(tmpDir, "mcp.json")
 	assert.NilError(t, os.WriteFile(filePath, []byte(`{"servers":{"demo":{"type":"stdio","command":"node"}}}`), 0o644))
 
@@ -384,11 +398,30 @@ func TestExpandPathAndEnsureAbsolutePath(t *testing.T) {
 
 func TestShouldSkipDirectory(t *testing.T) {
 	// Given: directories that should be skipped
-	assert.Assert(t, shouldSkipDirectory(filepath.Join("/tmp", "node_modules")))
-	assert.Assert(t, shouldSkipDirectory(filepath.Join("/tmp", ".git")))
+	baseDir := createSearchRoot(t)
+	assert.Assert(t, shouldSkipDirectory(filepath.Join(baseDir, "node_modules")))
+	assert.Assert(t, shouldSkipDirectory(filepath.Join(baseDir, ".git")))
 
 	// Then: normal directories are not skipped
-	assert.Assert(t, !shouldSkipDirectory(filepath.Join("/tmp", "project")))
+	assert.Assert(t, !shouldSkipDirectory(filepath.Join(baseDir, "project")))
+}
+
+func createSearchRoot(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	if shouldSkipDirectory(tmpDir) {
+		altDir, err := os.MkdirTemp(".", "discovery-test-")
+		assert.NilError(t, err)
+		absDir, err := filepath.Abs(altDir)
+		if err == nil {
+			altDir = absDir
+		}
+		t.Cleanup(func() {
+			_ = os.RemoveAll(altDir)
+		})
+		return altDir
+	}
+	return tmpDir
 }
 
 func TestVSCodeDiscovererParsing(t *testing.T) {
