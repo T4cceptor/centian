@@ -2,11 +2,12 @@
 
 A lightweight MCP (Model Context Protocol) proxy that provides logging and lifecycle hooks for all MCP server communications.
 
-## Features
+## Feature Highlights
 
-- **📊 Request Logging**: Complete monitoring of MCP interactions
-- **🔧 Lifecycle Hooks**: Request and response processing with ability to block, transform, or reroute MCP requests
-- **🎯 Context Tracking**: Session and project-aware request handling
+  - **🔧 Programmable MCP traffic processing** – inspect, modify, block, or enrich requests and responses with processor scripts.
+  - **🧩 Unified gateway for multiple servers** – expose many downstream MCP servers through one clean endpoint (DRY config).
+  - **📊 Structured logging & visibility** – capture MCP events for debugging, auditing, and analysis.
+  - **🎯 Fast setup via auto‑discovery** – import existing MCP configs from common tools to get started quickly.
 
 ## Quick Start
 
