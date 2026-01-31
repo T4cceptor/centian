@@ -9,11 +9,14 @@ import (
 )
 
 func hasDefaultValues(event *MCPEvent) bool {
-	is_now := event.Timestamp.Truncate(time.Duration(1000 * 1000)).Equal(time.Now().Truncate(time.Duration(1000 * 1000)))
+	if event.Timestamp.IsZero() {
+		return false
+	}
+	is_recent := time.Since(event.Timestamp) < 2*time.Second
 	is_success := event.Success
 	has_processing_error_map := event.ProcessingErrors != nil
 	has_metadata_map := event.Metadata != nil
-	return is_now && is_success && has_processing_error_map && has_metadata_map
+	return is_recent && is_success && has_processing_error_map && has_metadata_map
 }
 
 func TestNewMCPEvent(t *testing.T) {
