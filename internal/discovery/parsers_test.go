@@ -408,20 +408,38 @@ func TestShouldSkipDirectory(t *testing.T) {
 
 func createSearchRoot(t *testing.T) string {
 	t.Helper()
-	tmpDir := t.TempDir()
-	if shouldSkipDirectory(tmpDir) {
-		altDir, err := os.MkdirTemp(".", "discovery-test-")
-		assert.NilError(t, err)
-		absDir, err := filepath.Abs(altDir)
+	candidates := []string{}
+	if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
+		candidates = append(candidates, homeDir)
+	}
+	if cwd, err := os.Getwd(); err == nil && cwd != "" {
+		candidates = append(candidates, cwd)
+	}
+
+	for _, baseDir := range candidates {
+		if shouldSkipDirectory(baseDir) {
+			continue
+		}
+		dir, err := os.MkdirTemp(baseDir, "discovery-test-")
+		if err != nil {
+			continue
+		}
+		absDir, err := filepath.Abs(dir)
 		if err == nil {
-			altDir = absDir
+			dir = absDir
+		}
+		if shouldSkipDirectory(dir) || shouldSkipDirectory(filepath.Join(dir, "project")) {
+			_ = os.RemoveAll(dir)
+			continue
 		}
 		t.Cleanup(func() {
-			_ = os.RemoveAll(altDir)
+			_ = os.RemoveAll(dir)
 		})
-		return altDir
+		return dir
 	}
-	return tmpDir
+
+	t.Skip("unable to create discovery test directory outside excluded paths")
+	return ""
 }
 
 func TestVSCodeDiscovererParsing(t *testing.T) {
