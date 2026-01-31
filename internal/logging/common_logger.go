@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // McpEventDirection identifies the direction of the MCP event,

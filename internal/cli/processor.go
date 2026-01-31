@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/CentianAI/centian-cli/internal/processor"
+	"github.com/T4cceptor/centian/internal/processor"
 	"github.com/urfave/cli/v3"
 )
 

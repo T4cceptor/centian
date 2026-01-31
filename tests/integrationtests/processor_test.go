@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/CentianAI/centian-cli/internal/config"
-	"github.com/CentianAI/centian-cli/internal/processor"
+	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/processor"
 )
 
 // TestPassthroughProcessor tests that the passthrough processor returns the input unchanged.

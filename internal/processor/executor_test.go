@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/T4cceptor/centian/internal/config"
 )
 
 // TestNewExecutor tests executor initialization.

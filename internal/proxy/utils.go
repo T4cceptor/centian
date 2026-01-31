@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/google/uuid"
 )
 

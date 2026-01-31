@@ -1,4 +1,4 @@
-// Copyright 2025 CentianCLI Contributors.
+// Copyright 2025 Centian Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/auth"
-	"github.com/CentianAI/centian-cli/internal/config"
-	"github.com/CentianAI/centian-cli/internal/proxy"
+	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
 

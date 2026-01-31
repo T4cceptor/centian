@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2025 CentianCLI Contributors
+# Copyright 2025 Centian Contributors
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
 
 set -e
 
-# CentianCLI Installation Script
+# Centian Installation Script
 # Downloads and installs the latest release from GitHub
 
 # Configuration
-GITHUB_REPO="CentianAI/centian-cli"
+GITHUB_REPO="T4cceptor/centian"
 BINARY_NAME="centian"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
@@ -183,7 +183,7 @@ verify_installation() {
 # Main installation flow
 main() {
     echo ""
-    info "CentianCLI Installation Script"
+    info "Centian Installation Script"
     echo ""
 
     # Check dependencies
@@ -226,7 +226,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "CentianCLI Installation Script"
+            echo "Centian Installation Script"
             echo ""
             echo "Usage: $0 [OPTIONS]"
             echo ""

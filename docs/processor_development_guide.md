@@ -32,7 +32,7 @@ A comprehensive guide to developing custom processors for Centian CLI.
 
 Before you start, ensure you have:
 
-1. **Centian CLI installed** - Download from [releases](https://github.com/CentianAI/centian-cli/releases) or build from source
+1. **Centian CLI installed** - Download from [releases](https://github.com/T4cceptor/centian/releases) or build from source
 2. **Language runtime available in PATH**:
    - **Python 3.x** (recommended) - `python3 --version`
    - **Node.js** (for JavaScript/TypeScript) - `node --version`
@@ -891,12 +891,12 @@ function reject(status, error) {
 ## Further Reading
 
 - **MCP Specification**: https://spec.modelcontextprotocol.io/
-- **Issue Tracker**: [GitHub Issues](https://github.com/CentianAI/centian-cli/issues)
+- **Issue Tracker**: [GitHub Issues](https://github.com/T4cceptor/centian/issues)
 
 ---
 
 ## Contributing
 
-Found a bug or have a feature request? Please [open an issue](https://github.com/CentianAI/centian-cli/issues/new).
+Found a bug or have a feature request? Please [open an issue](https://github.com/T4cceptor/centian/issues/new).
 
 Want to contribute a processor example? Submit a PR with your processor in `examples/processors/`.

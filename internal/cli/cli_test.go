@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/T4cceptor/centian/internal/config"
 	urfavecli "github.com/urfave/cli/v3"
 )
 

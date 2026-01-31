@@ -1,4 +1,4 @@
-// Copyright 2025 CentianCLI Contributors.
+// Copyright 2025 Centian Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // ErrLogsDirNotFound is returned when the Centian logs directory is missing.

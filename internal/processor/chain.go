@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/common"
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/config"
 )
 
 // Chain executes a sequence of processors on MCP messages.

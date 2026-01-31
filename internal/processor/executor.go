@@ -11,7 +11,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/T4cceptor/centian/internal/config"
 )
 
 // Executor handles processor execution with timeout and error handling.

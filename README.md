@@ -1,237 +1,162 @@
 # Centian - the MCP Proxy
 
-A lightweight MCP (Model Context Protocol) proxy that provides logging and lifecycle hooks for all MCP server communications.
+Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextprotocol.io/)) proxy that adds **processing hooks**, **gateway aggregation**, and **structured logging** to MCP server traffic.
 
-## Feature Highlights
+## Highlights
 
-  - **🔧 Programmable MCP traffic processing** – inspect, modify, block, or enrich requests and responses with processor scripts.
-  - **🧩 Unified gateway for multiple servers** – expose many downstream MCP servers through one clean endpoint (DRY config).
-  - **📊 Structured logging & visibility** – capture MCP events for debugging, auditing, and analysis.
-  - **🎯 Fast setup via auto‑discovery** – import existing MCP configs from common tools to get started quickly.
+- **Programmable MCP traffic processing** – inspect, modify, block, or enrich requests and responses with processor scripts.
+- **Unified gateway for multiple servers** – expose many downstream MCP servers through one clean endpoint (DRY config).
+- **Structured logging & visibility** – capture MCP events for debugging, auditing, and analysis.
+- **Fast setup via auto‑discovery** – import existing MCP configs from common tools to get started quickly.
 
 ## Quick Start
 
-1. Install:
-    - via script: ```curl -fsSL https://raw.githubusercontent.com/CentianAI/centian-cli/main/scripts/install.sh | bash```
-    - via homebrew: coming soon...
-
-2. Setup:
-    - run `centian init` - then follow the instructions on the screen
-    - this creates a config file at `~/.centian/config.json`
-    - create a new API key using `centian server get-key` OR disable auth in the config (only advised for local testing! - see below)
-
-3. Start:
-    - Run `centian server start` to start the proxy server locally (default bind and port is `127.0.0.1:8080`)
-        - IMPORTANT: by default the binding address is `127.0.0.1` in order to prevent making the proxy available in the network. This is configurable via the config. However host `0.0.0.0` is used, the `auth` flag has to be set explicitly (can be `true` or `false`). Only disable auth if you know what you are doing, especially if you are using sensible secrets in your config (e.g. auth headers)!
-    - uses the previously created config file to start proxying configured MCP servers
-
-4. Use:
-    - point your favorite MCP client to the available endpoints
-    - for the default config you can find proxied servers aggregated at: `http://localhost:8080/mcp/default`
-    - Example:
-    ```json
-    {
-        "mcpServers": {
-            "centian-default": {
-                "url": "http://localhost:8080/mcp/default",
-                "headers": {
-                    "X-Centian-Auth": <your auth token> // this is not required if you previously disabled auth
-                }
-            }
-        }
-    }
-    ```
-5. (optional) Create your first processor
-    - Run `centian processor init` and follow the instructions on the screen. This guides you through a setup for a basic processor code skeleton, and adds it to your centian config.
-    - You can use processors to perform various actions and transformations on MCP requests and responses
-
-
-## Installation
-
-### Via Script (Recommended)
-
-Download and run the installation script:
+1) **Install**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CentianAI/centian-cli/main/scripts/install.sh | bash
+curl -fsSL https://github.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-**Custom Installation Directory:**
+2) **Initialize config**
 
 ```bash
-# Install to user directory (no sudo required)
-curl -fsSL https://raw.githubusercontent.com/CentianAI/centian-cli/main/scripts/install.sh | bash -s -- --install-dir ~/.local/bin
-
-# Or download and run with custom directory
-INSTALL_DIR=~/bin bash install.sh
+centian init
 ```
 
-The script will:
-- Detect your OS and architecture automatically
-- Download the latest release from GitHub
-- Install to `/usr/local/bin` (or custom directory)
-- Verify the installation
+This creates `~/.centian/config.json`.
 
-### Homebrew
-Coming soon...
-
-### From Source
-
-Requirements:
-- Go - Version `1.25`
+3) **Create API key (or explicitly disable auth)**
 
 ```bash
-git clone https://github.com/CentianAI/centian-cli.git
-cd centian-cli
-go build -o build/centian ./cmd/main.go
-
-# or
-
-make install
+centian server get-key
 ```
 
-## Usage
+4) **Start the proxy**
 
-Centian is intended as a light-weight http-based MCP proxy for both stdio and http MCP servers.
+```bash
+centian server start
+```
 
-Some brief concepts before we dive into the config:
-- Centian uses "gateways" - this is basically just a way to group downstream MCP servers together under a single endpoint (Note: you can still reach each MCP server individually, more on that later)
-- MCP server configuration is purposefully made very similar to how other popular MCP clients configure their MCP servers, e.g. Claude Code, Copilot, Cursor, etc.
-- For authentication, Centian currently supports light-weight header auth under a centian-specific header ("X-Centian-Auth"), in order to allow forwarding of downstream auth headers from the MCP client (e.g. "Authorization" header)
+Default bind: `127.0.0.1:8080`.
 
-### How to proxy MCP server
+> **Security note**
+> Binding to `0.0.0.0` is allowed only if `auth` is explicitly set (true or false). This is enforced to reduce accidental exposure.
 
-- Use a config file (create one via `centian init` and follow the process or run `centian config init` to create a skeleton config)
-- Configure gateways and downstream MCP servers in `~/.centian/config.json`
-  - Example:
-  ```json
-  {
-    // some other config fields
-    "gateways": {
-      "my-awesome-gateway": {
-        "mcpServers": {
-          "my-awesome-server": {
-            "url": "https://awesome.mcp",
-            "headers": {
-              "Authorization": "Bearer 123456"
-            }
-          }
-        }
+5) **Point your MCP client to Centian**
+
+```json
+{
+  "mcpServers": {
+    "centian-default": {
+      "url": "http://127.0.0.1:8080/mcp/default",
+      "headers": {
+        "X-Centian-Auth": "<your-api-key>"
       }
     }
   }
-  ```
-- Then start the HTTP proxy via `centian server start`
-- This brings up a HTTP server on the configured port (default is: 8080) that proxies all MCP requests.
-- The endpoints are based on the provided `gateway` and `mcpServer` name using the `mcp` prefix.
-  - Note: by default both an aggregated endpoint (using only the gateway name) and individual endpoints for each server (using the respective server name) are provided
-  - Example using the config above:
-    - `http://localhost/mcp/my-awesome-gateway/my-awesome-server` - the individual endpoint of the server hosted at `https://awesome.mcp`
-    - `http://localhost/mcp/my-awesome-gateway` - an aggregated endpoint of ALL downstream MCP servers - note: namespacing is applied here to avoid naming conflicts
-
-## Commands
-
-### `centian stdio`
-
-Proxy MCP server using stdio transport with logging.
-
-**Syntax:**
-```bash
-centian stdio [--cmd <command>] [-- <args...>]
+}
 ```
 
-**Options:**
-- `--cmd`: Command to execute (default: `npx`)
+## Configuration
 
-**Examples:**
-```bash
-# NPX-based MCP server
-centian stdio -- -y @modelcontextprotocol/server-filesystem /path/to/directory
+Centian uses a single JSON config at `~/.centian/config.json`.
 
-# Python MCP server
-centian stdio --cmd python -- -m my_mcp_server
+Minimal example:
 
-# Node.js MCP server
-centian stdio --cmd node -- ./server.js
+```json
+{
+  "name": "Centian Server",
+  "version": "1.0.0",
+  "auth": true,
+  "authHeader": "X-Centian-Auth",
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "8080",
+    "timeout": 30,
+    "logLevel": "info"
+  },
+  "gateways": {
+    "default": {
+      "mcpServers": {
+        "my-server": {
+          "url": "https://example.com/mcp",
+          "headers": {
+            "Authorization": "Bearer <token>"
+          },
+          "enabled": true
+        }
+      }
+    }
+  },
+  "processors": []
+}
 ```
 
-### `centian config`
+### Endpoints
 
-Configuration management commands.
+- Aggregated gateway endpoint:
+  - `http://127.0.0.1:8080/mcp/<gateway>`
+- Individual server endpoint:
+  - `http://127.0.0.1:8080/mcp/<gateway>/<server>`
 
-#### `centian config init`
-Initialize default configuration file at `~/.centian/config.json`.
+In aggregated mode, tools are namespaced to avoid collisions.
 
-#### `centian config show`
-Display current configuration.
+## Processors
 
-#### `centian config validate`
-Validate configuration file syntax.
+Processors let you enforce policies or transform MCP traffic (request/response). You can scaffold a processor with:
 
-### `centian logs`
+```bash
+centian processor init
+```
 
-Show recent MCP logs from `~/.centian/logs/`.
-
-### `centian server`
-
-Server management commands.
-
-- `centian server start --config-path <path>` - starts the server given the provided config, default path is `~/.centian/config.json`
+The scaffold can optionally add the processor to your config automatically.
 
 ## Logging
 
-Centian automatically logs all MCP interactions to provide complete audit trails:
+Centian logs MCP activity to `~/.centian/logs/`:
 
-**Log Location:** `s~/.centian/logs/`
+- `requests.jsonl` – MCP requests with timestamps and session IDs
+- `proxy_operations.jsonl` – lifecycle events (start/stop)
 
-**Log Files:**
-- `requests.jsonl` - All MCP requests with timestamps and session IDs
-- `proxy_operations.jsonl` - Proxy lifecycle events (start/stop)
+## Commands (Quick Reference)
 
+- `centian init` – initialize config
+- `centian server start` – start the proxy
+- `centian server get-key` – generate API key
+- `centian config ...` – manage config
+- `centian logs` – view recent logs
+
+## Installation (More Options)
+
+### Script (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
+```
+
+### Homebrew
+
+Coming soon.
+
+### From source
+
+```bash
+git clone https://github.com/T4cceptor/centian.git
+cd centian-cli
+go build -o build/centian ./cmd/main.go
+```
 
 ## Development
 
-Most frequently used commands are available via Makefile:
-
 ```bash
-make build    # Build the binary at "build/centian"
-make install  # Install the binary locally at ~/.local/bin/centian
-make test-all # Run Go tests (both unit + integration tests)
-make dev      # Run full development loop (clean, fmt, vet, test, build)
+make build          # Build to build/centian
+make install        # Install to ~/.local/bin/centian
+make test-all       # Run unit + integration tests
+make test-coverage  # Runs test coverage report
+make lint           # Run linting
+make dev            # Clean, fmt, vet, test, build
 ```
-
-### Project Structure
-
-```
-├── cmd/main.go           # CLI entry point
-├── internal/
-│   ├── cli/              # CLI command handlers
-│   ├── common/           # Shared code
-│   ├── proxy/            # MCP stdio proxy logic
-│   ├── logging/          # Request/response logging
-│   └── config/           # Configuration management
-└── docs/                 # Architecture documentation
-```
-
-## Roadmap
-
-- **🔧 Lifecycle Hooks**: Pre/post request processing for security and transformation - completed (Dec 26, 2025)
-- **🌐 HTTP Transport**: Support for HTTP-based MCP servers - in progress
-- **Full MCP server discovery**: including both stdio- and http-based MCP servers
-- **Gateway Endpoints**: group together multiple MCP servers to be proxied under a single gateway endpoint, simplifying any MCP client setup to just a single endpoint
-- **Cross-Transport Support**: Allow cross-transport communication for more compatibility between MCP servers and Centian - support HTTP-proxying locally without running a server, and support stdio-based MCP servers on a remote host of Centian
-- **Conditional Processors**: enable processor execution based on different rules for the request/response, from simple include/exclude rules to full regex-based matching of the MCP event
-- **OpenTelemetry Integration**: to support a wide range of logging and monitoring solutions
-- **WebHook processor**: ability to call external webhooks via POST requests and react to response for complex processing and validation setups
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Submit a pull request
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See LICENSE file for details.
+Apache-2.0

@@ -146,12 +146,12 @@ jobs:
 
             ### Using Go
             ```bash
-            go install github.com/CentianAI/centian-cli@${{ steps.version.outputs.version }}
+            go install github.com/T4cceptor/centian@${{ steps.version.outputs.version }}
             ```
 
             ### Using curl (Linux/macOS)
             ```bash
-            curl -L https://github.com/CentianAI/centian-cli/releases/download/${{ steps.version.outputs.version }}/centian_${{ steps.version.outputs.version }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz | tar -xz
+            curl -L https://github.com/T4cceptor/centian/releases/download/${{ steps.version.outputs.version }}/centian_${{ steps.version.outputs.version }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz | tar -xz
             sudo mv centian /usr/local/bin/
             ```
 

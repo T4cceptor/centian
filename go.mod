@@ -1,4 +1,4 @@
-module github.com/CentianAI/centian-cli
+module github.com/T4cceptor/centian
 
 go 1.25.6
 

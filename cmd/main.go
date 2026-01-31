@@ -1,4 +1,4 @@
-// Copyright 2026 CentianCLI Contributors.
+// Copyright 2026 Centian Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,8 +25,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/CentianAI/centian-cli/internal/cli"
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/T4cceptor/centian/internal/cli"
+	"github.com/T4cceptor/centian/internal/config"
 	urfavecli "github.com/urfave/cli/v3"
 )
 

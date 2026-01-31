@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CentianAI/centian-cli/internal/common"
-	"github.com/CentianAI/centian-cli/internal/logging"
-	"github.com/CentianAI/centian-cli/internal/processor"
+	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/processor"
 )
 
 // EventProcessor is used to call the main processing loop for any MCP transport method.

@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // matchesPattern checks if a file matches a discovery pattern.

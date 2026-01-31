@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // Source type constants.

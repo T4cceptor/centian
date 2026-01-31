@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/CentianAI/centian-cli/internal/auth"
+	"github.com/T4cceptor/centian/internal/auth"
 	"gotest.tools/assert"
 )
 

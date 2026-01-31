@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/auth"
-	"github.com/CentianAI/centian-cli/internal/common"
-	"github.com/CentianAI/centian-cli/internal/config"
-	"github.com/CentianAI/centian-cli/internal/logging"
-	"github.com/CentianAI/centian-cli/internal/processor"
+	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/processor"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

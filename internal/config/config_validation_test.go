@@ -3,7 +3,7 @@ package config
 import (
 	"testing"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // TestIsURLCompliant tests URL-safe name validation.

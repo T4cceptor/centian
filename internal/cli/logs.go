@@ -1,4 +1,4 @@
-// Copyright 2025 CentianCLI Contributors.
+// Copyright 2025 Centian Contributors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CentianAI/centian-cli/internal/logging"
+	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/urfave/cli/v3"
 )
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/common"
+	"github.com/T4cceptor/centian/internal/common"
 	urfavecli "github.com/urfave/cli/v3"
 )
 

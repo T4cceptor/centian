@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CentianAI/centian-cli/internal/config"
+	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 

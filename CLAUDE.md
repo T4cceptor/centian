@@ -2,9 +2,9 @@
 
 **Project Name:** Centian CLI
 
-**Repository:** https://github.com/CentianAI/centian-cli
-**Repo Owner:** CentianAI (Organization)
-**Repo Name:** centian-cli
+**Repository:** https://github.com/T4cceptor/centian
+**Repo Owner:** T4cceptor (User)
+**Repo Name:** centian
 
 **Description:** A CLI tool to proxy MCP servers, collect and configure their configurations at a single place, and enable lifecycle hooks for tool requests and their responses.
 
