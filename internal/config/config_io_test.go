@@ -38,9 +38,7 @@ func TestLoadConfigFromPath(t *testing.T) {
 			},
 			wantError: false,
 			verify: func(t *testing.T, cfg *GlobalConfig) {
-				if cfg == nil {
-					t.Fatal("Expected config, got nil")
-				}
+				//nolint:staticcheck // we know cfg is non-nil
 				if len(cfg.Gateways) != 1 {
 					t.Errorf("Expected 1 gateway, got %d", len(cfg.Gateways))
 				}
@@ -84,7 +82,7 @@ func TestLoadConfigFromPath(t *testing.T) {
 				return filepath.Join(t.TempDir(), "nonexistent.json")
 			},
 			wantError: true,
-			errorMsg:  "failed to read config file",
+			errorMsg:  "configuration file not found at",
 		},
 		{
 			name: "malformed JSON",
@@ -181,6 +179,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 	// Given: a config with specific values.
 	originalConfig := DefaultConfig()
 	originalConfig.Name = "Test Server"
+	disabled := false
 	originalConfig.Gateways = map[string]*GatewayConfig{
 		"gateway1": {
 			AllowDynamic: true,
@@ -189,7 +188,6 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 					Name:    "server1",
 					Command: "node",
 					Args:    []string{"index.js", "--port", "3000"},
-					Enabled: true,
 					Env: map[string]string{
 						"NODE_ENV": "production",
 					},
@@ -200,7 +198,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 					Headers: map[string]string{
 						"Authorization": "Bearer ${TOKEN}",
 					},
-					Enabled: false,
+					Enabled: &disabled,
 				},
 			},
 		},
@@ -252,7 +250,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 			if len(srv.Args) != 3 {
 				t.Errorf("Server1 args: expected 3, got %d", len(srv.Args))
 			}
-			if !srv.Enabled {
+			if !srv.IsEnabled() {
 				t.Error("Server1 should be enabled")
 			}
 		} else {
@@ -264,7 +262,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 			if srv.URL != "https://api.example.com" {
 				t.Errorf("Server2 URL: expected 'https://api.example.com', got '%s'", srv.URL)
 			}
-			if srv.Enabled {
+			if srv.IsEnabled() {
 				t.Error("Server2 should be disabled")
 			}
 		} else {
@@ -359,7 +357,7 @@ func TestGetConfigPath(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	expected := "/" + filepath.Join("test", "home", ".centian", "config.jsonc")
+	expected := "/" + filepath.Join("test", "home", ".centian", "config.json")
 	if path != expected {
 		t.Errorf("Expected path '%s', got '%s'", expected, path)
 	}

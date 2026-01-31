@@ -38,6 +38,7 @@ linters:
   exclusions:
     paths:
       - internal/discovery
+      - '(.+)_test\.local\.go'
     rules:
       - path: '(.+)_test\.go'
         linters:

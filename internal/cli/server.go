@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CentianAI/centian-cli/internal/auth"
 	"github.com/CentianAI/centian-cli/internal/config"
 	"github.com/CentianAI/centian-cli/internal/proxy"
 	"github.com/urfave/cli/v3"
@@ -33,6 +34,7 @@ var ServerCommand = &cli.Command{
 	Usage: "Manage Centian proxy server",
 	Commands: []*cli.Command{
 		ServerStartCommand,
+		ServerGetKeyCommand,
 	},
 }
 
@@ -46,7 +48,7 @@ Currently supports HTTP transport. The HTTP proxy creates endpoints for each
 configured HTTP MCP server at:
   /mcp/<gateway_name>/<server_name>
 
-Configuration is loaded from ~/.centian/config.jsonc by default.
+Configuration is loaded from ~/.centian/config.json by default.
 
 Example config structure:
   {
@@ -78,15 +80,30 @@ Examples:
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "config-path",
-			Usage: "Path to config file (default: ~/.centian/config.jsonc)",
+			Usage: "Path to config file (default: ~/.centian/config.json)",
 		},
 	},
+}
+
+// ServerGetKeyCommand generates and stores a new API key.
+var ServerGetKeyCommand = &cli.Command{
+	Name:  "get-key",
+	Usage: "centian server get-key",
+	Description: `Generate a new API key for the HTTP proxy.
+
+The key is printed once to the console, then hashed with bcrypt and stored in:
+  ~/.centian/api_keys.json
+`,
+	Action: handleServerGetKeyCommand,
 }
 
 func printServerInfo(globalConfig *config.GlobalConfig) error {
 	serverName := globalConfig.Name
 	if serverName == "" {
 		serverName = "Centian Proxy Server"
+	}
+	if len(globalConfig.Gateways) < 1 {
+		return fmt.Errorf("no gateways configured")
 	}
 	totalServers := 0
 	for _, gateway := range globalConfig.Gateways {
@@ -110,8 +127,14 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 	for gatewayName, gateway := range globalConfig.Gateways {
 		for serverName, server := range gateway.MCPServers {
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-			fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
-				globalConfig.Proxy.Port, endpoint, server.URL)
+			if server.URL != "" {
+				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s\n",
+					globalConfig.Proxy.Port, endpoint, server.URL)
+			}
+			if server.Command != "" {
+				fmt.Fprintf(os.Stderr, "  - http://localhost:%s%s -> %s -- %#v\n",
+					globalConfig.Proxy.Port, endpoint, server.Command, server.Args)
+			}
 		}
 	}
 	fmt.Fprintf(os.Stderr, "\n")
@@ -135,25 +158,18 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	}
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
 
-	// Validate that we have proxy configuration.
-	if globalConfig.Proxy == nil {
-		return fmt.Errorf("proxy settings are required in config")
-	}
-
-	if len(globalConfig.Gateways) == 0 {
-		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
-	}
-
 	// Display server information.
 	if err := printServerInfo(globalConfig); err != nil {
 		return err
 	}
 
 	// Create HTTP proxy server.
-	// TODO: handle stdio as well - requires cross-transport support.
-	server, err := proxy.NewCentianHTTPProxy(globalConfig)
+	server, err := proxy.NewCentianProxy(globalConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP proxy server: %w", err)
+		return fmt.Errorf("failed to create centian server: %w", err)
+	}
+	if setupErr := server.Setup(); setupErr != nil {
+		return fmt.Errorf("failed to setup centian server: %w", setupErr)
 	}
 
 	// Set up signal handling for graceful shutdown.
@@ -163,12 +179,13 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	// Start server in background.
 	errChan := make(chan error, 1)
 	go func() {
-		if err := server.StartCentianServer(); err != nil {
+		if err := server.Server.ListenAndServe(); err != nil {
 			errChan <- fmt.Errorf("HTTP proxy server error: %w", err)
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "[CENTIAN] HTTP proxy server started successfully\n")
+	// TODO: add info about started servers/endpoints
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Proxy servers started successfully\n")
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Press Ctrl+C to stop\n\n")
 
 	// Wait for either signal or server error.
@@ -177,7 +194,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 		fmt.Fprintf(os.Stderr, "\n[CENTIAN] Received shutdown signal, stopping server...\n")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
+		if err := server.Server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("error during shutdown: %w", err)
 		}
 		fmt.Fprintf(os.Stderr, "[CENTIAN] Server stopped successfully\n")
@@ -185,4 +202,42 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	case err := <-errChan:
 		return err
 	}
+}
+
+// handleServerGetKeyCommand generates and stores a new API key.
+func handleServerGetKeyCommand(_ context.Context, _ *cli.Command) error {
+	path, err := auth.DefaultAPIKeysPath()
+	if err != nil {
+		return fmt.Errorf("failed to resolve api key path: %w", err)
+	}
+
+	key, err := auth.GenerateAPIKey()
+	if err != nil {
+		return err
+	}
+
+	var pErr error
+	_, pErr = fmt.Fprintln(os.Stdout, "New API key (store this now, it won't be shown again):")
+	if pErr != nil {
+		return pErr
+	}
+	_, pErr = fmt.Fprintln(os.Stdout, key)
+	if pErr != nil {
+		return pErr
+	}
+
+	entry, err := auth.NewAPIKeyEntry(key)
+	if err != nil {
+		return err
+	}
+
+	if _, err := auth.AppendAPIKey(path, entry); err != nil {
+		return err
+	}
+
+	_, pErr = fmt.Fprintf(os.Stdout, "Stored hashed key in %s\n", path)
+	if pErr != nil {
+		return pErr
+	}
+	return nil
 }

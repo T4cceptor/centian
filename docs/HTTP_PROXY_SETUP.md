@@ -6,12 +6,14 @@ The `centian server start` command launches an HTTP proxy server that forwards r
 
 ### 1. Create a Configuration File
 
-Create `~/.centian/config.jsonc` with your MCP server configurations:
+Create `~/.centian/config.json` with your MCP server configurations:
 
 ```json
 {
   "name": "My Centian Server",
   "version": "1.0.0",
+  "auth": true,
+  "authHeader": "X-Centian-Auth",
   "proxy": {
     "port": "8080",
     "timeout": 30,
@@ -35,7 +37,28 @@ Create `~/.centian/config.jsonc` with your MCP server configurations:
 }
 ```
 
-### 2. Set Environment Variables
+### 2. Create API Keys (Required When auth=true)
+
+Generate a key and store its hash:
+
+```bash
+centian server get-key
+```
+
+This prints the API key once and writes the hashed entry to:
+`~/.centian/api_keys.json`.
+
+If you want to disable auth for local testing, set `"auth": false` in your config instead.
+
+Clients must include the proxy auth header in requests:
+
+```
+X-Centian-Auth: <your-api-key>
+```
+
+This header is reserved for proxy auth and is not forwarded to downstream servers.
+
+### 3. Set Environment Variables
 
 If your configuration uses environment variable substitution:
 
@@ -43,17 +66,17 @@ If your configuration uses environment variable substitution:
 export GITHUB_PAT=your_github_personal_access_token
 ```
 
-### 3. Start the Server
+### 4. Start the Server
 
 ```bash
-# Using default config path (~/.centian/config.jsonc)
+# Using default config path (~/.centian/config.json)
 centian server start
 
 # Or specify a custom config path
 centian server start --config-path ./my-config.json
 ```
 
-### 4. Access Your MCP Servers
+### 5. Access Your MCP Servers
 
 Your configured servers are now accessible at:
 
@@ -73,6 +96,8 @@ Example:
 {
   "name": "string",           // Server name for identification
   "version": "string",        // Config schema version (required)
+  "auth": boolean,            // Enable/disable proxy auth (default: true)
+  "authHeader": "string",     // Header name for proxy auth (default: X-Centian-Auth)
   "proxy": {
     "port": "string",         // HTTP server port (e.g., "8080")
     "timeout": number,        // Request timeout in seconds
@@ -112,6 +137,22 @@ Headers support automatic environment variable substitution:
 ```
 
 Supports both `${VAR}` and `$VAR` syntax.
+
+### API Key Storage Format
+
+API keys are stored hashed with bcrypt in `~/.centian/api_keys.json`:
+
+```json
+{
+  "keys": [
+    {
+      "id": "key_8f2a9c4d2f5b1a0c",
+      "hash": "$2a$10$...",
+      "created_at": "2026-01-30T12:00:00Z"
+    }
+  ]
+}
+```
 
 ### Multiple Gateways
 
@@ -259,7 +300,7 @@ go test -v ./internal/cli -run TestConfigFileValidation
 
 1. Start the server:
    ```bash
-   centian server start --config-path ./test_configs/example_http_proxy_config.json
+   centian server start --config-path ./tests/test_configs/example_http_proxy_config.json
    ```
 
 2. In another terminal, test with curl:
@@ -279,6 +320,8 @@ go test -v ./internal/cli -run TestConfigFileValidation
 **Solution**:
 - Run `centian init` to create default config
 - Or specify config path: `centian server start --config-path ./config.json`
+
+You can also run `centian config init` to create an empty config and work from there.
 
 ### Connection Refused
 

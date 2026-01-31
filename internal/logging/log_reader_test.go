@@ -25,38 +25,40 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []common.StdioMcpEvent{
-		{
-			BaseMcpEvent: common.BaseMcpEvent{
-				Timestamp:        time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-				Transport:        "stdio",
-				RequestID:        "req-older",
-				Direction:        common.DirectionClientToServer,
-				MessageType:      common.MessageTypeRequest,
-				Success:          true,
-				ProcessingErrors: make(map[string]error),
-			},
-			Command: "npx",
-			Args:    []string{"pkg"},
-			Message: "older",
+	event1 := common.MCPEvent{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:        time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+			Transport:        "stdio",
+			RequestID:        "req-older",
+			Direction:        common.DirectionClientToServer,
+			MessageType:      common.MessageTypeRequest,
+			Success:          true,
+			ProcessingErrors: make(map[string]error),
 		},
-	})
-	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []common.StdioMcpEvent{
-		{
-			BaseMcpEvent: common.BaseMcpEvent{
-				Timestamp:        time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
-				Transport:        "stdio",
-				RequestID:        "req-newer",
-				Direction:        common.DirectionServerToClient,
-				MessageType:      common.MessageTypeResponse,
-				Success:          true,
-				ProcessingErrors: make(map[string]error),
-			},
-			Command: "npx",
-			Args:    []string{"pkg"},
-			Message: "newer",
+		Routing: common.RoutingContext{
+			DownstreamCommand: "npx",
+			Args:              []string{"pkg"},
 		},
-	})
+	}
+	event1.SetRawMessage("older")
+	event2 := common.MCPEvent{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:        time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
+			Transport:        "stdio",
+			RequestID:        "req-newer",
+			Direction:        common.DirectionServerToClient,
+			MessageType:      common.MessageTypeResponse,
+			Success:          true,
+			ProcessingErrors: make(map[string]error),
+		},
+		Routing: common.RoutingContext{
+			DownstreamCommand: "npx",
+			Args:              []string{"pkg"},
+		},
+	}
+	event2.SetRawMessage("newer")
+	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []common.MCPEvent{event1})
+	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []common.MCPEvent{event2})
 
 	// When: loading all recent log entries with no limit.
 	entries, err := LoadRecentLogEntries(0)
@@ -87,33 +89,39 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []common.StdioMcpEvent{
-		{
-			BaseMcpEvent: common.BaseMcpEvent{
-				Timestamp:        time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC),
-				Transport:        "stdio",
-				RequestID:        "req-3",
-				Direction:        common.DirectionSystem,
-				MessageType:      common.MessageTypeSystem,
-				Success:          true,
-				ProcessingErrors: make(map[string]error),
-			},
-			Command: "test",
-			Message: "up",
+	event1 := common.MCPEvent{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:        time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC),
+			Transport:        "stdio",
+			RequestID:        "req-3",
+			Direction:        common.DirectionSystem,
+			MessageType:      common.MessageTypeSystem,
+			Success:          true,
+			ProcessingErrors: make(map[string]error),
 		},
-		{
-			BaseMcpEvent: common.BaseMcpEvent{
-				Timestamp:        time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC),
-				Transport:        "stdio",
-				RequestID:        "req-4",
-				Direction:        common.DirectionClientToServer,
-				MessageType:      common.MessageTypeRequest,
-				Success:          true,
-				ProcessingErrors: make(map[string]error),
-			},
-			Command: "npx",
-			Message: "latest",
+		Routing: common.RoutingContext{
+			DownstreamCommand: "test",
 		},
+	}
+	event1.SetRawMessage("up")
+	event2 := common.MCPEvent{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:        time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC),
+			Transport:        "stdio",
+			RequestID:        "req-4",
+			Direction:        common.DirectionClientToServer,
+			MessageType:      common.MessageTypeRequest,
+			Success:          true,
+			ProcessingErrors: make(map[string]error),
+		},
+		Routing: common.RoutingContext{
+			DownstreamCommand: "npx",
+		},
+	}
+	event2.SetRawMessage("latest")
+	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []common.MCPEvent{
+		event1,
+		event2,
 	})
 
 	// When: loading recent entries with limit=1.
@@ -159,7 +167,7 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 
 func TestFormatDisplayLine(t *testing.T) {
 	// Given: an annotated log entry with session ID and command details.
-	event := &common.StdioMcpEvent{
+	event := &common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
 			Transport:        "stdio",
@@ -169,14 +177,16 @@ func TestFormatDisplayLine(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Command: "npx",
-		Args:    []string{"@mcp/server"},
-		Message: "ping",
+		Routing: common.RoutingContext{
+			DownstreamCommand: "npx",
+			Args:              []string{"@mcp/server"},
+		},
 	}
 	entry := AnnotatedLogEntry{
 		Event:      event,
 		SourceFile: "/tmp/log",
 	}
+	event.SetRawMessage("ping")
 
 	// When: formatting the entry for display.
 	line := FormatDisplayLine(&entry)
@@ -190,7 +200,7 @@ func TestFormatDisplayLine(t *testing.T) {
 	}
 }
 
-func writeLogFile(t *testing.T, dir, name string, entries []common.StdioMcpEvent) {
+func writeLogFile(t *testing.T, dir, name string, entries []common.MCPEvent) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)

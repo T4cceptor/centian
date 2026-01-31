@@ -8,6 +8,13 @@ import (
 
 // TestProcessorValidation tests processor configuration validation.
 func TestProcessorValidation(t *testing.T) {
+	defaultGateways := map[string]*GatewayConfig{
+		"default": {
+			MCPServers: map[string]*MCPServerConfig{
+				"test": {URL: "https://test123.com"},
+			},
+		},
+	}
 	tests := []struct {
 		name      string
 		config    *GlobalConfig
@@ -17,7 +24,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "valid cli processor",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "test-processor",
@@ -36,7 +44,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "missing processor name",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Type:    "cli",
@@ -53,7 +62,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "missing processor type",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "test-processor",
@@ -70,7 +80,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "invalid processor type",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "test-processor",
@@ -88,7 +99,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "duplicate processor names",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "duplicate",
@@ -114,7 +126,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "missing config field",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "no-config",
@@ -130,7 +143,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "cli processor missing command",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "no-command",
@@ -148,7 +162,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "cli processor command not string",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "bad-command-type",
@@ -166,7 +181,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "cli processor args not array",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "bad-args-type",
@@ -186,6 +202,7 @@ func TestProcessorValidation(t *testing.T) {
 			name: "empty processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",
+				Gateways:   defaultGateways,
 				Processors: []*ProcessorConfig{},
 			},
 			wantError: false,
@@ -194,6 +211,7 @@ func TestProcessorValidation(t *testing.T) {
 			name: "nil processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",
+				Gateways:   defaultGateways,
 				Processors: nil,
 			},
 			wantError: false,
@@ -201,7 +219,8 @@ func TestProcessorValidation(t *testing.T) {
 		{
 			name: "default timeout applied",
 			config: &GlobalConfig{
-				Version: "1.0.0",
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "default-timeout",

@@ -23,9 +23,11 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	downstreamURL := "https://mcp.deepwiki.com/mcp"
 
 	// Given: a GlobalConfig with HTTP proxy settings pointing to DeepWiki.
+	authDisabled := false
 	globalConfig := &config.GlobalConfig{
-		Name:    "Test Proxy Server",
-		Version: "1.0.0",
+		Name:        "Test Proxy Server",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
 		Proxy: &config.ProxySettings{
 			Port:    "9002",
 			Timeout: 30,
@@ -35,9 +37,6 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 				MCPServers: map[string]*config.MCPServerConfig{
 					"deepwiki": {
 						URL: downstreamURL,
-						// Headers: map[string]string{.
-						// 	"Content-Type": "application/json",
-						// },
 					},
 				},
 			},
@@ -45,23 +44,25 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 	}
 
 	// When: starting the proxy server in background.
-	server, err := NewCentianHTTPProxy(globalConfig)
+	server, err := NewCentianProxy(globalConfig)
 	if err != nil {
-		t.Fatalf("Failed to create proxy server: %v", err)
+		t.Fatal("Unable to create proxy server:", err)
 	}
-
+	if setupErr := server.Setup(); setupErr != nil {
+		t.Fatal("failed to setup centian server:", setupErr)
+	}
 	go func() {
-		if err := server.StartCentianServer(); err != nil && errors.Is(err, http.ErrServerClosed) {
+		if err := server.Server.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			log.Printf("Server error: %v", err)
 		}
 	}()
 
 	// Wait for server to start.
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * time.Second)
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		server.Shutdown(ctx)
+		server.Server.Shutdown(ctx)
 	}()
 
 	ctx := context.Background()

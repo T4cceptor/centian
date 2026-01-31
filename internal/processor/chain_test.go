@@ -77,13 +77,13 @@ func TestNewChain(t *testing.T) {
 				if chain == nil {
 					t.Fatal("Expected non-nil chain")
 				}
-				if chain.serverName != tt.serverName {
+				if chain != nil && chain.serverName != tt.serverName {
 					t.Errorf("Expected serverName '%s', got '%s'", tt.serverName, chain.serverName)
 				}
-				if chain.sessionID != tt.sessionID {
+				if chain != nil && chain.sessionID != tt.sessionID {
 					t.Errorf("Expected sessionID '%s', got '%s'", tt.sessionID, chain.sessionID)
 				}
-				if chain.executor == nil {
+				if chain != nil && chain.executor == nil {
 					t.Error("Expected non-nil executor")
 				}
 			}
@@ -682,17 +682,18 @@ func TestFormatMCPError(t *testing.T) {
 
 // Helper functions.
 
-// createTestEvent creates a test StdioMcpEvent with the given JSON message.
+// createTestEvent creates a test MCPEvent with the given JSON message.
 func createTestEvent(jsonMessage string) common.McpEventInterface {
-	return &common.StdioMcpEvent{
+	result := &common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			MessageType: common.MessageTypeRequest,
 			Transport:   "stdio",
 			SessionID:   "test-session",
 			Timestamp:   time.Now(),
 		},
-		Message: jsonMessage,
 	}
+	result.SetRawMessage(jsonMessage)
+	return result
 }
 
 // strPtr returns a pointer to a string.

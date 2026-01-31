@@ -40,7 +40,7 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 
 	// Apply processors in order (only if there are actually processors configured).
 	if ep.processorChain != nil && ep.processorChain.HasProcessors() && event.HasContent() {
-		outputLine := event.RawMessage()
+		outputLine := event.GetRawMessage()
 		result, err := ep.processorChain.Execute(event)
 
 		// TODO: standardize those logs.
@@ -79,7 +79,7 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 				// Fall through and forward original response.
 			} else {
 				outputLine = string(modifiedJSON)
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-MODIFIED] Response modified by processors\n")
+				fmt.Fprintf(os.Stderr, "[PROCESSOR-] Response modified by processors\n")
 			}
 		}
 		event.SetStatus(result.Status)
@@ -87,7 +87,7 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 			event.GetBaseEvent().ProcessingErrors["processing_error"] = fmt.Errorf("%s", *result.Error)
 		}
 		// We likely need a field indicating how to proceed with the event!
-		if outputLine != event.RawMessage() {
+		if outputLine != event.GetRawMessage() {
 			event.SetModified(true)
 		}
 		event.SetRawMessage(outputLine)

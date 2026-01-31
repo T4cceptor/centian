@@ -1,6 +1,8 @@
 {
   "name": "Centian Integration Test Server",
   "version": "1.0.0",
+  "auth": true,
+  "authHeader": "X-Centian-Auth",
   "proxy": {
     "port": "9001",
     "timeout": 30,

@@ -60,7 +60,7 @@ type ChainResult struct {
 func (c *Chain) Execute(event common.McpEventInterface) (*ChainResult, error) {
 	// Parse the JSON payload.
 	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(event.RawMessage()), &payload); err != nil {
+	if err := json.Unmarshal([]byte(event.GetRawMessage()), &payload); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON payload: %w", err)
 	}
 

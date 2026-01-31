@@ -8,7 +8,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
+
+	"github.com/CentianAI/centian-cli/internal/common"
 )
 
 // ProcessorType defines the type of processor, e.g. cli, webhook, internal, etc.
@@ -19,16 +20,37 @@ const (
 	CLIProcessor ProcessorType = "cli"
 )
 
-// GlobalConfig represents the main configuration structure stored at ~/.centian/config.jsonc.
+// GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
 type GlobalConfig struct {
-	Name       string                    `json:"name"`                 // Name of the server - simplifies server identification
-	Version    string                    `json:"version"`              // Config schema version
-	Proxy      *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
-	Gateways   map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
-	Processors []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
-	Metadata   map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+	Name        string                    `json:"name"`                 // Name of the server - simplifies server identification
+	Version     string                    `json:"version"`              // Config schema version
+	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable proxy auth
+	AuthHeader  string                    `json:"authHeader,omitempty"` // Header name for proxy auth
+	Proxy       *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
+	Gateways    map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
+	Processors  []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
+	Metadata    map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+}
+
+// DefaultAuthHeader represents the default header for authentication at the Centian server.
+const DefaultAuthHeader = "X-Centian-Auth"
+
+// IsAuthEnabled returns true when auth is enabled or unset.
+func (g *GlobalConfig) IsAuthEnabled() bool {
+	if g == nil || g.AuthEnabled == nil {
+		return true
+	}
+	return *g.AuthEnabled
+}
+
+// GetAuthHeader returns the configured auth header name or the default.
+func (g *GlobalConfig) GetAuthHeader() string {
+	if g == nil || g.AuthHeader == "" {
+		return DefaultAuthHeader
+	}
+	return g.AuthHeader
 }
 
 // ServerSearchResult captures data and references
@@ -66,10 +88,18 @@ type MCPServerConfig struct {
 	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
 	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/sse transport)
 	Headers     map[string]string      `json:"headers,omitempty"`     // HTTP headers (supports ${ENV_VAR} substitution)
-	Enabled     bool                   `json:"enabled"`               // Whether server is active
+	Enabled     *bool                  `json:"enabled,omitempty"`     // Whether server is active
 	Description string                 `json:"description,omitempty"` // Human readable description
 	Source      string                 `json:"source,omitempty"`      // Source file path for auto-discovered servers
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
+}
+
+// IsEnabled returns true if the MCP server is either explicitly enabled or the flag is unset (nil).
+func (s *MCPServerConfig) IsEnabled() bool {
+	if s.Enabled == nil {
+		return true // default
+	}
+	return *s.Enabled
 }
 
 // GetSubstitutedHeaders returns headers with environment variables substituted.
@@ -214,14 +244,17 @@ type ProcessorOutput struct {
 
 // DefaultConfig returns a default configuration.
 func DefaultConfig() *GlobalConfig {
+	authEnabled := true
 	proxySettings := NewDefaultProxySettings()
 	return &GlobalConfig{
-		Name:       "Centian Server",
-		Version:    "1.0.0",
-		Proxy:      &proxySettings,
-		Gateways:   make(map[string]*GatewayConfig),
-		Processors: []*ProcessorConfig{}, // Empty processor list is valid (no-op)
-		Metadata:   make(map[string]interface{}),
+		Name:        "Centian Server",
+		Version:     "1.0.0",
+		AuthEnabled: &authEnabled,
+		AuthHeader:  DefaultAuthHeader,
+		Proxy:       &proxySettings,
+		Gateways:    make(map[string]*GatewayConfig),
+		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
+		Metadata:    make(map[string]interface{}),
 	}
 }
 
@@ -234,13 +267,13 @@ func GetConfigDir() (string, error) {
 	return filepath.Join(homeDir, ".centian"), nil
 }
 
-// GetConfigPath returns the full path to config.jsonc.
+// GetConfigPath returns the full path to config.json.
 func GetConfigPath() (string, error) {
 	configDir, err := GetConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, "config.jsonc"), nil
+	return filepath.Join(configDir, "config.json"), nil
 }
 
 // EnsureConfigDir creates the config directory if it doesn't exist.
@@ -249,11 +282,10 @@ func EnsureConfigDir() error {
 	if err != nil {
 		return err
 	}
-
 	return os.MkdirAll(configDir, 0o750)
 }
 
-// LoadConfig loads the global configuration from ~/.centian/config.jsonc.
+// LoadConfig loads the global configuration from ~/.centian/config.json.
 // If the config file doesn't exist, it creates a new one with default settings.
 // The configuration is validated after loading to ensure it's properly formatted.
 func LoadConfig() (*GlobalConfig, error) {
@@ -261,35 +293,18 @@ func LoadConfig() (*GlobalConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Check if config file exists.
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("configuration file not found at %s", configPath)
-	}
-
-	// Read config file.
-	data, err := os.ReadFile(filepath.Clean(configPath))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// Parse JSON (note: JSONC support would need additional parsing).
-	var config GlobalConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Validate config.
-	if err := ValidateConfig(&config); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return &config, nil
+	config, err := LoadConfigFromPath(configPath)
+	return config, err
 }
 
 // LoadConfigFromPath loads configuration from a custom file path.
 // The configuration is validated after loading.
 func LoadConfigFromPath(path string) (*GlobalConfig, error) {
+	// Check if config file exists.
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("configuration file not found at %s", path)
+	}
+
 	// Read config file.
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
@@ -302,15 +317,16 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Validate config.
-	if err := ValidateConfig(&cfg); err != nil {
+	// Validate config schema (allows empty gateways for config management).
+	// Server startup should call ValidateConfigForServer for operational validation.
+	if err := ValidateConfigSchema(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-// SaveConfig saves the configuration to ~/.centian/config.jsonc.
+// SaveConfig saves the configuration to ~/.centian/config.json.
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
 func SaveConfig(config *GlobalConfig) error {
@@ -338,14 +354,18 @@ func SaveConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// ValidateConfig performs basic validation on the configuration to ensure
-// required fields are present and values are within acceptable ranges.
-// Returns an error if any validation rules fail.
-func ValidateConfig(config *GlobalConfig) error {
+// ValidateConfigSchema performs basic schema validation on the configuration.
+// This validates required fields and structure but allows empty gateways.
+// Use ValidateConfigForServer for operational validation before starting a server.
+func ValidateConfigSchema(config *GlobalConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
-	if err := validatedGateways(config.Gateways); err != nil {
+	if config.Proxy == nil {
+		return fmt.Errorf("proxy settings are required in config")
+	}
+	// Validate gateways that exist (but allow empty)
+	if err := validateExistingGateways(config.Gateways); err != nil {
 		return err
 	}
 	if err := validateProcessors(config.Processors); err != nil {
@@ -354,8 +374,28 @@ func ValidateConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// validatedGateways validates server configurations.
-func validatedGateways(gateways map[string]*GatewayConfig) error {
+// ValidateConfig performs full validation including operational requirements.
+// This requires at least one gateway to be configured.
+func ValidateConfig(config *GlobalConfig) error {
+	if err := ValidateConfigSchema(config); err != nil {
+		return err
+	}
+	return ValidateConfigForServer(config)
+}
+
+// ValidateConfigForServer validates the config is ready for server operation.
+// This checks operational requirements like having at least one gateway configured.
+func ValidateConfigForServer(config *GlobalConfig) error {
+	if len(config.Gateways) == 0 {
+		// TODO: default config should already include gateways and not throw an error!
+		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
+	}
+	return nil
+}
+
+// validateExistingGateways validates gateway configurations without requiring any.
+// This allows empty gateway maps (for freshly initialized configs).
+func validateExistingGateways(gateways map[string]*GatewayConfig) error {
 	for gatewayName, gatewayConfig := range gateways {
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err
@@ -367,19 +407,6 @@ func validatedGateways(gateways map[string]*GatewayConfig) error {
 		}
 	}
 	return nil
-}
-
-// isURLCompliant checks if a name is URL-safe (alphanumeric, dash, underscore only).
-// Names must start with alphanumeric character and can contain alphanumeric, dash, or underscore.
-// This ensures names can be safely used in URL paths like /mcp/<gateway>/<server>.
-func isURLCompliant(name string) bool {
-	if name == "" {
-		return false
-	}
-	// Pattern: start with alphanumeric, followed by alphanumeric/dash/underscore.
-	pattern := `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`
-	matched, _ := regexp.MatchString(pattern, name)
-	return matched
 }
 
 // isValidHTTPURL validates that a URL string is a properly formatted HTTP/HTTPS URL.
@@ -396,7 +423,7 @@ func isValidHTTPURL(urlStr string) bool {
 // validateGateway validates a gateway configuration.
 func validateGateway(name string, config GatewayConfig) error {
 	// Validate gateway name is URL compliant (used in endpoint paths).
-	if !isURLCompliant(name) {
+	if !common.IsURLCompliant(name) {
 		return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 
@@ -418,7 +445,7 @@ func validateGateway(name string, config GatewayConfig) error {
 // validateServer validates a single server configuration.
 func validateServer(name string, server *MCPServerConfig) error {
 	// Validate server name is URL compliant (used in endpoint paths).
-	if !isURLCompliant(name) {
+	if !common.IsURLCompliant(name) {
 		return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
 	}
 

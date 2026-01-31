@@ -17,7 +17,7 @@ import (
 var ConfigCommand = &cli.Command{
 	Name:        "config",
 	Usage:       "Manage centian configuration",
-	Description: "Commands to manage the global centian configuration at ~/.centian/config.jsonc",
+	Description: "Commands to manage the global centian configuration at ~/.centian/config.json",
 	Commands: []*cli.Command{
 		configInitCommand,
 		configShowCommand,
@@ -30,14 +30,14 @@ var ConfigCommand = &cli.Command{
 var configInitCommand = &cli.Command{
 	Name:        "init",
 	Usage:       "Initialize configuration with defaults",
-	Description: "Creates ~/.centian/config.jsonc with default settings if it doesn't exist",
+	Description: "Creates ~/.centian/config.json with default settings if it doesn't exist",
 	Action:      initConfig,
 }
 
 var configShowCommand = &cli.Command{
 	Name:        "show",
 	Usage:       "Display current configuration",
-	Description: "Shows the current configuration from ~/.centian/config.jsonc",
+	Description: "Shows the current configuration from ~/.centian/config.json",
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:    "json",
@@ -51,14 +51,14 @@ var configShowCommand = &cli.Command{
 var configValidateCommand = &cli.Command{
 	Name:        "validate",
 	Usage:       "Validate configuration file",
-	Description: "Validates the syntax and content of ~/.centian/config.jsonc",
+	Description: "Validates the syntax and content of ~/.centian/config.json",
 	Action:      validateConfig,
 }
 
 var configRemoveCommand = &cli.Command{
 	Name:        "remove",
 	Usage:       "Remove configuration file",
-	Description: "Removes ~/.centian/config.jsonc and the entire ~/.centian directory",
+	Description: "Removes ~/.centian/config.json and the entire ~/.centian directory",
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:    "force",
@@ -183,7 +183,7 @@ var configServerCommand = &cli.Command{
 }
 
 // initConfig initializes a new configuration file with default settings.
-// Creates ~/.centian/config.jsonc if it doesn't exist, fails if file already exists.
+// Creates ~/.centian/config.json if it doesn't exist, fails if file already exists.
 func initConfig(_ context.Context, _ *cli.Command) error {
 	configPath, err := GetConfigPath()
 	if err != nil {
@@ -236,7 +236,7 @@ func showConfig(_ context.Context, cmd *cli.Command) error {
 
 		enabled := []*MCPServerConfig{}
 		for _, serverConfig := range allServers {
-			if serverConfig.Enabled {
+			if serverConfig.IsEnabled() {
 				enabled = append(enabled, serverConfig)
 			}
 		}
@@ -280,11 +280,11 @@ func listServers(_ context.Context, cmd *cli.Command) error {
 	for gatewayName, gatewayConfig := range gateways {
 		fmt.Printf("- %s\n", gatewayName)
 		for serverName, server := range gatewayConfig.MCPServers {
-			if enabledOnly && !server.Enabled {
+			if enabledOnly && !server.IsEnabled() {
 				continue
 			}
 			status := "✅ enabled"
-			if !server.Enabled {
+			if !server.IsEnabled() {
 				status = "❌ disabled"
 			}
 
@@ -345,6 +345,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
+	enabled := cmd.Bool("enabled")
 	serverConfig := &MCPServerConfig{
 		Name:        name,
 		Command:     cmd.String("command"),
@@ -352,7 +353,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		URL:         cmd.String("URL"),
 		Headers:     cmd.StringMap("headers"),
 		Description: cmd.String("description"),
-		Enabled:     cmd.Bool("enabled"),
+		Enabled:     &enabled,
 	}
 	existingGateway.AddServer(name, serverConfig)
 
@@ -372,7 +373,7 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 	// Display all matches with context.
 	for i, result := range foundServers {
 		status := "✅ enabled"
-		if !result.server.Enabled {
+		if !result.server.IsEnabled() {
 			status = "❌ disabled"
 		}
 
@@ -478,14 +479,14 @@ func toggleServer(name string, enabled bool) error {
 	case 1:
 		// expected, "good" case -> we just toggle this single server.
 		result := foundServers[0]
-		result.server.Enabled = enabled
+		result.server.Enabled = &enabled
 	default:
 		// Multiple matches - prompt user to select.
 		selected, err := promptUserToSelectServer(foundServers, name)
 		if err != nil {
 			return err
 		}
-		selected.server.Enabled = enabled
+		selected.server.Enabled = &enabled
 	}
 
 	if err := SaveConfig(config); err != nil {

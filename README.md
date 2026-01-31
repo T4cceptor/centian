@@ -52,71 +52,42 @@ go build -o build/centian ./cmd/main.go
 
 ### Usage
 
-There are two fundamental ways Centian CLI can be used:
-1. as a drop-in replacement for any stdio-based MCP (currently only supports stdio transport)
-2. as a http server, using a config file (currently only supports http transport)
+Centian is intended as a light-weight http-based MCP proxy for both stdio and http MCP servers.
 
-Note: cross-transport (http-stdio and stdio-http) is planned and likely to be available mid 2026.
+Some brief concepts before we dive into the config:
+- Centian uses "gateways" - this is basically just a way to group downstream MCP servers together under a single endpoint (Note: you can still reach each MCP server individually, more on that later)
+- MCP server configuration is purposefully made very similar to how other popular MCP clients configure their MCP servers, e.g. Claude Code, Copilot, Cursor, etc.
+- For authentication, Centian currently supports light-weight header auth under a centian-specific header ("X-Centian-Auth"), in order to allow forwarding of downstream auth headers from the MCP client (e.g. "Authorization" header)
 
-#### To proxy stdio MCP server
-Use `centian stdio` as a drop-in replacement for `npx` (or other MCP server commands):
+#### How to proxy MCP server
 
-**Before:**
-```json
-{
-  "mcpServers": {
-    "memory": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-memory"]
-    }
-  }
-}
-```
-
-**After:**
-```json
-{
-  "mcpServers": {
-    "memory": {
-      "command": "centian",
-      "args": [
-        "stdio",
-        "--",
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ]
-    }
-  }
-}
-```
-Note: the command defaults to `npx`, if you want/need a different CLI command you can using `--cmd` like so:
-`"args": ["stdio", "--cmd", "python", "--", "my_python_mcp.py"]`
-
-#### To proxy HTTP MCP server
-
-- Use a config file (create one via `centian init` and follow the process)
-- Then start the HTTP proxy via `centian server start`
-  - Note: server parameters can be defined in the config file, default path: `~/.centian/config.jsonc`
-- This brings up a HTTP server that proxies all MCP requests.
-- The endpoints are based on the provided `gateway` and `mcpServer` name.
-
-Example:
-```json
-{
-  "gateways": {
-    "my-awesome-gateway": {
-      "mcpServers": {
-        "my-awesome-server": {
-          "url": "https://awesome-mcp.com",
-          "headers": {
-            "Authorization": "Bearer 123456"
+- Use a config file (create one via `centian init` and follow the process or run `centian config init` to create a skeleton config)
+- Configure gateways and downstream MCP servers in `~/.centian/config.json`
+  - Example:
+  ```json
+  {
+    // some other config fields
+    "gateways": {
+      "my-awesome-gateway": {
+        "mcpServers": {
+          "my-awesome-server": {
+            "url": "https://awesome.mcp",
+            "headers": {
+              "Authorization": "Bearer 123456"
+            }
           }
         }
       }
     }
   }
-}
-```
+  ```
+- Then start the HTTP proxy via `centian server start`
+- This brings up a HTTP server on the configured port (default is: 8080) that proxies all MCP requests.
+- The endpoints are based on the provided `gateway` and `mcpServer` name using the `mcp` prefix.
+  - Note: by default both an aggregated endpoint (using only the gateway name) and individual endpoints for each server (using the respective server name) are provided
+  - Example using the config above:
+    - `http://localhost/mcp/my-awesome-gateway/my-awesome-server` - the individual endpoint of the server hosted at `https://awesome.mcp`
+    - `http://localhost/mcp/my-awesome-gateway` - an aggregated endpoint of ALL downstream MCP servers - note: namespacing is applied here to avoid naming conflicts
 
 ## Commands
 
@@ -149,7 +120,7 @@ centian stdio --cmd node -- ./server.js
 Configuration management commands.
 
 #### `centian config init`
-Initialize default configuration file at `~/.centian/config.jsonc`.
+Initialize default configuration file at `~/.centian/config.json`.
 
 #### `centian config show`
 Display current configuration.
@@ -165,7 +136,7 @@ Show recent MCP logs from `~/.centian/logs/`.
 
 Server management commands.
 
-- `centian server start --config-path <path>` - starts the server given the provided config, default path is `~/.centian/config.jsonc`
+- `centian server start --config-path <path>` - starts the server given the provided config, default path is `~/.centian/config.json`
 
 ## Logging
 
