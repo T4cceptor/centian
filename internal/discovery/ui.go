@@ -390,19 +390,10 @@ func ShowImportSummary(imported int) {
 	if imported == 0 {
 		fmt.Printf("\n📋 No servers were imported.\n")
 		fmt.Printf("💡 You can add servers manually using:\n")
-		fmt.Printf("   centian server add --name \"my-server\" --command \"npx\" --args \"-y,@upstash/context7-mcp\"\n\n")
+		fmt.Printf("   centian server add --name \"my-server-memory\" --command \"npx\" --args \"-y,@modelcontextprotocol/server-memory\"\n\n")
 		return
 	}
-
-	fmt.Printf("\n🎉 Successfully imported %d server(s)!\n", imported)
-
-	fmt.Printf("\n📋 Next steps:\n")
-	fmt.Printf("  1. Review imported servers:\n")
-	fmt.Printf("     centian server list\n\n")
-	fmt.Printf("  2. Start the proxy:\n")
-	fmt.Printf("     centian start\n\n")
-	fmt.Printf("  3. Manage servers:\n")
-	fmt.Printf("     centian server --help\n")
+	fmt.Printf("\nImported %d server(s)!\n", imported)
 }
 
 // generateReplacementConfig creates replacement configuration for a discovered server.

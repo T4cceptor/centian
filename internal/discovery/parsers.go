@@ -223,37 +223,30 @@ func parseVSCodeConfig(data []byte, filePath string) ([]Server, error) {
 
 	var servers []Server
 	for name, serverConfig := range config.Servers {
-		// Validate based on type field.
-		switch common.McpTransportType(serverConfig.Type) {
-		case common.StdioTransport:
-			// For stdio type, command is required.
-			if serverConfig.Command == "" {
-				continue // Skip invalid stdio servers
-			}
-		case common.HTTPTransport:
-			// For http type, url is required.
-			if serverConfig.URL == "" {
-				continue // Skip invalid http servers
-			}
-		default:
-			// Skip servers with unknown or missing type.
+		isHTTPTransport := serverConfig.URL != ""
+		isStdioTransport := serverConfig.Command != ""
+		if isHTTPTransport && isStdioTransport {
+			fmt.Printf("server config wrong, server '%s' cannot have both url and command defined", name)
 			continue
 		}
-
-		// Set transport and url based on type.
-		transport := serverConfig.Type
-		var url string
-		if common.McpTransportType(serverConfig.Type) == common.HTTPTransport {
-			url = serverConfig.URL
+		if !isHTTPTransport && !isStdioTransport {
+			fmt.Printf("server config wrong, server '%s' has to have either url or command", name)
+			continue
 		}
-
+		if isHTTPTransport {
+			serverConfig.Type = string(common.HTTPTransport)
+		}
+		if isStdioTransport {
+			serverConfig.Type = string(common.StdioTransport)
+		}
+		// Set transport and url based on type.
 		server := Server{
 			Name:        name,
 			Command:     serverConfig.Command,
 			Args:        serverConfig.Args,
 			Env:         serverConfig.Env,
-			URL:         url,
-			Transport:   transport,
+			URL:         serverConfig.URL,
+			Transport:   serverConfig.Type,
 			Headers:     serverConfig.Headers,
 			Description: fmt.Sprintf("Imported from VS Code MCP config (%s)", name),
 			Source:      "VS Code MCP",

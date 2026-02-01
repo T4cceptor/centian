@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
@@ -172,8 +171,6 @@ func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) (int, bool, err
 		}
 		applyQuickstartConfig(cfg)
 		return 1, true, nil
-	case InitOptionDiscovery:
-		return runAutoDiscovery(cfg), false, nil
 	case InitOptionFromPath:
 		path, pathErr := ui.promptConfigPath()
 		if pathErr != nil {
@@ -383,38 +380,4 @@ func handleQuickstart(configPath string, cfg *config.GlobalConfig) error {
 `, endpoint, authHeader, apiKey)
 	fmt.Println("\nCopy the above snippets into your MCP client settings and start centian by running 'centian start'.")
 	return nil
-}
-
-// runAutoDiscovery performs MCP server auto-discovery and handles user interaction.
-func runAutoDiscovery(_ *config.GlobalConfig) int {
-	// TODO: instead of adding the found servers to the file it
-	// should add it to the cfg object, then use existing methods to store that config.
-	// TODO: refactor discovery!
-
-	fmt.Printf("🔍 Scanning for existing MCP configurations...\n")
-	time.Sleep(1 * time.Second)
-
-	// Create discovery manager and run discovery.
-	dm := discovery.NewDiscoveryManager()
-	result := dm.DiscoverAll()
-
-	// Show results and get user consent.
-	ui := discovery.NewDiscoveryUI()
-	selectedServers, err := ui.ShowDiscoveryResults(result)
-	if err != nil {
-		fmt.Printf("⚠️  Error during discovery UI: %v", err)
-		return 0
-	}
-
-	if len(selectedServers) == 0 {
-		return 0
-	}
-
-	// Import selected servers.
-	imported := discovery.ImportServers(selectedServers)
-
-	// Show import summary.
-	discovery.ShowImportSummary(imported)
-
-	return imported
 }

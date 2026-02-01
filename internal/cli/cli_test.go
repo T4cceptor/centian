@@ -60,43 +60,6 @@ func TestInitCommandWorkflow(t *testing.T) {
 	t.Log("Init command workflow test completed successfully")
 }
 
-// TestRunAutoDiscovery tests the auto-discovery function logic.
-func TestRunAutoDiscovery(t *testing.T) {
-	// Setup.
-	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	testHome := filepath.Join(tempDir, "autodiscovery_test")
-	os.Setenv("HOME", testHome)
-	defer os.Setenv("HOME", originalHome)
-
-	// Create a test config.
-	cfg := config.DefaultConfig()
-
-	// Test runAutoDiscovery function.
-	// Note: This will run actual discovery which may find real MCP configs.
-	imported := runAutoDiscovery(cfg)
-
-	// Verify the function completes without error.
-	if imported < 0 {
-		t.Error("runAutoDiscovery returned negative import count")
-	}
-
-	// The number of imported servers depends on what's on the system.
-	// but the function should complete without crashing.
-	t.Logf("Auto-discovery imported %d servers", imported)
-
-	// Verify config structure is preserved.
-	if cfg.Version != "1.0.0" {
-		t.Error("Config version changed during auto-discovery")
-	}
-
-	if cfg.Gateways == nil {
-		t.Error("Config gateway map should not be nil after auto-discovery")
-	}
-
-	t.Log("Auto-discovery function test completed successfully")
-}
-
 // TestShellDetection tests shell detection functionality.
 func TestShellDetection(t *testing.T) {
 	// Save original SHELL env var.
