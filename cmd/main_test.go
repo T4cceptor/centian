@@ -43,7 +43,7 @@ func TestMainEntryPoint(t *testing.T) {
 	if !strings.Contains(stdout, "centian") {
 		t.Fatalf("expected help output to mention binary name; got %q", stdout)
 	}
-	if !strings.Contains(stdout, "Proxy and modify your MCP server and tools.") {
+	if !strings.Contains(stdout, "Proxy and modify MCP servers and tools.") {
 		t.Fatalf("expected help output to include description; got %q", stdout)
 	}
 	if strings.TrimSpace(stderr) != "" {

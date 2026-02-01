@@ -170,7 +170,7 @@ func TestValidateGateway(t *testing.T) {
 				MCPServers: map[string]*MCPServerConfig{},
 			},
 			wantError: true,
-			errorMsg:  "must have at least one MCP server",
+			errorMsg:  "must have at least one active MCP server",
 		},
 		{
 			name:  "gateway with nil servers",
@@ -179,7 +179,7 @@ func TestValidateGateway(t *testing.T) {
 				MCPServers: nil,
 			},
 			wantError: true,
-			errorMsg:  "must have at least one MCP server",
+			errorMsg:  "must have at least one active MCP server",
 		},
 		{
 			name:  "gateway with multiple servers",
@@ -460,8 +460,14 @@ func TestValidateConfigIntegration(t *testing.T) {
 		{
 			name: "missing version",
 			config: &GlobalConfig{
-				Proxy:    &ProxySettings{},
-				Gateways: map[string]*GatewayConfig{},
+				Proxy: &ProxySettings{},
+				Gateways: map[string]*GatewayConfig{
+					"gateway1": {
+						MCPServers: map[string]*MCPServerConfig{
+							"server1": {Name: "server1", Command: "node"},
+						},
+					},
+				},
 			},
 			wantError: true,
 			errorMsg:  "version field is required",
@@ -478,14 +484,20 @@ func TestValidateConfigIntegration(t *testing.T) {
 				},
 			},
 			wantError: true,
-			errorMsg:  "must have at least one MCP server",
+			errorMsg:  "must have at least one active MCP server",
 		},
 		{
 			name: "config with processor errors",
 			config: &GlobalConfig{
-				Version:  "1.0.0",
-				Proxy:    &ProxySettings{},
-				Gateways: map[string]*GatewayConfig{},
+				Version: "1.0.0",
+				Proxy:   &ProxySettings{},
+				Gateways: map[string]*GatewayConfig{
+					"gateway1": {
+						MCPServers: map[string]*MCPServerConfig{
+							"server1": {Name: "server1", Command: "node"},
+						},
+					},
+				},
 				Processors: []*ProcessorConfig{
 					{
 						Name:    "",
@@ -504,7 +516,7 @@ func TestValidateConfigIntegration(t *testing.T) {
 			// Given: a complete config.
 
 			// When: validating the entire config.
-			err := ValidateConfig(tt.config)
+			err := ValidateConfig(tt.config, true)
 
 			// Then: verify error expectation.
 			if tt.wantError {

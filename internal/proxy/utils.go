@@ -24,7 +24,6 @@ func getNewUUIDV7() string {
 
 // getServerID returns a new serverID using the server name.
 func getServerID(serverName string) string {
-	// TODO: better way of determining server ID.
 	serverStr := "centian_server"
 	if serverName != "" {
 		serverStr = serverName

@@ -43,7 +43,6 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 		outputLine := event.GetRawMessage()
 		result, err := ep.processorChain.Execute(event)
 
-		// TODO: standardize those logs.
 		switch {
 		case err != nil:
 			// Failed to execute processor chain.
@@ -66,8 +65,6 @@ func (ep *EventProcessor) Process(event common.McpEventInterface) error {
 					// Fall through and forward original response.
 				} else {
 					// Send error response to client instead of original response.
-					// TODO: need to provide caller code the chance to react.
-					// to errors that should be forwarded to client.
 					outputLine = errorResponse
 				}
 			}

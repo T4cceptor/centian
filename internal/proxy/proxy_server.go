@@ -72,15 +72,11 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 
 	// loading API Key store
 	var apiKeyStore *auth.APIKeyStore
-	authHeader := ""
-	if globalConfig != nil {
-		authHeader = globalConfig.GetAuthHeader()
-	}
-	if globalConfig == nil || globalConfig.IsAuthEnabled() {
+	if globalConfig.IsAuthEnabled() {
 		loadedStore, err := auth.LoadDefaultAPIKeys()
 		if err != nil {
 			if errors.Is(err, auth.ErrAPIKeysNotFound) {
-				return nil, fmt.Errorf("api key auth enabled but key file not found: %w", err)
+				return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
 			}
 			return nil, fmt.Errorf("failed to load api keys: %w", err)
 		}
@@ -98,7 +94,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 		ServerID:   getServerID(globalConfig.Name),
 		Gateways:   make(map[string]*MCPProxy),
 		APIKeys:    apiKeyStore,
-		AuthHeader: authHeader,
+		AuthHeader: globalConfig.GetAuthHeader(),
 	}, nil
 }
 
@@ -309,7 +305,6 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 				// NOTE: this is important as we want the client to know we support tools,
 				// however these are NOT added initially and will only be available on the
 				// first connect
-				// TODO: double check how this can work with auth flows
 			},
 		},
 	})
@@ -630,8 +625,6 @@ func (c *CentianProxy) Setup() error {
 		gateway.initEventProcessor()
 
 		// Register aggregated endpoint
-		// TODO: make this configurable
-		// TODO: allow "tool registry mode" where we provide tool search
 		RegisterHandler(gateway.endpoint, gateway, c.Mux, nil)
 
 		// Optionally: register individual endpoints for each server

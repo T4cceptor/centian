@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 - Processor scaffolding with optional auto-add to config.
 - Structured logging to `~/.centian/logs/` for requests and proxy events.
 - Auto-discovery of MCP configs from common tools (Claude Desktop, VS Code, generic).
-- CLI commands for init, server start, API key generation, config and logs.
+- CLI commands for init, start, auth (API keys), config and logs.
 - API key authentication with configurable header.
 
 ### Changed

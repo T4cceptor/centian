@@ -7,9 +7,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
-	"time"
 
+	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/discovery"
 	"github.com/urfave/cli/v3"
@@ -21,6 +23,8 @@ type InitOption int
 const (
 	// InitOptionEmpty creates an empty config with no servers.
 	InitOptionEmpty InitOption = iota
+	// InitOptionQuickstart creates a ready-to-run config with a default MCP server.
+	InitOptionQuickstart
 	// InitOptionDiscovery auto-discovers existing MCP servers.
 	InitOptionDiscovery
 	// InitOptionFromPath imports servers from a specific config file.
@@ -40,31 +44,37 @@ func NewInitUI() *InitUI {
 }
 
 // promptInitOption asks the user how they want to initialize centian.
-func (ui *InitUI) promptInitOption() (InitOption, error) {
-	fmt.Printf("\n🎉 Welcome to Centian!\n\n")
-	fmt.Printf("How would you like to initialize your configuration?\n\n")
-	fmt.Printf("  [1] Start fresh (empty config)\n")
-	fmt.Printf("  [2] Auto-discover existing MCP servers (recommended)\n")
-	fmt.Printf("  [3] Import from a specific config file\n\n")
+func (ui *InitUI) promptInitOption(printWelcome bool) (InitOption, error) {
+	if printWelcome {
+		fmt.Printf("\n🎉 Welcome to Centian!\n\n")
+		fmt.Printf("How would you like to initialize your configuration?\n\n")
+		fmt.Printf("  [1] Quickstart (sequential-thinking, requires npx)\n")
+		fmt.Printf("  [2] Start with empty config\n")
+		// TODO: add this back in once discovery is fixed: fmt.Printf("  [3] Auto-discover existing MCP servers (recommended)\n")
+		fmt.Printf("  [3] Import an existing MCP config file\n\n")
+	}
 	fmt.Printf("Choice [1/2/3]: ")
 
 	response, err := ui.reader.ReadString('\n')
 	if err != nil {
 		return InitOptionEmpty, fmt.Errorf("failed to read input: %w", err)
 	}
-
 	response = strings.TrimSpace(response)
 
 	switch response {
 	case "1":
+		return InitOptionQuickstart, nil
+	case "2":
 		return InitOptionEmpty, nil
-	case "2", "":
-		return InitOptionDiscovery, nil
+	// TODO: add discovery again (return InitOptionDiscovery, nil) - requires refactoring/fixing of current discovery
 	case "3":
 		return InitOptionFromPath, nil
 	default:
-		fmt.Printf("Invalid choice '%s'. Using empty config.\n", response)
-		return InitOptionEmpty, nil
+		fmt.Printf(
+			"Invalid choice '%s' - select one of the following [1/2/3].\n",
+			response,
+		)
+		return ui.promptInitOption(false)
 	}
 }
 
@@ -79,7 +89,8 @@ func (ui *InitUI) promptConfigPath() (string, error) {
 
 	path := strings.TrimSpace(response)
 	if path == "" {
-		return "", fmt.Errorf("no path provided")
+		fmt.Println("No path provided - please enter a valid path.")
+		return ui.promptConfigPath()
 	}
 
 	// Validate file exists.
@@ -95,7 +106,7 @@ func (ui *InitUI) promptConfigPath() (string, error) {
 // add servers to cfg yet (see TODO in runAutoDiscovery).
 //
 //nolint:gosec // G304: path is user-provided intentionally for config import
-func importFromPath(_ *config.GlobalConfig, path string) (int, error) {
+func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read file: %w", err)
@@ -114,7 +125,7 @@ func importFromPath(_ *config.GlobalConfig, path string) (int, error) {
 	fmt.Printf("📦 Found %d server(s) in %s\n", len(servers), path)
 
 	// Import servers using existing discovery import logic.
-	imported := discovery.ImportServers(servers)
+	imported := discovery.ImportServers(servers, cfg)
 	discovery.ShowImportSummary(imported)
 
 	return imported, nil
@@ -128,14 +139,14 @@ var InitCommand = &cli.Command{
 	Action:      initCentian,
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
+			Name:    "quickstart",
+			Aliases: []string{"q"},
+			Usage:   "Create a ready-to-run config (requires npx)",
+		},
+		&cli.BoolFlag{
 			Name:    "force",
 			Aliases: []string{"f"},
 			Usage:   "Overwrite existing configuration if it exists",
-		},
-		&cli.BoolFlag{
-			Name:    "no-discovery",
-			Aliases: []string{"n"},
-			Usage:   "Skip auto-discovery and start with empty configuration",
 		},
 		&cli.StringFlag{
 			Name:    "from-path",
@@ -146,32 +157,36 @@ var InitCommand = &cli.Command{
 }
 
 // handleInteractiveInit prompts the user for initialization method and performs import.
-func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) int {
-	option, err := ui.promptInitOption()
+func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) (int, bool, error) {
+	option, err := ui.promptInitOption(true)
 	if err != nil {
 		fmt.Printf("⚠️  %v. Starting with empty config.\n", err)
-		return 0
+		return 0, false, nil
 	}
 
 	switch option {
 	case InitOptionEmpty:
-		return 0
-	case InitOptionDiscovery:
-		return runAutoDiscovery(cfg)
+		return 0, false, nil
+	case InitOptionQuickstart:
+		if _, err := exec.LookPath("npx"); err != nil {
+			return 0, false, fmt.Errorf("quickstart requires npx to be installed and available on PATH")
+		}
+		applyQuickstartConfig(cfg)
+		return 1, true, nil
 	case InitOptionFromPath:
 		path, pathErr := ui.promptConfigPath()
 		if pathErr != nil {
-			fmt.Printf("⚠️  %v. Starting with empty config.\n", pathErr)
-			return 0
+			fmt.Printf("⚠️  %v. \n\nStarting with empty config.\n", pathErr)
+			return 0, false, nil
 		}
 		imported, importErr := importFromPath(cfg, path)
 		if importErr != nil {
-			fmt.Printf("⚠️  %v. Starting with empty config.\n", importErr)
-			return 0
+			fmt.Printf("⚠️  %v. \n\nStarting with empty config.\n", importErr)
+			return 0, false, nil
 		}
-		return imported
+		return imported, false, nil
 	default:
-		return 0
+		return 0, false, nil
 	}
 }
 
@@ -197,12 +212,16 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 	cfg := config.DefaultConfig()
 
 	var imported int
+	quickstart := cmd.Bool("quickstart")
 	ui := NewInitUI()
 
 	// Determine initialization mode based on flags or interactive prompt.
-	if cmd.Bool("no-discovery") {
-		// Flag: empty config.
-		imported = 0
+	if quickstart {
+		if _, err := exec.LookPath("npx"); err != nil {
+			return fmt.Errorf("quickstart requires npx to be installed and available on PATH")
+		}
+		applyQuickstartConfig(cfg)
+		imported = 1
 	} else if fromPath := cmd.String("from-path"); fromPath != "" {
 		// Flag: import from specific path.
 		var importErr error
@@ -212,7 +231,15 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		}
 	} else {
 		// Interactive mode: prompt user.
-		imported = handleInteractiveInit(cfg, ui)
+		var usedQuickstart bool
+		var interactiveErr error
+		imported, usedQuickstart, interactiveErr = handleInteractiveInit(cfg, ui)
+		if interactiveErr != nil {
+			return interactiveErr
+		}
+		if usedQuickstart {
+			quickstart = true
+		}
 	}
 
 	// Save config (either default or with imported servers).
@@ -220,59 +247,135 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
-	fmt.Printf("\n🎉 Centian initialized successfully!\n\n")
-	fmt.Printf("📁 Configuration created at: %s\n\n", configPath)
-
-	fmt.Printf("📋 Next steps:\n")
-	if imported == 0 {
-		fmt.Printf("  * Add an MCP server:\n")
-		fmt.Printf("     centian config server add --name \"my-server\" --command \"npx\" --args \"-y,@upstash/context7-mcp,--api-key,YOUR_KEY\"\n\n")
+	if quickstart {
+		return handleQuickstart(configPath, cfg)
 	}
-	fmt.Printf("  * List your servers:\n")
-	fmt.Printf("     centian config server list\n\n")
-	fmt.Printf("  * Start the proxy:\n")
-	fmt.Printf("     centian start\n\n")
 
-	fmt.Printf("💡 Use 'centian config --help' for more configuration options\n")
+	printInitSuccess(configPath, imported)
+	_, _ = ui.reader.ReadString('\n')
 
 	// Offer to set up shell completion.
-	if err := SetupShellCompletion(); err != nil {
-		fmt.Printf("⚠️  Shell completion setup failed: %v\n", err)
-		fmt.Printf("   You can set it up manually later using: centian completion <shell>\n")
-	}
+	offerShellCompletion()
 
 	return nil
 }
 
-// runAutoDiscovery performs MCP server auto-discovery and handles user interaction.
-func runAutoDiscovery(_ *config.GlobalConfig) int {
-	// TODO: instead of adding the found servers to the file it
-	// should add it to the cfg object, then use existing methods to store that config.
+func offerShellCompletion() {
+	if err := SetupShellCompletion(); err != nil {
+		fmt.Printf("⚠️  Shell completion setup failed: %v\n", err)
+		fmt.Printf("   You can set it up manually later using: centian completion <shell>\n")
+	}
+}
 
-	fmt.Printf("🔍 Scanning for existing MCP configurations...\n")
-	time.Sleep(1 * time.Second)
+func printInitSuccess(configPath string, imported int) {
+	fmt.Printf("\n🎉 Centian initialized successfully!\n")
+	fmt.Printf("📁 Configuration created at: %s\n\n", configPath)
 
-	// Create discovery manager and run discovery.
-	dm := discovery.NewDiscoveryManager()
-	result := dm.DiscoverAll()
+	fmt.Printf("📋 Next steps:\n")
+	if imported == 0 {
+		fmt.Printf(" * Add MCP servers to proxy:\n")
+		fmt.Printf("     centian server add --name \"my-server\" --command \"npx\" --args \"-y,@upstash/context7-mcp,--api-key,YOUR_KEY\"\n\n")
+	}
+	fmt.Printf(" * Create an API key:\n")
+	fmt.Printf("     centian auth new-key\n\n")
+	fmt.Printf(" * Start the proxy:\n")
+	fmt.Printf("     centian start\n\n")
+	fmt.Printf(" * Configure your MCP client to use centian:\n")
+	fmt.Printf(`
+    {
+        "mcpServers": { "centian": { 
+            "url": "http://localhost:8080/mcp/default",
+            "headers": { "X-Centian-Auth": <your api key - see step 2> }
+        }}
+    }
+`)
 
-	// Show results and get user consent.
-	ui := discovery.NewDiscoveryUI()
-	selectedServers, err := ui.ShowDiscoveryResults(result)
+	fmt.Printf("💡 Use 'centian config --help' for more configuration options\n")
+	common.PressEnterToContinue("")
+}
+
+func applyQuickstartConfig(cfg *config.GlobalConfig) {
+	enabled := true
+	cfg.Gateways = map[string]*config.GatewayConfig{
+		"default": {
+			AllowDynamic:         false,
+			AllowGatewayEndpoint: false,
+			MCPServers: map[string]*config.MCPServerConfig{
+				"sequential-thinking": {
+					Name:        "sequential-thinking",
+					Command:     "npx",
+					Args:        []string{"-y", "@modelcontextprotocol/server-sequential-thinking"},
+					Enabled:     &enabled,
+					Description: "Sequential thinking MCP server (via npx)",
+				},
+			},
+			Processors: []*config.ProcessorConfig{},
+		},
+	}
+}
+
+func createDefaultAPIKey() (string, error) {
+	key, err := auth.GenerateAPIKey()
 	if err != nil {
-		fmt.Printf("⚠️  Error during discovery UI: %v", err)
-		return 0
+		return "", fmt.Errorf("failed to generate api key: %w", err)
 	}
-
-	if len(selectedServers) == 0 {
-		return 0
+	entry, err := auth.NewAPIKeyEntry(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create api key entry: %w", err)
 	}
+	path, err := auth.DefaultAPIKeysPath()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve api key path: %w", err)
+	}
+	if _, err := auth.AppendAPIKey(path, entry); err != nil {
+		return "", fmt.Errorf("failed to persist api key: %w", err)
+	}
+	return key, nil
+}
 
-	// Import selected servers.
-	imported := discovery.ImportServers(selectedServers)
+func handleQuickstart(configPath string, cfg *config.GlobalConfig) error {
+	apiKey, err := createDefaultAPIKey()
+	if err != nil {
+		return err
+	}
+	host := cfg.Proxy.Host
+	if host == "" {
+		host = config.DefaultProxyHost
+	}
+	endpoint := fmt.Sprintf("http://%s:%s/mcp/default", host, cfg.Proxy.Port)
+	authHeader := cfg.GetAuthHeader()
 
-	// Show import summary.
-	discovery.ShowImportSummary(imported)
+	fmt.Printf("\n✅ Quickstart configuration initialized\n")
+	fmt.Printf("📁 Configuration created at: %s\n", configPath)
+	fmt.Printf("🔑 API key: %s\n\n", apiKey)
 
-	return imported
+	common.PressEnterToContinue("Press enter to display MCP client config snippets:\n")
+
+	fmt.Println("Claude Desktop / Cursor / Zed (mcpServers):")
+	fmt.Printf(`{
+  "mcpServers": {
+    "centian": {
+      "url": "%s",
+      "headers": {
+        "%s": "%s"
+      }
+    }
+  }
+}
+`, endpoint, authHeader, apiKey)
+	fmt.Println("\nVS Code (mcp.json):")
+	fmt.Printf(`{
+  "servers": {
+    "centian": {
+      "type": "http",
+      "url": "%s",
+      "headers": {
+        "%s": "%s"
+      }
+    }
+  }
+}
+`, endpoint, authHeader, apiKey)
+	fmt.Println("\nCopy the above snippets into your MCP client settings and start centian by running 'centian start'.")
+	return nil
 }

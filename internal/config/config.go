@@ -230,6 +230,7 @@ type ConnectionContext struct {
 	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
 	SessionID  string `json:"session_id"`  // Unique session identifier
 	// TODO: potentially add server data in here like URL/CMD, headers/args, etc.
+	// see also chain.go - line 89 - talking about the same idea
 }
 
 // ProcessorMetadata contains additional context for processor execution.
@@ -257,7 +258,7 @@ func DefaultConfig() *GlobalConfig {
 		AuthEnabled: &authEnabled,
 		AuthHeader:  DefaultAuthHeader,
 		Proxy:       &proxySettings,
-		Gateways:    make(map[string]*GatewayConfig),
+		Gateways:    map[string]*GatewayConfig{},
 		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
 		Metadata:    make(map[string]interface{}),
 	}
@@ -307,7 +308,7 @@ func LoadConfig() (*GlobalConfig, error) {
 func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 	// Check if config file exists.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("configuration file not found at %s", path)
+		return nil, fmt.Errorf("configuration file not found at %s - try running 'centian init'", path)
 	}
 
 	// Read config file.
@@ -324,7 +325,7 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 
 	// Validate config schema (allows empty gateways for config management).
 	// Server startup should call ValidateConfigForServer for operational validation.
-	if err := ValidateConfigSchema(&cfg); err != nil {
+	if err := ValidateConfig(&cfg, false); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -335,6 +336,13 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
 func SaveConfig(config *GlobalConfig) error {
+	if err := ValidateConfig(config, false); err != nil {
+		return fmt.Errorf("config is invalid: %w", err)
+	}
+	return saveConfig(config)
+}
+
+func saveConfig(config *GlobalConfig) error {
 	if err := EnsureConfigDir(); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -359,48 +367,35 @@ func SaveConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// ValidateConfigSchema performs basic schema validation on the configuration.
+// ValidateConfig performs basic schema validation on the configuration.
 // This validates required fields and structure but allows empty gateways.
 // Use ValidateConfigForServer for operational validation before starting a server.
-func ValidateConfigSchema(config *GlobalConfig) error {
+func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
 	if config.Proxy == nil {
 		return fmt.Errorf("proxy settings are required in config")
 	}
-	// Validate gateways that exist (but allow empty)
-	if err := validateExistingGateways(config.Gateways); err != nil {
-		return err
-	}
-	if err := validateProcessors(config.Processors); err != nil {
-		return err
+
+	if strict {
+		// Validate config for operational purposes - meaning: can we start the server with this?
+		if err := validateGateways(config.Gateways); err != nil {
+			return err
+		}
+		if err := validateProcessors(config.Processors); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// ValidateConfig performs full validation including operational requirements.
-// This requires at least one gateway to be configured.
-func ValidateConfig(config *GlobalConfig) error {
-	if err := ValidateConfigSchema(config); err != nil {
-		return err
-	}
-	return ValidateConfigForServer(config)
-}
-
-// ValidateConfigForServer validates the config is ready for server operation.
-// This checks operational requirements like having at least one gateway configured.
-func ValidateConfigForServer(config *GlobalConfig) error {
-	if len(config.Gateways) == 0 {
-		// TODO: default config should already include gateways and not throw an error!
-		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
-	}
-	return nil
-}
-
-// validateExistingGateways validates gateway configurations without requiring any.
+// validateGateways validates gateway configurations without requiring any.
 // This allows empty gateway maps (for freshly initialized configs).
-func validateExistingGateways(gateways map[string]*GatewayConfig) error {
+func validateGateways(gateways map[string]*GatewayConfig) error {
+	if len(gateways) == 0 {
+		return fmt.Errorf("no gateways configured - at least one gateway is required")
+	}
 	for gatewayName, gatewayConfig := range gateways {
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err
@@ -433,8 +428,14 @@ func validateGateway(name string, config GatewayConfig) error {
 	}
 
 	// Validate at least one server exists.
-	if len(config.MCPServers) == 0 {
-		return fmt.Errorf("gateway '%s': must have at least one MCP server", name)
+	activeMCPServers := []*MCPServerConfig{}
+	for _, serverConfig := range config.MCPServers {
+		if serverConfig.Enabled == nil || *serverConfig.Enabled {
+			activeMCPServers = append(activeMCPServers, serverConfig)
+		}
+	}
+	if len(activeMCPServers) == 0 {
+		return fmt.Errorf("gateway '%s': must have at least one active MCP server", name)
 	}
 
 	// Validate gateway-level processors if present.

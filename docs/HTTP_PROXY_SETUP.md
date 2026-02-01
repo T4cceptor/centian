@@ -1,6 +1,6 @@
 # HTTP Proxy Server Setup
 
-The `centian server start` command launches an HTTP proxy server that forwards requests to configured MCP servers.
+The `centian start` command launches an HTTP proxy server that forwards requests to configured MCP servers.
 
 ## Quick Start
 
@@ -42,7 +42,7 @@ Create `~/.centian/config.json` with your MCP server configurations:
 Generate a key and store its hash:
 
 ```bash
-centian server get-key
+centian auth new-key
 ```
 
 This prints the API key once and writes the hashed entry to:
@@ -70,10 +70,10 @@ export GITHUB_PAT=your_github_personal_access_token
 
 ```bash
 # Using default config path (~/.centian/config.json)
-centian server start
+centian start
 
 # Or specify a custom config path
-centian server start --config-path ./my-config.json
+centian start --config-path ./my-config.json
 ```
 
 ### 5. Access Your MCP Servers
@@ -300,7 +300,7 @@ go test -v ./internal/cli -run TestConfigFileValidation
 
 1. Start the server:
    ```bash
-   centian server start --config-path ./tests/test_configs/example_http_proxy_config.json
+   centian start --config-path ./tests/test_configs/example_http_proxy_config.json
    ```
 
 2. In another terminal, test with curl:
@@ -319,7 +319,7 @@ go test -v ./internal/cli -run TestConfigFileValidation
 
 **Solution**:
 - Run `centian init` to create default config
-- Or specify config path: `centian server start --config-path ./config.json`
+- Or specify config path: `centian start --config-path ./config.json`
 
 You can also run `centian config init` to create an empty config and work from there.
 

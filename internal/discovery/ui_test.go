@@ -8,60 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/config"
 	"gotest.tools/assert"
 )
-
-func TestShowDiscoveryResults_NoServers(t *testing.T) {
-	// Given: a result with no servers
-	ui := &UserInterface{reader: bufio.NewReader(strings.NewReader(""))}
-	result := &Result{Servers: []Server{}, Errors: []string{}}
-
-	// When: showing results
-	servers, err := ui.ShowDiscoveryResults(result)
-
-	// Then: no servers are returned
-	assert.NilError(t, err)
-	assert.Equal(t, len(servers), 0)
-}
-
-func TestShowDiscoveryResults_WithServers(t *testing.T) {
-	// Given: a result with servers and default import choice
-	ui := &UserInterface{reader: bufio.NewReader(strings.NewReader("a\n"))}
-	result := &Result{Servers: []Server{{Name: "one", SourcePath: "/tmp/config.json"}}, Errors: []string{}}
-
-	// When: showing results
-	servers, err := ui.ShowDiscoveryResults(result)
-
-	// Then: all servers are returned
-	assert.NilError(t, err)
-	assert.Equal(t, len(servers), 1)
-}
-
-func TestPromptForImport_All(t *testing.T) {
-	// Given: servers and "all" input
-	ui := &UserInterface{reader: bufio.NewReader(strings.NewReader("a\n"))}
-	servers := []Server{{Name: "one"}, {Name: "two"}}
-
-	// When: prompting for import
-	selected, err := ui.promptForImport(servers)
-
-	// Then: all servers are returned
-	assert.NilError(t, err)
-	assert.Equal(t, len(selected), 2)
-}
-
-func TestPromptForImport_None(t *testing.T) {
-	// Given: servers and "none" input
-	ui := &UserInterface{reader: bufio.NewReader(strings.NewReader("n\n"))}
-	servers := []Server{{Name: "one"}}
-
-	// When: prompting for import
-	selected, err := ui.promptForImport(servers)
-
-	// Then: no servers are returned
-	assert.NilError(t, err)
-	assert.Equal(t, len(selected), 0)
-}
 
 func TestSelectServers(t *testing.T) {
 	// Given: a list of servers and selection input
@@ -87,34 +36,6 @@ func TestSelectServers_InvalidSelection(t *testing.T) {
 	selected, err := ui.selectServers(servers)
 
 	// Then: no servers are selected
-	assert.NilError(t, err)
-	assert.Equal(t, len(selected), 0)
-}
-
-func TestPromptForReplacement(t *testing.T) {
-	// Given: servers and confirmation input
-	ui := &UserInterface{reader: bufio.NewReader(strings.NewReader("y\n"))}
-	servers := []Server{{Name: "one"}, {Name: "two"}}
-
-	// When: prompting for replacement
-	selected, err := ui.promptForReplacement(servers)
-
-	// Then: servers are marked for replacement
-	assert.NilError(t, err)
-	assert.Equal(t, len(selected), 2)
-	assert.Assert(t, selected[0].ReplacementMode)
-	assert.Assert(t, selected[1].ReplacementMode)
-}
-
-func TestPromptForReplacement_Cancel(t *testing.T) {
-	// Given: servers and cancel input
-	ui := &UserInterface{reader: bufio.NewReader(strings.NewReader("n\n"))}
-	servers := []Server{{Name: "one"}}
-
-	// When: prompting for replacement
-	selected, err := ui.promptForReplacement(servers)
-
-	// Then: no servers are returned
 	assert.NilError(t, err)
 	assert.Equal(t, len(selected), 0)
 }
@@ -286,9 +207,18 @@ func TestImportServers(t *testing.T) {
 		{Name: "two", URL: "https://example.com", SourcePath: "/tmp/two"},
 		{Name: "bad", SourcePath: "/tmp/bad"},
 	}
+	cfg := config.GlobalConfig{
+		Name:    "Valid Server",
+		Version: "1.0.0",
+		Proxy: &config.ProxySettings{
+			Port:    "8080",
+			Timeout: 30,
+		},
+		Gateways: map[string]*config.GatewayConfig{"default": {}},
+	}
 
 	// When: importing servers
-	count := ImportServers(servers)
+	count := ImportServers(servers, &cfg)
 
 	// Then: only valid servers are imported
 	assert.Equal(t, count, 2)

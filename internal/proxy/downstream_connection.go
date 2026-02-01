@@ -19,9 +19,8 @@ type DownstreamConnection struct {
 	client     *mcp.Client
 	session    *mcp.ClientSession
 	tools      []*mcp.Tool
-	// TODO: resources []*mcp.Resource // If we support resources
-	connected bool
-	mu        sync.RWMutex
+	connected  bool
+	mu         sync.RWMutex
 }
 
 // Connect establishes connection to downstream server
@@ -44,14 +43,13 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 		return fmt.Errorf("failed to create transport: %w", err)
 	}
 
-	// TODO: logging & processing -> we are now connecting to downstream server
 	session, err := dc.client.Connect(ctx, transport, nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 	dc.session = session
 
-	// Discover tools // TODO: resources
+	// Discover tools
 	if err := dc.discoverTools(ctx); err != nil {
 		dc.session.Close() //nolint:errcheck // we are already returning an error
 		return fmt.Errorf("failed to discover tools: %w", err)
@@ -121,7 +119,6 @@ func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (
 			Timeout: 30 * time.Second,
 		}
 
-		// TODO: Add header injection to StreamableClientTransport
 		// This requires a custom RoundTripper
 		transport := &mcp.StreamableClientTransport{
 			Endpoint:   dc.config.URL,
@@ -152,9 +149,7 @@ func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
 	}
 
 	// TODO: logging & processing
-	// -> tool aggregation/federation
-	// we could for example not provide ALL tools, but allow the
-	// agent to search for a specific tool
+	// TODO: tool aggregation/federation
 
 	dc.tools = result.Tools
 	return nil
@@ -169,12 +164,10 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, a
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
 
-	// TODO: logging & processing - pre-tool call
 	result, err := dc.session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: args,
 	})
-	// TODO: logging & processing - post-tool call
 	return result, err
 }
 
@@ -196,7 +189,6 @@ func (dc *DownstreamConnection) Close() error {
 func (dc *DownstreamConnection) Tools() []*mcp.Tool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
-	// TODO: check if we should refresh the tools
 	return dc.tools
 }
 

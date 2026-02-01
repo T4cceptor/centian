@@ -14,8 +14,10 @@
 
 // Package main contains the entry point for centian - it uses internal packages to provide the following CLI commands:.
 // - centian init.
-// - centian stdio.
+// - centian start.
+// - centian auth.
 // - centian server.
+// - centian stdio.
 // - centian logs.
 // - centian config.
 package main
@@ -37,13 +39,15 @@ func main() {
 	// Create CLI app.
 	app := &urfavecli.Command{
 		Name:                  "centian",
-		Description:           "Proxy and modify your MCP server and tools.",
+		Description:           "Proxy and modify MCP servers and tools.",
 		Usage:                 "centian start",
 		Version:               version,
 		EnableShellCompletion: true,
 		Commands: []*urfavecli.Command{
 			cli.InitCommand,
-			cli.ServerCommand,
+			cli.StartCommand,
+			cli.AuthCommand,
+			config.ServerCommand,
 			cli.ProcessorCommand,
 			cli.LogsCommand,
 			config.ConfigCommand,
