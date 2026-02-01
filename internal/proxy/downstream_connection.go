@@ -19,9 +19,8 @@ type DownstreamConnection struct {
 	client     *mcp.Client
 	session    *mcp.ClientSession
 	tools      []*mcp.Tool
-	// TODO: resources []*mcp.Resource // If/once we support resources
-	connected bool
-	mu        sync.RWMutex
+	connected  bool
+	mu         sync.RWMutex
 }
 
 // Connect establishes connection to downstream server
