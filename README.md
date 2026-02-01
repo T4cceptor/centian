@@ -31,7 +31,7 @@ This does the following:
     ```
     centian server add --name "my-local-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"
 
-    centian server add --name "my-local-memory" --url "https://mcp.deepwiki.com/mcp"
+    centian server add --name "my-deepwiki" --url "https://mcp.deepwiki.com/mcp"
     ```
 * Creates an API key to authenticate at the centian proxy
 * Displays MCP client configurations including API key header
