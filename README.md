@@ -14,7 +14,7 @@ Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextproto
 1) **Install**
 
 ```bash
-curl -fsSL https://github.com/T4cceptor/centian/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
 2) **Initialize quickstart config (npx required)**
