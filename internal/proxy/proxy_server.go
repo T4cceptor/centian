@@ -625,8 +625,6 @@ func (c *CentianProxy) Setup() error {
 		gateway.initEventProcessor()
 
 		// Register aggregated endpoint
-		// TODO: make this configurable
-		// TODO: allow "tool registry mode" where we provide tool search
 		RegisterHandler(gateway.endpoint, gateway, c.Mux, nil)
 
 		// Optionally: register individual endpoints for each server

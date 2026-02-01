@@ -44,33 +44,37 @@ func NewInitUI() *InitUI {
 }
 
 // promptInitOption asks the user how they want to initialize centian.
-func (ui *InitUI) promptInitOption() (InitOption, error) {
-	fmt.Printf("\n🎉 Welcome to Centian!\n\n")
-	fmt.Printf("How would you like to initialize your configuration?\n\n")
-	fmt.Printf("  [1] Start fresh (empty config)\n")
-	fmt.Printf("  [2] Quickstart (sequential-thinking, requires npx)\n")
-	// TODO: add this back in once discovery is fixed: fmt.Printf("  [3] Auto-discover existing MCP servers (recommended)\n")
-	fmt.Printf("  [3] Import from a specific config file\n\n")
+func (ui *InitUI) promptInitOption(printWelcome bool) (InitOption, error) {
+	if printWelcome {
+		fmt.Printf("\n🎉 Welcome to Centian!\n\n")
+		fmt.Printf("How would you like to initialize your configuration?\n\n")
+		fmt.Printf("  [1] Quickstart (sequential-thinking, requires npx)\n")
+		fmt.Printf("  [2] Start with empty config\n")
+		// TODO: add this back in once discovery is fixed: fmt.Printf("  [3] Auto-discover existing MCP servers (recommended)\n")
+		fmt.Printf("  [3] Import an existing MCP config file\n\n")
+	}
 	fmt.Printf("Choice [1/2/3]: ")
 
 	response, err := ui.reader.ReadString('\n')
 	if err != nil {
 		return InitOptionEmpty, fmt.Errorf("failed to read input: %w", err)
 	}
-
 	response = strings.TrimSpace(response)
 
 	switch response {
 	case "1":
-		return InitOptionEmpty, nil
-	case "2":
 		return InitOptionQuickstart, nil
+	case "2":
+		return InitOptionEmpty, nil
 	// TODO: add discovery again (return InitOptionDiscovery, nil) - requires refactoring/fixing of current discovery
 	case "3":
 		return InitOptionFromPath, nil
 	default:
-		fmt.Printf("Invalid choice '%s'. Using empty config.\n", response)
-		return InitOptionEmpty, nil
+		fmt.Printf(
+			"Invalid choice '%s' - select one of the following [1/2/3].\n",
+			response,
+		)
+		return ui.promptInitOption(false)
 	}
 }
 
@@ -157,7 +161,7 @@ var InitCommand = &cli.Command{
 
 // handleInteractiveInit prompts the user for initialization method and performs import.
 func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) (int, bool, error) {
-	option, err := ui.promptInitOption()
+	option, err := ui.promptInitOption(true)
 	if err != nil {
 		fmt.Printf("⚠️  %v. Starting with empty config.\n", err)
 		return 0, false, nil
