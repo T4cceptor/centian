@@ -14,8 +14,10 @@
 
 // Package main contains the entry point for centian - it uses internal packages to provide the following CLI commands:.
 // - centian init.
-// - centian stdio.
+// - centian start.
+// - centian auth.
 // - centian server.
+// - centian stdio.
 // - centian logs.
 // - centian config.
 package main
@@ -43,7 +45,9 @@ func main() {
 		EnableShellCompletion: true,
 		Commands: []*urfavecli.Command{
 			cli.InitCommand,
-			cli.ServerCommand,
+			cli.StartCommand,
+			cli.AuthCommand,
+			config.ServerCommand,
 			cli.ProcessorCommand,
 			cli.LogsCommand,
 			config.ConfigCommand,

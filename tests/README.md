@@ -380,13 +380,13 @@ go test -v ./internal/cli -run TestConfigFileValidation
 
 ```bash
 # Start server with example config
-centian server start --config-path ./tests/test_configs/example_http_proxy_config.json
+centian start --config-path ./tests/test_configs/example_http_proxy_config.json
 
 # Note: You'll need to set environment variables referenced in configs
 export GITHUB_PAT=your_github_token_here
 
 # Note: With auth enabled, generate a key and store it
-centian server get-key
+centian auth new-key
 ```
 
 ### Config Structure

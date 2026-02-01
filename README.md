@@ -26,22 +26,22 @@ centian init --quickstart
 This does the following:
 * Creates centian config at `~/.centian/config.json`
 * Adds the `@modelcontextprotocol/server-sequential-thinking` MCP server to the config
-    * You can add more MCP servers by running `centian config server add`:
+* You can add more MCP servers by running `centian server add`:
     
     ```
-    centian config server add --name "my-local-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"
+    centian server add --name "my-local-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"
 
-    centian config server add --name "my-local-memory" --url "https://mcp.deepwiki.com/mcp"
+    centian server add --name "my-local-memory" --url "https://mcp.deepwiki.com/mcp"
     ```
 * Creates an API key to authenticate at the centian proxy
 * Displays MCP client configurations including API key header
     * NOTE: the API key is only shown ONCE, afterwards its hashed, so be sure to copy it here
-    * Alernatively you can (re)create another API key using `centian server get-key`
+    * Alernatively you can (re)create another API key using `centian auth new-key`
 
 3) **Start the proxy**
 
 ```bash
-centian server start
+centian start
 ```
 
 Default bind: `127.0.0.1:8080`.
@@ -68,7 +68,7 @@ Example:
 ```
 
 5) **Done!** - you can now log and process all MCP requests proxied by centian.
-    - (Optional): to process requests and responses by downstream MCPs, add a new processor via `centian processor init` and follow the instructions.
+    - (Optional): to process requests and responses by downstream MCPs, add a new processor via `centian processor new` and follow the instructions.
 
 
 ## Configuration
@@ -120,7 +120,7 @@ In aggregated mode, tools are namespaced to avoid collisions.
 Processors let you enforce policies or transform MCP traffic (request/response). You can scaffold a processor with:
 
 ```bash
-centian processor init
+centian processor new
 ```
 
 The scaffold can optionally add the processor to your config automatically.
@@ -134,8 +134,9 @@ Centian logs MCP activity to `~/.centian/logs/`:
 ## Commands (Quick Reference)
 
 - `centian init` – initialize config
-- `centian server start` – start the proxy
-- `centian server get-key` – generate API key
+- `centian start` – start the proxy
+- `centian auth new-key` – generate API key
+- `centian server ...` – manage MCP servers
 - `centian config ...` – manage config
 - `centian logs` – view recent logs
 

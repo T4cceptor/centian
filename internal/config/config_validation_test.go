@@ -170,7 +170,7 @@ func TestValidateGateway(t *testing.T) {
 				MCPServers: map[string]*MCPServerConfig{},
 			},
 			wantError: true,
-			errorMsg:  "must have at least one MCP server",
+			errorMsg:  "must have at least one active MCP server",
 		},
 		{
 			name:  "gateway with nil servers",
@@ -179,7 +179,7 @@ func TestValidateGateway(t *testing.T) {
 				MCPServers: nil,
 			},
 			wantError: true,
-			errorMsg:  "must have at least one MCP server",
+			errorMsg:  "must have at least one active MCP server",
 		},
 		{
 			name:  "gateway with multiple servers",
@@ -484,7 +484,7 @@ func TestValidateConfigIntegration(t *testing.T) {
 				},
 			},
 			wantError: true,
-			errorMsg:  "must have at least one MCP server",
+			errorMsg:  "must have at least one active MCP server",
 		},
 		{
 			name: "config with processor errors",

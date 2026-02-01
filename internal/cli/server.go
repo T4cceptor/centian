@@ -22,26 +22,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
 
-// ServerCommand provides server management functionality.
-var ServerCommand = &cli.Command{
-	Name:  "server",
-	Usage: "Manage Centian proxy server",
-	Commands: []*cli.Command{
-		ServerStartCommand,
-		ServerGetKeyCommand,
-	},
-}
-
-// ServerStartCommand starts the Centian proxy server.
-var ServerStartCommand = &cli.Command{
+// StartCommand starts the Centian proxy server.
+var StartCommand = &cli.Command{
 	Name:  "start",
-	Usage: "centian server start [--config-path <path>]",
+	Usage: "Start Centian proxy: centian start [--config-path <path>]",
 	Description: `Start Centian proxy server for configured MCP servers.
 
 Currently supports HTTP transport. The HTTP proxy creates endpoints for each
@@ -73,8 +62,8 @@ Example config structure:
   }
 
 Examples:
-  centian server start
-  centian server start --config-path ./custom-config.json
+  centian start
+  centian start --config-path ./custom-config.json
 `,
 	Action: handleServerStartCommand,
 	Flags: []cli.Flag{
@@ -83,18 +72,6 @@ Examples:
 			Usage: "Path to config file (default: ~/.centian/config.json)",
 		},
 	},
-}
-
-// ServerGetKeyCommand generates and stores a new API key.
-var ServerGetKeyCommand = &cli.Command{
-	Name:  "get-key",
-	Usage: "centian server get-key",
-	Description: `Generate a new API key for the HTTP proxy.
-
-The key is printed once to the console, then hashed with bcrypt and stored in:
-  ~/.centian/api_keys.json
-`,
-	Action: handleServerGetKeyCommand,
 }
 
 func printServerInfo(globalConfig *config.GlobalConfig) error {
@@ -210,42 +187,4 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	case err := <-errChan:
 		return err
 	}
-}
-
-// handleServerGetKeyCommand generates and stores a new API key.
-func handleServerGetKeyCommand(_ context.Context, _ *cli.Command) error {
-	path, err := auth.DefaultAPIKeysPath()
-	if err != nil {
-		return fmt.Errorf("failed to resolve api key path: %w", err)
-	}
-
-	key, err := auth.GenerateAPIKey()
-	if err != nil {
-		return err
-	}
-
-	var pErr error
-	_, pErr = fmt.Fprintln(os.Stdout, "New API key (store this now, it won't be shown again):")
-	if pErr != nil {
-		return pErr
-	}
-	_, pErr = fmt.Fprintln(os.Stdout, key)
-	if pErr != nil {
-		return pErr
-	}
-
-	entry, err := auth.NewAPIKeyEntry(key)
-	if err != nil {
-		return err
-	}
-
-	if _, err := auth.AppendAPIKey(path, entry); err != nil {
-		return err
-	}
-
-	_, pErr = fmt.Fprintf(os.Stdout, "Stored hashed key in %s\n", path)
-	if pErr != nil {
-		return pErr
-	}
-	return nil
 }

@@ -23,7 +23,6 @@ var ConfigCommand = &cli.Command{
 		configShowCommand,
 		configValidateCommand,
 		configRemoveCommand,
-		configServerCommand,
 	},
 }
 
@@ -69,7 +68,8 @@ var configRemoveCommand = &cli.Command{
 	Action: removeConfig,
 }
 
-var configServerCommand = &cli.Command{
+// ServerCommand provides MCP server management functionality.
+var ServerCommand = &cli.Command{
 	Name:        "server",
 	Usage:       "Manage MCP servers",
 	Description: "Add, remove, and configure MCP servers",
@@ -353,6 +353,9 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		Headers:     cmd.StringMap("headers"),
 		Description: cmd.String("description"),
 		Enabled:     &enabled,
+	}
+	if serverErr := validateServer(name, serverConfig); serverErr != nil {
+		return serverErr
 	}
 	existingGateway.AddServer(name, serverConfig)
 

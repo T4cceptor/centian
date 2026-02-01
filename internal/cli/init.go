@@ -138,6 +138,11 @@ var InitCommand = &cli.Command{
 	Action:      initCentian,
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
+			Name:    "quickstart",
+			Aliases: []string{"q"},
+			Usage:   "Create a ready-to-run config (requires npx)",
+		},
+		&cli.BoolFlag{
 			Name:    "force",
 			Aliases: []string{"f"},
 			Usage:   "Overwrite existing configuration if it exists",
@@ -146,10 +151,6 @@ var InitCommand = &cli.Command{
 			Name:    "from-path",
 			Aliases: []string{"p"},
 			Usage:   "Import servers from a specific MCP config file path",
-		},
-		&cli.BoolFlag{
-			Name:  "quickstart",
-			Usage: "Create a ready-to-run config (requires npx)",
 		},
 	},
 }
@@ -274,12 +275,12 @@ func printInitSuccess(configPath string, imported int) {
 	fmt.Printf("📋 Next steps:\n")
 	if imported == 0 {
 		fmt.Printf("  1. Add MCP servers to proxy:\n")
-		fmt.Printf("     centian config server add --name \"my-server\" --command \"npx\" --args \"-y,@upstash/context7-mcp,--api-key,YOUR_KEY\"\n\n")
+		fmt.Printf("     centian server add --name \"my-server\" --command \"npx\" --args \"-y,@upstash/context7-mcp,--api-key,YOUR_KEY\"\n\n")
 	}
 	fmt.Printf("  2. Create an API key:\n")
-	fmt.Printf("     centian server get-key\n\n")
+	fmt.Printf("     centian auth new-key\n\n")
 	fmt.Printf("  3. Start the proxy:\n")
-	fmt.Printf("     centian server start\n\n")
+	fmt.Printf("     centian start\n\n")
 	fmt.Printf("  4. Configure your MCP client to use centian:\n")
 	fmt.Printf(`
     {
@@ -380,7 +381,7 @@ func handleQuickstart(configPath string, cfg *config.GlobalConfig) error {
   }
 }
 `, endpoint, authHeader, apiKey)
-	fmt.Println("\nCopy the above snippets into your MCP client settings and start centian by running 'centian server start'.")
+	fmt.Println("\nCopy the above snippets into your MCP client settings and start centian by running 'centian start'.")
 	return nil
 }
 

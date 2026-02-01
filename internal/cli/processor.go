@@ -19,8 +19,8 @@ var ProcessorCommand = &cli.Command{
 
 // ProcessorInitCommand scaffolds a new processor.
 var ProcessorInitCommand = &cli.Command{
-	Name:        "init",
-	Usage:       "centian processor init",
+	Name:        "new",
+	Usage:       "centian processor new",
 	Description: "Interactively scaffold a new processor.",
 	Action:      handleProcessorInit,
 }

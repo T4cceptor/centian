@@ -29,7 +29,7 @@ const defaultLogDisplayLimit = 50
 // LogsCommand displays Centian log entries in descending timestamp order.
 var LogsCommand = &cli.Command{
 	Name:  "logs",
-	Usage: "centian logs [--limit <n>]",
+	Usage: "Displays logs: centian logs [--limit <n>]",
 	Description: `Display formatted Centian MCP proxy logs ordered by timestamp (newest first).
 
 Examples:

@@ -355,62 +355,40 @@ func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 	}
 }
 
-// TestServerCommandStructure tests the ServerCommand CLI structure.
-func TestServerCommandStructure(t *testing.T) {
-	// Given: the ServerCommand.
+// TestStartCommandStructure tests the StartCommand CLI structure.
+func TestStartCommandStructure(t *testing.T) {
+	// Given: the StartCommand.
 
 	// Then: verify command is properly configured.
-	if ServerCommand == nil {
-		t.Fatal("ServerCommand is nil")
+	if StartCommand == nil {
+		t.Fatal("StartCommand is nil")
 	}
 
-	if ServerCommand.Name != "server" {
-		t.Errorf("Expected command name 'server', got '%s'", ServerCommand.Name)
+	if StartCommand.Name != "start" {
+		t.Errorf("Expected command name 'start', got '%s'", StartCommand.Name)
 	}
 
-	if ServerCommand.Usage == "" {
-		t.Error("ServerCommand should have usage text")
+	if StartCommand.Usage == "" {
+		t.Error("StartCommand should have usage text")
 	}
 
-	// Then: verify subcommands exist.
-	if len(ServerCommand.Commands) == 0 {
-		t.Error("ServerCommand should have subcommands")
+	if StartCommand.Description == "" {
+		t.Error("StartCommand should have description")
 	}
 
-	// Verify ServerStartCommand exists.
-	var hasStartCommand bool
-	for _, subcmd := range ServerCommand.Commands {
-		if subcmd.Name != "start" {
-			continue
-		}
-		hasStartCommand = true
-
-		// Verify start command structure.
-		if subcmd.Usage == "" {
-			t.Error("ServerStartCommand should have usage text")
-		}
-		if subcmd.Description == "" {
-			t.Error("ServerStartCommand should have description")
-		}
-		if subcmd.Action == nil {
-			t.Error("ServerStartCommand should have action function")
-		}
-
-		// Verify flags.
-		var hasConfigPathFlag bool
-		for _, flag := range subcmd.Flags {
-			if sf, ok := flag.(*urfavecli.StringFlag); ok && sf.Name == "config-path" {
-				hasConfigPathFlag = true
-			}
-		}
-		if !hasConfigPathFlag {
-			t.Error("ServerStartCommand should have config-path flag")
-		}
-		break
+	if StartCommand.Action == nil {
+		t.Error("StartCommand should have action function")
 	}
 
-	if !hasStartCommand {
-		t.Error("ServerCommand should have 'start' subcommand")
+	// Verify flags.
+	var hasConfigPathFlag bool
+	for _, flag := range StartCommand.Flags {
+		if sf, ok := flag.(*urfavecli.StringFlag); ok && sf.Name == "config-path" {
+			hasConfigPathFlag = true
+		}
+	}
+	if !hasConfigPathFlag {
+		t.Error("StartCommand should have config-path flag")
 	}
 }
 

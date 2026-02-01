@@ -428,8 +428,14 @@ func validateGateway(name string, config GatewayConfig) error {
 	}
 
 	// Validate at least one server exists.
-	if len(config.MCPServers) == 0 {
-		return fmt.Errorf("gateway '%s': must have at least one MCP server", name)
+	activeMCPServers := []*MCPServerConfig{}
+	for _, serverConfig := range config.MCPServers {
+		if serverConfig.Enabled == nil || *serverConfig.Enabled {
+			activeMCPServers = append(activeMCPServers, serverConfig)
+		}
+	}
+	if len(activeMCPServers) == 0 {
+		return fmt.Errorf("gateway '%s': must have at least one active MCP server", name)
 	}
 
 	// Validate gateway-level processors if present.
