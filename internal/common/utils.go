@@ -17,7 +17,7 @@ func PressEnterToContinue(message string) {
 	if message == "" {
 		message = "\nPress enter to continue...\n"
 	}
-	fmt.Printf(message)
+	fmt.Print(message)
 	reader := bufio.NewReader(os.Stdin)
 	_, _ = reader.ReadString('\n')
 }
