@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/config"
 	"gotest.tools/assert"
 )
 
@@ -206,9 +207,18 @@ func TestImportServers(t *testing.T) {
 		{Name: "two", URL: "https://example.com", SourcePath: "/tmp/two"},
 		{Name: "bad", SourcePath: "/tmp/bad"},
 	}
+	cfg := config.GlobalConfig{
+		Name:    "Valid Server",
+		Version: "1.0.0",
+		Proxy: &config.ProxySettings{
+			Port:    "8080",
+			Timeout: 30,
+		},
+		Gateways: map[string]*config.GatewayConfig{"default": {}},
+	}
 
 	// When: importing servers
-	count := ImportServers(servers)
+	count := ImportServers(servers, &cfg)
 
 	// Then: only valid servers are imported
 	assert.Equal(t, count, 2)

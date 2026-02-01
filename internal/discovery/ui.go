@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/config"
 )
 
 // Source type constants.
@@ -59,98 +60,6 @@ type UserInterface struct {
 func NewDiscoveryUI() *UserInterface {
 	return &UserInterface{
 		reader: bufio.NewReader(os.Stdin),
-	}
-}
-
-// ShowDiscoveryResults displays discovered servers and prompts for user consent.
-func (ui *UserInterface) ShowDiscoveryResults(result *Result) ([]Server, error) {
-	if len(result.Servers) == 0 {
-		if len(result.Errors) > 0 {
-			fmt.Printf("🔍 Searched for existing MCP configurations but found none.\n")
-			fmt.Printf("⚠️  Some locations couldn't be scanned:\n")
-			for _, err := range result.Errors {
-				fmt.Printf("   - %s\n", err)
-			}
-		} else {
-			fmt.Printf("🔍 No existing MCP configurations found.\n")
-		}
-		fmt.Printf("💡 You'll need to add servers manually using 'centian server add'\n\n")
-		return []Server{}, nil
-	}
-
-	// Group the results by source file.
-	grouped := GroupDiscoveryResults(result)
-
-	fmt.Printf("🔍 Found MCP configurations in %d file(s):\n\n", len(grouped.Groups))
-
-	// Display grouped servers.
-	for _, group := range grouped.Groups {
-		fmt.Printf("📁 %s\n", group.SourcePath)
-		fmt.Printf("   📊 %d servers", group.TotalCount)
-
-		if group.StdioCount > 0 || group.HTTPCount > 0 {
-			fmt.Printf(" (stdio: %d, http: %d)", group.StdioCount, group.HTTPCount)
-		}
-
-		if group.DuplicatesFound > 0 {
-			plural := ""
-			if group.DuplicatesFound > 1 {
-				plural = "s"
-			}
-			fmt.Printf(" [🔄 %d duplicate%s merged]", group.DuplicatesFound, plural)
-		}
-
-		fmt.Printf("\n\n")
-	}
-
-	// Show any errors.
-	if len(grouped.Errors) > 0 {
-		fmt.Printf("⚠️  Some locations couldn't be scanned:\n")
-		for _, err := range grouped.Errors {
-			fmt.Printf("   - %s\n", err)
-		}
-		fmt.Printf("\n")
-	}
-
-	// Add option to show detailed view.
-	fmt.Printf("💡 To see individual servers, run: centian discovery --details\n\n")
-
-	// Prompt for consent.
-	return ui.promptForImport(result.Servers)
-}
-
-// promptForImport asks the user which servers to import and offers proxy replacement.
-func (ui *UserInterface) promptForImport(servers []Server) ([]Server, error) {
-	fmt.Printf("Import these servers into centian configuration?\n")
-	fmt.Printf("Options:\n")
-	fmt.Printf("  [a]ll      - Import all servers (default)\n")
-	fmt.Printf("  [s]elect   - Choose specific servers to import\n")
-	fmt.Printf("  [r]eplace  - Replace all discovered configs with centian proxy (creates backup)\n")
-	fmt.Printf("  [sr]       - Select configs to replace with centian proxy\n")
-	fmt.Printf("  [n]one     - Skip import\n")
-	fmt.Printf("Choice [a/s/r/sr/n]: ")
-
-	response, err := ui.reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read input: %w", err)
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	switch response {
-	case "", "a", "all":
-		return servers, nil
-	case "s", "select":
-		return ui.selectServers(servers)
-	case "r", "replace":
-		return ui.promptForReplacement(servers)
-	case "sr":
-		return ui.selectAndReplace(servers)
-	case "n", "none":
-		return []Server{}, nil
-	default:
-		fmt.Printf("Invalid choice. Skipping import.\n")
-		return []Server{}, nil
 	}
 }
 
@@ -303,36 +212,8 @@ func (ui *UserInterface) selectAndReplace(servers []Server) ([]Server, error) {
 	return allSelectedServers, nil
 }
 
-// promptForReplacement asks user about replacing discovered configs with centian proxy.
-func (ui *UserInterface) promptForReplacement(servers []Server) ([]Server, error) {
-	fmt.Printf("🔄 Configuration Replacement\n")
-	fmt.Printf("============================\n")
-	fmt.Printf("💡 This centralizes MCP management through centian.\n")
-	fmt.Printf("Performed steps:\n")
-	fmt.Printf("  1. Import all discovered servers into centian\n")
-	fmt.Printf("  2. Automatically replace MCP configs with Centian proxy (and create a backup file for the old config just in case)\n")
-	fmt.Printf("Proceed with replacement config generation? (y/N): ")
-	response, err := ui.reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read input: %w", err)
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	if response != "y" && response != "yes" {
-		fmt.Printf("Replacement cancelled.\n")
-		return []Server{}, nil
-	}
-
-	// Mark servers for replacement processing.
-	for i := range servers {
-		servers[i].ReplacementMode = true
-	}
-
-	return servers, nil
-}
-
 // ImportServers converts discovered servers to MCPServer configs and adds them to the global config.
-func ImportServers(servers []Server) int {
+func ImportServers(servers []Server, cfg *config.GlobalConfig) int {
 	common.LogInfo("Starting import of %d discovered servers", len(servers))
 
 	imported := 0
@@ -350,19 +231,29 @@ func ImportServers(servers []Server) int {
 		}
 
 		// Convert to MCPServer.
-		// mcpServer := &config.MCPServer{.
-		// 	Name:        discovered.Name,
-		// 	Command:     discovered.Command,
-		// 	Args:        discovered.Args,
-		// 	Env:         discovered.Env,
-		// 	URL:         discovered.URL,
-		// 	Transport:   discovered.Transport,
-		// 	Enabled:     true, // Auto-discovered servers are enabled by default.
-		// 	Description: discovered.Description,
-		// 	Source:      discovered.SourcePath,
-		// }.
+		enabled := true
+		mcpServer := &config.MCPServerConfig{
+			Name:        discovered.Name,
+			Command:     discovered.Command,
+			Args:        discovered.Args,
+			Env:         discovered.Env,
+			URL:         discovered.URL,
+			Enabled:     &enabled, // Auto-discovered servers are enabled by default.
+			Description: discovered.Description,
+			Source:      discovered.SourcePath,
+		}
+		if len(cfg.Gateways) == 0 {
+			cfg.Gateways = map[string]*config.GatewayConfig{
+				"default": {MCPServers: make(map[string]*config.MCPServerConfig)},
+			}
+		}
 
-		// globalConfig.AddServer(discovered.Name, mcpServer).
+		cfg.Gateways["default"].AddServer(discovered.Name, mcpServer)
+		if valErr := config.ValidateConfig(cfg, true); valErr != nil {
+			fmt.Printf("⚠️ Error for: %s (from %s) - %w\n", discovered.Name, discovered.SourcePath, valErr)
+			imported = 0
+			continue
+		}
 		imported++
 		common.LogInfo("Imported server: %s (transport: %s, source: %s)", discovered.Name, discovered.Transport, discovered.SourcePath)
 
@@ -374,12 +265,7 @@ func ImportServers(servers []Server) int {
 
 		fmt.Printf("✅ Imported: %s (from %s)\n", discovered.Name, discovered.SourcePath)
 	}
-
-	// Apply replacement configs if any were requested.
-	if len(replacementConfigs) > 0 {
-		common.LogInfo("Applying %d replacement configs", len(replacementConfigs))
-		applyReplacementConfigs(replacementConfigs)
-	}
+	config.SaveConfig(cfg)
 
 	common.LogInfo("Import completed: %d servers imported successfully", imported)
 	return imported
@@ -394,6 +280,7 @@ func ShowImportSummary(imported int) {
 		return
 	}
 	fmt.Printf("\nImported %d server(s)!\n", imported)
+	common.PressEnterToContinue("")
 }
 
 // generateReplacementConfig creates replacement configuration for a discovered server.

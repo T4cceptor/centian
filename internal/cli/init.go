@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/discovery"
 	"github.com/urfave/cli/v3"
@@ -88,7 +89,8 @@ func (ui *InitUI) promptConfigPath() (string, error) {
 
 	path := strings.TrimSpace(response)
 	if path == "" {
-		return "", fmt.Errorf("no path provided")
+		fmt.Println("No path provided - please enter a valid path.")
+		return ui.promptConfigPath()
 	}
 
 	// Validate file exists.
@@ -104,7 +106,7 @@ func (ui *InitUI) promptConfigPath() (string, error) {
 // add servers to cfg yet (see TODO in runAutoDiscovery).
 //
 //nolint:gosec // G304: path is user-provided intentionally for config import
-func importFromPath(_ *config.GlobalConfig, path string) (int, error) {
+func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read file: %w", err)
@@ -123,7 +125,7 @@ func importFromPath(_ *config.GlobalConfig, path string) (int, error) {
 	fmt.Printf("📦 Found %d server(s) in %s\n", len(servers), path)
 
 	// Import servers using existing discovery import logic.
-	imported := discovery.ImportServers(servers)
+	imported := discovery.ImportServers(servers, cfg)
 	discovery.ShowImportSummary(imported)
 
 	return imported, nil
@@ -271,30 +273,25 @@ func printInitSuccess(configPath string, imported int) {
 
 	fmt.Printf("📋 Next steps:\n")
 	if imported == 0 {
-		fmt.Printf("  1. Add MCP servers to proxy:\n")
+		fmt.Printf(" * Add MCP servers to proxy:\n")
 		fmt.Printf("     centian server add --name \"my-server\" --command \"npx\" --args \"-y,@upstash/context7-mcp,--api-key,YOUR_KEY\"\n\n")
 	}
-	fmt.Printf("  2. Create an API key:\n")
+	fmt.Printf(" * Create an API key:\n")
 	fmt.Printf("     centian auth new-key\n\n")
-	fmt.Printf("  3. Start the proxy:\n")
+	fmt.Printf(" * Start the proxy:\n")
 	fmt.Printf("     centian start\n\n")
-	fmt.Printf("  4. Configure your MCP client to use centian:\n")
+	fmt.Printf(" * Configure your MCP client to use centian:\n")
 	fmt.Printf(`
     {
-        "mcpServers": {
-            "centian": {
-                "url": "http://localhost:8080/mcp/default",
-                "headers": {
-                    "X-Centian-Auth": <your api key - see step 2>
-                }
-            }
-        }
+        "mcpServers": { "centian": { 
+            "url": "http://localhost:8080/mcp/default",
+            "headers": { "X-Centian-Auth": <your api key - see step 2> }
+        }}
     }
-
 `)
 
 	fmt.Printf("💡 Use 'centian config --help' for more configuration options\n")
-	fmt.Printf("Press enter to continue")
+	common.PressEnterToContinue("")
 }
 
 func applyQuickstartConfig(cfg *config.GlobalConfig) {
@@ -352,7 +349,8 @@ func handleQuickstart(configPath string, cfg *config.GlobalConfig) error {
 	fmt.Printf("📁 Configuration created at: %s\n", configPath)
 	fmt.Printf("🔑 API key: %s\n\n", apiKey)
 
-	fmt.Println("MCP client config snippets:")
+	common.PressEnterToContinue("Press enter to display MCP client config snippets:\n")
+
 	fmt.Println("Claude Desktop / Cursor / Zed (mcpServers):")
 	fmt.Printf(`{
   "mcpServers": {

@@ -4,10 +4,23 @@
 package common
 
 import (
+	"bufio"
+	"fmt"
 	"os"
 	"regexp"
 	"time"
 )
+
+// PressEnterToContinue prints the text "Press enter to continue..."
+// and waits for an enter to continue the program flow.
+func PressEnterToContinue(message string) {
+	if message == "" {
+		message = "\nPress enter to continue...\n"
+	}
+	fmt.Printf(message)
+	reader := bufio.NewReader(os.Stdin)
+	_, _ = reader.ReadString('\n')
+}
 
 // GetCurrentWorkingDir gets the current working directory.
 func GetCurrentWorkingDir() string {
