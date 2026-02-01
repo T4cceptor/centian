@@ -28,12 +28,8 @@ func TestInitCommandWorkflow(t *testing.T) {
 		Name: "init",
 		Flags: []urfavecli.Flag{
 			&urfavecli.BoolFlag{Name: "force"},
-			&urfavecli.BoolFlag{Name: "no-discovery"},
 		},
 	}
-
-	// Set the no-discovery flag to avoid complex discovery testing.
-	cmd.Set("no-discovery", "true")
 
 	// Run the init command.
 	err := initCentian(ctx, cmd)
@@ -245,7 +241,7 @@ func TestCLICommandStructure(t *testing.T) {
 	}
 
 	// Verify flags exist.
-	expectedFlags := []string{"force", "no-discovery"}
+	expectedFlags := []string{"force", "quickstart"}
 	flagNames := make(map[string]bool)
 
 	for _, flag := range InitCommand.Flags {
@@ -259,6 +255,4 @@ func TestCLICommandStructure(t *testing.T) {
 			t.Errorf("Expected flag '%s' not found in InitCommand", expected)
 		}
 	}
-
-	t.Log("CLI command structure test completed successfully")
 }

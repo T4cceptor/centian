@@ -142,11 +142,6 @@ var InitCommand = &cli.Command{
 			Aliases: []string{"f"},
 			Usage:   "Overwrite existing configuration if it exists",
 		},
-		&cli.BoolFlag{
-			Name:    "no-discovery",
-			Aliases: []string{"n"},
-			Usage:   "Skip auto-discovery and start with empty configuration",
-		},
 		&cli.StringFlag{
 			Name:    "from-path",
 			Aliases: []string{"p"},
@@ -227,9 +222,6 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		}
 		applyQuickstartConfig(cfg)
 		imported = 1
-	} else if cmd.Bool("no-discovery") {
-		// Flag: empty config.
-		imported = 0
 	} else if fromPath := cmd.String("from-path"); fromPath != "" {
 		// Flag: import from specific path.
 		var importErr error

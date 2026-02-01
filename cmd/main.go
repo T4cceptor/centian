@@ -37,7 +37,7 @@ func main() {
 	// Create CLI app.
 	app := &urfavecli.Command{
 		Name:                  "centian",
-		Description:           "Proxy and modify your MCP server and tools.",
+		Description:           "Proxy and modify MCP servers and tools.",
 		Usage:                 "centian start",
 		Version:               version,
 		EnableShellCompletion: true,
