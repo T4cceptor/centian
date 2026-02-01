@@ -400,7 +400,7 @@ func ShowImportSummary(imported int) {
 	fmt.Printf("  1. Review imported servers:\n")
 	fmt.Printf("     centian config server list\n\n")
 	fmt.Printf("  2. Start the proxy:\n")
-	fmt.Printf("     centian start\n\n")
+	fmt.Printf("     centian server start\n\n")
 	fmt.Printf("  3. Manage servers:\n")
 	fmt.Printf("     centian config server --help\n")
 }

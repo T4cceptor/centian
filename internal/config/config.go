@@ -257,7 +257,7 @@ func DefaultConfig() *GlobalConfig {
 		AuthEnabled: &authEnabled,
 		AuthHeader:  DefaultAuthHeader,
 		Proxy:       &proxySettings,
-		Gateways:    make(map[string]*GatewayConfig),
+		Gateways:    map[string]*GatewayConfig{},
 		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
 		Metadata:    make(map[string]interface{}),
 	}
@@ -307,7 +307,7 @@ func LoadConfig() (*GlobalConfig, error) {
 func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 	// Check if config file exists.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("configuration file not found at %s", path)
+		return nil, fmt.Errorf("configuration file not found at %s - try running 'centian init'", path)
 	}
 
 	// Read config file.
@@ -335,6 +335,18 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
 func SaveConfig(config *GlobalConfig) error {
+	return saveConfig(config, ValidateConfig)
+}
+
+// SaveConfigSchema saves a config file with schema validation only (allows empty gateways).
+func SaveConfigSchema(config *GlobalConfig) error {
+	return saveConfig(config, ValidateConfigSchema)
+}
+
+func saveConfig(config *GlobalConfig, validate func(*GlobalConfig) error) error {
+	if err := validate(config); err != nil {
+		return fmt.Errorf("config is invalid: %w", err)
+	}
 	if err := EnsureConfigDir(); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -392,8 +404,11 @@ func ValidateConfig(config *GlobalConfig) error {
 // This checks operational requirements like having at least one gateway configured.
 func ValidateConfigForServer(config *GlobalConfig) error {
 	if len(config.Gateways) == 0 {
-		// TODO: default config should already include gateways and not throw an error!
-		return fmt.Errorf("no gateways configured. Add at least one gateway with HTTP MCP servers in your config")
+		return fmt.Errorf(`no gateways configured.
+
+To add a new server under the default gateway run:
+
+    centian config server add --name "my-server-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"`)
 	}
 	return nil
 }

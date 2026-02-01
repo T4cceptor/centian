@@ -17,21 +17,28 @@ Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextproto
 curl -fsSL https://github.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-2) **Initialize config**
+2) **Initialize quickstart config (npx required)**
 
 ```bash
-centian init
+centian init --quickstart
 ```
 
-This creates `~/.centian/config.json`.
+This does the following:
+* Creates centian config at `~/.centian/config.json`
+* Adds the `@modelcontextprotocol/server-sequential-thinking` MCP server to the config
+    * You can add more MCP servers by running `centian config server add`:
+    
+    ```
+    centian config server add --name "my-local-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"
 
-3) **Create API key (or explicitly disable auth)**
+    centian config server add --name "my-local-memory" --url "https://mcp.deepwiki.com/mcp"
+    ```
+* Creates an API key to authenticate at the centian proxy
+* Displays MCP client configurations including API key header
+    * NOTE: the API key is only shown ONCE, afterwards its hashed, so be sure to copy it here
+    * Alernatively you can (re)create another API key using `centian server get-key`
 
-```bash
-centian server get-key
-```
-
-4) **Start the proxy**
+3) **Start the proxy**
 
 ```bash
 centian server start
@@ -40,10 +47,13 @@ centian server start
 Default bind: `127.0.0.1:8080`.
 
 > **Security note**
-> Binding to `0.0.0.0` is allowed only if `auth` is explicitly set (true or false). This is enforced to reduce accidental exposure.
+> Binding to `0.0.0.0` is allowed only if `auth` is explicitly set in the config (true or false). This is enforced to reduce accidental exposure.
 
-5) **Point your MCP client to Centian**
+4) **Point your MCP client to Centian**
 
+Copy the provided config json into your MCP client/AI agent settings, and start the agent.
+
+Example:
 ```json
 {
   "mcpServers": {
@@ -56,6 +66,10 @@ Default bind: `127.0.0.1:8080`.
   }
 }
 ```
+
+5) **Done!** - you can now log and process all MCP requests proxied by centian.
+    - (Optional): to process requests and responses by downstream MCPs, add a new processor via `centian processor init` and follow the instructions.
+
 
 ## Configuration
 
@@ -116,7 +130,6 @@ The scaffold can optionally add the processor to your config automatically.
 Centian logs MCP activity to `~/.centian/logs/`:
 
 - `requests.jsonl` – MCP requests with timestamps and session IDs
-- `proxy_operations.jsonl` – lifecycle events (start/stop)
 
 ## Commands (Quick Reference)
 
@@ -152,6 +165,7 @@ go build -o build/centian ./cmd/main.go
 - stdio servers run locally: Stdio MCP servers run on the host under the same user context as Centian. Only configure stdio servers if you trust the clients using Centian, since they can access local resources through those servers. For the future, we are looking into starting stdio-based servers in a virtualized environment.
 - OAuth not yet supported: Centian does not support OAuth (upstream or downstream) in v0.1. You can use headers for auth; client‑provided headers are forwarded, proxy‑configured headers can override them.
 - Shared credentials reduce auditability: If you set auth headers at the proxy level, all downstream requests share the same identity. Prefer per‑client credentials so downstream servers can audit and rate‑limit correctly, or provide appropriate processors and logging to ensure auditability.
+- Future changes: please be aware that the APIs and especially data structures we are using to log events and provide information to processors are still evolving and might change in the future. Further, changes in MCP are reflected by the MCP Go SDK and are dependent on it.
 
 ## Development
 

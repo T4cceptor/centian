@@ -29,6 +29,9 @@ type ShellInfo struct {
 	CompletionLine string // the line to add for completion
 }
 
+// Fish is an animal living underwater...
+const Fish string = "fish"
+
 // DetectShell detects the current shell and returns shell information.
 func DetectShell() (*ShellInfo, error) {
 	// Get shell from SHELL environment variable.
@@ -65,11 +68,9 @@ func DetectShell() (*ShellInfo, error) {
 	case "zsh":
 		info.RCFile = filepath.Join(homeDir, ".zshrc")
 		info.CompletionLine = "source <(centian completion zsh)"
-
-	//nolint:goconst // ignoring "fish" constant for now
-	case "fish":
+	case Fish:
 		// Fish uses a different approach - completion files.
-		fishCompDir := filepath.Join(homeDir, ".config", "fish", "completions")
+		fishCompDir := filepath.Join(homeDir, ".config", Fish, "completions")
 		info.RCFile = filepath.Join(fishCompDir, "centian.fish")
 		info.CompletionLine = "" // Fish doesn't need a line in RC file
 
@@ -96,7 +97,7 @@ func SetupShellCompletion() error {
 	fmt.Printf("📍 Detected shell: %s\n", shellInfo.Name)
 	fmt.Printf("📁 Configuration file: %s\n", shellInfo.RCFile)
 
-	if shellInfo.Name == "fish" {
+	if shellInfo.Name == Fish {
 		fmt.Println("\n💡 Fish shell uses a different completion system.")
 		fmt.Printf("   Completion file will be created at: %s\n", shellInfo.RCFile)
 		fmt.Println("   This will enable tab completion for centian commands.")
@@ -122,7 +123,7 @@ func SetupShellCompletion() error {
 	}
 
 	// Set up completion based on shell type.
-	if shellInfo.Name == "fish" {
+	if shellInfo.Name == Fish {
 		return setupFishCompletion(shellInfo.RCFile)
 	}
 	return setupShellCompletion(shellInfo)

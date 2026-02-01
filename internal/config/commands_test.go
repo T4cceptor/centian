@@ -66,6 +66,8 @@ func TestInitConfig_CreatesDefaultConfig(t *testing.T) {
 	// Given: a clean environment.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
+	restoreStdin := replaceStdin(t, "")
+	defer restoreStdin()
 
 	ctx := context.Background()
 	cmd := &cli.Command{}
@@ -92,6 +94,8 @@ func TestInitConfig_FailsIfConfigExists(t *testing.T) {
 	// Given: an existing config.
 	cleanup := setupTestEnv(t)
 	defer cleanup()
+	restoreStdin := replaceStdin(t, "")
+	defer restoreStdin()
 
 	createTestConfig(t)
 
@@ -103,6 +107,25 @@ func TestInitConfig_FailsIfConfigExists(t *testing.T) {
 
 	// Then: should return error.
 	assert.ErrorContains(t, err, "configuration already exists")
+}
+
+func replaceStdin(t *testing.T, input string) func() {
+	t.Helper()
+	original := os.Stdin
+	tmpFile, err := os.CreateTemp("", "centian-stdin-*")
+	assert.NilError(t, err)
+	if _, err := tmpFile.WriteString(input); err != nil {
+		assert.NilError(t, err)
+	}
+	if _, err := tmpFile.Seek(0, io.SeekStart); err != nil {
+		assert.NilError(t, err)
+	}
+	os.Stdin = tmpFile
+	return func() {
+		os.Stdin = original
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
+	}
 }
 
 // ========================================
@@ -823,10 +846,8 @@ func TestRemoveConfig_RemovesConfigWithForceFlag(t *testing.T) {
 
 	configPath, _ := GetConfigPath()
 	centianDir := filepath.Dir(configPath)
-
-	// Verify config exists.
-	_, err := os.Stat(configPath)
-	assert.NilError(t, err)
+	logDir := filepath.Join(centianDir, "logs")
+	assert.NilError(t, os.MkdirAll(logDir, 0o755))
 
 	ctx := context.Background()
 	cmd := &cli.Command{
@@ -836,14 +857,20 @@ func TestRemoveConfig_RemovesConfigWithForceFlag(t *testing.T) {
 	}
 
 	// When: removing config with force flag.
-	err = removeConfig(ctx, cmd)
+	err := removeConfig(ctx, cmd)
 
 	// Then: should succeed.
 	assert.NilError(t, err)
 
-	// And: centian directory should be removed.
-	_, err = os.Stat(centianDir)
+	// And: config file should be removed.
+	_, err = os.Stat(configPath)
 	assert.Assert(t, os.IsNotExist(err))
+
+	// And: centian directory and other files remain.
+	_, err = os.Stat(centianDir)
+	assert.NilError(t, err)
+	_, err = os.Stat(logDir)
+	assert.NilError(t, err)
 }
 
 func TestRemoveConfig_SucceedsIfNoConfig(t *testing.T) {

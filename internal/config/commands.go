@@ -58,7 +58,7 @@ var configValidateCommand = &cli.Command{
 var configRemoveCommand = &cli.Command{
 	Name:        "remove",
 	Usage:       "Remove configuration file",
-	Description: "Removes ~/.centian/config.json and the entire ~/.centian directory",
+	Description: "Removes ~/.centian/config.json",
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:    "force",
@@ -197,7 +197,7 @@ func initConfig(_ context.Context, _ *cli.Command) error {
 
 	// Create default config.
 	config := DefaultConfig()
-	if err := SaveConfig(config); err != nil {
+	if err := SaveConfigSchema(config); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
@@ -350,7 +350,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		Name:        name,
 		Command:     cmd.String("command"),
 		Args:        cmd.StringSlice("args"),
-		URL:         cmd.String("URL"),
+		URL:         cmd.String("url"),
 		Headers:     cmd.StringMap("headers"),
 		Description: cmd.String("description"),
 		Enabled:     &enabled,
@@ -501,24 +501,24 @@ func toggleServer(name string, enabled bool) error {
 	return nil
 }
 
-// removeConfig removes the entire centian configuration.
+// removeConfig removes the centian configuration file.
 func removeConfig(_ context.Context, cmd *cli.Command) error {
-	configDir, err := GetConfigDir()
+	configPath, err := GetConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
+		return fmt.Errorf("failed to get config path: %w", err)
 	}
 
 	// Check if config exists.
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		fmt.Printf("ℹ️  No configuration found at %s", configDir)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		fmt.Printf("ℹ️  No configuration found at %s", configPath)
 		return nil
 	}
 
 	// Skip confirmation if --force is used.
 	if !cmd.Bool("force") {
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("⚠️  This will permanently remove your centian configuration at:")
-		fmt.Printf("   %s", configDir)
+		fmt.Printf("⚠️  This will permanently remove your centian configuration file at:")
+		fmt.Printf("   %s", configPath)
 		fmt.Printf("\n⚠️ This action cannot be undone. Continue? [y/N]: ")
 
 		response, err := reader.ReadString('\n')
@@ -533,12 +533,12 @@ func removeConfig(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	// Remove the entire config directory.
-	if err := os.RemoveAll(configDir); err != nil {
+	// Remove only the config file.
+	if err := os.Remove(configPath); err != nil {
 		return fmt.Errorf("failed to remove configuration: %w", err)
 	}
 
-	fmt.Println("✅ Configuration removed successfully")
+	fmt.Println("✅ Configuration file removed successfully")
 	fmt.Println("💡 Run 'centian init' to create a new configuration")
 
 	return nil

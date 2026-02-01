@@ -161,12 +161,11 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
-
-	// Display server information.
-	if err := printServerInfo(globalConfig); err != nil {
-		return err
+	err = config.ValidateConfig(globalConfig)
+	if err != nil {
+		return fmt.Errorf("config validation failed for %s: %w", configPath, err)
 	}
+	fmt.Fprintf(os.Stderr, "[CENTIAN] Loaded config from: %s\n", configPath)
 
 	// Create HTTP proxy server.
 	server, err := proxy.NewCentianProxy(globalConfig)
@@ -183,6 +182,11 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 
 	// Start server in background.
 	errChan := make(chan error, 1)
+
+	// Display server information.
+	if err := printServerInfo(globalConfig); err != nil {
+		return err
+	}
 	go func() {
 		if err := server.Server.ListenAndServe(); err != nil {
 			errChan <- fmt.Errorf("HTTP proxy server error: %w", err)
