@@ -197,7 +197,7 @@ func initConfig(_ context.Context, _ *cli.Command) error {
 
 	// Create default config.
 	config := DefaultConfig()
-	if err := SaveConfigSchema(config); err != nil {
+	if err := SaveConfig(config); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 

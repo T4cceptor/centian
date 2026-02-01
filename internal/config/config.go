@@ -325,7 +325,7 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 
 	// Validate config schema (allows empty gateways for config management).
 	// Server startup should call ValidateConfigForServer for operational validation.
-	if err := ValidateConfigSchema(&cfg); err != nil {
+	if err := ValidateConfig(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -336,12 +336,10 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
 func SaveConfig(config *GlobalConfig) error {
+	if err := ValidateConfig(config); err != nil {
+		return fmt.Errorf("config is invalid: %w", err)
+	}
 	return saveConfig(config, ValidateConfig)
-}
-
-// SaveConfigSchema saves a config file with schema validation only (allows empty gateways).
-func SaveConfigSchema(config *GlobalConfig) error {
-	return saveConfig(config, ValidateConfigSchema)
 }
 
 func saveConfig(config *GlobalConfig, validate func(*GlobalConfig) error) error {
@@ -372,10 +370,10 @@ func saveConfig(config *GlobalConfig, validate func(*GlobalConfig) error) error 
 	return nil
 }
 
-// ValidateConfigSchema performs basic schema validation on the configuration.
+// ValidateConfig performs basic schema validation on the configuration.
 // This validates required fields and structure but allows empty gateways.
 // Use ValidateConfigForServer for operational validation before starting a server.
-func ValidateConfigSchema(config *GlobalConfig) error {
+func ValidateConfig(config *GlobalConfig) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
@@ -388,28 +386,6 @@ func ValidateConfigSchema(config *GlobalConfig) error {
 	}
 	if err := validateProcessors(config.Processors); err != nil {
 		return err
-	}
-	return nil
-}
-
-// ValidateConfig performs full validation including operational requirements.
-// This requires at least one gateway to be configured.
-func ValidateConfig(config *GlobalConfig) error {
-	if err := ValidateConfigSchema(config); err != nil {
-		return err
-	}
-	return ValidateConfigForServer(config)
-}
-
-// ValidateConfigForServer validates the config is ready for server operation.
-// This checks operational requirements like having at least one gateway configured.
-func ValidateConfigForServer(config *GlobalConfig) error {
-	if len(config.Gateways) == 0 {
-		return fmt.Errorf(`no gateways configured.
-
-To add a new server under the default gateway run:
-
-    centian config server add --name "my-server-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"`)
 	}
 	return nil
 }

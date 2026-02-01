@@ -248,7 +248,7 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 
 	// Save config (either default or with imported servers).
 	if len(cfg.Gateways) == 0 {
-		if err := config.SaveConfigSchema(cfg); err != nil {
+		if err := config.SaveConfig(cfg); err != nil {
 			return fmt.Errorf("failed to create configuration: %w", err)
 		}
 	} else if err := config.SaveConfig(cfg); err != nil {
