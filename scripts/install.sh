@@ -229,7 +229,8 @@ verify_installation() {
         warn "Make sure ${INSTALL_DIR} is in your PATH"
         echo ""
         if [ "$os" = "windows" ]; then
-            echo "Add ${INSTALL_DIR} to your PATH environment variable"
+            echo "To add to PATH, run this in PowerShell (then restart your terminal):"
+            echo "  [Environment]::SetEnvironmentVariable('Path', \$env:Path + ';${INSTALL_DIR}', 'User')"
         else
             echo "Add this to your shell configuration (~/.bashrc, ~/.zshrc, etc.):"
             echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
