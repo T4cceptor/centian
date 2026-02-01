@@ -358,7 +358,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 	existingGateway.AddServer(name, serverConfig)
 
 	if err := SaveConfig(config); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+		return fmt.Errorf("failed to save configuration: \n%w", err)
 	}
 
 	fmt.Printf("✅ Added server '%s'\n", name)
@@ -450,7 +450,7 @@ func removeServer(_ context.Context, cmd *cli.Command) error {
 	}
 
 	if err := SaveConfig(config); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+		return fmt.Errorf("failed to save configuration: \n%w", err)
 	}
 
 	fmt.Printf("✅ Removed server '%s'\n", serverName)
@@ -490,7 +490,7 @@ func toggleServer(name string, enabled bool) error {
 	}
 
 	if err := SaveConfig(config); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+		return fmt.Errorf("failed to save configuration: \n%w", err)
 	}
 
 	status := "enabled"

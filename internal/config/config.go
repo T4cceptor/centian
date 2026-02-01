@@ -339,13 +339,10 @@ func SaveConfig(config *GlobalConfig) error {
 	if err := ValidateConfig(config); err != nil {
 		return fmt.Errorf("config is invalid: %w", err)
 	}
-	return saveConfig(config, ValidateConfig)
+	return saveConfig(config)
 }
 
-func saveConfig(config *GlobalConfig, validate func(*GlobalConfig) error) error {
-	if err := validate(config); err != nil {
-		return fmt.Errorf("config is invalid: %w", err)
-	}
+func saveConfig(config *GlobalConfig) error {
 	if err := EnsureConfigDir(); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
