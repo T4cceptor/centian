@@ -305,7 +305,6 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 				// NOTE: this is important as we want the client to know we support tools,
 				// however these are NOT added initially and will only be available on the
 				// first connect
-				// TODO: double check how this can work with auth flows
 			},
 		},
 	})

@@ -587,7 +587,6 @@ func TestPromptUserToSelectServer_Details(t *testing.T) {
 
 	got := captureStdout(t, func() {
 		result, err := promptUserToSelectServer(results, "server1")
-		// TODO: put stdin, then expect certain result - then check out.
 		assert.NilError(t, err)
 		assert.Assert(t, result.server.Name == "server1")
 		assert.Assert(t, result.gatewayName == "gateway1")

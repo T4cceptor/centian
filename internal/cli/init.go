@@ -389,6 +389,7 @@ func printQuickstartSummary(configPath string, cfg *config.GlobalConfig, apiKey 
 func runAutoDiscovery(_ *config.GlobalConfig) int {
 	// TODO: instead of adding the found servers to the file it
 	// should add it to the cfg object, then use existing methods to store that config.
+	// TODO: refactor discovery!
 
 	fmt.Printf("🔍 Scanning for existing MCP configurations...\n")
 	time.Sleep(1 * time.Second)

@@ -193,7 +193,6 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 		}
 	}()
 
-	// TODO: add info about started servers/endpoints
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Proxy servers started successfully\n")
 	fmt.Fprintf(os.Stderr, "[CENTIAN] Press Ctrl+C to stop\n\n")
 

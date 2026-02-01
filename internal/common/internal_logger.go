@@ -22,7 +22,6 @@ func newInternalLogger() (*InternalLogger, error) {
 	}
 
 	// Create .centian directory if it doesn't exist.
-	// TODO: move this into a utils function.
 	centianDir := filepath.Join(homeDir, ".centian")
 	if err := os.MkdirAll(centianDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create .centian directory: %w", err)

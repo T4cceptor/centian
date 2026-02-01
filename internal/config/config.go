@@ -230,6 +230,7 @@ type ConnectionContext struct {
 	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
 	SessionID  string `json:"session_id"`  // Unique session identifier
 	// TODO: potentially add server data in here like URL/CMD, headers/args, etc.
+	// see also chain.go - line 89 - talking about the same idea
 }
 
 // ProcessorMetadata contains additional context for processor execution.
