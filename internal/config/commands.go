@@ -52,7 +52,7 @@ var configValidateCommand = &cli.Command{
 	Name:        "validate",
 	Usage:       "Validate configuration file",
 	Description: "Validates the syntax and content of ~/.centian/config.json",
-	Action:      validateConfig,
+	Action:      validateConfigCommand,
 }
 
 var configRemoveCommand = &cli.Command{
@@ -247,13 +247,12 @@ func showConfig(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func validateConfig(_ context.Context, _ *cli.Command) error {
+func validateConfigCommand(_ context.Context, _ *cli.Command) error {
 	config, err := LoadConfig()
-	if err != nil {
-		return fmt.Errorf("❌ Configuration validation failed: %w", err)
+	if err == nil {
+		err = ValidateConfig(config, true)
 	}
-
-	if err := ValidateConfig(config); err != nil {
+	if err != nil {
 		return fmt.Errorf("❌ Configuration validation failed: %w", err)
 	}
 
@@ -361,7 +360,7 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to save configuration: \n%w", err)
 	}
 
-	fmt.Printf("✅ Added server '%s'\n", name)
+	fmt.Printf("✅ Added server '%s' to gateway '%s'\n", name, gatewayName)
 	return nil
 }
 

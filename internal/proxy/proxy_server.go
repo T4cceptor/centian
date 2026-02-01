@@ -76,7 +76,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 		loadedStore, err := auth.LoadDefaultAPIKeys()
 		if err != nil {
 			if errors.Is(err, auth.ErrAPIKeysNotFound) {
-				return nil, fmt.Errorf("api key auth enabled but key file not found - run `centian server get-key` to create a new api key: %w", err)
+				return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian server get-key` to create a new api key\nError: %w", err)
 			}
 			return nil, fmt.Errorf("failed to load api keys: %w", err)
 		}

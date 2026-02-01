@@ -248,7 +248,7 @@ func TestValidateConfig_SucceedsForValidConfig(t *testing.T) {
 	os.Stdout = w
 
 	// When: validating config.
-	err := validateConfig(ctx, cmd)
+	err := validateConfigCommand(ctx, cmd)
 
 	// Restore stdout.
 	w.Close()
@@ -275,7 +275,7 @@ func TestValidateConfig_FailsIfNoConfig(t *testing.T) {
 	cmd := &cli.Command{}
 
 	// When: validating config.
-	err := validateConfig(ctx, cmd)
+	err := validateConfigCommand(ctx, cmd)
 
 	// Then: should return error.
 	assert.ErrorContains(t, err, "Configuration validation failed")
@@ -300,7 +300,7 @@ func TestValidateConfig_FailsForInvalidConfig(t *testing.T) {
 	cmd := &cli.Command{}
 
 	// When: validating config.
-	err = validateConfig(ctx, cmd)
+	err = validateConfigCommand(ctx, cmd)
 
 	// Then: should return error.
 	assert.ErrorContains(t, err, "Configuration validation failed")

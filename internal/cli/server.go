@@ -161,7 +161,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
-	err = config.ValidateConfig(globalConfig)
+	err = config.ValidateConfig(globalConfig, true)
 	if err != nil {
 		return fmt.Errorf("config validation failed for %s: %w", configPath, err)
 	}

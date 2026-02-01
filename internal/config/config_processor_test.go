@@ -244,7 +244,7 @@ func TestProcessorValidation(t *testing.T) {
 				tt.config.Proxy = &ProxySettings{}
 			}
 
-			err := ValidateConfig(tt.config)
+			err := ValidateConfig(tt.config, true)
 
 			if tt.wantError {
 				if err == nil {

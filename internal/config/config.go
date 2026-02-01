@@ -325,7 +325,7 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 
 	// Validate config schema (allows empty gateways for config management).
 	// Server startup should call ValidateConfigForServer for operational validation.
-	if err := ValidateConfig(&cfg); err != nil {
+	if err := ValidateConfig(&cfg, false); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
@@ -336,7 +336,7 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
 func SaveConfig(config *GlobalConfig) error {
-	if err := ValidateConfig(config); err != nil {
+	if err := ValidateConfig(config, false); err != nil {
 		return fmt.Errorf("config is invalid: %w", err)
 	}
 	return saveConfig(config)
@@ -370,26 +370,32 @@ func saveConfig(config *GlobalConfig) error {
 // ValidateConfig performs basic schema validation on the configuration.
 // This validates required fields and structure but allows empty gateways.
 // Use ValidateConfigForServer for operational validation before starting a server.
-func ValidateConfig(config *GlobalConfig) error {
+func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
 	if config.Proxy == nil {
 		return fmt.Errorf("proxy settings are required in config")
 	}
-	// Validate gateways that exist (but allow empty)
-	if err := validateExistingGateways(config.Gateways); err != nil {
-		return err
-	}
-	if err := validateProcessors(config.Processors); err != nil {
-		return err
+
+	if strict {
+		// Validate config for operational purposes - meaning: can we start the server with this?
+		if err := validateGateways(config.Gateways); err != nil {
+			return err
+		}
+		if err := validateProcessors(config.Processors); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// validateExistingGateways validates gateway configurations without requiring any.
+// validateGateways validates gateway configurations without requiring any.
 // This allows empty gateway maps (for freshly initialized configs).
-func validateExistingGateways(gateways map[string]*GatewayConfig) error {
+func validateGateways(gateways map[string]*GatewayConfig) error {
+	if len(gateways) == 0 {
+		return fmt.Errorf("no gateways configured - at least one gateway is required")
+	}
 	for gatewayName, gatewayConfig := range gateways {
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err
