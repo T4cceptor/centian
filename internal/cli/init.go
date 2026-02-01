@@ -247,23 +247,31 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 	}
 
 	// Save config (either default or with imported servers).
-	if len(cfg.Gateways) == 0 {
-		if err := config.SaveConfig(cfg); err != nil {
-			return fmt.Errorf("failed to create configuration: %w", err)
-		}
-	} else if err := config.SaveConfig(cfg); err != nil {
+	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
 	if quickstart {
-		apiKey, err := createDefaultAPIKey()
-		if err != nil {
-			return err
-		}
-		printQuickstartSummary(configPath, cfg, apiKey)
-		return nil
+		return handleQuickstart(configPath, cfg)
 	}
 
+	printInitSuccess(configPath, imported)
+	_, _ = ui.reader.ReadString('\n')
+
+	// Offer to set up shell completion.
+	offerShellCompletion()
+
+	return nil
+}
+
+func offerShellCompletion() {
+	if err := SetupShellCompletion(); err != nil {
+		fmt.Printf("⚠️  Shell completion setup failed: %v\n", err)
+		fmt.Printf("   You can set it up manually later using: centian completion <shell>\n")
+	}
+}
+
+func printInitSuccess(configPath string, imported int) {
 	fmt.Printf("\n🎉 Centian initialized successfully!\n")
 	fmt.Printf("📁 Configuration created at: %s\n\n", configPath)
 
@@ -293,16 +301,6 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 
 	fmt.Printf("💡 Use 'centian config --help' for more configuration options\n")
 	fmt.Printf("Press enter to continue")
-
-	_, _ = ui.reader.ReadString('\n')
-
-	// Offer to set up shell completion.
-	if err := SetupShellCompletion(); err != nil {
-		fmt.Printf("⚠️  Shell completion setup failed: %v\n", err)
-		fmt.Printf("   You can set it up manually later using: centian completion <shell>\n")
-	}
-
-	return nil
 }
 
 func applyQuickstartConfig(cfg *config.GlobalConfig) {
@@ -344,7 +342,11 @@ func createDefaultAPIKey() (string, error) {
 	return key, nil
 }
 
-func printQuickstartSummary(configPath string, cfg *config.GlobalConfig, apiKey string) {
+func handleQuickstart(configPath string, cfg *config.GlobalConfig) error {
+	apiKey, err := createDefaultAPIKey()
+	if err != nil {
+		return err
+	}
 	host := cfg.Proxy.Host
 	if host == "" {
 		host = config.DefaultProxyHost
@@ -383,6 +385,7 @@ func printQuickstartSummary(configPath string, cfg *config.GlobalConfig, apiKey 
 }
 `, endpoint, authHeader, apiKey)
 	fmt.Println("\nCopy the above snippets into your MCP client settings and start centian by running 'centian server start'.")
+	return nil
 }
 
 // runAutoDiscovery performs MCP server auto-discovery and handles user interaction.
