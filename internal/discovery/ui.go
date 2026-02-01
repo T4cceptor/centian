@@ -250,7 +250,7 @@ func ImportServers(servers []Server, cfg *config.GlobalConfig) int {
 
 		cfg.Gateways["default"].AddServer(discovered.Name, mcpServer)
 		if valErr := config.ValidateConfig(cfg, true); valErr != nil {
-			fmt.Printf("⚠️ Error for: %s (from %s) - %w\n", discovered.Name, discovered.SourcePath, valErr)
+			fmt.Printf("⚠️ Error for: %s (from %s) - %s\n", discovered.Name, discovered.SourcePath, valErr.Error())
 			imported = 0
 			continue
 		}
