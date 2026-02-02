@@ -153,6 +153,9 @@ type MCPProxy struct {
 	eventProcessor *EventProcessor
 
 	mu sync.RWMutex
+
+	// toolRegMu protects AddTool calls during progressive registration
+	toolRegMu sync.Mutex
 }
 
 // NewAggregatedProxy creates a proxy that aggregates multiple downstream servers.
@@ -206,13 +209,7 @@ func (p *MCPProxy) GetServerForRequest(r *http.Request) *mcp.Server {
 	if !exists {
 		session = p.createSession(sessionID, r)
 		p.sessions[sessionID] = session
-		upstreamServer, err := p.getServerForSession(session)
-		if err != nil {
-			common.LogError(err.Error())
-			return nil
-		} else {
-			session.upstreamServer = upstreamServer
-		}
+		session.upstreamServer = p.getServerForSession(session)
 	}
 	return session.upstreamServer
 }
@@ -237,10 +234,17 @@ func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySessio
 	}
 }
 
-// handleInitialize connects to downstream server(s) and registers their tools.
-func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Server, error) {
+// Minimum wait time before returning server during progressive connection.
+// Can be overridden via config in the future.
+const defaultMinConnectionWait = 15 * time.Second
+
+// getServerForSession connects to downstream server(s) and registers their tools progressively.
+// Uses progressive connection: server is returned after minWait even if some downstreams are still connecting.
+// Tools are registered as each downstream connects, and SDK auto-sends tools/list_changed notifications.
+// Always returns a valid server (possibly with no tools if all connections failed).
+func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server {
 	if session.initialized {
-		return session.upstreamServer, nil
+		return session.upstreamServer
 	}
 
 	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, session.id)
@@ -248,45 +252,68 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 	// Log session initialization event
 	p.logSessionEvent(session, "session_init", "Session initialization started")
 
-	// Connect to all downstreams (parallel for aggregated, single iteration for single mode)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var connectionErrors []string
-
-	for serverName, connTemplate := range p.downstreams {
-		wg.Add(1)
-		go func(name string, template *DownstreamConnection) {
-			defer wg.Done()
-
-			// Create fresh connection for this session
-			conn := NewDownstreamConnection(name, template.config)
-			ctx := context.Background()
-			if err := conn.Connect(ctx, session.authHeaders); err != nil {
-				mu.Lock()
-				connectionErrors = append(connectionErrors, fmt.Sprintf("%s: %v", name, err))
-				mu.Unlock()
-				log.Printf("MCPProxy[%s]: Failed to connect to %s: %v", p.name, name, err)
-				return
-			}
-
-			mu.Lock()
-			session.downstreamConns[name] = conn
-			mu.Unlock()
-
-			log.Printf("MCPProxy[%s]: Connected to %s, found %d tools", p.name, name, len(conn.Tools()))
-		}(serverName, connTemplate)
-	}
-
-	wg.Wait()
-	if len(session.downstreamConns) == 0 {
-		return nil, fmt.Errorf("failed to connect to any downstream servers: %v", connectionErrors)
-	}
-
-	// Register tools from all connected downstreams
+	// Create server immediately (empty tools initially)
 	server := p.NewMcpServer()
-	p.registerToolsForSession(server, session)
+	session.upstreamServer = server
+
+	// Pre-create DownstreamConnection objects (status: pending)
+	// This allows us to query their state during/after connection
+	// Note: No lock needed here - session is not yet visible to other goroutines
+	// (session.initialized is false, and we complete all writes before spawning goroutines)
+	for serverName, connTemplate := range p.downstreams {
+		conn := NewDownstreamConnection(serverName, connTemplate.config)
+		session.downstreamConns[serverName] = conn
+	}
+
+	totalDownstreams := len(p.downstreams)
+	if totalDownstreams == 0 {
+		// No downstreams configured - return empty server
+		session.initialized = true
+		log.Printf("MCPProxy[%s]: No downstream servers configured", p.name)
+		return server
+	}
+
+	// Channel to signal connection completion (success or failure)
+	done := make(chan string, totalDownstreams)
+
+	// Spawn connection goroutines - tools are registered as each connects
+	for serverName := range p.downstreams {
+		go p.connectAndRegister(session, server, serverName, done)
+	}
+
+	// Wait phase: minimum wait time OR all connections resolved (whichever first)
+	resolved := p.waitForMinimumReady(done, totalDownstreams, defaultMinConnectionWait)
+
 	session.initialized = true
-	return server, nil
+
+	// Count successful connections
+	connectedCount := 0
+	for _, conn := range session.downstreamConns {
+		if conn.Status() == StatusConnected {
+			connectedCount++
+		}
+	}
+
+	switch {
+	case connectedCount == 0 && resolved >= totalDownstreams:
+		// All connections attempted but none succeeded
+		var connErrors []string
+		for name, conn := range session.downstreamConns {
+			if conn.Status() == StatusFailed && conn.Error() != nil {
+				connErrors = append(connErrors, fmt.Sprintf("%s: %v", name, conn.Error()))
+			}
+		}
+		log.Printf("MCPProxy[%s]: All connections failed: %v", p.name, connErrors)
+		// Return server anyway - client will get empty tool list
+		// This is arguably correct: no tools are available
+	case connectedCount == 0:
+		log.Printf("MCPProxy[%s]: No connections ready after initial wait, continuing in background", p.name)
+	default:
+		log.Printf("MCPProxy[%s]: %d/%d connections ready, %d still connecting",
+			p.name, connectedCount, totalDownstreams, totalDownstreams-resolved)
+	}
+
+	return server
 }
 
 // NewMcpServer returns a new *mcp.Server based on the MCPProxy name.
@@ -310,16 +337,6 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	})
 }
 
-// registerToolsForSession registers tools from all downstream connections.
-// If namespaceTools is true, tools are prefixed with "serverName__".
-func (p *MCPProxy) registerToolsForSession(server *mcp.Server, session *CentianProxySession) {
-	for serverName, conn := range session.downstreamConns {
-		for _, tool := range conn.Tools() {
-			p.registerTool(server, session, serverName, tool)
-		}
-	}
-}
-
 func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession, serverName string, tool *mcp.Tool) {
 	clonedTool := deepCloneTool(tool)
 	toolServerName := serverName // capture for closure
@@ -334,6 +351,73 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 	server.AddTool(clonedTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return p.handleToolCall(ctx, session, toolServerName, req)
 	})
+}
+
+// connectAndRegister handles single downstream connection + tool registration.
+// Connection must already exist in session.downstreamConns with status pending.
+func (p *MCPProxy) connectAndRegister(
+	session *CentianProxySession,
+	server *mcp.Server,
+	serverName string,
+	done chan<- string,
+) {
+	defer func() { done <- serverName }()
+
+	// Get the pre-created connection (status: pending)
+	// Note: No lock needed - session.downstreamConns was fully populated before this goroutine started
+	conn := session.downstreamConns[serverName]
+
+	if conn == nil {
+		log.Printf("MCPProxy[%s]: No connection object for %s", p.name, serverName)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Connect updates conn.status internally (connecting → connected/failed)
+	if err := conn.Connect(ctx, session.authHeaders); err != nil {
+		// conn.status already set to StatusFailed by Connect()
+		log.Printf("MCPProxy[%s]: Failed to connect to %s: %v", p.name, serverName, err)
+		return
+	}
+
+	// Connection successful - register tools with mutex protection
+	p.toolRegMu.Lock()
+	for _, tool := range conn.Tools() {
+		p.registerTool(server, session, serverName, tool)
+	}
+	p.toolRegMu.Unlock()
+
+	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, serverName, len(conn.Tools()))
+}
+
+// waitForMinimumReady waits for minimum time OR all connections resolved (whichever first).
+func (p *MCPProxy) waitForMinimumReady(
+	done <-chan string,
+	total int,
+	minWait time.Duration,
+) int {
+	resolved := 0
+
+	timer := time.NewTimer(minWait)
+	defer timer.Stop()
+
+	for resolved < total {
+		select {
+		case <-done:
+			resolved++
+			// If all connections resolved before minWait, exit early
+			if resolved >= total {
+				return resolved
+			}
+		case <-timer.C:
+			// Minimum wait elapsed - return control to caller
+			// Remaining connections continue in background
+			log.Printf("MCPProxy[%s]: Minimum wait elapsed, %d/%d connections resolved", p.name, resolved, total)
+			return resolved
+		}
+	}
+	return resolved
 }
 
 func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
