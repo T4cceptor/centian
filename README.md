@@ -2,6 +2,11 @@
 
 Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextprotocol.io/)) proxy that adds **processing hooks**, **gateway aggregation**, and **structured logging** to MCP server traffic.
 
+<p align="center">
+  <img src="docs/images/centian_simple_diag.png" alt="Centian Proxy Diagram" width="100%">
+</p>
+
+
 ## Highlights
 
 - **Programmable MCP traffic processing** – inspect, modify, block, or enrich requests and responses with processor scripts.
