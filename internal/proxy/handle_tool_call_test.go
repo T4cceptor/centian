@@ -33,44 +33,6 @@ func (m *MockEventProcessor) Process(callCtx CallContext) error {
 	return nil
 }
 
-// MockDownstreamConnection is a test double for DownstreamConnectionInterface.
-// It captures tool calls and returns configurable results.
-type MockDownstreamConnection struct {
-	connected bool
-	tools     []*mcp.Tool
-	cfg       *config.MCPServerConfig
-
-	// Captured call data
-	CapturedToolName string
-	CapturedArgs     map[string]any
-
-	// Result to return
-	ResultToReturn *mcp.CallToolResult
-	ErrorToReturn  error
-}
-
-func (m *MockDownstreamConnection) CallTool(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
-	m.CapturedToolName = toolName
-	m.CapturedArgs = args
-	return m.ResultToReturn, m.ErrorToReturn
-}
-
-func (m *MockDownstreamConnection) IsConnected() bool {
-	return m.connected
-}
-
-func (m *MockDownstreamConnection) Tools() []*mcp.Tool {
-	return m.tools
-}
-
-func (m *MockDownstreamConnection) Close() error {
-	return nil
-}
-
-func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
-	return m.cfg
-}
-
 func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface) *MCPProxy {
 	t.Helper()
 

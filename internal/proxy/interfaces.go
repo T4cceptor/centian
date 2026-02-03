@@ -19,6 +19,9 @@ type DownstreamConnectionInterface interface {
 	Tools() []*mcp.Tool
 	Close() error
 	GetConfig() *config.MCPServerConfig
+	GetStatus() ConnectionStatus
+	GetError() error
+	Connect(context.Context, map[string]string) error
 }
 
 // Compile-time interface compliance checks.

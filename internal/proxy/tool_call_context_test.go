@@ -13,39 +13,6 @@ import (
 	"gotest.tools/assert"
 )
 
-type stubDownstreamConnection struct {
-	cfg       *config.MCPServerConfig
-	connected bool
-
-	callResult *mcp.CallToolResult
-	callErr    error
-
-	calledTool string
-	calledArgs map[string]any
-}
-
-func (s *stubDownstreamConnection) CallTool(_ context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
-	s.calledTool = toolName
-	s.calledArgs = args
-	return s.callResult, s.callErr
-}
-
-func (s *stubDownstreamConnection) IsConnected() bool {
-	return s.connected
-}
-
-func (s *stubDownstreamConnection) Tools() []*mcp.Tool {
-	return nil
-}
-
-func (s *stubDownstreamConnection) Close() error {
-	return nil
-}
-
-func (s *stubDownstreamConnection) GetConfig() *config.MCPServerConfig {
-	return s.cfg
-}
-
 type noopLogHandler struct{}
 
 func (l *noopLogHandler) ToLogEntry(_ CallContext) *common.MCPEvent {
@@ -63,7 +30,7 @@ func TestBuildRoutingContext(t *testing.T) {
 	t.Run("http transport", func(t *testing.T) {
 		session := &CentianProxySession{
 			downstreamConns: map[string]DownstreamConnectionInterface{
-				"srv": &stubDownstreamConnection{
+				"srv": &MockDownstreamConnection{
 					cfg: &config.MCPServerConfig{URL: "https://example.com/mcp"},
 				},
 			},
@@ -83,7 +50,7 @@ func TestBuildRoutingContext(t *testing.T) {
 	t.Run("stdio transport", func(t *testing.T) {
 		session := &CentianProxySession{
 			downstreamConns: map[string]DownstreamConnectionInterface{
-				"srv": &stubDownstreamConnection{
+				"srv": &MockDownstreamConnection{
 					cfg: &config.MCPServerConfig{
 						Command: "python3",
 						Args:    []string{"processor.py"},
@@ -155,7 +122,7 @@ func TestNewToolCallContext(t *testing.T) {
 		session := &CentianProxySession{
 			id: "sess-1",
 			downstreamConns: map[string]DownstreamConnectionInterface{
-				"srv": &stubDownstreamConnection{
+				"srv": &MockDownstreamConnection{
 					cfg: &config.MCPServerConfig{URL: "https://example.com/mcp"},
 				},
 			},
@@ -231,7 +198,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 	})
 
 	t.Run("fails when connection is not connected", func(t *testing.T) {
-		toolCtx := makeContext(&stubDownstreamConnection{
+		toolCtx := makeContext(&MockDownstreamConnection{
 			cfg:       &config.MCPServerConfig{Command: "python3"},
 			connected: false,
 		}, json.RawMessage(`{}`))
@@ -241,7 +208,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 	})
 
 	t.Run("fails on invalid request arguments", func(t *testing.T) {
-		toolCtx := makeContext(&stubDownstreamConnection{
+		toolCtx := makeContext(&MockDownstreamConnection{
 			cfg:       &config.MCPServerConfig{Command: "python3"},
 			connected: true,
 		}, json.RawMessage(`{invalid}`))
@@ -251,10 +218,10 @@ func TestToolCallContextSendRequest(t *testing.T) {
 	})
 
 	t.Run("returns downstream call error", func(t *testing.T) {
-		toolCtx := makeContext(&stubDownstreamConnection{
-			cfg:       &config.MCPServerConfig{Command: "python3"},
-			connected: true,
-			callErr:   errors.New("downstream failed"),
+		toolCtx := makeContext(&MockDownstreamConnection{
+			cfg:           &config.MCPServerConfig{Command: "python3"},
+			connected:     true,
+			ErrorToReturn: errors.New("downstream failed"),
 		}, json.RawMessage(`{"a":1}`))
 
 		err := toolCtx.SendRequest(context.Background())
@@ -262,10 +229,10 @@ func TestToolCallContextSendRequest(t *testing.T) {
 	})
 
 	t.Run("successfully calls downstream and sets result", func(t *testing.T) {
-		conn := &stubDownstreamConnection{
+		conn := &MockDownstreamConnection{
 			cfg:       &config.MCPServerConfig{Command: "python3"},
 			connected: true,
-			callResult: &mcp.CallToolResult{
+			ResultToReturn: &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
 			},
 		}
@@ -273,8 +240,8 @@ func TestToolCallContextSendRequest(t *testing.T) {
 
 		err := toolCtx.SendRequest(context.Background())
 		assert.NilError(t, err)
-		assert.Equal(t, conn.calledTool, "tool_name")
-		assert.Equal(t, conn.calledArgs["a"], float64(1))
+		assert.Equal(t, conn.CapturedToolName, "tool_name")
+		assert.Equal(t, conn.CapturedArgs["a"], float64(1))
 		assert.Assert(t, toolCtx.HasResult())
 		assert.Assert(t, toolCtx.GetResult() != nil)
 		assert.Assert(t, toolCtx.GetOriginalResult() == toolCtx.GetResult())
