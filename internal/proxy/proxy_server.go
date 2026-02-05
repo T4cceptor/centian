@@ -17,6 +17,7 @@ import (
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/processor"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -107,14 +108,14 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 // For aggregated mode, the map has multiple entries.
 type CentianProxySession struct {
 	id              string
-	initialized     bool
-	upstreamServer  *mcp.Server
-	downstreamConns map[string]*DownstreamConnection // serverName → connection
-	authHeaders     map[string]string
+	initialized     bool                                     // TODO: when is this true?
+	upstreamServer  *mcp.Server                              // The upstream server, connecting to the MCP client/AI agent
+	downstreamConns map[string]DownstreamConnectionInterface // Downstream MCP servers
+	authHeaders     map[string]string                        // Auth headers provided by the client for this session
 }
 
 // GetConnectionByName returns a MCP connection for the given server name.
-func (s *CentianProxySession) GetConnectionByName(serverName string) (*DownstreamConnection, error) {
+func (s *CentianProxySession) GetConnectionByName(serverName string) (DownstreamConnectionInterface, error) {
 	conn, ok := s.downstreamConns[serverName]
 	if !ok {
 		return nil, fmt.Errorf("no connection to server '%s' found", serverName)
@@ -150,7 +151,7 @@ type MCPProxy struct {
 	config *config.GatewayConfig
 
 	// Event processor for logging and processing hooks
-	eventProcessor *EventProcessor
+	eventProcessor EventProcessorInterface
 
 	mu sync.RWMutex
 }
@@ -217,7 +218,7 @@ func (p *MCPProxy) GetServerForRequest(r *http.Request) *mcp.Server {
 	return session.upstreamServer
 }
 
-func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySession {
+func getAuthHeaders(p *MCPProxy, r *http.Request) map[string]string {
 	authHeaders := make(map[string]string)
 	// Capture auth headers from upstream request for passthrough
 	// TODO: make these headers configurable
@@ -229,10 +230,15 @@ func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySessio
 			authHeaders[h] = v
 		}
 	}
+	return authHeaders
+}
+
+func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySession {
+	authHeaders := getAuthHeaders(p, r)
 	return &CentianProxySession{
 		id:              id,
 		initialized:     false,
-		downstreamConns: make(map[string]*DownstreamConnection),
+		downstreamConns: make(map[string]DownstreamConnectionInterface),
 		authHeaders:     authHeaders,
 	}
 }
@@ -301,17 +307,16 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{
 			Tools: &mcp.ToolCapabilities{
+				// NOTE: setting ListChanged: true is important as we want the client to know we support
+				// tools, however these are added on client connect and might not be available immediately
+				// on initialize
 				ListChanged: true,
-				// NOTE: this is important as we want the client to know we support tools,
-				// however these are NOT added initially and will only be available on the
-				// first connect
 			},
 		},
 	})
 }
 
 // registerToolsForSession registers tools from all downstream connections.
-// If namespaceTools is true, tools are prefixed with "serverName__".
 func (p *MCPProxy) registerToolsForSession(server *mcp.Server, session *CentianProxySession) {
 	for serverName, conn := range session.downstreamConns {
 		for _, tool := range conn.Tools() {
@@ -330,7 +335,6 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 		clonedTool.Description = fmt.Sprintf("[%s] %s", serverName, tool.Description)
 	}
 	// else: pass-through mode - keep original name
-
 	server.AddTool(clonedTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return p.handleToolCall(ctx, session, toolServerName, req)
 	})
@@ -359,6 +363,8 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 
 		// Check if request was rejected by processor
 		if reqEvent.Status >= 400 {
+			// TODO: decide if http status codes make sense here
+			// we might want to introduce our own flow controls
 			errMsg := "Request rejected by processor"
 			if reqEvent.Error != "" {
 				errMsg = reqEvent.Error
@@ -378,14 +384,15 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	toolName := req.Params.Name
 	if p.isAggregatedProxy {
 		// here we need to modify the tool name to restore the original downstream
-		// name, otherwise the tool will not be found (it does not exist on the
-		// downstream server)
+		// name, otherwise the tool will not be found, as it has a different name
+		// on the downstream server
 		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
 		if len(parts) < 2 {
 			return nil, fmt.Errorf("failed to recreate original tool name from: %s", req.Params.Name)
 		}
 		toolName = strings.Join(parts[1:], "")
 	}
+	// TODO: use reqEvent.RawMessage (or sub-content) as args -> we want to modify the MCP request
 	result, err := conn.CallTool(ctx, toolName, args)
 	if err != nil {
 		return nil, err
@@ -400,9 +407,22 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 			common.LogError("response processing error: %s", err.Error())
 		}
 
+		// result.Content // TODO
+		// we would need to transform respEvent.RawMessage() back to some Content
+		// maybe there is an easier way?
+
 		// If response was modified by processor, we could update result here
 		// For now, we just log - modification would require parsing respEvent.RawMessage()
 	}
+	// TODO: use respEvent.RawMessage (or sub-content) as result -> we want to modify the response
+	// TODO: write an appropriate integration test that:
+	// - configures a processor for response and request
+	// - provides a super basic MCP server
+	// - MCP server just logs requests and provides a "hello world" message
+	// - test assumes that:
+	// 		- logged request of MCP server is as expected - e.g. a specific message is available based on request processor
+	// 		- returned result here is as expected -e.g. a specific message is available based on response processor
+	// if we refactor the eventProcessor into an interface testing this should become super simple - I dont even need an MCP server.
 
 	return result, nil
 }
@@ -417,8 +437,9 @@ func getRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName
 			Endpoint:   proxy.endpoint,
 		}
 	}
+	cfg := connection.GetConfig()
 	transport := common.HTTPTransport
-	if connection.config.URL == "" && connection.config.Command != "" {
+	if cfg.URL == "" && cfg.Command != "" {
 		transport = common.StdioTransport
 	}
 	return &common.RoutingContext{
@@ -426,9 +447,9 @@ func getRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName
 		Gateway:           proxy.name,
 		ServerName:        serverName,
 		Endpoint:          proxy.endpoint,
-		DownstreamURL:     connection.config.URL,
-		DownstreamCommand: connection.config.Command,
-		Args:              connection.config.Args,
+		DownstreamURL:     cfg.URL,
+		DownstreamCommand: cfg.Command,
+		Args:              cfg.Args,
 	}
 }
 
@@ -443,10 +464,7 @@ func (p *MCPProxy) buildRequestEvent(session *CentianProxySession, serverName st
 	rawMsg, _ := json.Marshal(map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  "tools/call",
-		"params": map[string]interface{}{
-			"name":      req.Params.Name,
-			"arguments": req.Params.Arguments,
-		},
+		"params":  req.Params,
 	})
 	routing := getRoutingContext(p, session, serverName)
 	event := common.NewMCPRequestEvent(string(routing.Transport)).
@@ -480,10 +498,16 @@ func (p *MCPProxy) buildResponseEvent(
 
 	// Marshal result for raw message
 	resultJSON, _ := json.Marshal(result)
-	rawMsg, _ := json.Marshal(map[string]interface{}{
-		"jsonrpc": "2.0",
-		"result":  result,
-	})
+	id, _ := jsonrpc.MakeID(requestID)
+	rawJsonRpc := jsonrpc.Response{
+		Result: resultJSON,
+		ID:     id,
+	}
+	rawMsg, _ := json.Marshal(rawJsonRpc) // TODO: this should be a proper struct which is then also used for unmarshalling
+	// then the "result" field is provided as result
+	// We should NOT reinvent the wheel here
+	// ToolRequest and ToolResult should be the same as the MCP standard, additionally we can provide other
+	// fields/more data to processors and in the logs!
 
 	routing := getRoutingContext(p, session, serverName)
 	event := common.NewMCPResponseEvent(string(routing.Transport)).

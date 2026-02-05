@@ -85,11 +85,11 @@ func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
 // including all necessary arguments, e.g. command, arguments,
 // environment variables, and metadata.
 type MCPServerConfig struct {
-	Name        string                 `json:"name"`                  // Display name
-	Command     string                 `json:"command,omitempty"`     // Executable command (for stdio/process transport)
-	Args        []string               `json:"args,omitempty"`        // Command arguments
+	Name        string                 `json:"name"`                  // MCP Server name - used to reference this specific server
+	Command     string                 `json:"command,omitempty"`     // MCP Server Executable command (for stdio/process transport)
+	Args        []string               `json:"args,omitempty"`        // MCP Server Command arguments
 	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
-	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/sse transport)
+	URL         string                 `json:"url,omitempty"`         // MCP Server URL (for http/sse transport)
 	Headers     map[string]string      `json:"headers,omitempty"`     // HTTP headers (supports ${ENV_VAR} substitution)
 	Enabled     *bool                  `json:"enabled,omitempty"`     // Whether server is active
 	Description string                 `json:"description,omitempty"` // Human readable description

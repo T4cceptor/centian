@@ -82,6 +82,9 @@ func (c *Chain) Execute(event common.McpEventInterface) (*ChainResult, error) {
 		}
 
 		// Build processor input.
+		// TODO: rework the ProcessorInput - this needs to be extended so we can
+		// provide processors with richer information, enabling them to be more
+		// powerful
 		input := &config.ProcessorInput{
 			Type:      string(event.GetBaseEvent().MessageType),
 			Timestamp: time.Now().Format(time.RFC3339),

@@ -114,6 +114,8 @@ func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (
 		// HTTP transport
 		httpClient := &http.Client{
 			Transport: HeaderRoundTripper{
+				// TODO: we could create a method on this transport to modify the headers on the fly
+				// however, this might cause thread-related issues!
 				Headers: allHeaders,
 			},
 			Timeout: 30 * time.Second,
@@ -197,4 +199,9 @@ func (dc *DownstreamConnection) IsConnected() bool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 	return dc.connected
+}
+
+// GetConfig returns the server configuration for this connection.
+func (dc *DownstreamConnection) GetConfig() *config.MCPServerConfig {
+	return dc.config
 }

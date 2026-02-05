@@ -53,7 +53,7 @@ func TestGetRoutingContext_HTTP(t *testing.T) {
 	// Given: a session with an HTTP downstream
 	cfg := &config.MCPServerConfig{URL: "https://example.com", Command: ""}
 	conn := NewDownstreamConnection("server", cfg)
-	session := &CentianProxySession{downstreamConns: map[string]*DownstreamConnection{"server": conn}}
+	session := &CentianProxySession{downstreamConns: map[string]DownstreamConnectionInterface{"server": conn}}
 	proxy := &MCPProxy{name: "gateway", endpoint: "/mcp/gateway"}
 
 	// When: building routing context
@@ -71,7 +71,7 @@ func TestGetRoutingContext_Stdio(t *testing.T) {
 	// Given: a session with a stdio downstream
 	cfg := &config.MCPServerConfig{Command: "node", Args: []string{"-v"}}
 	conn := NewDownstreamConnection("server", cfg)
-	session := &CentianProxySession{downstreamConns: map[string]*DownstreamConnection{"server": conn}}
+	session := &CentianProxySession{downstreamConns: map[string]DownstreamConnectionInterface{"server": conn}}
 	proxy := &MCPProxy{name: "gateway", endpoint: "/mcp/gateway"}
 
 	// When: building routing context
@@ -85,7 +85,7 @@ func TestGetRoutingContext_Stdio(t *testing.T) {
 
 func TestGetRoutingContext_MissingConnection(t *testing.T) {
 	// Given: a session without the server connection
-	session := &CentianProxySession{downstreamConns: map[string]*DownstreamConnection{}}
+	session := &CentianProxySession{downstreamConns: map[string]DownstreamConnectionInterface{}}
 	proxy := &MCPProxy{name: "gateway", endpoint: "/mcp/gateway"}
 
 	// When: building routing context
@@ -101,7 +101,7 @@ func TestBuildRequestEvent(t *testing.T) {
 	// Given: a proxy, session, and tool request
 	cfg := &config.MCPServerConfig{URL: "https://example.com"}
 	conn := NewDownstreamConnection("server", cfg)
-	session := &CentianProxySession{id: "session-1", downstreamConns: map[string]*DownstreamConnection{"server": conn}}
+	session := &CentianProxySession{id: "session-1", downstreamConns: map[string]DownstreamConnectionInterface{"server": conn}}
 	proxy := &MCPProxy{name: "gateway", endpoint: "/mcp/gateway", server: &CentianProxy{ServerID: "server-1"}}
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "tool", Arguments: json.RawMessage(`{"a":1}`)}}
 
@@ -122,7 +122,7 @@ func TestBuildResponseEvent(t *testing.T) {
 	// Given: a proxy, session, request, and result
 	cfg := &config.MCPServerConfig{Command: "node"}
 	conn := NewDownstreamConnection("server", cfg)
-	session := &CentianProxySession{id: "session-1", downstreamConns: map[string]*DownstreamConnection{"server": conn}}
+	session := &CentianProxySession{id: "session-1", downstreamConns: map[string]DownstreamConnectionInterface{"server": conn}}
 	proxy := &MCPProxy{name: "gateway", endpoint: "/mcp/gateway", server: &CentianProxy{ServerID: "server-1"}}
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "tool", Arguments: json.RawMessage(`{"a":1}`)}}
 	result := &mcp.CallToolResult{IsError: true}
