@@ -340,109 +340,194 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 	})
 }
 
-// then in the Process function:
-func (e *EventProcessor) NewProcess(callCtx CallContext, direction Direction) error {
-	callCtx.SetDirection(direction)
-	// 1. Populate input through handlers
-	var input map[string]any
-	for part := range e.parts {
-		partHandler := callCtx.GetHandler(part)
-		// this way callCtx does not need to care how parts are provided
-		// this can be defined in the handler, which then has to be specific for the specific callCtx implementation
-		input[part] = partHandler.Get(callCtx, part)
+// ProcessRequest handles the request phase processing using handlers.
+// It gathers input from handlers, passes it to processors, and applies results back.
+func (p *MCPProxy) ProcessRequest(callCtx CallContext) error {
+	callCtx.SetDirection(DirectionRequest)
+
+	if p.eventProcessor == nil {
+		return nil
 	}
-	result := e.Process(input)
-	for part := range e.parts {
-		partHandler := callCtx.GetHandler(part)
-		partHandler.Apply(callCtx, result, part)
+
+	// Build MCPEvent from CallContext using handlers for input
+	event := p.buildEventFromCallContext(callCtx)
+
+	// Process through the chain
+	if err := p.eventProcessor.Process(event); err != nil {
+		common.LogError("request processing error: %s", err.Error())
+		// Non-fatal processing errors are logged but don't stop the flow
+		// TODO: we need to double check this, if process returns an
+		// error this might result in a 500 equivalent
 	}
-	// if we now want to support a new part we have to:
-	// - create a new handler for it -> with Get and Apply method
-	// - add that handler to the GetHandler implementation of callCtx
-	// TODO: error handling
+
+	// Check if request was rejected by processor
+	if event.Status >= 400 {
+		callCtx.SetStatus(event.Status)
+		errMsg := "Request rejected by processor"
+		if event.Error != "" {
+			errMsg = event.Error
+		}
+		callCtx.SetError(errMsg)
+		return fmt.Errorf("%s", errMsg)
+	}
+
+	// Apply modifications back through handlers
+	if event.Modified {
+		if err := applyRequestModifications(event, callCtx); err != nil {
+			common.LogError("failed to apply request modifications: %s", err.Error())
+		}
+	}
+
 	return nil
 }
 
-func (p *MCPProxy) ProcessRequest(callCtx *CallContext) error {
-	return p.eventProcessor.NewProcess(callCtx, DirectionRequest)
+// ProcessResponse handles the response phase processing using handlers.
+func (p *MCPProxy) ProcessResponse(callCtx CallContext) error {
+	callCtx.SetDirection(DirectionResponse)
+
+	if p.eventProcessor == nil {
+		return nil
+	}
+
+	// Build response event from CallContext
+	event := p.buildEventFromCallContext(callCtx)
+
+	// Process through the chain
+	if err := p.eventProcessor.Process(event); err != nil {
+		common.LogError("response processing error: %s", err.Error())
+	}
+
+	// Apply modifications back through handlers
+	if event.Modified {
+		if err := applyResponseModifications(event, callCtx); err != nil {
+			common.LogError("failed to apply response modifications: %s", err.Error())
+		}
+	}
+
+	return nil
+}
+
+// buildEventFromCallContext creates an MCPEvent from CallContext state.
+// This bridges the handler-based CallContext to the MCPEvent-based processors.
+func (p *MCPProxy) buildEventFromCallContext(callCtx CallContext) *common.MCPEvent {
+	// TODO: to be refactored - this should not be necessary later, as CallContext should be directly provided to processors
+	// Potentially we want to use MCPEvent inside the CallContext -> as they hold similar data
+	direction := common.DirectionClientToServer
+	msgType := common.MessageTypeRequest
+	if callCtx.GetDirection() == DirectionResponse {
+		direction = common.DirectionServerToClient
+		msgType = common.MessageTypeResponse
+	}
+
+	event := &common.MCPEvent{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:   time.Now(),
+			RequestID:   callCtx.GetRequestID(),
+			SessionID:   callCtx.GetSessionID(),
+			Direction:   direction,
+			MessageType: msgType,
+		},
+	}
+
+	// Add routing context
+	if rc := callCtx.GetRoutingContext(); rc != nil {
+		event.Routing = *rc
+		event.Transport = string(rc.Transport)
+	}
+
+	// Build tool call context
+	event.ToolCall = &common.ToolCallContext{
+		Name:         callCtx.GetToolName(),
+		OriginalName: callCtx.GetOriginalToolName(),
+	}
+
+	if callCtx.GetDirection() == DirectionRequest {
+		// For request: include arguments
+		if req := callCtx.GetRequest(); req != nil && req.Params != nil {
+			event.ToolCall.Arguments = req.Params.Arguments
+		}
+		// Build raw message for processors
+		event.RawMessage = p.buildRawRequestMessage(callCtx)
+	} else {
+		// For response: include result
+		if result := callCtx.GetResult(); result != nil {
+			resultJSON, _ := json.Marshal(result)
+			event.ToolCall.Result = resultJSON
+			event.ToolCall.IsError = result.IsError
+		}
+		event.RawMessage = p.buildRawResponseMessage(callCtx)
+	}
+
+	return event
+}
+
+// buildRawRequestMessage creates the JSON-RPC message for request processing.
+func (p *MCPProxy) buildRawRequestMessage(callCtx CallContext) string {
+	// TODO: this shouldn't be necessary after the refactor
+	req := callCtx.GetRequest()
+	if req == nil || req.Params == nil {
+		return "{}"
+	}
+
+	var args map[string]any
+	_ = json.Unmarshal(req.Params.Arguments, &args)
+
+	msg := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  "tools/call",
+		"params": map[string]any{
+			"name":      req.Params.Name,
+			"arguments": args,
+		},
+	}
+	raw, _ := json.Marshal(msg)
+	return string(raw)
+}
+
+// buildRawResponseMessage creates the JSON-RPC message for response processing.
+func (p *MCPProxy) buildRawResponseMessage(callCtx CallContext) string {
+	// TODO: this shouldn't be necessary after the refactor
+	result := callCtx.GetResult()
+	if result == nil {
+		return "{}"
+	}
+
+	content := resultToContentBlocks(result)
+	msg := map[string]any{
+		"jsonrpc": "2.0",
+		"result": map[string]any{
+			"content": content,
+			"isError": result.IsError,
+		},
+	}
+	raw, _ := json.Marshal(msg)
+	return string(raw)
 }
 
 func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// Handle aggregated proxy tool name transformation
-	// TODO: this should be handled by the CallContext from now on -> refactor later
+	// TODO: move this into a handler, or into the CallContext directly
 	if p.isAggregatedProxy {
 		parts := strings.SplitN(req.Params.Name, NamespaceSeparator, 2)
 		if len(parts) < 2 {
 			return nil, fmt.Errorf("failed to recreate original tool name from: %s", req.Params.Name)
 		}
-		// Update the request with the original downstream tool name
 		req.Params.Name = strings.Join(parts[1:], "")
 	}
 
 	// 1. Create CallContext - returns interface type for flexibility
-	var callCtx CallContext = NewToolCallContext(p, session, serverName, req)
+	callCtx := NewToolCallContext(p, session, serverName, req)
 	ctx = WithCallContext(ctx, callCtx)
 
 	// 2. Process REQUEST phase (Client → Server)
 	if err := p.ProcessRequest(callCtx); err != nil {
-		// err != nil indicates that there was a processor which is mandatory that failed to process the CallContext
-		return nil, err
-	} // Implement ProcessRequest/ProcessResponse on MCPProxy - this makes this function here MUCH cleaner
-	// TODO: in Process we do the following:
-	// each processor requests the parts from callCtx it was configured to request based on its config
-	// HOW the parts are being provided is up to the CallContext to decide!
-	// e.g.:
-	/*
-		for processor := range(processors) {
-			processorInput := json.Marshal(callCtx.GetProcessorInput(processor.parts))
-			result := processor.Apply(processorInput)
-
-			// apply only handlers for the parts that the processor might actually have modified
-			callCtx.ApplyHandler(processor.parts)
-		}
-	*/
-	callCtx.SendRequest(ctx) // (potentially) sending the actual request, note: this modifies the callCtx and populates the result
-	// Note: the result can ALSO be generated by a handler, e.g. in case the processors returned an error
-	if err := p.ProcessResponse(callCtx); err != nil {
-		// err != nil indicates that there was a processor which is mandatory that failed to process the CallContext
-		// This is basically a http 500 equivalent
-		return nil, err
-	}
-	return callCtx.GetResult(), nil
-
-	var reqEvent *common.MCPEvent
-	if p.eventProcessor != nil {
-		reqEvent = p.buildRequestEvent(session, callCtx.GetServerName(), callCtx.GetRequest())
-		// TODO: processors should get the CallContext itself not a MCPEvent
-		if err := p.eventProcessor.Process(reqEvent); err != nil {
-			common.LogError("request processing error: %s", err.Error())
-		}
-
-		// Check if request was rejected by processor
-		if reqEvent.Status >= 400 {
-			errMsg := "Request rejected by processor"
-			if reqEvent.Error != "" {
-				errMsg = reqEvent.Error
-			}
-			return &mcp.CallToolResult{
-				IsError: true,
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: errMsg},
-				},
-			}, nil
-		}
-
-		// Apply modifications from processor back to CallContext
-		// TODO: NO! this should be handled by the CallContext directly
-		// basically the processors provide new data, and CallContext is responsible for applying those to itself
-		// this way, if we need any obscure/advanced functionality we can
-		// create a new CallContext implementation (e.g. "MySuperSpecialCase" and
-		// create that based on the server config)
-		if reqEvent.Modified {
-			if err := applyRequestModifications(reqEvent, callCtx); err != nil {
-				common.LogError("failed to apply request modifications: %s", err.Error())
-			}
-		}
+		// Request rejected by processor - return error result
+		return &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: callCtx.GetError()},
+			},
+		}, nil
 	}
 
 	// 3. Verify connection is available (using potentially modified serverName)
@@ -457,19 +542,9 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	}
 
 	// 5. Process RESPONSE phase (Server → Client)
-	callCtx.SetDirection(DirectionResponse)
-	if p.eventProcessor != nil {
-		respEvent := p.buildResponseEvent(session, callCtx.GetServerName(), callCtx.GetRequest(), callCtx.GetResult(), reqEvent)
-		if err := p.eventProcessor.Process(respEvent); err != nil {
-			common.LogError("response processing error: %s", err.Error())
-		}
-
-		// Apply modifications from processor back to CallContext
-		if respEvent.Modified {
-			if err := applyResponseModifications(respEvent, callCtx); err != nil {
-				common.LogError("failed to apply response modifications: %s", err.Error())
-			}
-		}
+	if err := p.ProcessResponse(callCtx); err != nil {
+		common.LogError("response processing error: %s", err.Error())
+		// Non-fatal - continue with potentially unmodified result
 	}
 
 	// 6. Return (potentially modified) result
@@ -547,7 +622,7 @@ func applyResponseModifications(event *common.MCPEvent, callCtx CallContext) err
 				if data, ok := contentMap["data"].(string); ok {
 					mimeType, _ := contentMap["mimeType"].(string)
 					newResult.Content = append(newResult.Content, &mcp.ImageContent{
-						Data:     data,
+						Data:     []byte(data),
 						MIMEType: mimeType,
 					})
 				}
@@ -650,6 +725,7 @@ func (p *MCPProxy) buildResponseEvent(
 		WithToolCall(req.Params.Name, req.Params.Arguments).
 		WithToolResult(resultJSON, result.IsError).
 		WithRawMessage(string(rawMsg))
+		// TODO: could add MCPEvent
 	event.Routing = *routing
 	event.Success = !result.IsError
 	return event

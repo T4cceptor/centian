@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Direction indicates whether we're processing a request or response.
-// TODO: This already exists for the MCPEvent - we should reuse this
-// TODO: think about integrating MCPEvent into the CallContext
 type Direction string
 
 const (
@@ -29,27 +28,40 @@ type CallContext interface {
 	SetDirection(Direction)
 
 	// Result access
-	GetResult() *mcp.CallToolResult // Results the CallToolResult, can be nil if request was not send yet OR resulted in error
+	GetResult() *mcp.CallToolResult // Returns the CallToolResult, can be nil if request was not sent yet OR resulted in error
 	SetResult(*mcp.CallToolResult)  // Sets the result for this call context
 
 	// Original request (immutable deep clone - for auditing/comparison)
-	// Returns name of the original server, can differ from GetServerName if routing context was changed
-	GetOriginalServerName() string
-	// Returns original CallToolRequest, can differ from GetRequest if request context was changed
-	GetOriginalRequest() *mcp.CallToolRequest
-	// Returns original tool name, can differ from GetToolName if request context was changed
-	GetOriginalToolName() string
+	GetOriginalServerName() string            // Returns name of the original server
+	GetOriginalRequest() *mcp.CallToolRequest // Returns original CallToolRequest
+	GetOriginalToolName() string              // Returns original tool name
 
 	// Current request (mutable - handlers modify this)
 	GetServerName() string            // Returns current server name
 	SetServerName(string)             // Sets current server name, can be used for re-routing
-	GetRequest() *mcp.CallToolRequest // Returns current CallToolRequest, can be modified during lifetime of this object
+	GetRequest() *mcp.CallToolRequest // Returns current CallToolRequest
 	GetToolName() string              // Returns current tool name
-	// TODO: check if "GetArguments" might be viable
+
+	// Status and error handling
+	GetStatus() int      // Returns current status code (0 = not set, 200 = ok, 4xx/5xx = error)
+	SetStatus(int)       // Sets status code
+	GetError() string    // Returns error message if status >= 400
+	SetError(string)     // Sets error message
+
+	// Session and request identification
+	GetRequestID() string // Returns unique request ID
+	GetSessionID() string // Returns session ID
+
+	// Routing context (reuses common.RoutingContext)
+	GetRoutingContext() *common.RoutingContext
+
+	// Handler access
+	GetHandler(part string) CallContextHandler // Returns handler for given part (payload, meta, routing, etc.)
+	GetLogHandler() LogHandler                 // Returns the log handler for this context
 
 	// Config access (for processors/handlers that need it)
-	GetGlobalConfig() *config.GlobalConfig   // Returns current global config, used by handler
-	GetGatewayConfig() *config.GatewayConfig // Returns current gateway config for this request
+	GetGlobalConfig() *config.GlobalConfig   // Returns current global config
+	GetGatewayConfig() *config.GatewayConfig // Returns current gateway config
 }
 
 // callContextKey is the key type for storing CallContext in context.Context.

@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/google/uuid"
 )
 
 // ToolCallContext handles standard tool calls (client → downstream → client).
@@ -32,6 +35,18 @@ type ToolCallContext struct {
 
 	// State
 	direction Direction
+	status    int    // 0 = not set, 200 = ok, 4xx/5xx = error
+	errorMsg  string // Error message if status >= 400
+
+	// Identification
+	requestID string
+
+	// Routing context (reuses common.RoutingContext)
+	routingContext *common.RoutingContext
+
+	// Handlers
+	handlers   map[string]CallContextHandler
+	logHandler LogHandler
 }
 
 // NewToolCallContext creates a new ToolCallContext.
@@ -42,7 +57,10 @@ func NewToolCallContext(
 	serverName string,
 	req *mcp.CallToolRequest,
 ) CallContext {
-	return &ToolCallContext{
+	// Build routing context
+	routingCtx := buildRoutingContext(proxy, session, serverName)
+
+	ctx := &ToolCallContext{
 		proxy:              proxy,
 		session:            session,
 		originalServerName: serverName,
@@ -51,7 +69,48 @@ func NewToolCallContext(
 		request:            req, // Mutable, will be modified by handlers
 		downstreamHeaders:  copyHeaders(session.authHeaders),
 		direction:          DirectionRequest,
+		status:             0,
+		requestID:          uuid.New().String(),
+		routingContext:     routingCtx,
 	}
+
+	// Register handlers
+	ctx.handlers = map[string]CallContextHandler{
+		"payload": &PayloadHandler{},
+		"meta":    &MetaHandler{},
+		"routing": &RoutingHandler{},
+	}
+
+	// Set default log handler
+	ctx.logHandler = NewDefaultLogHandler()
+
+	return ctx
+}
+
+// buildRoutingContext creates a RoutingContext from proxy and session info
+func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingContext {
+	rc := &common.RoutingContext{
+		Gateway:    proxy.name,
+		ServerName: serverName,
+		Endpoint:   proxy.endpoint,
+	}
+
+	// Try to get connection details
+	if conn, ok := session.downstreamConns[serverName]; ok {
+		cfg := conn.GetConfig()
+		if cfg != nil {
+			if cfg.URL != "" {
+				rc.Transport = common.HTTPTransport
+				rc.DownstreamURL = cfg.URL
+			} else if cfg.Command != "" {
+				rc.Transport = common.StdioTransport
+				rc.DownstreamCommand = cfg.Command
+				rc.Args = cfg.Args
+			}
+		}
+	}
+
+	return rc
 }
 
 // copyHeaders creates a copy of the headers map.
@@ -163,6 +222,56 @@ func (c *ToolCallContext) GetGatewayConfig() *config.GatewayConfig {
 		return nil
 	}
 	return c.proxy.config
+}
+
+// Status and error handling
+
+func (c *ToolCallContext) GetStatus() int {
+	return c.status
+}
+
+func (c *ToolCallContext) SetStatus(status int) {
+	c.status = status
+}
+
+func (c *ToolCallContext) GetError() string {
+	return c.errorMsg
+}
+
+func (c *ToolCallContext) SetError(msg string) {
+	c.errorMsg = msg
+}
+
+// Session and request identification
+
+func (c *ToolCallContext) GetRequestID() string {
+	return c.requestID
+}
+
+func (c *ToolCallContext) GetSessionID() string {
+	if c.session == nil {
+		return ""
+	}
+	return c.session.id
+}
+
+// Routing context
+
+func (c *ToolCallContext) GetRoutingContext() *common.RoutingContext {
+	return c.routingContext
+}
+
+// Handler access
+
+func (c *ToolCallContext) GetHandler(part string) CallContextHandler {
+	if c.handlers == nil {
+		return nil
+	}
+	return c.handlers[part]
+}
+
+func (c *ToolCallContext) GetLogHandler() LogHandler {
+	return c.logHandler
 }
 
 // Compile-time interface check
