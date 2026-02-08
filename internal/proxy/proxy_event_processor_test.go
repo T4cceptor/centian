@@ -26,7 +26,9 @@ type mockMcpEvent struct {
 	processingErrors map[string]error
 }
 
-func newMockMcpEvent(rawMessage string, hasContent bool) *mockMcpEvent {
+// TODO: requires refactor
+func newMockCallContext(rawMessage string, hasContent bool) *mockMcpEvent {
+	// TODO: refactor to return mock CallContext
 	return &mockMcpEvent{
 		rawMessage: rawMessage,
 		hasContent: hasContent,
@@ -118,7 +120,7 @@ func TestProcess_WithNoProcessors_LogsEvent(t *testing.T) {
 	defer logger.Close()
 
 	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -134,7 +136,7 @@ func TestProcess_WithNoProcessors_NoContent(t *testing.T) {
 	defer logger.Close()
 
 	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent("", false)
+	event := newMockCallContext("", false)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -153,7 +155,7 @@ func TestProcess_WithEmptyProcessorChain_SkipsProcessing(t *testing.T) {
 	assert.NilError(t, err)
 
 	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
 	err = ep.Process(event)
@@ -173,7 +175,7 @@ func TestProcess_WithInvalidJSON_HandlesGracefully(t *testing.T) {
 	defer logger.Close()
 
 	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent(`{invalid json}`, true)
+	event := newMockCallContext(`{invalid json}`, true)
 
 	// When: processing an event with invalid JSON.
 	err := ep.Process(event)
@@ -193,7 +195,7 @@ func TestProcess_LoggingDisabled_SkipsLogging(t *testing.T) {
 	ep.logBeforeProcessing = false
 	ep.logAfterProcessing = false
 
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -209,7 +211,7 @@ func TestProcess_WithEmptyMessage_ProcessesSuccessfully(t *testing.T) {
 	defer logger.Close()
 
 	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent("", false)
+	event := newMockCallContext("", false)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -228,7 +230,7 @@ func TestProcess_EventWithoutContent_SkipsProcessors(t *testing.T) {
 	assert.NilError(t, err)
 
 	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent("", false) // No content
+	event := newMockCallContext("", false) // No content
 
 	// When: processing an event without content.
 	err = ep.Process(event)
@@ -251,7 +253,7 @@ func TestProcess_LogBeforeProcessing_CallsLogger(t *testing.T) {
 	ep.logBeforeProcessing = true
 	ep.logAfterProcessing = false
 
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -269,7 +271,7 @@ func TestProcess_LogAfterProcessing_CallsLogger(t *testing.T) {
 	ep.logBeforeProcessing = false
 	ep.logAfterProcessing = true
 
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -287,7 +289,7 @@ func TestProcess_BothLoggingEnabled_LogsTwice(t *testing.T) {
 	ep.logBeforeProcessing = true
 	ep.logAfterProcessing = true
 
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
 	err := ep.Process(event)
@@ -310,7 +312,7 @@ func TestProcess_WithPassthroughProcessor_ModifiesMessage(t *testing.T) {
 	assert.NilError(t, err)
 
 	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"method":"test/method","params":{}}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"method":"test/method","params":{}}`, true)
 
 	// When: processing an event through the chain.
 	err = ep.Process(event)
@@ -332,7 +334,7 @@ func TestProcess_WithPayloadTransformer_ModifiesPayload(t *testing.T) {
 
 	ep := NewEventProcessor(logger, chain)
 	originalMsg := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test","arguments":{}}}`
-	event := newMockMcpEvent(originalMsg, true)
+	event := newMockCallContext(originalMsg, true)
 
 	// When: processing an event through the transformer.
 	err = ep.Process(event)
@@ -356,7 +358,7 @@ func TestProcess_WithSecurityValidator_RejectsDeleteRequests(t *testing.T) {
 
 	ep := NewEventProcessor(logger, chain)
 	deleteMsg := `{"jsonrpc":"2.0","id":3,"method":"files/delete","params":{"path":"/test"}}`
-	event := newMockMcpEvent(deleteMsg, true)
+	event := newMockCallContext(deleteMsg, true)
 
 	// When: processing a delete request.
 	err = ep.Process(event)
@@ -379,7 +381,7 @@ func TestProcess_WithSecurityValidator_AllowsNormalRequests(t *testing.T) {
 
 	ep := NewEventProcessor(logger, chain)
 	normalMsg := `{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}`
-	event := newMockMcpEvent(normalMsg, true)
+	event := newMockCallContext(normalMsg, true)
 
 	// When: processing a normal request.
 	err = ep.Process(event)
@@ -400,7 +402,7 @@ func TestProcess_WithMultipleProcessors_ExecutesInOrder(t *testing.T) {
 	assert.NilError(t, err)
 
 	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":5,"method":"test/method","params":{}}`, true)
+	event := newMockCallContext(`{"jsonrpc":"2.0","id":5,"method":"test/method","params":{}}`, true)
 
 	// When: processing through multiple processors.
 	err = ep.Process(event)
@@ -422,7 +424,7 @@ func TestProcess_WithDisabledProcessor_SkipsProcessor(t *testing.T) {
 
 	ep := NewEventProcessor(logger, chain)
 	originalMsg := `{"jsonrpc":"2.0","id":6,"method":"test/method","params":{}}`
-	event := newMockMcpEvent(originalMsg, true)
+	event := newMockCallContext(originalMsg, true)
 
 	// When: processing with disabled processor.
 	err = ep.Process(event)

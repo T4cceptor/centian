@@ -14,7 +14,7 @@ import (
 // MockEventProcessor is a test double for EventProcessorInterface.
 // It captures processed events and can modify them according to test needs.
 type MockEventProcessor struct {
-	ProcessedEvents []*common.MCPEvent
+	ProcessedEvents []*ToolCallContext
 
 	// RequestModifier is called for request events; if non-nil, modifies the event
 	RequestModifier func(event *common.MCPEvent)
@@ -23,8 +23,8 @@ type MockEventProcessor struct {
 	ResponseModifier func(event *common.MCPEvent)
 }
 
-func (m *MockEventProcessor) Process(event common.McpEventInterface) error {
-	mcpEvent, ok := event.(*common.MCPEvent)
+func (m *MockEventProcessor) Process(event CallContext) error {
+	mcpEvent, ok := event.(*ToolCallContext)
 	if !ok {
 		return nil
 	}

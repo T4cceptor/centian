@@ -52,6 +52,7 @@ type ToolCallContext struct {
 // NewToolCallContext creates a new ToolCallContext.
 // Returns CallContext interface to allow implementation swapping.
 func NewToolCallContext(
+	ctx context.Context,
 	proxy *MCPProxy,
 	session *CentianProxySession,
 	serverName string,
@@ -59,8 +60,9 @@ func NewToolCallContext(
 ) CallContext {
 	// Build routing context
 	routingCtx := buildRoutingContext(proxy, session, serverName)
+	// TODO: get headers from ctx
 
-	ctx := &ToolCallContext{
+	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,
 		session:            session,
 		originalServerName: serverName,
@@ -75,20 +77,20 @@ func NewToolCallContext(
 	}
 
 	// Register handlers
-	ctx.handlers = map[string]CallContextHandler{
-		"payload": &PayloadHandler{},
-		"meta":    &MetaHandler{},
-		"routing": &RoutingHandler{},
-	}
+	toolCallCtx.SetHandler("payload", &DefaultPayloadHandler{})
+	toolCallCtx.SetHandler("meta", &MetaHandler{})
+	toolCallCtx.SetHandler("routing", &RoutingHandler{})
 
 	// Set default log handler
-	ctx.logHandler = NewDefaultLogHandler()
+	toolCallCtx.SetLogHandler(NewDefaultLogHandler())
 
-	return ctx
+	return toolCallCtx
 }
 
 // buildRoutingContext creates a RoutingContext from proxy and session info
 func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingContext {
+	// TODO: double check if this is actually required
+	// ideally we would combine this somehow with MCPevent data struct
 	rc := &common.RoutingContext{
 		Gateway:    proxy.name,
 		ServerName: serverName,
@@ -126,11 +128,17 @@ func copyHeaders(headers map[string]string) map[string]string {
 }
 
 // SendRequest executes the downstream call using current request state.
+// Note: if processors returned a status >= 400 this will NOT trigger a
+// downstream call, instead an immediate error response will be returned.
 func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Resolve connection based on (potentially modified) serverName
 	conn, ok := c.session.downstreamConns[c.serverName]
 	if !ok {
 		return fmt.Errorf("server %s not found (original: %s)",
+			c.serverName, c.originalServerName)
+	}
+	if !conn.IsConnected() {
+		return fmt.Errorf("server %s found (original: %s), but not connected",
 			c.serverName, c.originalServerName)
 	}
 
@@ -150,6 +158,22 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	return nil
 }
 
+// Result methods
+
+func (c *ToolCallContext) HasResult() bool {
+	return c.result != nil
+}
+
+// GetResult returns the CallToolResult for this CallContext
+func (c *ToolCallContext) GetResult() *mcp.CallToolResult {
+	return c.result
+}
+
+// SetResult sets the CallToolResult for this CallContext
+func (c *ToolCallContext) SetResult(result *mcp.CallToolResult) {
+	c.result = result
+}
+
 // Direction methods
 
 func (c *ToolCallContext) GetDirection() Direction {
@@ -158,16 +182,6 @@ func (c *ToolCallContext) GetDirection() Direction {
 
 func (c *ToolCallContext) SetDirection(d Direction) {
 	c.direction = d
-}
-
-// Result methods
-
-func (c *ToolCallContext) GetResult() *mcp.CallToolResult {
-	return c.result
-}
-
-func (c *ToolCallContext) SetResult(result *mcp.CallToolResult) {
-	c.result = result
 }
 
 // Original request accessors (immutable)
@@ -202,6 +216,7 @@ func (c *ToolCallContext) GetRequest() *mcp.CallToolRequest {
 }
 
 func (c *ToolCallContext) GetToolName() string {
+	// TODO: here we could check if we have an aggregated server, then change the name accordingly
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
@@ -263,15 +278,31 @@ func (c *ToolCallContext) GetRoutingContext() *common.RoutingContext {
 
 // Handler access
 
-func (c *ToolCallContext) GetHandler(part string) CallContextHandler {
+// GetHandler returns the handler for the given part
+func (c *ToolCallContext) GetHandler(part string) (CallContextHandler, bool) {
 	if c.handlers == nil {
-		return nil
+		return nil, false
 	}
-	return c.handlers[part]
+	res, ok := c.handlers[part]
+	return res, ok
+}
+
+// SetHandler sets the provided handler for the provided part.
+//
+// Automatically creates the handlers slice if its nil.
+func (c *ToolCallContext) SetHandler(part string, h CallContextHandler) {
+	if c.handlers == nil {
+		c.handlers = make(map[string]CallContextHandler)
+	}
+	c.handlers[part] = h
 }
 
 func (c *ToolCallContext) GetLogHandler() LogHandler {
 	return c.logHandler
+}
+
+func (c *ToolCallContext) SetLogHandler(l LogHandler) {
+	c.logHandler = l
 }
 
 // Compile-time interface check

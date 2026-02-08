@@ -190,8 +190,8 @@ func NewLogger() (*Logger, error) {
 	}, nil
 }
 
-// logEntry writes any log entry to the JSONL file (base Logger method).
-func (l *Logger) logEntry(entry interface{}) error {
+// LogEntry writes any log entry to the JSONL file (base Logger method).
+func (l *Logger) LogEntry(entry interface{}) error {
 	if l.logFile == nil {
 		return fmt.Errorf("logger not initialized")
 	}
@@ -237,5 +237,5 @@ func (l *Logger) GetLogPath() string {
 
 // LogMcpEvent logs the provided stdio/http MCP event.
 func (l *Logger) LogMcpEvent(event common.McpEventInterface) error {
-	return l.logEntry(event)
+	return l.LogEntry(event)
 }

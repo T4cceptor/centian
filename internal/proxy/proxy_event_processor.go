@@ -1,101 +1,140 @@
 package proxy
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
-	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/processor"
 )
 
-// EventProcessor is used to call the main processing loop for any MCP transport method.
-type EventProcessor struct {
+// ProcessingController is used to call the main processing loop for any MCP transport method.
+type ProcessingController struct {
 	logger              *logging.Logger
-	processorChain      *processor.Chain
+	processors          []processor.ProcessorInterface
 	logBeforeProcessing bool
 	logAfterProcessing  bool
 }
 
+// TODO: checkme!
+/*
+- processors should have an internal state -> this means they should replace EventProcessor in proxy_server - see line 600
+- then in ProcessCall we just iterate all Processors and call "Process" one by one
+	- the question here is: where does the logging take place, this is currently done in the "Process" method below
+	- maybe a ProcessController would be good -> this replaces "EventProcessor"
+
+*/
+
 // NewEventProcessor returns a new EventProcessor with the provided logger and processors.
-func NewEventProcessor(logger *logging.Logger, processors *processor.Chain) *EventProcessor {
-	return &EventProcessor{
-		logger:              logger,
-		processorChain:      processors,
-		logBeforeProcessing: true,
-		logAfterProcessing:  true,
+func NewEventProcessor(processorConfigs []*config.ProcessorConfig) *ProcessingController {
+	result := &ProcessingController{
+		processors:          make([]processor.ProcessorInterface, 0),
+		logBeforeProcessing: true, // TODO: make configurable
+		logAfterProcessing:  true, // TODO: make configurable
 	}
+	for _, config := range processorConfigs {
+		processor, err := processor.NewProcessor(config)
+		if err != nil {
+			// TODO: log
+			// TODO: need to double check if processor was mandatory, if so we abort
+			continue
+		}
+		result.processors = append(result.processors, processor)
+	}
+	return result
 }
 
-// Process starts the main event loop processing, including logging and any configured processors.
-func (ep *EventProcessor) Process(event common.McpEventInterface) error {
-	// Log before processing.
+// GetInput uses the provided ProcessorConfig and CallContext to create the input map for the processor
+func GetInput(processorConfig *config.ProcessorConfig, callCtx CallContext) map[string]any {
+	input := make(map[string]any)
+	for _, part := range processorConfig.GetParts() {
+		handler, ok := callCtx.GetHandler(part) // TODO: we could have a "GetParts"
+		if ok {
+			input[part] = handler.Get(callCtx)
+		}
+	}
+	return input
+}
+
+func GetResultPart(result map[string]any, part string) (any, error) {
+	res, ok := result[part]
+	if !ok || res == nil {
+		return nil, fmt.Errorf("unable to retrieve part '%s' from result (%v)", part, result)
+	}
+	return res, nil
+}
+
+// ApplyResult takes the result from the processor and processes it in order for each configured part of the ProcessorConfig
+func ApplyResult(processorConfig *config.ProcessorConfig, result map[string]any, callCtx CallContext) error {
+	for _, part := range processorConfig.GetParts() {
+		handler, ok := callCtx.GetHandler(part)
+		if !ok {
+			return fmt.Errorf("unable to find handler for part: %s", part)
+		}
+		// TODO: think about only providing the part for the handler (less flexible)
+		// resultPart, err := GetResultPart(result, part)
+		// if err != nil {
+		// 	return err
+		// }
+		if err := handler.Apply(callCtx, result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Process runs all processors on the CallContext using handlers to build input and apply results.
+func (ep *ProcessingController) Process(callCtx CallContext) error {
+	// Log before processing
 	if ep.logBeforeProcessing {
-		if err := ep.logger.LogMcpEvent(event); err != nil {
-			common.LogError(err.Error())
-			event.GetBaseEvent().ProcessingErrors["processor_log_error"] = err
+		if err := callCtx.GetLogHandler().Log(callCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "[LOG-ERROR] %v\n", err)
+			// TODO: double check if we need to do something here
 		}
 	}
 
-	// Apply processors in order (only if there are actually processors configured).
-	if ep.processorChain != nil && ep.processorChain.HasProcessors() && event.HasContent() {
-		outputLine := event.GetRawMessage()
-		result, err := ep.processorChain.Execute(event)
+	// Process through each processor
+	if ep.processors != nil && len(ep.processors) > 0 {
+		for _, processor := range ep.processors {
+			processorConfig := processor.GetConfig()
+			// 1. Build input from handlers based on processor's configured parts
+			input := GetInput(processorConfig, callCtx)
 
-		switch {
-		case err != nil:
-			// Failed to execute processor chain.
-			fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to execute response processors: %v\n", err)
-			// Fall through and forward original response.
-		case result.Status >= 400:
-			// Processor rejected or errored - send MCP error to client.
-			fmt.Fprintf(os.Stderr, "[PROCESSOR-REJECT] Response rejected with status %d\n", result.Status)
-
-			// Extract request ID from original message.
-			var msgData map[string]interface{}
-			if err := json.Unmarshal([]byte(outputLine), &msgData); err != nil {
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to parse response JSON for error response: %v\n", err)
-				// Fall through and forward original response.
-			} else {
-				// Format MCP error response.
-				errorResponse, err := processor.FormatMCPError(result, msgData["id"])
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to format MCP error: %v\n", err)
-					// Fall through and forward original response.
-				} else {
-					// Send error response to client instead of original response.
-					outputLine = errorResponse
-				}
-			}
-		default:
-			// Status 200 - processor passed, use modified payload.
-			modifiedJSON, err := json.Marshal(result.ModifiedPayload)
+			// 2. Execute processor
+			output, err := processor.Process(input)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] Failed to marshal modified response: %v\n", err)
-				// Fall through and forward original response.
-			} else {
-				outputLine = string(modifiedJSON)
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-] Response modified by processors\n")
+				fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] %s: %v\n", processorConfig.Name, err)
+				return err
 			}
+
+			// 3. Apply results back via handlers
+			if err := ApplyResult(processorConfig, output, callCtx); err != nil {
+				fmt.Fprintf(os.Stderr, "[PROCESSOR-APPLY-ERROR] %s: %v\n", processorConfig.Name, err)
+				return err // TODO: double check if this makes sense!
+			}
+			// Note: callCtx might be modified here, the modified version
+			// then is also provided to the next processor
+
+			// Further, there is currently no status check here, so even if processor returned
+			// an error status subsequent processors are still triggered
+			// (Note the difference between error during processing and error status)
+			// This can be intentional - e.g.:
+			// 1. payload eval processor -> fails
+			// 2. logging processor -> logs status, in this case the failure
+
+			// In the future, this might be changed, for example to make it configurable which
+			// processors are run in case of an early return or error
 		}
-		event.SetStatus(result.Status)
-		if result.Error != nil {
-			event.GetBaseEvent().ProcessingErrors["processing_error"] = fmt.Errorf("%s", *result.Error)
-		}
-		// We likely need a field indicating how to proceed with the event!
-		if outputLine != event.GetRawMessage() {
-			event.SetModified(true)
-		}
-		event.SetRawMessage(outputLine)
 	}
 
-	// Log after processing.
+	// Log after processing
 	if ep.logAfterProcessing {
-		if err := ep.logger.LogMcpEvent(event); err != nil {
-			common.LogError(err.Error())
-			event.GetBaseEvent().ProcessingErrors["processor_log_error"] = err
+		if err := callCtx.GetLogHandler().Log(callCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "[LOG-ERROR] %v\n", err)
+			// TODO: double check if we need to do something here
 		}
 	}
+
 	return nil
 }

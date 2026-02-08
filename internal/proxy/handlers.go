@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -16,7 +17,7 @@ type CallContextHandler interface {
 	Get(callCtx CallContext) any
 
 	// Apply updates CallContext based on processor output for this part
-	Apply(callCtx CallContext, result map[string]any) error
+	Apply(callCtx CallContext, result any) error
 }
 
 // LogHandler defines how CallContext is serialized for logging.
@@ -24,15 +25,16 @@ type CallContextHandler interface {
 type LogHandler interface {
 	// ToLogEntry creates a loggable representation of the current state
 	ToLogEntry(callCtx CallContext) any
+	Log(callCtx CallContext) error
 }
 
 // =============================================================================
 // PayloadHandler - handles tool arguments (request) and result content (response)
 // =============================================================================
 
-type PayloadHandler struct{}
+type DefaultPayloadHandler struct{}
 
-func (h *PayloadHandler) Get(callCtx CallContext) any {
+func (h *DefaultPayloadHandler) Get(callCtx CallContext) any {
 	if callCtx.GetDirection() == DirectionRequest {
 		// Return arguments from request
 		var args map[string]any
@@ -58,7 +60,7 @@ func (h *PayloadHandler) Get(callCtx CallContext) any {
 	}
 }
 
-func (h *PayloadHandler) Apply(callCtx CallContext, result map[string]any) error {
+func (h *DefaultPayloadHandler) Apply(callCtx CallContext, result map[string]any) error {
 	payload, ok := result["payload"].(map[string]any)
 	if !ok {
 		return nil // No payload changes
@@ -151,21 +153,21 @@ type MetaHandler struct{}
 
 func (h *MetaHandler) Get(callCtx CallContext) any {
 	meta := map[string]any{
-		"direction":             string(callCtx.GetDirection()),
-		"timestamp":             time.Now().Format(time.RFC3339),
-		"server_name":           callCtx.GetServerName(),
-		"original_server_name":  callCtx.GetOriginalServerName(),
-		"tool_name":             callCtx.GetToolName(),
-		"original_tool_name":    callCtx.GetOriginalToolName(),
+		"direction":            string(callCtx.GetDirection()),
+		"timestamp":            time.Now().Format(time.RFC3339),
+		"server_name":          callCtx.GetServerName(),
+		"original_server_name": callCtx.GetOriginalServerName(),
+		"tool_name":            callCtx.GetToolName(),
+		"original_tool_name":   callCtx.GetOriginalToolName(),
 	}
 
 	// Add routing context if available
 	if rc := callCtx.GetRoutingContext(); rc != nil {
 		meta["routing"] = map[string]any{
-			"transport":    string(rc.Transport),
-			"gateway":      rc.Gateway,
-			"endpoint":     rc.Endpoint,
-			"downstream":   rc.DownstreamURL,
+			"transport":  string(rc.Transport),
+			"gateway":    rc.Gateway,
+			"endpoint":   rc.Endpoint,
+			"downstream": rc.DownstreamURL,
 		}
 	}
 
@@ -189,6 +191,7 @@ func (h *MetaHandler) Apply(callCtx CallContext, result map[string]any) error {
 		callCtx.SetError(errMsg)
 	}
 
+	// TODO: in case we have an error we should immediately set the result!
 	return nil
 }
 
@@ -232,12 +235,18 @@ func (h *RoutingHandler) Apply(callCtx CallContext, result map[string]any) error
 
 type DefaultLogHandler struct {
 	RedactHeaders []string
+	logger        *logging.Logger
 }
 
-func NewDefaultLogHandler() *DefaultLogHandler {
+func NewDefaultLogHandler(logger *logging.Logger) *DefaultLogHandler {
 	return &DefaultLogHandler{
 		RedactHeaders: []string{"Authorization", "X-API-Key", "X-Auth-Token"},
+		logger:        logger,
 	}
+}
+
+func (h *DefaultLogHandler) Log(callCtx CallContext) error {
+	return h.logger.LogEntry(h.ToLogEntry(callCtx))
 }
 
 func (h *DefaultLogHandler) ToLogEntry(callCtx CallContext) any {

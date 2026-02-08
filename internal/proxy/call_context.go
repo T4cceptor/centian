@@ -23,13 +23,19 @@ type CallContext interface {
 	// Lifecycle
 	SendRequest(ctx context.Context) error // Execute the downstream call
 
-	// Direction (processors need to know request vs response phase)
-	GetDirection() Direction
-	SetDirection(Direction)
-
 	// Result access
+	HasResult() bool // Returns true if a result is available
+	// Note: this is used to avoid calling downstream in case processors already provided a response
+	// Scenarios include:
+	// - error responses from processors -> in this case we specifically want to prevent downstream call, as its unsafe
+	// - cached responses
+	// - mock responses
+	// - processors so powerful they can provide their own responses, think Processor as MCP client itself
 	GetResult() *mcp.CallToolResult // Returns the CallToolResult, can be nil if request was not sent yet OR resulted in error
 	SetResult(*mcp.CallToolResult)  // Sets the result for this call context
+
+	// TODO: refactor this: ideally we would provide another interface that has access to all of this information!
+	// e.g. CallContext.GetEventInfo().GetStatus() -> this is an opportunity to reuse MCPEvent!
 
 	// Original request (immutable deep clone - for auditing/comparison)
 	GetOriginalServerName() string            // Returns name of the original server
@@ -43,21 +49,29 @@ type CallContext interface {
 	GetToolName() string              // Returns current tool name
 
 	// Status and error handling
-	GetStatus() int      // Returns current status code (0 = not set, 200 = ok, 4xx/5xx = error)
-	SetStatus(int)       // Sets status code
-	GetError() string    // Returns error message if status >= 400
-	SetError(string)     // Sets error message
+	GetStatus() int   // Returns current status code (0 = not set, 200 = ok, 4xx/5xx = error)
+	SetStatus(int)    // Sets status code
+	GetError() string // Returns error message if status >= 400
+	SetError(string)  // Sets error message
 
 	// Session and request identification
 	GetRequestID() string // Returns unique request ID
 	GetSessionID() string // Returns session ID
 
+	// Direction (processors need to know request vs response phase)
+	GetDirection() Direction
+	SetDirection(Direction)
+
+	// --- end of TODO - se above
+
 	// Routing context (reuses common.RoutingContext)
 	GetRoutingContext() *common.RoutingContext
 
 	// Handler access
-	GetHandler(part string) CallContextHandler // Returns handler for given part (payload, meta, routing, etc.)
-	GetLogHandler() LogHandler                 // Returns the log handler for this context
+	GetHandler(part string) (CallContextHandler, bool) // Returns handler for given part (payload, meta, routing, etc.)
+	SetHandler(part string, h CallContextHandler)      // Sets the provided context handler
+	GetLogHandler() LogHandler                         // Returns the log handler for this context
+	SetLogHandler(l LogHandler)                        // sets the provided log handler
 
 	// Config access (for processors/handlers that need it)
 	GetGlobalConfig() *config.GlobalConfig   // Returns current global config
@@ -70,23 +84,6 @@ type callContextKey struct{}
 // WithCallContext attaches a CallContext to a context.Context.
 func WithCallContext(ctx context.Context, cc CallContext) context.Context {
 	return context.WithValue(ctx, callContextKey{}, cc)
-}
-
-// GetCallContext retrieves CallContext from context.Context.
-// Returns nil if not present.
-func GetCallContext(ctx context.Context) CallContext {
-	cc, _ := ctx.Value(callContextKey{}).(CallContext)
-	return cc
-}
-
-// MustGetCallContext retrieves CallContext from context.Context.
-// Panics if not present.
-func MustGetCallContext(ctx context.Context) CallContext {
-	cc := GetCallContext(ctx)
-	if cc == nil {
-		panic("CallContext not found in context")
-	}
-	return cc
 }
 
 // deepCloneRequest creates an immutable copy of the request for auditing.

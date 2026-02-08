@@ -211,7 +211,16 @@ type ProcessorConfig struct {
 	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
 	Enabled bool                   `json:"enabled"`           // Whether processor is active
 	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
+	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing" (default: ["payload"])
 	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
+}
+
+// GetParts returns the configured parts, defaulting to ["payload"] if not specified.
+func (p *ProcessorConfig) GetParts() []string {
+	if len(p.Parts) == 0 {
+		return []string{"payload"} // TODO: decide if this is intended or if config validation should fail if processor has no parts
+	}
+	return p.Parts
 }
 
 // ProcessorInput represents the JSON input passed to processors via stdin.

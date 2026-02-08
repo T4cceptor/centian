@@ -3,14 +3,13 @@ package proxy
 import (
 	"context"
 
-	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // EventProcessorInterface abstracts event processing for testability.
 type EventProcessorInterface interface {
-	Process(event common.McpEventInterface) error
+	Process(event CallContext) error
 }
 
 // DownstreamConnectionInterface abstracts downstream MCP server connections for testability.
@@ -24,6 +23,6 @@ type DownstreamConnectionInterface interface {
 
 // Compile-time interface compliance checks.
 var (
-	_ EventProcessorInterface       = (*EventProcessor)(nil)
+	_ EventProcessorInterface       = (*ProcessingController)(nil)
 	_ DownstreamConnectionInterface = (*DownstreamConnection)(nil)
 )

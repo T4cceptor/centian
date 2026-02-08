@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -16,8 +15,6 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
-	"github.com/T4cceptor/centian/internal/processor"
-	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -158,9 +155,9 @@ type MCPProxy struct {
 
 // NewAggregatedProxy creates a proxy that aggregates multiple downstream servers.
 // Tools from each server are namespaced as "serverName__toolName" to avoid collisions.
-func NewAggregatedProxy(name, endpoint string, gatewayConfig *config.GatewayConfig) *MCPProxy {
+func NewAggregatedProxy(gatewayName, endpoint string, gatewayConfig *config.GatewayConfig) *MCPProxy {
 	proxy := &MCPProxy{
-		name:              name,
+		name:              gatewayName,
 		endpoint:          endpoint,
 		config:            gatewayConfig,
 		downstreams:       make(map[string]*DownstreamConnection),
@@ -252,6 +249,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, session.id)
 
 	// Log session initialization event
+	// TODO: refactor this!
 	p.logSessionEvent(session, "session_init", "Session initialization started")
 
 	// Connect to all downstreams (parallel for aggregated, single iteration for single mode)
@@ -303,7 +301,7 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	}
 	return mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
-		Version: "1.0.0",
+		Version: "1.0.0", // TODO: make this configurable - later version will be used to define capabilities!
 	}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{
 			Tools: &mcp.ToolCapabilities{
@@ -342,166 +340,21 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 
 // ProcessRequest handles the request phase processing using handlers.
 // It gathers input from handlers, passes it to processors, and applies results back.
-func (p *MCPProxy) ProcessRequest(callCtx CallContext) error {
-	callCtx.SetDirection(DirectionRequest)
-
+//
+// If Error is non-nil, a mandatory processor failed to process the CallContext.
+// Otherwise, processors ran as intended. Note: this can still lead to an error response.
+func (p *MCPProxy) ProcessCall(callCtx CallContext, direction Direction) error {
 	if p.eventProcessor == nil {
+		// Nothing to do here
 		return nil
 	}
 
-	// Build MCPEvent from CallContext using handlers for input
-	event := p.buildEventFromCallContext(callCtx)
-
 	// Process through the chain
-	if err := p.eventProcessor.Process(event); err != nil {
-		common.LogError("request processing error: %s", err.Error())
-		// Non-fatal processing errors are logged but don't stop the flow
-		// TODO: we need to double check this, if process returns an
-		// error this might result in a 500 equivalent
+	callCtx.SetDirection(direction)
+	if err := p.eventProcessor.Process(callCtx); err != nil {
+		return err
 	}
-
-	// Check if request was rejected by processor
-	if event.Status >= 400 {
-		callCtx.SetStatus(event.Status)
-		errMsg := "Request rejected by processor"
-		if event.Error != "" {
-			errMsg = event.Error
-		}
-		callCtx.SetError(errMsg)
-		return fmt.Errorf("%s", errMsg)
-	}
-
-	// Apply modifications back through handlers
-	if event.Modified {
-		if err := applyRequestModifications(event, callCtx); err != nil {
-			common.LogError("failed to apply request modifications: %s", err.Error())
-		}
-	}
-
 	return nil
-}
-
-// ProcessResponse handles the response phase processing using handlers.
-func (p *MCPProxy) ProcessResponse(callCtx CallContext) error {
-	callCtx.SetDirection(DirectionResponse)
-
-	if p.eventProcessor == nil {
-		return nil
-	}
-
-	// Build response event from CallContext
-	event := p.buildEventFromCallContext(callCtx)
-
-	// Process through the chain
-	if err := p.eventProcessor.Process(event); err != nil {
-		common.LogError("response processing error: %s", err.Error())
-	}
-
-	// Apply modifications back through handlers
-	if event.Modified {
-		if err := applyResponseModifications(event, callCtx); err != nil {
-			common.LogError("failed to apply response modifications: %s", err.Error())
-		}
-	}
-
-	return nil
-}
-
-// buildEventFromCallContext creates an MCPEvent from CallContext state.
-// This bridges the handler-based CallContext to the MCPEvent-based processors.
-func (p *MCPProxy) buildEventFromCallContext(callCtx CallContext) *common.MCPEvent {
-	// TODO: to be refactored - this should not be necessary later, as CallContext should be directly provided to processors
-	// Potentially we want to use MCPEvent inside the CallContext -> as they hold similar data
-	direction := common.DirectionClientToServer
-	msgType := common.MessageTypeRequest
-	if callCtx.GetDirection() == DirectionResponse {
-		direction = common.DirectionServerToClient
-		msgType = common.MessageTypeResponse
-	}
-
-	event := &common.MCPEvent{
-		BaseMcpEvent: common.BaseMcpEvent{
-			Timestamp:   time.Now(),
-			RequestID:   callCtx.GetRequestID(),
-			SessionID:   callCtx.GetSessionID(),
-			Direction:   direction,
-			MessageType: msgType,
-		},
-	}
-
-	// Add routing context
-	if rc := callCtx.GetRoutingContext(); rc != nil {
-		event.Routing = *rc
-		event.Transport = string(rc.Transport)
-	}
-
-	// Build tool call context
-	event.ToolCall = &common.ToolCallContext{
-		Name:         callCtx.GetToolName(),
-		OriginalName: callCtx.GetOriginalToolName(),
-	}
-
-	if callCtx.GetDirection() == DirectionRequest {
-		// For request: include arguments
-		if req := callCtx.GetRequest(); req != nil && req.Params != nil {
-			event.ToolCall.Arguments = req.Params.Arguments
-		}
-		// Build raw message for processors
-		event.RawMessage = p.buildRawRequestMessage(callCtx)
-	} else {
-		// For response: include result
-		if result := callCtx.GetResult(); result != nil {
-			resultJSON, _ := json.Marshal(result)
-			event.ToolCall.Result = resultJSON
-			event.ToolCall.IsError = result.IsError
-		}
-		event.RawMessage = p.buildRawResponseMessage(callCtx)
-	}
-
-	return event
-}
-
-// buildRawRequestMessage creates the JSON-RPC message for request processing.
-func (p *MCPProxy) buildRawRequestMessage(callCtx CallContext) string {
-	// TODO: this shouldn't be necessary after the refactor
-	req := callCtx.GetRequest()
-	if req == nil || req.Params == nil {
-		return "{}"
-	}
-
-	var args map[string]any
-	_ = json.Unmarshal(req.Params.Arguments, &args)
-
-	msg := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name":      req.Params.Name,
-			"arguments": args,
-		},
-	}
-	raw, _ := json.Marshal(msg)
-	return string(raw)
-}
-
-// buildRawResponseMessage creates the JSON-RPC message for response processing.
-func (p *MCPProxy) buildRawResponseMessage(callCtx CallContext) string {
-	// TODO: this shouldn't be necessary after the refactor
-	result := callCtx.GetResult()
-	if result == nil {
-		return "{}"
-	}
-
-	content := resultToContentBlocks(result)
-	msg := map[string]any{
-		"jsonrpc": "2.0",
-		"result": map[string]any{
-			"content": content,
-			"isError": result.IsError,
-		},
-	}
-	raw, _ := json.Marshal(msg)
-	return string(raw)
 }
 
 func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -515,220 +368,41 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 		req.Params.Name = strings.Join(parts[1:], "")
 	}
 
-	// 1. Create CallContext - returns interface type for flexibility
-	callCtx := NewToolCallContext(p, session, serverName, req)
+	// 1. Create CallContext
+	callCtx := NewToolCallContext(ctx, p, session, serverName, req)
 	ctx = WithCallContext(ctx, callCtx)
 
 	// 2. Process REQUEST phase (Client → Server)
-	if err := p.ProcessRequest(callCtx); err != nil {
-		// Request rejected by processor - return error result
-		return &mcp.CallToolResult{
-			IsError: true,
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: callCtx.GetError()},
-			},
-		}, nil
+	if err := p.ProcessCall(callCtx, DirectionRequest); err != nil {
+		// error  != nil indicates the processing failed on a mandatory processor
+		// if no error is being returned the response can still be an error,
+		// but it will be handled differently!
+		return nil, err
 	}
 
-	// 3. Verify connection is available (using potentially modified serverName)
-	conn, exists := session.downstreamConns[callCtx.GetServerName()]
-	if !exists || !conn.IsConnected() {
-		return nil, fmt.Errorf("server %s not available", callCtx.GetServerName())
+	// 3. If a processor/handler produced a result, return it without calling downstream.
+	// This handles: rejections, cache hits, short-circuits, etc.
+	if callCtx.HasResult() {
+		return callCtx.GetResult(), nil
 	}
 
 	// 4. CallContext executes the downstream call
 	if err := callCtx.SendRequest(ctx); err != nil {
+		// Note: err != nil means there was an error in sending the request,
+		// this does NOT have an impact on an error state being returned
+		// from either the downstream MCP or any of the applied processors
 		return nil, err
 	}
 
 	// 5. Process RESPONSE phase (Server → Client)
-	if err := p.ProcessResponse(callCtx); err != nil {
-		common.LogError("response processing error: %s", err.Error())
-		// Non-fatal - continue with potentially unmodified result
+	if err := p.ProcessCall(callCtx, DirectionResponse); err != nil {
+		// same applies here about the error, see above "2. Process REQUEST phase"
+		return nil, err
 	}
+	// Note: HasResult will always be true here, compare to above HasResult check
 
 	// 6. Return (potentially modified) result
 	return callCtx.GetResult(), nil
-}
-
-// applyRequestModifications extracts modified arguments from MCPEvent and applies them to CallContext.
-func applyRequestModifications(event *common.MCPEvent, callCtx CallContext) error {
-	// Parse the modified JSON-RPC message
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(event.GetRawMessage()), &payload); err != nil {
-		return fmt.Errorf("failed to parse modified request: %w", err)
-	}
-
-	// Extract params.arguments from the JSON-RPC message
-	params, ok := payload["params"].(map[string]any)
-	if !ok {
-		return nil // No params to extract
-	}
-
-	// Update arguments if present
-	if args, ok := params["arguments"].(map[string]any); ok {
-		argsJSON, err := json.Marshal(args)
-		if err != nil {
-			return fmt.Errorf("failed to marshal modified arguments: %w", err)
-		}
-		callCtx.GetRequest().Params.Arguments = argsJSON
-	}
-
-	// Update tool name if present and different
-	if name, ok := params["name"].(string); ok && name != "" {
-		callCtx.GetRequest().Params.Name = name
-	}
-
-	return nil
-}
-
-// applyResponseModifications extracts modified result from MCPEvent and applies it to CallContext.
-func applyResponseModifications(event *common.MCPEvent, callCtx CallContext) error {
-	// Parse the modified JSON-RPC message
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(event.GetRawMessage()), &payload); err != nil {
-		return fmt.Errorf("failed to parse modified response: %w", err)
-	}
-
-	// Extract result from the JSON-RPC message
-	resultData, ok := payload["result"].(map[string]any)
-	if !ok {
-		return nil // No result to extract
-	}
-
-	// Build new CallToolResult from modified data
-	newResult := &mcp.CallToolResult{}
-
-	// Extract isError
-	if isError, ok := resultData["isError"].(bool); ok {
-		newResult.IsError = isError
-	}
-
-	// Extract content array
-	if contentArray, ok := resultData["content"].([]any); ok {
-		for _, item := range contentArray {
-			contentMap, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-
-			contentType, _ := contentMap["type"].(string)
-			switch contentType {
-			case "text":
-				if text, ok := contentMap["text"].(string); ok {
-					newResult.Content = append(newResult.Content, &mcp.TextContent{Text: text})
-				}
-			case "image":
-				if data, ok := contentMap["data"].(string); ok {
-					mimeType, _ := contentMap["mimeType"].(string)
-					newResult.Content = append(newResult.Content, &mcp.ImageContent{
-						Data:     []byte(data),
-						MIMEType: mimeType,
-					})
-				}
-				// Add more content types as needed
-			}
-		}
-	}
-
-	callCtx.SetResult(newResult)
-	return nil
-}
-
-func getRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingContext {
-	connection, err := session.GetConnectionByName(serverName)
-	if err != nil {
-		common.LogError(err.Error())
-		return &common.RoutingContext{
-			Gateway:    proxy.name,
-			ServerName: serverName,
-			Endpoint:   proxy.endpoint,
-		}
-	}
-	cfg := connection.GetConfig()
-	transport := common.HTTPTransport
-	if cfg.URL == "" && cfg.Command != "" {
-		transport = common.StdioTransport
-	}
-	return &common.RoutingContext{
-		Transport:         transport,
-		Gateway:           proxy.name,
-		ServerName:        serverName,
-		Endpoint:          proxy.endpoint,
-		DownstreamURL:     cfg.URL,
-		DownstreamCommand: cfg.Command,
-		Args:              cfg.Args,
-	}
-}
-
-// buildRequestEvent creates an MCPEvent for a tool call request.
-func (p *MCPProxy) buildRequestEvent(session *CentianProxySession, serverName string, req *mcp.CallToolRequest) *common.MCPEvent {
-	serverID := ""
-	if p.server != nil {
-		serverID = p.server.ServerID
-	}
-
-	// Build JSON-RPC message
-	rawMsg, _ := json.Marshal(map[string]interface{}{
-		"jsonrpc": "2.0",
-		"method":  "tools/call",
-		"params":  req.Params,
-	})
-	routing := getRoutingContext(p, session, serverName)
-	event := common.NewMCPRequestEvent(string(routing.Transport)).
-		WithRequestID(getNewUUIDV7()).
-		WithSessionID(session.id).
-		WithServerID(serverID).
-		WithToolCall(req.Params.Name, req.Params.Arguments).
-		WithRawMessage(string(rawMsg))
-	event.Routing = *routing
-	return event
-}
-
-// buildResponseEvent creates an MCPEvent for a tool call response.
-func (p *MCPProxy) buildResponseEvent(
-	session *CentianProxySession,
-	serverName string,
-	req *mcp.CallToolRequest,
-	result *mcp.CallToolResult,
-	reqEvent *common.MCPEvent,
-) *common.MCPEvent {
-	serverID := ""
-	if p.server != nil {
-		serverID = p.server.ServerID
-	}
-
-	// Use request ID from request event if available
-	requestID := getNewUUIDV7()
-	if reqEvent != nil {
-		requestID = reqEvent.RequestID
-	}
-
-	// Marshal result for raw message
-	resultJSON, _ := json.Marshal(result)
-	id, _ := jsonrpc.MakeID(requestID)
-	rawJsonRpc := jsonrpc.Response{
-		Result: resultJSON,
-		ID:     id,
-	}
-	rawMsg, _ := json.Marshal(rawJsonRpc) // TODO: this should be a proper struct which is then also used for unmarshalling
-	// then the "result" field is provided as result
-	// We should NOT reinvent the wheel here
-	// ToolRequest and ToolResult should be the same as the MCP standard, additionally we can provide other
-	// fields/more data to processors and in the logs!
-
-	routing := getRoutingContext(p, session, serverName)
-	event := common.NewMCPResponseEvent(string(routing.Transport)).
-		WithRequestID(requestID).
-		WithSessionID(session.id).
-		WithServerID(serverID).
-		WithToolCall(req.Params.Name, req.Params.Arguments).
-		WithToolResult(resultJSON, result.IsError).
-		WithRawMessage(string(rawMsg))
-		// TODO: could add MCPEvent
-	event.Routing = *routing
-	event.Success = !result.IsError
-	return event
 }
 
 func deepCloneTool(tool *mcp.Tool) *mcp.Tool {
@@ -763,6 +437,7 @@ func (p *MCPProxy) Close() error {
 // ============================================================================
 
 func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next http.Handler) http.Handler {
+	// TODO: move away from this file
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			next.ServeHTTP(w, r)
@@ -787,6 +462,7 @@ func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next
 }
 
 func extractAuthToken(header string) string {
+	// TODO: move into utils file
 	if header == "" {
 		return ""
 	}
@@ -798,6 +474,7 @@ func extractAuthToken(header string) string {
 }
 
 func writeUnauthorized(w http.ResponseWriter, headerName string) {
+	// TODO: move into utils file
 	if strings.EqualFold(headerName, "Authorization") {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 	}
@@ -806,8 +483,8 @@ func writeUnauthorized(w http.ResponseWriter, headerName string) {
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
 
-// RegisterHandler registers a ServerProvider with the HTTP mux.
-func RegisterHandler(endpoint string, proxy *MCPProxy, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
+// RegisterEndpoint registers a ServerProvider with the HTTP mux.
+func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
 	if options == nil {
 		options = &mcp.StreamableHTTPOptions{
 			SessionTimeout: 10 * time.Minute,
@@ -858,7 +535,7 @@ func (c *CentianProxy) Setup() error {
 		gateway.initEventProcessor()
 
 		// Register aggregated endpoint
-		RegisterHandler(gateway.endpoint, gateway, c.Mux, nil)
+		RegisterEndpoint(gateway.endpoint, gateway, c.Mux, nil)
 
 		// Optionally: register individual endpoints for each server
 		// TODO: make this configurable
@@ -870,7 +547,7 @@ func (c *CentianProxy) Setup() error {
 			singleProxy := NewSingleProxy(serverName, singleEndpoint, serverCfg)
 			singleProxy.server = c
 			singleProxy.initEventProcessor()
-			RegisterHandler(singleEndpoint, singleProxy, c.Mux, nil)
+			RegisterEndpoint(singleEndpoint, singleProxy, c.Mux, nil)
 		}
 	}
 	return nil
@@ -878,10 +555,7 @@ func (c *CentianProxy) Setup() error {
 
 // logSessionEvent logs a system event for session lifecycle.
 func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, message string) {
-	if p.eventProcessor == nil {
-		return
-	}
-
+	// TODO: refactor this - we need to have more system event logs anyway!
 	serverID := ""
 	if p.server != nil {
 		serverID = p.server.ServerID
@@ -929,15 +603,7 @@ func (p *MCPProxy) initEventProcessor() {
 		allProcessors = append(allProcessors, p.config.Processors...)
 	}
 
-	// Create processor chain
-	sessionID := fmt.Sprintf("gateway_%s_%d", p.name, time.Now().UnixNano())
-	processorChain, err := processor.NewChain(allProcessors, p.server.Config.Name, sessionID)
-	if err != nil {
-		common.LogError("MCPProxy[%s]: Failed to create processor chain: %s", p.name, err.Error())
-		return
-	}
-
 	// Create event processor
-	p.eventProcessor = NewEventProcessor(p.server.Logger, processorChain)
+	p.eventProcessor = NewEventProcessor(allProcessors)
 	common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, len(allProcessors))
 }
