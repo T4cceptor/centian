@@ -15,13 +15,16 @@ type CallContext interface {
 	SendRequest(ctx context.Context) error // Execute the downstream call
 
 	// Result access
+
 	HasResult() bool // Returns true if a result is available
+
 	// Note: this is used to avoid calling downstream in case processors already provided a response
 	// Scenarios include:
 	// - error responses from processors -> in this case we specifically want to prevent downstream call, as its unsafe
 	// - cached responses
 	// - mock responses
 	// - processors so powerful they can provide their own responses, think Processor as MCP client itself
+
 	GetResult() *mcp.CallToolResult         // Returns the CallToolResult, can be nil if request was not sent yet OR resulted in error
 	GetOriginalResult() *mcp.CallToolResult // Returns the initial CallToolResult first set, can be nil if request was not sent yet OR resulted in error
 	SetResult(*mcp.CallToolResult)          // Sets the result for this call context

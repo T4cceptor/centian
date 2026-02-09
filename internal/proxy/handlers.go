@@ -163,26 +163,17 @@ func (h *DefaultLogHandler) ToLogEntry(callCtx CallContext) any {
 		event.Routing = *rc
 	}
 
-	// Add tool call context
-	event.ToolCall = &common.ToolCallLog{
-		Name:         callCtx.GetToolName(),
-		OriginalName: callCtx.GetOriginalToolName(),
-	}
-
 	// Add arguments for request
-	if msgType == common.MessageTypeRequest {
-		if req := callCtx.GetRequest(); req != nil && req.Params != nil {
-			event.ToolCall.Arguments = req.Params.Arguments
-		}
+	req := callCtx.GetRequest()
+	if req != nil && req.Params != nil {
+		event.WithToolRequest(callCtx.GetToolName(), callCtx.GetOriginalToolName(), req.Params.Arguments)
 	}
 
 	// Add result for response
-	if msgType == common.MessageTypeResponse {
-		if result := callCtx.GetResult(); result != nil {
-			resultJSON, _ := json.Marshal(result)
-			event.ToolCall.Result = resultJSON
-			event.ToolCall.IsError = result.IsError
-		}
+	if callCtx.HasResult() {
+		result := callCtx.GetResult()
+		resultJSON, _ := json.Marshal(result)
+		event.WithToolResult(resultJSON, result.IsError)
 	}
 	return event
 }

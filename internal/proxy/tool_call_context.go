@@ -48,6 +48,10 @@ func NewToolCallContext(
 	serverName string,
 	req *mcp.CallToolRequest,
 ) (CallContext, error) {
+	// nil check
+	if proxy.server == nil {
+		return nil, fmt.Errorf("server attached to the proxy component is nil (%v)", proxy)
+	}
 	// Build routing context
 	routingCtx := buildRoutingContext(proxy, session, serverName)
 	// TODO: get headers from ctx
@@ -62,10 +66,8 @@ func NewToolCallContext(
 
 	event := common.NewMCPRequestEvent(string(transport)).
 		WithRequestID(getNewUUIDV7()).
-		WithSessionID(session.id)
-	if proxy.server != nil {
-		event.WithServerID(proxy.server.ServerID)
-	}
+		WithSessionID(session.id).
+		WithServerID(proxy.server.ServerID) // nil check was done above
 
 	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,
@@ -82,8 +84,8 @@ func NewToolCallContext(
 	toolCallCtx.SetHandler("meta", &DefaultMetaHandler{})
 	toolCallCtx.SetHandler("routing", &DefaultRoutingHandler{})
 
-	// Set default log handler
-	if proxy.server == nil || proxy.server.Logger == nil {
+	// Set default log handler - proxy.server nil check was done above
+	if proxy.server.Logger == nil {
 		return nil, fmt.Errorf("unable to get logger from centian server")
 	}
 	toolCallCtx.SetLogHandler(NewDefaultLogHandler(proxy.server.Logger))

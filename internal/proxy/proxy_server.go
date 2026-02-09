@@ -249,10 +249,6 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) (*mcp.Serve
 
 	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, session.id)
 
-	// Log session initialization event
-	// TODO: refactor this!
-	p.logSessionEvent(session, "session_init", "Session initialization started")
-
 	// Connect to all downstreams (parallel for aggregated, single iteration for single mode)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -548,34 +544,6 @@ func (c *CentianProxy) Setup() error {
 	return nil
 }
 
-// logSessionEvent logs a system event for session lifecycle.
-func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, message string) {
-	// TODO: refactor this - we need to have more system event logs anyway!
-	serverID := ""
-	if p.server != nil {
-		serverID = p.server.ServerID
-	}
-
-	routing := common.RoutingLog{
-		Gateway:    p.name,
-		ServerName: "",
-		Endpoint:   p.endpoint,
-	}
-	event := common.NewMCPSystemEvent("sdk").
-		WithRequestID(getNewUUIDV7()).
-		WithSessionID(session.id).
-		WithServerID(serverID)
-	event.Routing = routing
-	event.Metadata["event_type"] = eventType
-
-	// Only log, don't run through processor chain for system events
-	if p.server != nil && p.server.Logger != nil {
-		if err := p.server.Logger.LogMcpEvent(event); err != nil {
-			common.LogError("failed to log session event: %s", err.Error())
-		}
-	}
-}
-
 // initEventProcessor initializes the event processor for this MCPProxy.
 // It combines global processors with gateway-specific processors.
 func (p *MCPProxy) initEventProcessor() error {
@@ -597,7 +565,7 @@ func (p *MCPProxy) initEventProcessor() error {
 	}
 
 	// Create event processor
-	pc, err := NewEventProcessor(allProcessors)
+	pc, err := NewProcessingController(allProcessors)
 	if err != nil {
 		return err
 	}

@@ -94,16 +94,6 @@ func NewMCPRequestEvent(transport string) *MCPEvent {
 	return NewMCPEvent(transport, DirectionClientToServer, MessageTypeRequest)
 }
 
-// NewMCPResponseEvent creates an MCPEvent for a response (server → client).
-func NewMCPResponseEvent(transport string) *MCPEvent {
-	return NewMCPEvent(transport, DirectionServerToClient, MessageTypeResponse)
-}
-
-// NewMCPSystemEvent creates an MCPEvent for a system event.
-func NewMCPSystemEvent(transport string) *MCPEvent {
-	return NewMCPEvent(transport, DirectionSystem, MessageTypeSystem)
-}
-
 // ============================================================================
 // Builder methods for fluent construction
 // ============================================================================
@@ -126,22 +116,22 @@ func (e *MCPEvent) WithServerID(id string) *MCPEvent {
 	return e
 }
 
-// WithToolCall sets the tool call context.
-func (e *MCPEvent) WithToolCall(name string, arguments json.RawMessage) *MCPEvent {
-	e.ToolCall = &ToolCallLog{
-		Name:      name,
-		Arguments: arguments,
+func (e *MCPEvent) WithToolRequest(name, originalName string, args json.RawMessage) *MCPEvent {
+	if e.ToolCall == nil {
+		e.ToolCall = &ToolCallLog{}
 	}
+	e.ToolCall.Name = name
+	e.ToolCall.OriginalName = originalName
+	e.ToolCall.Arguments = args
 	return e
 }
 
-// WithToolResult sets the tool call result (for response events).
 func (e *MCPEvent) WithToolResult(result json.RawMessage, isError bool) *MCPEvent {
 	if e.ToolCall == nil {
 		e.ToolCall = &ToolCallLog{}
 	}
-	e.ToolCall.Result = result
 	e.ToolCall.IsError = isError
+	e.ToolCall.Result = result
 	return e
 }
 
@@ -149,24 +139,9 @@ func (e *MCPEvent) WithToolResult(result json.RawMessage, isError bool) *MCPEven
 // McpEventInterface implementation
 // ============================================================================
 
-// SetModified sets the modified flag.
-func (e *MCPEvent) SetModified(b bool) {
-	e.Modified = b
-}
-
 // GetBaseEvent returns the BaseMcpEvent.
 func (e *MCPEvent) GetBaseEvent() BaseMcpEvent {
 	return e.BaseMcpEvent
-}
-
-// IsRequest returns true if this is a request event.
-func (e *MCPEvent) IsRequest() bool {
-	return e.MessageType == MessageTypeRequest
-}
-
-// IsResponse returns true if this is a response event.
-func (e *MCPEvent) IsResponse() bool {
-	return e.MessageType == MessageTypeResponse
 }
 
 // SetStatus sets the status code for this event.

@@ -15,8 +15,8 @@ type ProcessingController struct {
 	logAfterProcessing  bool
 }
 
-// NewEventProcessor returns a new EventProcessor with the provided logger and processors.
-func NewEventProcessor(processorConfigs []*config.ProcessorConfig) (*ProcessingController, error) {
+// NewProcessingController returns a new ProcessingController using the provided processor configs.
+func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*ProcessingController, error) {
 	result := &ProcessingController{
 		processors:          make([]processor.ProcessorInterface, 0),
 		logBeforeProcessing: true, // TODO: make configurable

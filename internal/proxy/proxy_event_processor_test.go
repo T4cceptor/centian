@@ -87,7 +87,7 @@ func TestNewEventProcessor_WithValidInputs(t *testing.T) {
 	assert.NilError(t, err)
 
 	// When: creating a new event processor.
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 
 	// Then: should create processor with correct defaults.
 	assert.Assert(t, ep != nil)
@@ -103,7 +103,7 @@ func TestNewEventProcessor_WithNilChain(t *testing.T) {
 	defer logger.Close()
 
 	// When: creating a new event processor with nil chain.
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 
 	// Then: should create processor successfully.
 	assert.Assert(t, ep != nil)
@@ -119,7 +119,7 @@ func TestProcess_WithNoProcessors_LogsEvent(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
@@ -135,7 +135,7 @@ func TestProcess_WithNoProcessors_NoContent(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	event := newMockCallContext("", false)
 
 	// When: processing an event.
@@ -154,7 +154,7 @@ func TestProcess_WithEmptyProcessorChain_SkipsProcessing(t *testing.T) {
 	chain, err := processor.NewChain(nil, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
 
 	// When: processing an event.
@@ -174,7 +174,7 @@ func TestProcess_WithInvalidJSON_HandlesGracefully(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	event := newMockCallContext(`{invalid json}`, true)
 
 	// When: processing an event with invalid JSON.
@@ -191,7 +191,7 @@ func TestProcess_LoggingDisabled_SkipsLogging(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	ep.logBeforeProcessing = false
 	ep.logAfterProcessing = false
 
@@ -210,7 +210,7 @@ func TestProcess_WithEmptyMessage_ProcessesSuccessfully(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	event := newMockCallContext("", false)
 
 	// When: processing an event.
@@ -229,7 +229,7 @@ func TestProcess_EventWithoutContent_SkipsProcessors(t *testing.T) {
 	chain, err := processor.NewChain(nil, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	event := newMockCallContext("", false) // No content
 
 	// When: processing an event without content.
@@ -249,7 +249,7 @@ func TestProcess_LogBeforeProcessing_CallsLogger(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	ep.logBeforeProcessing = true
 	ep.logAfterProcessing = false
 
@@ -267,7 +267,7 @@ func TestProcess_LogAfterProcessing_CallsLogger(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	ep.logBeforeProcessing = false
 	ep.logAfterProcessing = true
 
@@ -285,7 +285,7 @@ func TestProcess_BothLoggingEnabled_LogsTwice(t *testing.T) {
 	logger := createTestLogger(t)
 	defer logger.Close()
 
-	ep := NewEventProcessor(logger, nil)
+	ep := NewProcessingController(logger, nil)
 	ep.logBeforeProcessing = true
 	ep.logAfterProcessing = true
 
@@ -311,7 +311,7 @@ func TestProcess_WithPassthroughProcessor_ModifiesMessage(t *testing.T) {
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	event := newMockCallContext(`{"jsonrpc":"2.0","id":1,"method":"test/method","params":{}}`, true)
 
 	// When: processing an event through the chain.
@@ -332,7 +332,7 @@ func TestProcess_WithPayloadTransformer_ModifiesPayload(t *testing.T) {
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	originalMsg := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test","arguments":{}}}`
 	event := newMockCallContext(originalMsg, true)
 
@@ -356,7 +356,7 @@ func TestProcess_WithSecurityValidator_RejectsDeleteRequests(t *testing.T) {
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	deleteMsg := `{"jsonrpc":"2.0","id":3,"method":"files/delete","params":{"path":"/test"}}`
 	event := newMockCallContext(deleteMsg, true)
 
@@ -379,7 +379,7 @@ func TestProcess_WithSecurityValidator_AllowsNormalRequests(t *testing.T) {
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	normalMsg := `{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}`
 	event := newMockCallContext(normalMsg, true)
 
@@ -401,7 +401,7 @@ func TestProcess_WithMultipleProcessors_ExecutesInOrder(t *testing.T) {
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processor1, processor2}, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	event := newMockCallContext(`{"jsonrpc":"2.0","id":5,"method":"test/method","params":{}}`, true)
 
 	// When: processing through multiple processors.
@@ -422,7 +422,7 @@ func TestProcess_WithDisabledProcessor_SkipsProcessor(t *testing.T) {
 	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
 	assert.NilError(t, err)
 
-	ep := NewEventProcessor(logger, chain)
+	ep := NewProcessingController(logger, chain)
 	originalMsg := `{"jsonrpc":"2.0","id":6,"method":"test/method","params":{}}`
 	event := newMockCallContext(originalMsg, true)
 

@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -40,30 +39,6 @@ func TestNewMCPRequestEvent(t *testing.T) {
 	assert.Assert(t, event.Transport == "test")
 	assert.Assert(t, event.Direction == DirectionClientToServer) // CLIENT -> SERVER
 	assert.Assert(t, event.MessageType == MessageTypeRequest)    // request
-	assert.Assert(t, hasDefaultValues(event))
-}
-
-func TestNewMCPResponseEvent(t *testing.T) {
-	// Given: NewMCPEvent method
-	// When: creating a new event using NewMCPEvent
-	event := NewMCPResponseEvent("test")
-
-	// Then: the created event is as expected
-	assert.Assert(t, event.Transport == "test")
-	assert.Assert(t, event.Direction == DirectionServerToClient) // SERVER -> CLIENT
-	assert.Assert(t, event.MessageType == MessageTypeResponse)   // response
-	assert.Assert(t, hasDefaultValues(event))
-}
-
-func TestNewMCPSystemEvent(t *testing.T) {
-	// Given: NewMCPEvent method
-	// When: creating a new event using NewMCPEvent
-	event := NewMCPSystemEvent("test")
-
-	// Then: the created event is as expected
-	assert.Assert(t, event.Transport == "test")
-	assert.Assert(t, event.Direction == DirectionSystem)     // SYSTEM
-	assert.Assert(t, event.MessageType == MessageTypeSystem) // system
 	assert.Assert(t, hasDefaultValues(event))
 }
 
@@ -109,80 +84,6 @@ func TestWithServerID(t *testing.T) {
 	assert.Assert(t, event.ServerID == "test_server_id") // the server ID was set
 }
 
-func TestWithToolCall(t *testing.T) {
-	// Given: a MCPEvent and a tool call payload
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
-	arguments := json.RawMessage(`{"input":"value"}`)
-
-	// When: calling WithToolCall
-	new_event := event.WithToolCall("my_tool", arguments)
-
-	// Then:
-	assert.Equal(t, new_event, event)
-	assert.Assert(t, event.ToolCall != nil)
-	assert.Equal(t, event.ToolCall.Name, "my_tool")
-	assert.DeepEqual(t, event.ToolCall.Arguments, arguments)
-}
-
-func TestWithToolResult(t *testing.T) {
-	// Given: a MCPEvent and a tool result
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
-	result := json.RawMessage(`{"ok":true}`)
-
-	// When: calling WithToolResult
-	new_event := event.WithToolResult(result, true)
-
-	// Then:
-	assert.Equal(t, new_event, event)
-	assert.Assert(t, event.ToolCall != nil)
-	assert.DeepEqual(t, event.ToolCall.Result, result)
-	assert.Assert(t, event.ToolCall.IsError)
-}
-
-func TestWithRawMessage(t *testing.T) {
-	// Given: a MCPEvent and a raw message
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
-	message := `{"jsonrpc":"2.0"}`
-
-	// When: calling WithRawMessage
-	new_event := event.WithRawMessage(message)
-
-	// Then:
-	assert.Equal(t, new_event, event)
-	assert.Equal(t, event.RawMessage, message)
-}
-
-func TestSetModified(t *testing.T) {
-	// Given: a MCPEvent
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
-
-	// When: marking modified
-	event.SetModified(true)
-
-	// Then: the modified flag is set
-	assert.Assert(t, event.Modified)
-
-	// When: clearing modified
-	event.SetModified(false)
-
-	// Then: the modified flag is cleared
-	assert.Assert(t, !event.Modified)
-}
-
-func TestHasContent(t *testing.T) {
-	// Given: a MCPEvent without content
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
-
-	// Then: HasContent is false
-	assert.Assert(t, !event.HasContent())
-
-	// When: adding content
-	event.RawMessage = "{}"
-
-	// Then: HasContent is true
-	assert.Assert(t, event.HasContent())
-}
-
 func TestGetBaseEvent(t *testing.T) {
 	// Given: a MCPEvent with a request ID
 	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
@@ -193,21 +94,6 @@ func TestGetBaseEvent(t *testing.T) {
 
 	// Then: base event should match
 	assert.Equal(t, base.RequestID, "req-123")
-}
-
-func TestIsRequestIsResponse(t *testing.T) {
-	// Given: request, response, and system MCP events
-	requestEvent := NewMCPRequestEvent("test")
-	responseEvent := NewMCPResponseEvent("test")
-	systemEvent := NewMCPSystemEvent("test")
-
-	// Then: request/response should be correctly identified
-	assert.Assert(t, requestEvent.IsRequest())
-	assert.Assert(t, !requestEvent.IsResponse())
-	assert.Assert(t, responseEvent.IsResponse())
-	assert.Assert(t, !responseEvent.IsRequest())
-	assert.Assert(t, !systemEvent.IsRequest())
-	assert.Assert(t, !systemEvent.IsResponse())
 }
 
 func TestSetStatus(t *testing.T) {
