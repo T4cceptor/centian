@@ -43,7 +43,6 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 			Args:              []string{"@server"},
 		},
 	}
-	e.SetRawMessage("ping")
 
 	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []common.MCPEvent{e})
 

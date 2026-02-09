@@ -7,34 +7,28 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
 
 // MockEventProcessor is a test double for EventProcessorInterface.
-// It captures processed events and can modify them according to test needs.
+// It branches on direction and mutates the CallContext based on test needs.
 type MockEventProcessor struct {
-	ProcessedEvents []*ToolCallContext
-
-	// RequestModifier is called for request events; if non-nil, modifies the event
-	RequestModifier func(event *common.MCPEvent)
-
-	// ResponseModifier is called for response events; if non-nil, modifies the event
-	ResponseModifier func(event *common.MCPEvent)
+	ProcessedDirections []common.McpEventDirection
+	RequestModifier     func(callCtx CallContext)
+	ResponseModifier    func(callCtx CallContext)
 }
 
-func (m *MockEventProcessor) Process(event CallContext) error {
-	mcpEvent, ok := event.(*ToolCallContext)
-	if !ok {
-		return nil
-	}
-	m.ProcessedEvents = append(m.ProcessedEvents, mcpEvent)
+func (m *MockEventProcessor) Process(callCtx CallContext) error {
+	direction := callCtx.GetDirection()
+	m.ProcessedDirections = append(m.ProcessedDirections, direction)
 
-	if mcpEvent.IsRequest() && m.RequestModifier != nil {
-		m.RequestModifier(mcpEvent)
+	if direction == common.DirectionClientToServer && m.RequestModifier != nil {
+		m.RequestModifier(callCtx)
 	}
-	if mcpEvent.IsResponse() && m.ResponseModifier != nil {
-		m.ResponseModifier(mcpEvent)
+	if direction == common.DirectionServerToClient && m.ResponseModifier != nil {
+		m.ResponseModifier(callCtx)
 	}
 	return nil
 }
@@ -77,29 +71,48 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 	return m.cfg
 }
 
+func createTestProxy(t *testing.T, eventProcessor EventProcessorInterface) *MCPProxy {
+	t.Helper()
+
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	logger, err := logging.NewLogger()
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = logger.Close()
+	})
+
+	return &MCPProxy{
+		name:           "test-gateway",
+		endpoint:       "/mcp/test",
+		eventProcessor: eventProcessor,
+		server: &CentianProxy{
+			ServerID: "test-server-id",
+			Logger:   logger,
+		},
+	}
+}
+
 // TestHandleToolCall_ProcessorModifiesRequest verifies that when the event processor
 // modifies the request, the modified content is sent to the downstream connection.
 func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 	// Given: a mock processor that modifies request arguments
 	mockProcessor := &MockEventProcessor{
-		RequestModifier: func(event *common.MCPEvent) {
-			// Parse current payload
-			var payload map[string]any
-			if err := json.Unmarshal([]byte(event.GetRawMessage()), &payload); err != nil {
+		RequestModifier: func(callCtx CallContext) {
+			req := callCtx.GetRequest()
+			if req == nil || req.Params == nil {
 				return
 			}
-			// Modify the params.arguments to add injected field
-			if params, ok := payload["params"].(map[string]any); ok {
-				if args, ok := params["arguments"].(map[string]any); ok {
-					args["injected"] = "test new request content"
-					params["arguments"] = args
-					payload["params"] = params
-				}
+
+			var payload map[string]any
+			if err := json.Unmarshal(req.Params.Arguments, &payload); err != nil {
+				return
 			}
-			// Update raw message
-			modified, _ := json.Marshal(payload)
-			event.SetRawMessage(string(modified))
-			event.SetModified(true)
+			payload["injected"] = "test new request content"
+			modified, err := json.Marshal(payload)
+			if err != nil {
+				return
+			}
+			req.Params.Arguments = modified
 		},
 	}
 
@@ -115,11 +128,7 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 	}
 
 	// And: a proxy with the mock processor and session with mock downstream
-	proxy := &MCPProxy{
-		name:           "test-gateway",
-		endpoint:       "/mcp/test",
-		eventProcessor: mockProcessor,
-	}
+	proxy := createTestProxy(t, mockProcessor)
 	session := &CentianProxySession{
 		id: "test-session",
 		downstreamConns: map[string]DownstreamConnectionInterface{
@@ -144,6 +153,10 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 	// And: the downstream received the modified arguments with injected field
 	assert.Equal(t, mockDownstream.CapturedArgs["injected"], "test new request content")
 	assert.Equal(t, mockDownstream.CapturedArgs["original"], "value")
+	assert.Equal(t, mockProcessor.ProcessedDirections, []common.McpEventDirection{
+		common.DirectionClientToServer,
+		common.DirectionServerToClient,
+	})
 }
 
 // TestHandleToolCall_ProcessorModifiesResponse verifies that when the event processor
@@ -151,24 +164,14 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 	// Given: a mock processor that modifies response content
 	mockProcessor := &MockEventProcessor{
-		ResponseModifier: func(event *common.MCPEvent) {
-			// Parse current payload
-			var payload map[string]any
-			if err := json.Unmarshal([]byte(event.GetRawMessage()), &payload); err != nil {
-				return
-			}
-			// Replace the result content
-			payload["result"] = map[string]any{
-				"content": []map[string]any{
-					{"type": "text", "text": "test new response content"},
-				},
-			}
-			// Update raw message
-			modified, _ := json.Marshal(payload)
-			event.SetRawMessage(string(modified))
-			event.SetModified(true)
-		},
-	}
+			ResponseModifier: func(callCtx CallContext) {
+				callCtx.SetResult(&mcp.CallToolResult{
+					Content: []mcp.Content{
+						&mcp.TextContent{Text: "test new response content"},
+					},
+				})
+			},
+		}
 
 	// And: a mock downstream that returns original content
 	mockDownstream := &MockDownstreamConnection{
@@ -182,11 +185,7 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 	}
 
 	// And: a proxy with the mock processor and session with mock downstream
-	proxy := &MCPProxy{
-		name:           "test-gateway",
-		endpoint:       "/mcp/test",
-		eventProcessor: mockProcessor,
-	}
+	proxy := createTestProxy(t, mockProcessor)
 	session := &CentianProxySession{
 		id: "test-session",
 		downstreamConns: map[string]DownstreamConnectionInterface{
@@ -213,4 +212,8 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	assert.Assert(t, ok, "expected TextContent")
 	assert.Equal(t, textContent.Text, "test new response content")
+	assert.Equal(t, mockProcessor.ProcessedDirections, []common.McpEventDirection{
+		common.DirectionClientToServer,
+		common.DirectionServerToClient,
+	})
 }

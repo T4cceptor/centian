@@ -63,7 +63,7 @@ func TestLogMcpEvent(t *testing.T) {
 			Args:              args,
 		},
 	}
-	mcpEvent.SetRawMessage("{\"method\":\"ping\"}")
+	mcpEvent.WithToolRequest("test-tool", "", json.RawMessage(`{"method":"ping"}`))
 
 	// When: logging a request.
 	err = logger.LogMcpEvent(&mcpEvent)
@@ -103,13 +103,16 @@ func TestLogMcpEvent(t *testing.T) {
 		t.Errorf("Expected direction %v', got '%v'", expectedDirection, logEntry.Direction)
 	}
 
-	fmt.Printf("logEntry: %#v", logEntry.GetRawMessage())
+	fmt.Printf("logEntry: %#v", logEntry.ToolCall)
 
-	// Parse the message field as JSON.
+	// Parse tool arguments as JSON.
+	if logEntry.ToolCall == nil {
+		t.Fatal("Expected tool_call to be present")
+	}
 	var messageData map[string]interface{}
-	err = json.Unmarshal([]byte(logEntry.GetRawMessage()), &messageData)
+	err = json.Unmarshal([]byte(logEntry.ToolCall.Arguments), &messageData)
 	if err != nil {
-		t.Fatalf("Failed to parse message content: %v", err)
+		t.Fatalf("Failed to parse tool arguments: %v", err)
 	}
 
 	// Check the actual message content.
