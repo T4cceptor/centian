@@ -354,7 +354,6 @@ func pythonLogic(procType scaffoldType) string {
 
     log_entry = {
         "timestamp": datetime.now().isoformat(),
-        "direction": ctx.direction or "unknown",
         "tool_name": tool_name
     }
 
@@ -549,7 +548,6 @@ echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"direction\":\"$DIRECTI
 func writeTestInput(path string) error {
 	const testPayload = `{
   "version": "1.0",
-  "direction": "request",
   "event": {
     "status": 200,
     "success": true,
@@ -794,7 +792,6 @@ class RoutingPart:
 @dataclass
 class ProcessorContext:
     version: str = ""
-    direction: str = ""
     event: Optional[Dict[str, Any]] = None
     payload: Optional[PayloadPart] = None
     routing: Optional[RoutingPart] = None
@@ -805,7 +802,6 @@ class ProcessorContext:
         routing_source = data.get("routing")
         return ProcessorContext(
             version=data.get("version", ""),
-            direction=data.get("direction", ""),
             event=data.get("event"),
             payload=PayloadPart.from_dict(payload_source) if isinstance(payload_source, dict) else None,
             routing=RoutingPart.from_dict(routing_source) if isinstance(routing_source, dict) else None,
@@ -814,7 +810,6 @@ class ProcessorContext:
     def to_dict(self) -> Dict[str, Any]:
         return compact_dict({
             "version": self.version,
-            "direction": self.direction,
             "event": self.event,
             "payload": self.payload.to_dict() if self.payload else None,
             "routing": self.routing.to_dict() if self.routing else None,
