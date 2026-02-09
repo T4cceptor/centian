@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"gotest.tools/assert"
 )
 
@@ -14,6 +16,19 @@ func TestGetNewUUIDV7(t *testing.T) {
 
 	// Then: the ID is non-empty
 	assert.Assert(t, id != "")
+}
+
+func TestGetNewUUIDV7_FallbackOnUUIDError(t *testing.T) {
+	originalGenerator := newUUIDV7
+	newUUIDV7 = func() (uuid.UUID, error) {
+		return uuid.UUID{}, errors.New("forced failure")
+	}
+	t.Cleanup(func() {
+		newUUIDV7 = originalGenerator
+	})
+
+	id := getNewUUIDV7()
+	assert.Assert(t, strings.HasPrefix(id, "req_"))
 }
 
 func TestGetServerID(t *testing.T) {
