@@ -97,6 +97,11 @@ type MCPServerConfig struct {
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
 }
 
+func (s *MCPServerConfig) GetTransport() common.McpTransportType {
+	r, _ := common.GetTransport(s.URL, s.Command)
+	return r
+}
+
 // IsEnabled returns true if the MCP server is either explicitly enabled or the flag is unset (nil).
 func (s *MCPServerConfig) IsEnabled() bool {
 	if s.Enabled == nil {
@@ -184,6 +189,10 @@ func (g *GatewayConfig) HasServer(name string) bool {
 
 //////// PROCESSOR CONFIG STRUCTS ///////.
 
+//////
+// TODO: the below structs are no longer used, except for the scaffolding - which should be refactored
+//////
+
 // ProcessorConfig defines a single processor that executes during MCP request/response flow.
 // Processors are composable units that can inspect, modify, or reject MCP messages.
 //
@@ -213,6 +222,11 @@ type ProcessorConfig struct {
 	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
 	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing" (default: ["payload"])
 	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
+
+	// Whether processor is required to run, "false" by default,
+	// meaning the processor can both fail initiation and
+	// processing without causing the whole processor chain to fail
+	Required bool `json:"required"`
 }
 
 // GetParts returns the configured parts, defaulting to ["payload"] if not specified.
@@ -256,6 +270,10 @@ type ProcessorOutput struct {
 	Error    *string                `json:"error"`              // Error message if status >= 400, otherwise null
 	Metadata map[string]interface{} `json:"metadata,omitempty"` // Processor-specific metadata
 }
+
+/////////
+// END TODO
+////////
 
 // DefaultConfig returns a default configuration.
 func DefaultConfig() *GlobalConfig {

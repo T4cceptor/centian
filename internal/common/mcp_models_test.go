@@ -209,7 +209,7 @@ func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
 			MessageType: MessageTypeRequest,
 			Success:     true,
 		},
-		Routing: RoutingContext{
+		Routing: RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"--version"},
 		},
@@ -246,7 +246,7 @@ func TestStdioMcpEvent_RoundTripJSON(t *testing.T) {
 			MessageType: MessageTypeRequest,
 			Success:     true,
 		},
-		Routing: RoutingContext{
+		Routing: RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"-v"},
 		},

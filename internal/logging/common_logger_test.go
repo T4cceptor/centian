@@ -58,7 +58,7 @@ func TestLogMcpEvent(t *testing.T) {
 	baseMcpEvent := getBaseMcpEvent()
 	mcpEvent := common.MCPEvent{
 		BaseMcpEvent: baseMcpEvent,
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: command,
 			Args:              args,
 		},

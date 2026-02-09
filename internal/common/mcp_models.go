@@ -14,6 +14,12 @@ const (
 
 	// StdioTransport represents stdio transport -> "stdio".
 	StdioTransport McpTransportType = "stdio"
+
+	// UnknownTransport represents an unknown transport (e.g. error case)
+	UnknownTransport McpTransportType = "unknown"
+
+	// InvalidTransport represents a transport configuration that is invalid (e.g. URL and CMD are set)
+	InvalidTransport McpTransportType = "invalid"
 )
 
 // McpEventDirection represents the event direction, e.g. CLIENT to SERVER, CENTIAN to CLIENT etc.
@@ -178,27 +184,4 @@ type BaseMcpEvent struct {
 
 	// Modified indicates that the event has been modified at least once since being received.
 	Modified bool `json:"modified"`
-}
-
-// McpEventInterface provides a transport-agnostic abstraction for all MCP events.
-//
-// This interface enables polymorphic handling of MCP events across different transport
-// mechanisms (stdio, HTTP, etc.) without requiring type assertions. All event types
-// (StdioMcpEvent) implement this interface, allowing unified processing
-// of events regardless of their underlying transport implementation.
-//
-// The interface provides methods for:
-//   - Message content access and modification (RawMessage, SetRawMessage)
-//   - Event state tracking (SetModified, HasContent)
-//   - Metadata access (GetBaseEvent)
-//   - Type identification (IsRequest, IsResponse).
-type McpEventInterface interface {
-	GetRawMessage() string
-	SetRawMessage(newMessage string)
-	SetModified(b bool)
-	HasContent() bool
-	GetBaseEvent() BaseMcpEvent
-	IsResponse() bool
-	IsRequest() bool
-	SetStatus(newStatus int)
 }

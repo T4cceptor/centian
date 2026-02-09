@@ -35,7 +35,7 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"pkg"},
 		},
@@ -51,7 +51,7 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"pkg"},
 		},
@@ -99,7 +99,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "test",
 		},
 	}
@@ -114,7 +114,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 		},
 	}
@@ -177,7 +177,7 @@ func TestFormatDisplayLine(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"@mcp/server"},
 		},

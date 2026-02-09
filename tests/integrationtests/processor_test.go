@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/config"
-	"github.com/T4cceptor/centian/internal/processor"
 )
 
 // TestPassthroughProcessor tests that the passthrough processor returns the input unchanged.
@@ -307,18 +306,6 @@ func loadTestInput(t *testing.T, filename string) *config.ProcessorInput {
 	}
 
 	return &input
-}
-
-// Helper: executeProcessor executes a processor and returns the output.
-func executeProcessor(t *testing.T, processorConfig *config.ProcessorConfig, input *config.ProcessorInput) (*config.ProcessorOutput, error) {
-	t.Helper()
-
-	executor, err := processor.NewExecutor()
-	if err != nil {
-		t.Fatalf("Failed to create executor: %v", err)
-	}
-
-	return executor.Execute(processorConfig, input)
 }
 
 // Helper: jsonEqual compares two JSON objects for equality.

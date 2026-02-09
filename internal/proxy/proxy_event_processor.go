@@ -5,29 +5,18 @@ import (
 	"os"
 
 	"github.com/T4cceptor/centian/internal/config"
-	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/processor"
 )
 
 // ProcessingController is used to call the main processing loop for any MCP transport method.
 type ProcessingController struct {
-	logger              *logging.Logger
 	processors          []processor.ProcessorInterface
 	logBeforeProcessing bool
 	logAfterProcessing  bool
 }
 
-// TODO: checkme!
-/*
-- processors should have an internal state -> this means they should replace EventProcessor in proxy_server - see line 600
-- then in ProcessCall we just iterate all Processors and call "Process" one by one
-	- the question here is: where does the logging take place, this is currently done in the "Process" method below
-	- maybe a ProcessController would be good -> this replaces "EventProcessor"
-
-*/
-
 // NewEventProcessor returns a new EventProcessor with the provided logger and processors.
-func NewEventProcessor(processorConfigs []*config.ProcessorConfig) *ProcessingController {
+func NewEventProcessor(processorConfigs []*config.ProcessorConfig) (*ProcessingController, error) {
 	result := &ProcessingController{
 		processors:          make([]processor.ProcessorInterface, 0),
 		logBeforeProcessing: true, // TODO: make configurable
@@ -35,38 +24,33 @@ func NewEventProcessor(processorConfigs []*config.ProcessorConfig) *ProcessingCo
 	}
 	for _, config := range processorConfigs {
 		processor, err := processor.NewProcessor(config)
-		if err != nil {
-			// TODO: log
-			// TODO: need to double check if processor was mandatory, if so we abort
+		if err == nil {
+			result.processors = append(result.processors, processor)
 			continue
 		}
-		result.processors = append(result.processors, processor)
+		// Error cases
+		if config.Required {
+			return nil, fmt.Errorf("unable to configure required processor '%s', Error: %w", config.Name, err)
+		}
+		fmt.Printf("unable to configure processor '%s', Error: %s", config.Name, err.Error())
 	}
-	return result
+	return result, nil
 }
 
 // GetInput uses the provided ProcessorConfig and CallContext to create the input map for the processor
-func GetInput(processorConfig *config.ProcessorConfig, callCtx CallContext) map[string]any {
-	input := make(map[string]any)
+func GetInput(processorConfig *config.ProcessorConfig, callCtx CallContext) *processor.ProcessorContext {
+	input := &processor.ProcessorContext{}
 	for _, part := range processorConfig.GetParts() {
 		handler, ok := callCtx.GetHandler(part) // TODO: we could have a "GetParts"
 		if ok {
-			input[part] = handler.Get(callCtx)
+			handler.Get(callCtx, input)
 		}
 	}
 	return input
 }
 
-func GetResultPart(result map[string]any, part string) (any, error) {
-	res, ok := result[part]
-	if !ok || res == nil {
-		return nil, fmt.Errorf("unable to retrieve part '%s' from result (%v)", part, result)
-	}
-	return res, nil
-}
-
 // ApplyResult takes the result from the processor and processes it in order for each configured part of the ProcessorConfig
-func ApplyResult(processorConfig *config.ProcessorConfig, result map[string]any, callCtx CallContext) error {
+func ApplyResult(processorConfig *config.ProcessorConfig, result *processor.ProcessorContext, callCtx CallContext) error {
 	for _, part := range processorConfig.GetParts() {
 		handler, ok := callCtx.GetHandler(part)
 		if !ok {

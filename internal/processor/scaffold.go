@@ -533,6 +533,7 @@ func addProcessorToConfig(name string, lang scaffoldLanguage, outputFile string)
 			"command": command,
 			"args":    []interface{}{outputFile},
 		},
+		Required: false,
 	})
 	return config.SaveConfig(cfg)
 }

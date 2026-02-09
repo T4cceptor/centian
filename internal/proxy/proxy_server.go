@@ -65,6 +65,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 	}
 	logger, err := logging.NewLogger()
 	if err != nil {
+		// here we enforce successful logger creation -> this means any request handling can assume a logger exists
 		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
 
@@ -343,7 +344,7 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 //
 // If Error is non-nil, a mandatory processor failed to process the CallContext.
 // Otherwise, processors ran as intended. Note: this can still lead to an error response.
-func (p *MCPProxy) ProcessCall(callCtx CallContext, direction Direction) error {
+func (p *MCPProxy) ProcessCall(callCtx CallContext, direction common.McpEventDirection, msgType common.McpMessageType) error {
 	if p.eventProcessor == nil {
 		// Nothing to do here
 		return nil
@@ -351,6 +352,7 @@ func (p *MCPProxy) ProcessCall(callCtx CallContext, direction Direction) error {
 
 	// Process through the chain
 	callCtx.SetDirection(direction)
+	callCtx.SetMessageType(msgType)
 	if err := p.eventProcessor.Process(callCtx); err != nil {
 		return err
 	}
@@ -358,22 +360,15 @@ func (p *MCPProxy) ProcessCall(callCtx CallContext, direction Direction) error {
 }
 
 func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Handle aggregated proxy tool name transformation
-	// TODO: move this into a handler, or into the CallContext directly
-	if p.isAggregatedProxy {
-		parts := strings.SplitN(req.Params.Name, NamespaceSeparator, 2)
-		if len(parts) < 2 {
-			return nil, fmt.Errorf("failed to recreate original tool name from: %s", req.Params.Name)
-		}
-		req.Params.Name = strings.Join(parts[1:], "")
-	}
-
 	// 1. Create CallContext
-	callCtx := NewToolCallContext(ctx, p, session, serverName, req)
+	callCtx, err := NewToolCallContext(ctx, p, session, serverName, req)
+	if err != nil {
+		return nil, err
+	}
 	ctx = WithCallContext(ctx, callCtx)
 
 	// 2. Process REQUEST phase (Client → Server)
-	if err := p.ProcessCall(callCtx, DirectionRequest); err != nil {
+	if err := p.ProcessCall(callCtx, common.DirectionClientToServer, common.MessageTypeRequest); err != nil {
 		// error  != nil indicates the processing failed on a mandatory processor
 		// if no error is being returned the response can still be an error,
 		// but it will be handled differently!
@@ -395,7 +390,7 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	}
 
 	// 5. Process RESPONSE phase (Server → Client)
-	if err := p.ProcessCall(callCtx, DirectionResponse); err != nil {
+	if err := p.ProcessCall(callCtx, common.DirectionServerToClient, common.MessageTypeResponse); err != nil {
 		// same applies here about the error, see above "2. Process REQUEST phase"
 		return nil, err
 	}
@@ -561,7 +556,7 @@ func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, mess
 		serverID = p.server.ServerID
 	}
 
-	routing := common.RoutingContext{
+	routing := common.RoutingLog{
 		Gateway:    p.name,
 		ServerName: "",
 		Endpoint:   p.endpoint,
@@ -569,8 +564,7 @@ func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, mess
 	event := common.NewMCPSystemEvent("sdk").
 		WithRequestID(getNewUUIDV7()).
 		WithSessionID(session.id).
-		WithServerID(serverID).
-		WithRawMessage(fmt.Sprintf(`{"event_type":%q,"message":%q}`, eventType, message))
+		WithServerID(serverID)
 	event.Routing = routing
 	event.Metadata["event_type"] = eventType
 
@@ -584,10 +578,9 @@ func (p *MCPProxy) logSessionEvent(session *CentianProxySession, eventType, mess
 
 // initEventProcessor initializes the event processor for this MCPProxy.
 // It combines global processors with gateway-specific processors.
-func (p *MCPProxy) initEventProcessor() {
+func (p *MCPProxy) initEventProcessor() error {
 	if p.server == nil {
-		common.LogWarn("MCPProxy[%s]: Cannot initialize processor - no server reference", p.name)
-		return
+		return fmt.Errorf("MCPProxy[%s]: Cannot initialize processor - no server reference", p.name)
 	}
 
 	// Collect all processor configs (global + gateway-specific)
@@ -604,6 +597,11 @@ func (p *MCPProxy) initEventProcessor() {
 	}
 
 	// Create event processor
-	p.eventProcessor = NewEventProcessor(allProcessors)
+	pc, err := NewEventProcessor(allProcessors)
+	if err != nil {
+		return err
+	}
+	p.eventProcessor = pc
 	common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, len(allProcessors))
+	return nil
 }

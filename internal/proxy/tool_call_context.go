@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
-	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/google/uuid"
 )
 
 // ToolCallContext handles standard tool calls (client → downstream → client).
@@ -24,25 +22,17 @@ type ToolCallContext struct {
 	originalRequest    *mcp.CallToolRequest
 
 	// Current request (mutable - handlers modify this)
-	serverName string
-	request    *mcp.CallToolRequest
-
-	// Headers (mutable - HeadersHandler can modify, Phase 3)
-	downstreamHeaders map[string]string
+	request *mcp.CallToolRequest
 
 	// Response (set by SendRequest, mutable by response processors)
-	result *mcp.CallToolResult
+	result         *mcp.CallToolResult
+	originalResult *mcp.CallToolResult // unmodified result from downstream
 
 	// State
-	direction Direction
-	status    int    // 0 = not set, 200 = ok, 4xx/5xx = error
-	errorMsg  string // Error message if status >= 400
-
-	// Identification
-	requestID string
+	event *common.MCPEvent
 
 	// Routing context (reuses common.RoutingContext)
-	routingContext *common.RoutingContext
+	routingContext *common.RoutingLog
 
 	// Handlers
 	handlers   map[string]CallContextHandler
@@ -57,41 +47,54 @@ func NewToolCallContext(
 	session *CentianProxySession,
 	serverName string,
 	req *mcp.CallToolRequest,
-) CallContext {
+) (CallContext, error) {
 	// Build routing context
 	routingCtx := buildRoutingContext(proxy, session, serverName)
 	// TODO: get headers from ctx
+
+	conn, err := session.GetConnectionByName(serverName)
+	transport := common.UnknownTransport
+	if err != nil {
+		fmt.Printf("unable to get connection for '%s'", serverName)
+	} else {
+		transport = conn.GetConfig().GetTransport()
+	}
+
+	event := common.NewMCPRequestEvent(string(transport)).
+		WithRequestID(getNewUUIDV7()).
+		WithSessionID(session.id)
+	if proxy.server != nil {
+		event.WithServerID(proxy.server.ServerID)
+	}
 
 	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,
 		session:            session,
 		originalServerName: serverName,
 		originalRequest:    deepCloneRequest(req), // Immutable clone
-		serverName:         serverName,
-		request:            req, // Mutable, will be modified by handlers
-		downstreamHeaders:  copyHeaders(session.authHeaders),
-		direction:          DirectionRequest,
-		status:             0,
-		requestID:          uuid.New().String(),
+		request:            req,                   // Mutable, will be modified by handlers
 		routingContext:     routingCtx,
+		event:              event,
 	}
 
 	// Register handlers
 	toolCallCtx.SetHandler("payload", &DefaultPayloadHandler{})
-	toolCallCtx.SetHandler("meta", &MetaHandler{})
-	toolCallCtx.SetHandler("routing", &RoutingHandler{})
+	toolCallCtx.SetHandler("meta", &DefaultMetaHandler{})
+	toolCallCtx.SetHandler("routing", &DefaultRoutingHandler{})
 
 	// Set default log handler
-	toolCallCtx.SetLogHandler(NewDefaultLogHandler())
-
-	return toolCallCtx
+	if proxy.server == nil || proxy.server.Logger == nil {
+		return nil, fmt.Errorf("unable to get logger from centian server")
+	}
+	toolCallCtx.SetLogHandler(NewDefaultLogHandler(proxy.server.Logger))
+	return toolCallCtx, nil
 }
 
 // buildRoutingContext creates a RoutingContext from proxy and session info
-func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingContext {
+func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingLog {
 	// TODO: double check if this is actually required
 	// ideally we would combine this somehow with MCPevent data struct
-	rc := &common.RoutingContext{
+	rc := &common.RoutingLog{
 		Gateway:    proxy.name,
 		ServerName: serverName,
 		Endpoint:   proxy.endpoint,
@@ -115,31 +118,20 @@ func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverNa
 	return rc
 }
 
-// copyHeaders creates a copy of the headers map.
-func copyHeaders(headers map[string]string) map[string]string {
-	if headers == nil {
-		return make(map[string]string)
-	}
-	result := make(map[string]string, len(headers))
-	for k, v := range headers {
-		result[k] = v
-	}
-	return result
-}
-
 // SendRequest executes the downstream call using current request state.
 // Note: if processors returned a status >= 400 this will NOT trigger a
 // downstream call, instead an immediate error response will be returned.
 func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Resolve connection based on (potentially modified) serverName
-	conn, ok := c.session.downstreamConns[c.serverName]
+	serverName := c.GetRoutingContext().ServerName
+	conn, ok := c.session.downstreamConns[serverName]
 	if !ok {
 		return fmt.Errorf("server %s not found (original: %s)",
-			c.serverName, c.originalServerName)
+			serverName, c.originalServerName)
 	}
 	if !conn.IsConnected() {
 		return fmt.Errorf("server %s found (original: %s), but not connected",
-			c.serverName, c.originalServerName)
+			serverName, c.originalServerName)
 	}
 
 	// Parse arguments from current request
@@ -150,16 +142,25 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 
 	// Make the call with current request data
 	// Note: per-request headers require CallTool signature change (Phase 3)
-	result, err := conn.CallTool(ctx, c.request.Params.Name, args)
+	result, err := conn.CallTool(ctx, c.GetToolName(), args)
 	if err != nil {
 		return err
 	}
-	c.result = result
+	c.SetResult(result)
 	return nil
 }
 
-// Result methods
+// GetEventInfo returns the attached MCPEvent
+func (c *ToolCallContext) GetEventInfo() *common.MCPEvent {
+	return c.event
+}
 
+// SetEventInfo sets the provided MCPEvent
+func (c *ToolCallContext) SetEventInfo(event *common.MCPEvent) {
+	c.event = event
+}
+
+// Result methods
 func (c *ToolCallContext) HasResult() bool {
 	return c.result != nil
 }
@@ -171,17 +172,32 @@ func (c *ToolCallContext) GetResult() *mcp.CallToolResult {
 
 // SetResult sets the CallToolResult for this CallContext
 func (c *ToolCallContext) SetResult(result *mcp.CallToolResult) {
+	if c.originalResult == nil {
+		c.originalResult = result
+	}
 	c.result = result
+}
+
+func (c *ToolCallContext) GetOriginalResult() *mcp.CallToolResult {
+	return c.originalResult
 }
 
 // Direction methods
 
-func (c *ToolCallContext) GetDirection() Direction {
-	return c.direction
+func (c *ToolCallContext) GetDirection() common.McpEventDirection {
+	return c.event.Direction
 }
 
-func (c *ToolCallContext) SetDirection(d Direction) {
-	c.direction = d
+func (c *ToolCallContext) SetDirection(d common.McpEventDirection) {
+	c.event.Direction = d
+}
+
+func (c *ToolCallContext) GetMessageType() common.McpMessageType {
+	return c.event.MessageType
+}
+
+func (c *ToolCallContext) SetMessageType(t common.McpMessageType) {
+	c.event.MessageType = t
 }
 
 // Original request accessors (immutable)
@@ -198,17 +214,18 @@ func (c *ToolCallContext) GetOriginalToolName() string {
 	if c.originalRequest == nil || c.originalRequest.Params == nil {
 		return ""
 	}
+	// TODO: add aggregated logic here! -> this makes it really convenient to call this then!
 	return c.originalRequest.Params.Name
 }
 
 // Current request accessors (mutable)
 
 func (c *ToolCallContext) GetServerName() string {
-	return c.serverName
+	return c.routingContext.ServerName
 }
 
 func (c *ToolCallContext) SetServerName(name string) {
-	c.serverName = name
+	c.routingContext.ServerName = name
 }
 
 func (c *ToolCallContext) GetRequest() *mcp.CallToolRequest {
@@ -220,47 +237,40 @@ func (c *ToolCallContext) GetToolName() string {
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
-	return c.request.Params.Name
-}
-
-// Config accessors
-
-func (c *ToolCallContext) GetGlobalConfig() *config.GlobalConfig {
-	if c.proxy == nil || c.proxy.server == nil {
-		return nil
+	toolName := c.request.Params.Name
+	if c.proxy.isAggregatedProxy {
+		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
+		if len(parts) < 2 {
+			fmt.Printf("failed to recreate original tool name from: %s", toolName)
+			return ""
+		}
+		toolName = strings.Join(parts[1:], "")
 	}
-	return c.proxy.server.Config
-}
-
-func (c *ToolCallContext) GetGatewayConfig() *config.GatewayConfig {
-	if c.proxy == nil {
-		return nil
-	}
-	return c.proxy.config
+	return toolName
 }
 
 // Status and error handling
 
 func (c *ToolCallContext) GetStatus() int {
-	return c.status
+	return c.event.Status
 }
 
 func (c *ToolCallContext) SetStatus(status int) {
-	c.status = status
+	c.event.Status = status
 }
 
 func (c *ToolCallContext) GetError() string {
-	return c.errorMsg
+	return c.event.Error
 }
 
 func (c *ToolCallContext) SetError(msg string) {
-	c.errorMsg = msg
+	c.event.Error = msg
 }
 
 // Session and request identification
 
 func (c *ToolCallContext) GetRequestID() string {
-	return c.requestID
+	return c.event.RequestID
 }
 
 func (c *ToolCallContext) GetSessionID() string {
@@ -272,7 +282,7 @@ func (c *ToolCallContext) GetSessionID() string {
 
 // Routing context
 
-func (c *ToolCallContext) GetRoutingContext() *common.RoutingContext {
+func (c *ToolCallContext) GetRoutingContext() *common.RoutingLog {
 	return c.routingContext
 }
 

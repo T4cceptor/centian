@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/processor"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -14,10 +16,10 @@ import (
 // and apply processor output back to CallContext (Apply).
 type CallContextHandler interface {
 	// Get extracts this handler's part from CallContext for processor input
-	Get(callCtx CallContext) any
+	Get(callCtx CallContext, input *processor.ProcessorContext)
 
 	// Apply updates CallContext based on processor output for this part
-	Apply(callCtx CallContext, result any) error
+	Apply(callCtx CallContext, output *processor.ProcessorContext) error
 }
 
 // LogHandler defines how CallContext is serialized for logging.
@@ -34,164 +36,51 @@ type LogHandler interface {
 
 type DefaultPayloadHandler struct{}
 
-func (h *DefaultPayloadHandler) Get(callCtx CallContext) any {
-	if callCtx.GetDirection() == DirectionRequest {
-		// Return arguments from request
-		var args map[string]any
-		if req := callCtx.GetRequest(); req != nil && req.Params != nil {
-			_ = json.Unmarshal(req.Params.Arguments, &args)
-		}
-		return map[string]any{
-			"arguments": args,
-			"tool_name": callCtx.GetToolName(),
-		}
+func (h *DefaultPayloadHandler) Get(callCtx CallContext, input *processor.ProcessorContext) {
+	payload := processor.PayloadPart{
+		Request:         callCtx.GetRequest(),
+		OriginalRequest: callCtx.GetOriginalRequest(),
+		Result:          callCtx.GetResult(),
+		OriginalResult:  callCtx.GetOriginalResult(),
 	}
-	// Response direction - return result content
-	result := callCtx.GetResult()
-	if result == nil {
-		return map[string]any{
-			"content":  []any{},
-			"is_error": false,
-		}
-	}
-	return map[string]any{
-		"content":  resultToContentBlocks(result),
-		"is_error": result.IsError,
-	}
+	input.Payload = &payload
 }
 
-func (h *DefaultPayloadHandler) Apply(callCtx CallContext, result map[string]any) error {
-	payload, ok := result["payload"].(map[string]any)
-	if !ok {
+func (h *DefaultPayloadHandler) Apply(callCtx CallContext, result *processor.ProcessorContext) error {
+	payload := result.Payload
+	if payload == nil {
 		return nil // No payload changes
 	}
 
-	if callCtx.GetDirection() == DirectionRequest {
-		// Apply argument changes
-		if args, ok := payload["arguments"].(map[string]any); ok {
-			argsJSON, err := json.Marshal(args)
-			if err != nil {
-				return err
-			}
-			callCtx.GetRequest().Params.Arguments = argsJSON
-		}
-		// Apply tool name changes
-		if name, ok := payload["tool_name"].(string); ok && name != "" {
-			callCtx.GetRequest().Params.Name = name
-		}
-	} else {
-		// Apply result changes
-		if content, ok := payload["content"].([]any); ok {
-			isError := false
-			if ie, ok := payload["is_error"].(bool); ok {
-				isError = ie
-			}
-			callCtx.SetResult(contentBlocksToResult(content, isError))
-		}
+	// Modifying request
+	req := callCtx.GetRequest()
+	if req != nil && payload.Request != nil && payload.Request.Params != nil {
+		req.Params = payload.Request.Params
+	}
+
+	if payload.Result != nil {
+		callCtx.SetResult(payload.Result)
 	}
 	return nil
 }
 
-// resultToContentBlocks converts mcp.CallToolResult to a serializable format
-func resultToContentBlocks(result *mcp.CallToolResult) []map[string]any {
-	if result == nil {
-		return nil
-	}
-	blocks := make([]map[string]any, 0, len(result.Content))
-	for _, content := range result.Content {
-		switch c := content.(type) {
-		case *mcp.TextContent:
-			blocks = append(blocks, map[string]any{
-				"type": "text",
-				"text": c.Text,
-			})
-		case *mcp.ImageContent:
-			blocks = append(blocks, map[string]any{
-				"type":      "image",
-				"data":      string(c.Data),
-				"mime_type": c.MIMEType,
-			})
-		}
-	}
-	return blocks
-}
-
-// contentBlocksToResult converts serializable content blocks back to mcp.CallToolResult
-func contentBlocksToResult(blocks []any, isError bool) *mcp.CallToolResult {
-	result := &mcp.CallToolResult{
-		IsError: isError,
-		Content: make([]mcp.Content, 0, len(blocks)),
-	}
-	for _, block := range blocks {
-		blockMap, ok := block.(map[string]any)
-		if !ok {
-			continue
-		}
-		contentType, _ := blockMap["type"].(string)
-		switch contentType {
-		case "text":
-			if text, ok := blockMap["text"].(string); ok {
-				result.Content = append(result.Content, &mcp.TextContent{Text: text})
-			}
-		case "image":
-			data, _ := blockMap["data"].(string)
-			mimeType, _ := blockMap["mime_type"].(string)
-			result.Content = append(result.Content, &mcp.ImageContent{
-				Data:     []byte(data),
-				MIMEType: mimeType,
-			})
-		}
-	}
-	return result
-}
-
 // =============================================================================
-// MetaHandler - provides read-only metadata to processors
+// MetaHandler - provides metadata to processors
 // =============================================================================
 
-type MetaHandler struct{}
+type DefaultMetaHandler struct{}
 
-func (h *MetaHandler) Get(callCtx CallContext) any {
-	meta := map[string]any{
-		"direction":            string(callCtx.GetDirection()),
-		"timestamp":            time.Now().Format(time.RFC3339),
-		"server_name":          callCtx.GetServerName(),
-		"original_server_name": callCtx.GetOriginalServerName(),
-		"tool_name":            callCtx.GetToolName(),
-		"original_tool_name":   callCtx.GetOriginalToolName(),
-	}
-
-	// Add routing context if available
-	if rc := callCtx.GetRoutingContext(); rc != nil {
-		meta["routing"] = map[string]any{
-			"transport":  string(rc.Transport),
-			"gateway":    rc.Gateway,
-			"endpoint":   rc.Endpoint,
-			"downstream": rc.DownstreamURL,
-		}
-	}
-
-	return meta
+func (h *DefaultMetaHandler) Get(callCtx CallContext, input *processor.ProcessorContext) {
+	input.Event = callCtx.GetEventInfo()
+	// TODO: slight issue here: we are attaching a reference to the callCtx
+	// - this can result in processors changing the attached MCPEvent before calling Apply
+	// Better: clone MCPEvent
 }
 
-func (h *MetaHandler) Apply(callCtx CallContext, result map[string]any) error {
-	// Meta is mostly read-only, but can handle status changes from processors
-	meta, ok := result["meta"].(map[string]any)
-	if !ok {
-		return nil
+func (h *DefaultMetaHandler) Apply(callCtx CallContext, result *processor.ProcessorContext) error {
+	if result.Event != nil {
+		callCtx.SetEventInfo(result.Event)
 	}
-
-	// Handle status code changes
-	if status, ok := meta["status"].(float64); ok {
-		callCtx.SetStatus(int(status))
-	}
-
-	// Handle error message
-	if errMsg, ok := meta["error"].(string); ok {
-		callCtx.SetError(errMsg)
-	}
-
-	// TODO: in case we have an error we should immediately set the result!
 	return nil
 }
 
@@ -199,33 +88,37 @@ func (h *MetaHandler) Apply(callCtx CallContext, result map[string]any) error {
 // RoutingHandler - handles server name and routing decisions
 // =============================================================================
 
-type RoutingHandler struct{}
+type DefaultRoutingHandler struct{}
 
-func (h *RoutingHandler) Get(callCtx CallContext) any {
-	return map[string]any{
-		"server_name":          callCtx.GetServerName(),
-		"original_server_name": callCtx.GetOriginalServerName(),
-		"tool_name":            callCtx.GetToolName(),
-		"original_tool_name":   callCtx.GetOriginalToolName(),
+func (h *DefaultRoutingHandler) Get(callCtx CallContext, input *processor.ProcessorContext) {
+	if input == nil || callCtx == nil {
+		return // nothing to do
+	}
+	input.Routing = &processor.RoutingPart{
+		ServerName:         callCtx.GetServerName(),
+		ToolName:           callCtx.GetToolName(),
+		OriginalServerName: callCtx.GetOriginalServerName(),
+		OriginalToolname:   callCtx.GetOriginalToolName(),
 	}
 }
 
-func (h *RoutingHandler) Apply(callCtx CallContext, result map[string]any) error {
-	routing, ok := result["routing"].(map[string]any)
-	if !ok {
-		return nil
+func (h *DefaultRoutingHandler) Apply(callCtx CallContext, result *processor.ProcessorContext) error {
+	if result.Routing == nil {
+		return nil // no routing received, nothing to apply
 	}
-
-	// Apply server name changes (re-routing)
-	if serverName, ok := routing["server_name"].(string); ok && serverName != "" {
-		callCtx.SetServerName(serverName)
+	if result.Routing.ServerName != "" {
+		callCtx.SetServerName(result.Routing.ServerName)
 	}
-
-	// Apply tool name changes (aliasing)
-	if toolName, ok := routing["tool_name"].(string); ok && toolName != "" {
-		callCtx.GetRequest().Params.Name = toolName
+	if result.Routing.ToolName != "" {
+		req := callCtx.GetRequest()
+		if req == nil {
+			return fmt.Errorf("call context does not contain request")
+		}
+		if req.Params == nil {
+			req.Params = &mcp.CallToolParamsRaw{}
+		}
+		req.Params.Name = result.Routing.ToolName
 	}
-
 	return nil
 }
 
@@ -234,14 +127,13 @@ func (h *RoutingHandler) Apply(callCtx CallContext, result map[string]any) error
 // =============================================================================
 
 type DefaultLogHandler struct {
-	RedactHeaders []string
-	logger        *logging.Logger
+	// TODO: enable data redaction in logs -> new logger
+	logger *logging.Logger
 }
 
 func NewDefaultLogHandler(logger *logging.Logger) *DefaultLogHandler {
 	return &DefaultLogHandler{
-		RedactHeaders: []string{"Authorization", "X-API-Key", "X-Auth-Token"},
-		logger:        logger,
+		logger: logger,
 	}
 }
 
@@ -250,16 +142,8 @@ func (h *DefaultLogHandler) Log(callCtx CallContext) error {
 }
 
 func (h *DefaultLogHandler) ToLogEntry(callCtx CallContext) any {
-	direction := common.DirectionClientToServer
-	if callCtx.GetDirection() == DirectionResponse {
-		direction = common.DirectionServerToClient
-	}
-
-	msgType := common.MessageTypeRequest
-	if callCtx.GetDirection() == DirectionResponse {
-		msgType = common.MessageTypeResponse
-	}
-
+	direction := callCtx.GetDirection()
+	msgType := callCtx.GetMessageType()
 	event := &common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:   time.Now(),
@@ -275,31 +159,31 @@ func (h *DefaultLogHandler) ToLogEntry(callCtx CallContext) any {
 
 	// Add routing context
 	if rc := callCtx.GetRoutingContext(); rc != nil {
+		// TODO
 		event.Routing = *rc
 	}
 
 	// Add tool call context
-	event.ToolCall = &common.ToolCallContext{
+	event.ToolCall = &common.ToolCallLog{
 		Name:         callCtx.GetToolName(),
 		OriginalName: callCtx.GetOriginalToolName(),
 	}
 
 	// Add arguments for request
-	if callCtx.GetDirection() == DirectionRequest {
+	if msgType == common.MessageTypeRequest {
 		if req := callCtx.GetRequest(); req != nil && req.Params != nil {
 			event.ToolCall.Arguments = req.Params.Arguments
 		}
 	}
 
 	// Add result for response
-	if callCtx.GetDirection() == DirectionResponse {
+	if msgType == common.MessageTypeResponse {
 		if result := callCtx.GetResult(); result != nil {
 			resultJSON, _ := json.Marshal(result)
 			event.ToolCall.Result = resultJSON
 			event.ToolCall.IsError = result.IsError
 		}
 	}
-
 	return event
 }
 

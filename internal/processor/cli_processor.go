@@ -42,7 +42,7 @@ func (e *CLIProcessor) GetConfig() *config.ProcessorConfig {
 //
 // Note: the Processors responsibility is to execute a specific action, its NOT to serialize back the
 // result into the correct data format - this is done in the handler.
-func (e *CLIProcessor) Process(input map[string]any) (map[string]any, error) {
+func (e *CLIProcessor) Process(input *ProcessorContext) (*ProcessorContext, error) {
 	command, args, err := extractCommandAndArgs(e.config)
 	if err != nil {
 		return nil, err
@@ -86,8 +86,7 @@ func (e *CLIProcessor) Process(input map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("%s", errorMsg)
 	}
 
-	// Parse stdout JSON to ProcessorOutput.
-	var output map[string]any
+	var output ProcessorContext
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		errorMsg := fmt.Sprintf("processor '%s' returned invalid JSON: %v", e.config.Name, err)
 		if stdout.Len() > 0 {
@@ -97,7 +96,7 @@ func (e *CLIProcessor) Process(input map[string]any) (map[string]any, error) {
 	}
 
 	// TODO -> create a map from output
-	return output, nil
+	return &output, nil
 }
 
 // extractCommandAndArgs extracts command and arguments from processor config.

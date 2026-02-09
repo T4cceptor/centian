@@ -139,23 +139,6 @@ func TestWithToolResult(t *testing.T) {
 	assert.Assert(t, event.ToolCall.IsError)
 }
 
-func TestWithHTTPContext(t *testing.T) {
-	// Given: a MCPEvent and an HTTP context
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
-	context := &HTTPContext{
-		Method:     "POST",
-		URL:        "https://example.com/mcp",
-		StatusCode: 200,
-	}
-
-	// When: calling WithHTTPContext
-	new_event := event.WithHTTPContext(context)
-
-	// Then:
-	assert.Equal(t, new_event, event)
-	assert.Equal(t, event.HTTP, context)
-}
-
 func TestWithRawMessage(t *testing.T) {
 	// Given: a MCPEvent and a raw message
 	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)

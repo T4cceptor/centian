@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// TODO: rework all of this code based on CallContext
+
 // MCPEvent is a unified event type for all MCP transports.
 // It provides a transport-agnostic structure that can represent events from
 // HTTP, stdio, SDK-based proxies, or any future transport mechanism.
@@ -12,20 +14,14 @@ type MCPEvent struct {
 	BaseMcpEvent
 
 	// Routing context (always present)
-	Routing RoutingContext `json:"routing"`
-
-	// Transport context (optional - populated when HTTP details are available)
-	HTTP *HTTPContext `json:"http,omitempty"`
+	Routing RoutingLog `json:"routing"`
 
 	// Tool call context (optional - only for tool call events)
-	ToolCall *ToolCallContext `json:"tool_call,omitempty"`
-
-	// Raw message content (the JSON-RPC payload)
-	RawMessage string `json:"raw_message,omitempty"`
+	ToolCall *ToolCallLog `json:"tool_call,omitempty"`
 }
 
-// RoutingContext captures where the request is going.
-type RoutingContext struct {
+// RoutingLog captures where the request is going.
+type RoutingLog struct {
 	// Transport describes the used transport for this connection (http or stdio)
 	Transport McpTransportType `json:"transport,omitempty"`
 
@@ -50,29 +46,8 @@ type RoutingContext struct {
 	// TODO: add headers as well - Challenge: requires redaction of sensitive headers like auth tokens when logging
 }
 
-// HTTPContext captures HTTP-specific transport details.
-type HTTPContext struct {
-	// Method is the HTTP method (GET, POST, etc.)
-	Method string `json:"method,omitempty"`
-
-	// URL is the request URL
-	URL string `json:"url,omitempty"`
-
-	// Headers contains HTTP headers (sanitized - auth headers redacted)
-	Headers map[string]string `json:"headers,omitempty"`
-
-	// StatusCode is the HTTP response status code
-	StatusCode int `json:"status_code,omitempty"`
-
-	// ContentType is the Content-Type header value
-	ContentType string `json:"content_type,omitempty"`
-
-	// ClientIP is the client's IP address
-	ClientIP string `json:"client_ip,omitempty"`
-}
-
-// ToolCallContext captures tool call specific details.
-type ToolCallContext struct {
+// ToolCallLog captures tool call specific details.
+type ToolCallLog struct {
 	// Name is the tool name being called
 	Name string `json:"name"`
 
@@ -110,7 +85,7 @@ func NewMCPEvent(
 			ProcessingErrors: make(map[string]error),
 			Metadata:         make(map[string]string),
 		},
-		Routing: RoutingContext{},
+		Routing: RoutingLog{},
 	}
 }
 
@@ -153,7 +128,7 @@ func (e *MCPEvent) WithServerID(id string) *MCPEvent {
 
 // WithToolCall sets the tool call context.
 func (e *MCPEvent) WithToolCall(name string, arguments json.RawMessage) *MCPEvent {
-	e.ToolCall = &ToolCallContext{
+	e.ToolCall = &ToolCallLog{
 		Name:      name,
 		Arguments: arguments,
 	}
@@ -163,22 +138,10 @@ func (e *MCPEvent) WithToolCall(name string, arguments json.RawMessage) *MCPEven
 // WithToolResult sets the tool call result (for response events).
 func (e *MCPEvent) WithToolResult(result json.RawMessage, isError bool) *MCPEvent {
 	if e.ToolCall == nil {
-		e.ToolCall = &ToolCallContext{}
+		e.ToolCall = &ToolCallLog{}
 	}
 	e.ToolCall.Result = result
 	e.ToolCall.IsError = isError
-	return e
-}
-
-// WithHTTPContext sets the HTTP context.
-func (e *MCPEvent) WithHTTPContext(ctx *HTTPContext) *MCPEvent {
-	e.HTTP = ctx
-	return e
-}
-
-// WithRawMessage sets the raw message content.
-func (e *MCPEvent) WithRawMessage(msg string) *MCPEvent {
-	e.RawMessage = msg
 	return e
 }
 
@@ -186,24 +149,9 @@ func (e *MCPEvent) WithRawMessage(msg string) *MCPEvent {
 // McpEventInterface implementation
 // ============================================================================
 
-// GetRawMessage returns the JSON-RPC message content.
-func (e *MCPEvent) GetRawMessage() string {
-	return e.RawMessage
-}
-
-// SetRawMessage overwrites the message content.
-func (e *MCPEvent) SetRawMessage(newMessage string) {
-	e.RawMessage = newMessage
-}
-
 // SetModified sets the modified flag.
 func (e *MCPEvent) SetModified(b bool) {
 	e.Modified = b
-}
-
-// HasContent returns true if the event has message content.
-func (e *MCPEvent) HasContent() bool {
-	return e.RawMessage != ""
 }
 
 // GetBaseEvent returns the BaseMcpEvent.

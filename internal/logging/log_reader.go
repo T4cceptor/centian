@@ -38,7 +38,7 @@ var ErrNoLogEntries = errors.New("no log entries found")
 
 // AnnotatedLogEntry wraps a generic MCP event with contextual metadata used for display.
 type AnnotatedLogEntry struct {
-	Event      common.McpEventInterface
+	Event      common.MCPEvent
 	SourceFile string
 }
 
@@ -126,22 +126,22 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 
 	// Extract transport-specific details.
 	command := ""
-	if e, ok := entry.Event.(*common.MCPEvent); ok {
-		if e.Routing.Transport == common.HTTPTransport {
-			command = e.Routing.DownstreamURL
-		} else {
-			command = e.Routing.DownstreamCommand
-			if len(e.Routing.Args) > 0 {
-				command = fmt.Sprintf("%s %s", command, strings.Join(e.Routing.Args, " "))
-			}
+	e := entry.Event
+	if e.Routing.Transport == common.HTTPTransport {
+		command = e.Routing.DownstreamURL
+	} else {
+		command = e.Routing.DownstreamCommand
+		if len(e.Routing.Args) > 0 {
+			command = fmt.Sprintf("%s %s", command, strings.Join(e.Routing.Args, " "))
 		}
 	}
 
-	detail := entry.Event.GetRawMessage()
-	if baseEvent.Error != "" {
-		detail = baseEvent.Error
-	}
-	detail = truncate(detail, 80)
+	// TODO: how do we get this information when displaying logs?
+	// detail := entry.Event.GetRawMessage()
+	// if baseEvent.Error != "" {
+	// 	detail = baseEvent.Error
+	// }
+	// detail = truncate(detail, 80)
 
 	sessionInfo := baseEvent.SessionID
 	if sessionInfo == "" {
@@ -155,14 +155,14 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 		status,
 		command,
 		sessionInfo,
-		detail,
+		"",
 	)
 }
 
 // readLogFile reads and parses a JSONL log file, returning all valid entries.
 // Returns empty slice (not error) if file doesn't exist. Skips malformed lines.
 // Supports log lines up to 10MB.
-func readLogFile(path string) ([]common.McpEventInterface, error) {
+func readLogFile(path string) ([]common.MCPEvent, error) {
 	cleanPath := filepath.Clean(path)
 	file, err := os.Open(cleanPath)
 	if err != nil {
@@ -173,7 +173,7 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	var entries []common.McpEventInterface
+	var entries []common.MCPEvent
 
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)
@@ -185,17 +185,8 @@ func readLogFile(path string) ([]common.McpEventInterface, error) {
 			continue
 		}
 
-		// Detect transport type by peeking at the JSON.
-		var peek struct {
-			Transport string `json:"transport"`
-		}
-		if err := json.Unmarshal([]byte(line), &peek); err != nil {
-			// Skip malformed lines.
-			continue
-		}
-
 		// Unmarshal to appropriate type based on transport.
-		var event *common.MCPEvent
+		var event common.MCPEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			continue
 		}

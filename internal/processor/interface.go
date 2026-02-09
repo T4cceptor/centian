@@ -11,7 +11,7 @@ type ProcessorInterface interface {
 	// - e.g. calling a CLI command, executing a webhook, etc.
 	//
 	// error indicates a failure to process the input.
-	Process(input map[string]any) (map[string]any, error)
+	Process(input *ProcessorContext) (*ProcessorContext, error)
 
 	// GetConfig returns the processors config
 	GetConfig() *config.ProcessorConfig

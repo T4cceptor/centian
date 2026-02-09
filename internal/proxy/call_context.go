@@ -5,16 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/T4cceptor/centian/internal/common"
-	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-// Direction indicates whether we're processing a request or response.
-type Direction string
-
-const (
-	DirectionRequest  Direction = "request"
-	DirectionResponse Direction = "response"
 )
 
 // CallContext represents a single request/response cycle.
@@ -31,8 +22,12 @@ type CallContext interface {
 	// - cached responses
 	// - mock responses
 	// - processors so powerful they can provide their own responses, think Processor as MCP client itself
-	GetResult() *mcp.CallToolResult // Returns the CallToolResult, can be nil if request was not sent yet OR resulted in error
-	SetResult(*mcp.CallToolResult)  // Sets the result for this call context
+	GetResult() *mcp.CallToolResult         // Returns the CallToolResult, can be nil if request was not sent yet OR resulted in error
+	GetOriginalResult() *mcp.CallToolResult // Returns the initial CallToolResult first set, can be nil if request was not sent yet OR resulted in error
+	SetResult(*mcp.CallToolResult)          // Sets the result for this call context
+
+	GetEventInfo() *common.MCPEvent // Returns the attached MCPEvent
+	SetEventInfo(*common.MCPEvent)  // Sets the provided MCPEvent
 
 	// TODO: refactor this: ideally we would provide another interface that has access to all of this information!
 	// e.g. CallContext.GetEventInfo().GetStatus() -> this is an opportunity to reuse MCPEvent!
@@ -59,23 +54,22 @@ type CallContext interface {
 	GetSessionID() string // Returns session ID
 
 	// Direction (processors need to know request vs response phase)
-	GetDirection() Direction
-	SetDirection(Direction)
+	GetDirection() common.McpEventDirection
+	SetDirection(common.McpEventDirection)
+
+	GetMessageType() common.McpMessageType
+	SetMessageType(common.McpMessageType)
 
 	// --- end of TODO - se above
 
 	// Routing context (reuses common.RoutingContext)
-	GetRoutingContext() *common.RoutingContext
+	GetRoutingContext() *common.RoutingLog
 
 	// Handler access
 	GetHandler(part string) (CallContextHandler, bool) // Returns handler for given part (payload, meta, routing, etc.)
 	SetHandler(part string, h CallContextHandler)      // Sets the provided context handler
 	GetLogHandler() LogHandler                         // Returns the log handler for this context
 	SetLogHandler(l LogHandler)                        // sets the provided log handler
-
-	// Config access (for processors/handlers that need it)
-	GetGlobalConfig() *config.GlobalConfig   // Returns current global config
-	GetGatewayConfig() *config.GatewayConfig // Returns current gateway config
 }
 
 // callContextKey is the key type for storing CallContext in context.Context.
