@@ -92,7 +92,7 @@ func NewToolCallContext(
 	return toolCallCtx, nil
 }
 
-// buildRoutingContext creates a RoutingContext from proxy and session info
+// buildRoutingContext creates a RoutingContext from proxy and session info.
 func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingLog {
 	// TODO: double check if this is actually required
 	// ideally we would combine this somehow with MCPevent data struct
@@ -152,27 +152,29 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	return nil
 }
 
-// GetEventInfo returns the attached MCPEvent
+// GetEventInfo returns the attached MCPEvent.
 func (c *ToolCallContext) GetEventInfo() *common.MCPEvent {
 	return c.event
 }
 
-// SetEventInfo sets the provided MCPEvent
+// SetEventInfo sets the provided MCPEvent.
 func (c *ToolCallContext) SetEventInfo(event *common.MCPEvent) {
 	c.event = event
 }
 
 // Result methods
+
+// HasResult returns true if a result is available.
 func (c *ToolCallContext) HasResult() bool {
 	return c.result != nil
 }
 
-// GetResult returns the CallToolResult for this CallContext
+// GetResult returns the CallToolResult for this CallContext.
 func (c *ToolCallContext) GetResult() *mcp.CallToolResult {
 	return c.result
 }
 
-// SetResult sets the CallToolResult for this CallContext
+// SetResult sets the CallToolResult for this CallContext.
 func (c *ToolCallContext) SetResult(result *mcp.CallToolResult) {
 	if c.originalResult == nil {
 		c.originalResult = result
@@ -180,38 +182,46 @@ func (c *ToolCallContext) SetResult(result *mcp.CallToolResult) {
 	c.result = result
 }
 
+// GetOriginalResult returns the initial, original CallToolResult.
 func (c *ToolCallContext) GetOriginalResult() *mcp.CallToolResult {
 	return c.originalResult
 }
 
 // Direction methods
 
+// GetDirection returns MCPEvent.Direction.
 func (c *ToolCallContext) GetDirection() common.McpEventDirection {
 	return c.event.Direction
 }
 
+// SetDirection sets MCPEvent.Direction.
 func (c *ToolCallContext) SetDirection(d common.McpEventDirection) {
 	c.event.Direction = d
 }
 
+// GetMessageType returns MCPEvent.MessageType.
 func (c *ToolCallContext) GetMessageType() common.McpMessageType {
 	return c.event.MessageType
 }
 
+// SetMessageType sets MCPEvent.MessageType.
 func (c *ToolCallContext) SetMessageType(t common.McpMessageType) {
 	c.event.MessageType = t
 }
 
-// Original request accessors (immutable)
+// Original request accessors
 
+// GetOriginalServerName returns the initial, original server name.
 func (c *ToolCallContext) GetOriginalServerName() string {
 	return c.originalServerName
 }
 
+// GetOriginalRequest returns a reference to the original CallToolRequest.
 func (c *ToolCallContext) GetOriginalRequest() *mcp.CallToolRequest {
 	return c.originalRequest
 }
 
+// GetOriginalToolName returns the initial tool name.
 func (c *ToolCallContext) GetOriginalToolName() string {
 	if c.originalRequest == nil || c.originalRequest.Params == nil {
 		return ""
@@ -222,23 +232,35 @@ func (c *ToolCallContext) GetOriginalToolName() string {
 
 // Current request accessors (mutable)
 
+// GetServerName returns the current server name from routing context.
 func (c *ToolCallContext) GetServerName() string {
+	if c.routingContext == nil {
+		return ""
+	}
 	return c.routingContext.ServerName
 }
 
+// SetServerName sets the server name in routing context.
+//
+// Note: creates routing context if it doesn't exist.
 func (c *ToolCallContext) SetServerName(name string) {
+	if c.routingContext == nil {
+		c.routingContext = buildRoutingContext(c.proxy, c.session, c.GetServerName())
+	}
 	c.routingContext.ServerName = name
 }
 
+// GetRequest returns a reference to the current CallToolRequest - allows modifications.
 func (c *ToolCallContext) GetRequest() *mcp.CallToolRequest {
 	return c.request
 }
 
+// GetToolName returns the current tool name.
 func (c *ToolCallContext) GetToolName() string {
-	// TODO: here we could check if we have an aggregated server, then change the name accordingly
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
+	// here we check if we have an aggregated server, then change the name accordingly.
 	toolName := c.request.Params.Name
 	if c.proxy.isAggregatedProxy {
 		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
@@ -253,28 +275,34 @@ func (c *ToolCallContext) GetToolName() string {
 
 // Status and error handling
 
+// GetStatus returns ToolCallContext.MCPEvent.Status.
 func (c *ToolCallContext) GetStatus() int {
 	return c.event.Status
 }
 
+// SetStatus sets ToolCallContext.MCPEvent.Status.
 func (c *ToolCallContext) SetStatus(status int) {
 	c.event.Status = status
 }
 
+// GetError returns ToolCallContext.MCPEvent.Error.
 func (c *ToolCallContext) GetError() string {
 	return c.event.Error
 }
 
+// SetError sets the ToolCallContext.MCPEvent.Error.
 func (c *ToolCallContext) SetError(msg string) {
 	c.event.Error = msg
 }
 
 // Session and request identification
 
+// GetRequestID returns the current request ID.
 func (c *ToolCallContext) GetRequestID() string {
 	return c.event.RequestID
 }
 
+// GetSessionID returns the current session ID.
 func (c *ToolCallContext) GetSessionID() string {
 	if c.session == nil {
 		return ""
@@ -284,13 +312,14 @@ func (c *ToolCallContext) GetSessionID() string {
 
 // Routing context
 
+// GetRoutingContext returns the attached RoutingLog.
 func (c *ToolCallContext) GetRoutingContext() *common.RoutingLog {
 	return c.routingContext
 }
 
 // Handler access
 
-// GetHandler returns the handler for the given part
+// GetHandler returns the handler for the given part.
 func (c *ToolCallContext) GetHandler(part string) (CallContextHandler, bool) {
 	if c.handlers == nil {
 		return nil, false
@@ -309,13 +338,15 @@ func (c *ToolCallContext) SetHandler(part string, h CallContextHandler) {
 	c.handlers[part] = h
 }
 
+// GetLogHandler returns the attached log handler.
 func (c *ToolCallContext) GetLogHandler() LogHandler {
 	return c.logHandler
 }
 
+// SetLogHandler sets the provided longer handler.
 func (c *ToolCallContext) SetLogHandler(l LogHandler) {
 	c.logHandler = l
 }
 
-// Compile-time interface check
+// Compile-time interface check.
 var _ CallContext = (*ToolCallContext)(nil)

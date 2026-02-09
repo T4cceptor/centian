@@ -7,8 +7,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// EventProcessorInterface abstracts event processing for testability.
-type EventProcessorInterface interface {
+// ProcessingControllerInterface abstracts event processing for testability.
+type ProcessingControllerInterface interface {
 	Process(event CallContext) error
 }
 
@@ -23,6 +23,6 @@ type DownstreamConnectionInterface interface {
 
 // Compile-time interface compliance checks.
 var (
-	_ EventProcessorInterface       = (*ProcessingController)(nil)
+	_ ProcessingControllerInterface = (*ProcessingController)(nil)
 	_ DownstreamConnectionInterface = (*DownstreamConnection)(nil)
 )

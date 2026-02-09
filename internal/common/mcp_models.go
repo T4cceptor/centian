@@ -15,10 +15,10 @@ const (
 	// StdioTransport represents stdio transport -> "stdio".
 	StdioTransport McpTransportType = "stdio"
 
-	// UnknownTransport represents an unknown transport (e.g. error case)
+	// UnknownTransport represents an unknown transport (e.g. error case).
 	UnknownTransport McpTransportType = "unknown"
 
-	// InvalidTransport represents a transport configuration that is invalid (e.g. URL and CMD are set)
+	// InvalidTransport represents a transport configuration that is invalid (e.g. URL and CMD are set).
 	InvalidTransport McpTransportType = "invalid"
 )
 

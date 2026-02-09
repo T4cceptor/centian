@@ -5,10 +5,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// ProcessorContext is passed to processors as JSON
-type ProcessorContext struct {
-	Version   string `json:"version"`   // "1.0" - for evolution
-	Direction string `json:"direction"` // "request" | "response" // TODO: this is already in "Event"
+// DataContext is passed to processors as JSON.
+// Holds all relevant information of a CallContext for processors to access and modify.
+type DataContext struct {
+	Version string `json:"version"` // "1.0" - for evolution
 
 	// Parts - only populated based on processor config
 	Event   *common.MCPEvent `json:"event,omitempty"`   // Contains event metadata
@@ -17,6 +17,7 @@ type ProcessorContext struct {
 	// Future: Headers, Auth, etc.
 }
 
+// PayloadPart holds payload information in ProcessorContext.
 type PayloadPart struct {
 	Request         *mcp.CallToolRequest `json:"request,omitempty"`          // The processed mcp.CallToolRequest
 	OriginalRequest *mcp.CallToolRequest `json:"original_request,omitempty"` // The original mcp.CallToolRequest coming from upstream client
@@ -24,6 +25,7 @@ type PayloadPart struct {
 	OriginalResult  *mcp.CallToolResult  `json:"original_result,omitempty"`  // The original mcp.CallToolResult coming from downstream MCP
 }
 
+// RoutingPart holds routing information in ProcessorContext.
 type RoutingPart struct {
 	ServerName         string `json:"server_name"`
 	ToolName           string `json:"tool_name"`

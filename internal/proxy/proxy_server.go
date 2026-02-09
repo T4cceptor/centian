@@ -149,7 +149,7 @@ type MCPProxy struct {
 	config *config.GatewayConfig
 
 	// Event processor for logging and processing hooks
-	eventProcessor EventProcessorInterface
+	eventProcessor ProcessingControllerInterface
 
 	mu sync.RWMutex
 }
@@ -335,7 +335,7 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 	})
 }
 
-// ProcessRequest handles the request phase processing using handlers.
+// ProcessCall handles the request phase processing using handlers.
 // It gathers input from handlers, passes it to processors, and applies results back.
 //
 // If Error is non-nil, a mandatory processor failed to process the CallContext.
@@ -523,7 +523,10 @@ func (c *CentianProxy) Setup() error {
 		c.Gateways[gatewayName] = gateway
 
 		// Initialize event processor for the gateway
-		gateway.initEventProcessor()
+		initErr := gateway.initEventProcessor()
+		if initErr != nil {
+			return initErr
+		}
 
 		// Register aggregated endpoint
 		RegisterEndpoint(gateway.endpoint, gateway, c.Mux, nil)
@@ -537,7 +540,10 @@ func (c *CentianProxy) Setup() error {
 			singleEndpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 			singleProxy := NewSingleProxy(serverName, singleEndpoint, serverCfg)
 			singleProxy.server = c
-			singleProxy.initEventProcessor()
+			sErr := singleProxy.initEventProcessor()
+			if sErr != nil {
+				return sErr
+			}
 			RegisterEndpoint(singleEndpoint, singleProxy, c.Mux, nil)
 		}
 	}

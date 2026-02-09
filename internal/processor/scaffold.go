@@ -310,50 +310,67 @@ func generateProcessorTemplate(lang scaffoldLanguage, procType scaffoldType, nam
 func pythonLogic(procType scaffoldType) string {
 	switch procType {
 	case typePassthrough:
-		return "    # Passthrough: return payload unchanged"
+		return "    # Passthrough: return context unchanged"
 	case typeValidator:
 		return `    # Example: Block delete operations
-    if "delete" in payload.get("method", "").lower():
-        return {
-            "status": 403,
-            "payload": {},
-            "error": "Delete operations not allowed",
-            "metadata": {"processor_name": "PROCESSOR_NAME"}
-        }`
+    payload = ctx.payload or PayloadPart()
+    request = payload.request
+    params = request.params if request else None
+    tool_name = (params.name or "") if params else ""
+
+    if "delete" in tool_name.lower():
+        event = ctx.event or {}
+        event["status"] = 403
+        event["error"] = "Delete operations not allowed"
+        event["success"] = False
+        ctx.event = event
+        payload.result = CallToolResult(
+            content=[{"type": "text", "text": "Delete operations not allowed"}],
+            is_error=True,
+        )
+        ctx.payload = payload`
 	case typeTransformer:
-		return `    # Example: Add custom header
-    if "params" in payload:
-        if "arguments" not in payload["params"]:
-            payload["params"]["arguments"] = {}
-        payload["params"]["arguments"]["x-processor"] = "PROCESSOR_NAME"
-        modifications = ["added x-processor header"]
-    else:
-        modifications = []`
+		return `    # Example: Add custom argument to tool request
+    payload = ctx.payload or PayloadPart()
+    request = payload.request
+    params = request.params if request else None
+    arguments = params.arguments if params else None
+
+    if isinstance(arguments, dict):
+        arguments["x-processor"] = "PROCESSOR_NAME"
+        params.arguments = arguments
+        request.params = params
+        payload.request = request
+        ctx.payload = payload`
 	case typeLogger:
 		return `    # Example: Log to file
     import os
     from datetime import datetime
 
+    payload = ctx.payload or PayloadPart()
+    request = payload.request
+    params = request.params if request else None
+    tool_name = (params.name or "unknown") if params else "unknown"
+
     log_entry = {
         "timestamp": datetime.now().isoformat(),
-        "type": event["type"],
-        "method": payload.get("method", "unknown")
+        "direction": ctx.direction or "unknown",
+        "tool_name": tool_name
     }
 
     log_file = os.path.expanduser("~/centian/logs/processor.log")
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    with open(log_file, "a") as f:
+    with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(log_entry) + "\n")`
 	case typeCustom:
 		return `    # TODO: Add your custom logic here
     # Example:
     # if some_condition:
-    #     return {
-    #         "status": 403,
-    #         "payload": {},
-    #         "error": "Condition failed",
-    #         "metadata": {"processor_name": "PROCESSOR_NAME"}
-    #     }`
+    #     event = ctx.event or {}
+    #     event["status"] = 403
+    #     event["error"] = "Condition failed"
+    #     event["success"] = False
+    #     ctx.event = event`
 	default:
 		return ""
 	}
@@ -362,24 +379,40 @@ func pythonLogic(procType scaffoldType) string {
 func javascriptLogic(procType scaffoldType) string {
 	switch procType {
 	case typePassthrough:
-		return "  // Passthrough: return payload unchanged"
+		return "  // Passthrough: return context unchanged"
 	case typeValidator:
 		return `  // Example: Block delete operations
-  if ((payload.method || "").toLowerCase().includes("delete")) {
-    return {
+  const payload = ctx.payload || {};
+  const request = payload.request || {};
+  const params = request.Params || {};
+  const toolName = (params.name || "");
+
+  if (toolName.toLowerCase().includes("delete")) {
+    ctx.event = {
+      ...(ctx.event || {}),
       status: 403,
-      payload: {},
       error: "Delete operations not allowed",
-      metadata: { processor_name: "PROCESSOR_NAME" }
+      success: false
     };
+    payload.result = {
+      content: [{ type: "text", text: "Delete operations not allowed" }],
+      isError: true
+    };
+    ctx.payload = payload;
   }`
 	case typeTransformer:
-		return `  // Example: Add custom header
-  if (payload.params) {
-    if (!payload.params.arguments) {
-      payload.params.arguments = {};
-    }
-    payload.params.arguments["x-processor"] = "PROCESSOR_NAME";
+		return `  // Example: Add custom argument to tool request
+  const payload = ctx.payload || {};
+  const request = payload.request || {};
+  const params = request.Params || {};
+  const argumentsObject = params.arguments;
+
+  if (argumentsObject && typeof argumentsObject === "object" && !Array.isArray(argumentsObject)) {
+    argumentsObject["x-processor"] = "PROCESSOR_NAME";
+    params.arguments = argumentsObject;
+    request.Params = params;
+    payload.request = request;
+    ctx.payload = payload;
   }`
 	case typeLogger:
 		return `  // Example: Log to file
@@ -387,10 +420,14 @@ func javascriptLogic(procType scaffoldType) string {
   const os = require("os");
   const path = require("path");
 
+  const payload = ctx.payload || {};
+  const request = payload.request || {};
+  const params = request.Params || {};
+
   const logEntry = {
     timestamp: new Date().toISOString(),
-    type: event.type,
-    method: payload.method || "unknown"
+    direction: ctx.direction || "unknown",
+    tool_name: params.name || "unknown"
   };
 
   const logFile = path.join(os.homedir(), "centian", "logs", "processor.log");
@@ -406,35 +443,55 @@ func javascriptLogic(procType scaffoldType) string {
 func typescriptLogic(procType scaffoldType) string {
 	switch procType {
 	case typePassthrough:
-		return "  // Passthrough: return payload unchanged"
+		return "  // Passthrough: return context unchanged"
 	case typeValidator:
 		return `  // Example: Block delete operations
-  if ((payload.method || "").toLowerCase().includes("delete")) {
-    return {
+  const payload = ctx.payload || {};
+  const request = payload.request || {};
+  const params = request.Params || {};
+  const toolName = (params.name || "");
+
+  if (toolName.toLowerCase().includes("delete")) {
+    ctx.event = {
+      ...(ctx.event || {}),
       status: 403,
-      payload: {},
       error: "Delete operations not allowed",
-      metadata: { processor_name: "PROCESSOR_NAME" }
+      success: false
     };
+    payload.result = {
+      content: [{ type: "text", text: "Delete operations not allowed" }],
+      isError: true
+    };
+    ctx.payload = payload;
   }`
 	case typeTransformer:
-		return `  // Example: Add custom header
-  if (payload.params) {
-    if (!payload.params.arguments) {
-      payload.params.arguments = {};
-    }
-    payload.params.arguments["x-processor"] = "PROCESSOR_NAME";
+		return `  // Example: Add custom argument to tool request
+  const payload = ctx.payload || {};
+  const request = payload.request || {};
+  const params = request.Params || {};
+  const argumentsObject = params.arguments;
+
+  if (argumentsObject && typeof argumentsObject === "object" && !Array.isArray(argumentsObject)) {
+    argumentsObject["x-processor"] = "PROCESSOR_NAME";
+    params.arguments = argumentsObject;
+    request.Params = params;
+    payload.request = request;
+    ctx.payload = payload;
   }`
 	case typeLogger:
 		return `  // Example: Log to file
-  import * as fs from "fs";
-  import * as os from "os";
-  import * as path from "path";
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+
+  const payload = ctx.payload || {};
+  const request = payload.request || {};
+  const params = request.Params || {};
 
   const logEntry = {
     timestamp: new Date().toISOString(),
-    type: event.type,
-    method: payload.method || "unknown"
+    direction: ctx.direction || "unknown",
+    tool_name: params.name || "unknown"
   };
 
   const logFile = path.join(os.homedir(), "centian", "logs", "processor.log");
@@ -450,27 +507,38 @@ func typescriptLogic(procType scaffoldType) string {
 func bashLogic(procType scaffoldType) string {
 	switch procType {
 	case typePassthrough:
-		return "# Passthrough: return payload unchanged"
+		return "# Passthrough: return context unchanged"
 	case typeValidator:
 		return `# Example: Block delete operations
-METHOD=$(echo "$PAYLOAD" | jq -r ".method // empty")
-if echo "$METHOD" | grep -iq "delete"; then
-  jq -n '{
-    status: 403,
-    payload: {},
-    error: "Delete operations not allowed",
-    metadata: { processor_name: "PROCESSOR_NAME" }
-  }'
-  exit 0
+TOOL_NAME=$(echo "$CTX" | jq -r '.payload.request.Params.name // empty')
+if echo "$TOOL_NAME" | grep -iq "delete"; then
+  CTX=$(echo "$CTX" | jq '
+    .event = ((.event // {}) + {
+      "status": 403,
+      "error": "Delete operations not allowed",
+      "success": false
+    })
+    | .payload = (.payload // {})
+    | .payload.result = {
+      "content": [{"type": "text", "text": "Delete operations not allowed"}],
+      "isError": true
+    }')
 fi`
 	case typeTransformer:
-		return `# Example: Add custom header
-PAYLOAD=$(echo "$PAYLOAD" | jq ".params.arguments[\"x-processor\"] = \"PROCESSOR_NAME\"")`
+		return `# Example: Add custom argument to tool request
+CTX=$(echo "$CTX" | jq '
+  .payload = (.payload // {})
+  | .payload.request = (.payload.request // {})
+  | .payload.request.Params = (.payload.request.Params // {})
+  | .payload.request.Params.arguments = (.payload.request.Params.arguments // {})
+  | .payload.request.Params.arguments["x-processor"] = "PROCESSOR_NAME"')`
 	case typeLogger:
 		return `# Example: Log to file
 LOG_FILE="$HOME/centian/logs/processor.log"
 mkdir -p "$(dirname "$LOG_FILE")"
-echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"type\":\"$TYPE\",\"method\":\"$(echo "$PAYLOAD" | jq -r ".method // \"unknown\"")\"}" >> "$LOG_FILE"`
+DIRECTION=$(echo "$CTX" | jq -r '.direction // "unknown"')
+TOOL_NAME=$(echo "$CTX" | jq -r '.payload.request.Params.name // "unknown"')
+echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"direction\":\"$DIRECTION\",\"tool_name\":\"$TOOL_NAME\"}" >> "$LOG_FILE"`
 	case typeCustom:
 		return "# TODO: Add your custom logic here"
 	default:
@@ -480,23 +548,29 @@ echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"type\":\"$TYPE\",\"met
 
 func writeTestInput(path string) error {
 	const testPayload = `{
-  "type": "request",
-  "timestamp": "2025-12-27T10:00:00Z",
-  "connection": {
-    "server_name": "test",
-    "transport": "stdio",
-    "session_id": "test123"
+  "version": "1.0",
+  "direction": "request",
+  "event": {
+    "status": 200,
+    "success": true,
+    "message_type": "request",
+    "direction": "CLIENT_TO_SERVER"
   },
   "payload": {
-    "method": "tools/call",
-    "params": {
-      "name": "test_tool",
-      "arguments": {}
+    "request": {
+      "Params": {
+        "name": "test_tool",
+        "arguments": {
+          "test_key": "test_value"
+        }
+      }
     }
   },
-  "metadata": {
-    "processor_chain": [],
-    "original_payload": {}
+  "routing": {
+    "server_name": "test",
+    "tool_name": "test_tool",
+    "original_server_name": "test",
+    "original_tool_name": "test_tool"
   }
 }
 `
@@ -585,63 +659,193 @@ Generated: TIMESTAMP
 
 import sys
 import json
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
-def process(event):
-    """
-    Process an MCP message.
+def compact_dict(value: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: item for key, item in value.items() if item is not None}
 
-    Args:
-        event: Input event with structure:
-            - type: "request" or "response"
-            - timestamp: ISO 8601 timestamp
-            - connection: {server_name, transport, session_id}
-            - payload: MCP message payload
-            - metadata: {processor_chain, original_payload}
 
-    Returns:
-        dict: Output with structure:
-            - status: HTTP status code (200, 40x, 50x)
-            - payload: Modified or original payload
-            - error: Error message or None
-            - metadata: {processor_name, modifications}
-    """
-    payload = event["payload"]
+@dataclass
+class CallToolParamsRaw:
+    name: str = ""
+    arguments: Any = None
+    meta: Optional[Dict[str, Any]] = None
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "CallToolParamsRaw":
+        source = data or {}
+        return CallToolParamsRaw(
+            name=source.get("name", ""),
+            arguments=source.get("arguments"),
+            meta=source.get("_meta"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "name": self.name,
+            "arguments": self.arguments,
+            "_meta": self.meta,
+        })
+
+
+@dataclass
+class CallToolRequest:
+    params: Optional[CallToolParamsRaw] = None
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "CallToolRequest":
+        source = data or {}
+        params_source = source.get("Params")
+        if params_source is None:
+            params_source = source.get("params")
+
+        params = None
+        if isinstance(params_source, dict):
+            params = CallToolParamsRaw.from_dict(params_source)
+        return CallToolRequest(params=params)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "Params": self.params.to_dict() if self.params else None,
+        })
+
+
+@dataclass
+class CallToolResult:
+    content: List[Any] = field(default_factory=list)
+    structured_content: Any = None
+    is_error: bool = False
+    meta: Optional[Dict[str, Any]] = None
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "CallToolResult":
+        source = data or {}
+        raw_content = source.get("content")
+        content = raw_content if isinstance(raw_content, list) else []
+        return CallToolResult(
+            content=content,
+            structured_content=source.get("structuredContent"),
+            is_error=bool(source.get("isError", False)),
+            meta=source.get("_meta"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "content": self.content,
+            "structuredContent": self.structured_content,
+            "isError": True if self.is_error else None,
+            "_meta": self.meta,
+        })
+
+
+@dataclass
+class PayloadPart:
+    request: Optional[CallToolRequest] = None
+    original_request: Optional[CallToolRequest] = None
+    result: Optional[CallToolResult] = None
+    original_result: Optional[CallToolResult] = None
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "PayloadPart":
+        source = data or {}
+        return PayloadPart(
+            request=CallToolRequest.from_dict(source["request"]) if isinstance(source.get("request"), dict) else None,
+            original_request=CallToolRequest.from_dict(source["original_request"]) if isinstance(source.get("original_request"), dict) else None,
+            result=CallToolResult.from_dict(source["result"]) if isinstance(source.get("result"), dict) else None,
+            original_result=CallToolResult.from_dict(source["original_result"]) if isinstance(source.get("original_result"), dict) else None,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "request": self.request.to_dict() if self.request else None,
+            "original_request": self.original_request.to_dict() if self.original_request else None,
+            "result": self.result.to_dict() if self.result else None,
+            "original_result": self.original_result.to_dict() if self.original_result else None,
+        })
+
+
+@dataclass
+class RoutingPart:
+    server_name: str = ""
+    tool_name: str = ""
+    original_server_name: str = ""
+    original_tool_name: str = ""
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "RoutingPart":
+        source = data or {}
+        return RoutingPart(
+            server_name=source.get("server_name", ""),
+            tool_name=source.get("tool_name", ""),
+            original_server_name=source.get("original_server_name", ""),
+            original_tool_name=source.get("original_tool_name", ""),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "server_name": self.server_name,
+            "tool_name": self.tool_name,
+            "original_server_name": self.original_server_name,
+            "original_tool_name": self.original_tool_name,
+        })
+
+
+@dataclass
+class ProcessorContext:
+    version: str = ""
+    direction: str = ""
+    event: Optional[Dict[str, Any]] = None
+    payload: Optional[PayloadPart] = None
+    routing: Optional[RoutingPart] = None
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "ProcessorContext":
+        payload_source = data.get("payload")
+        routing_source = data.get("routing")
+        return ProcessorContext(
+            version=data.get("version", ""),
+            direction=data.get("direction", ""),
+            event=data.get("event"),
+            payload=PayloadPart.from_dict(payload_source) if isinstance(payload_source, dict) else None,
+            routing=RoutingPart.from_dict(routing_source) if isinstance(routing_source, dict) else None,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "version": self.version,
+            "direction": self.direction,
+            "event": self.event,
+            "payload": self.payload.to_dict() if self.payload else None,
+            "routing": self.routing.to_dict() if self.routing else None,
+        })
+
+
+def process(ctx: ProcessorContext) -> ProcessorContext:
 
 PROCESSOR_LOGIC
 
-    # Return success
-    return {
-        "status": 200,
-        "payload": payload,
-        "error": None,
-        "metadata": {
-            "processor_name": "PROCESSOR_NAME",
-            "modifications": []
-        }
-    }
+    return ctx
 
 def main():
     try:
-        # Read input from stdin
-        event = json.load(sys.stdin)
+        input_data = json.load(sys.stdin)
+        ctx = ProcessorContext.from_dict(input_data)
 
-        # Process the event
-        result = process(event)
-
-        # Write result to stdout
-        print(json.dumps(result))
+        result = process(ctx)
+        print(json.dumps(result.to_dict()))
         sys.exit(0)
 
     except Exception as e:
-        # Return internal error
-        result = {
-            "status": 500,
-            "payload": {},
-            "error": str(e),
-            "metadata": {"processor_name": "PROCESSOR_NAME"}
-        }
-        print(json.dumps(result))
-        sys.exit(0)  # Exit 0 even on error
+        fallback = ProcessorContext(
+            event={
+                "status": 500,
+                "error": str(e),
+                "success": False
+            }
+        )
+        print(json.dumps(fallback.to_dict()))
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
@@ -654,21 +858,11 @@ const javascriptTemplate = `#!/usr/bin/env node
  * Generated: TIMESTAMP
  */
 
-function process(event) {
-  const payload = event.payload;
+function processContext(ctx) {
 
 PROCESSOR_LOGIC
 
-  // Return success
-  return {
-    status: 200,
-    payload: payload,
-    error: null,
-    metadata: {
-      processor_name: 'PROCESSOR_NAME',
-      modifications: []
-    }
-  };
+  return ctx;
 }
 
 function main() {
@@ -681,18 +875,19 @@ function main() {
   process.stdin.on('end', () => {
     try {
       const event = JSON.parse(input);
-      const result = process(event);
+      const result = processContext(event);
       console.log(JSON.stringify(result));
       process.exit(0);
     } catch (err) {
       const result = {
-        status: 500,
-        payload: {},
-        error: err.message,
-        metadata: { processor_name: 'PROCESSOR_NAME' }
+        event: {
+          status: 500,
+          error: err.message,
+          success: false
+        }
       };
-      console.log(JSON.stringify(result));
-      process.exit(0); // Exit 0 even on error
+      console.log(JSON.stringify(result))
+      process.exit(0);
     }
   });
 }
@@ -707,47 +902,50 @@ const typescriptTemplate = `#!/usr/bin/env ts-node
  * Generated: TIMESTAMP
  */
 
-interface ProcessorInput {
-  type: 'request' | 'response';
-  timestamp: string;
-  connection: {
-    server_name: string;
-    transport: string;
-    session_id: string;
-  };
-  payload: any;
-  metadata: {
-    processor_chain: string[];
-    original_payload: any;
-  };
+interface CallToolParamsRaw {
+  name?: string;
+  arguments?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }
 
-interface ProcessorOutput {
-  status: number;
-  payload: any;
-  error: string | null;
-  metadata: {
-    processor_name: string;
-    modifications?: string[];
-    [key: string]: any;
-  };
+interface CallToolRequest {
+  Params?: CallToolParamsRaw;
 }
 
-function process(event: ProcessorInput): ProcessorOutput {
-  const payload = event.payload;
+interface CallToolResult {
+  content?: Array<Record<string, unknown>>;
+  structuredContent?: unknown;
+  isError?: boolean;
+  _meta?: Record<string, unknown>;
+}
+
+interface PayloadPart {
+  request?: CallToolRequest;
+  original_request?: CallToolRequest;
+  result?: CallToolResult;
+  original_result?: CallToolResult;
+}
+
+interface RoutingPart {
+  server_name?: string;
+  tool_name?: string;
+  original_server_name?: string;
+  original_tool_name?: string;
+}
+
+interface ProcessorContext {
+  version?: string;
+  direction?: string;
+  event?: Record<string, unknown>;
+  payload?: PayloadPart;
+  routing?: RoutingPart;
+}
+
+function processContext(ctx: ProcessorContext): ProcessorContext {
 
 PROCESSOR_LOGIC
 
-  // Return success
-  return {
-    status: 200,
-    payload: payload,
-    error: null,
-    metadata: {
-      processor_name: 'PROCESSOR_NAME',
-      modifications: []
-    }
-  };
+  return ctx;
 }
 
 function main(): void {
@@ -759,16 +957,17 @@ function main(): void {
 
   process.stdin.on('end', () => {
     try {
-      const event: ProcessorInput = JSON.parse(input);
-      const result = process(event);
+      const event: ProcessorContext = JSON.parse(input);
+      const result = processContext(event);
       console.log(JSON.stringify(result));
       process.exit(0);
     } catch (err) {
-      const result: ProcessorOutput = {
-        status: 500,
-        payload: {},
-        error: (err as Error).message,
-        metadata: { processor_name: 'PROCESSOR_NAME' }
+      const result: ProcessorContext = {
+        event: {
+          status: 500,
+          error: (err as Error).message,
+          success: false
+        }
       };
       console.log(JSON.stringify(result));
       process.exit(0);
@@ -784,27 +983,20 @@ const bashTemplate = `#!/bin/bash
 # Type: PROCESSOR_TYPE
 # Generated: TIMESTAMP
 
-# Read input from stdin
-INPUT=$(cat)
+set -euo pipefail
 
-# Parse JSON using jq
-TYPE=$(echo "$INPUT" | jq -r '.type')
-PAYLOAD=$(echo "$INPUT" | jq -c '.payload')
+# Read input context from stdin
+INPUT=$(cat)
+CTX="$INPUT"
+
+if ! echo "$CTX" | jq -e '.' >/dev/null 2>&1; then
+  echo '{"event":{"status":500,"error":"Invalid JSON input","success":false}}'
+  exit 0
+fi
 
 PROCESSOR_LOGIC
 
-# Return success
-jq -n \
-  --argjson payload "$PAYLOAD" \
-  '{
-    status: 200,
-    payload: $payload,
-    error: null,
-    metadata: {
-      processor_name: "PROCESSOR_NAME",
-      modifications: []
-    }
-  }'
-
+# Return processed context
+echo "$CTX"
 exit 0
 `

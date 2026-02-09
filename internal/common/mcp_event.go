@@ -116,6 +116,7 @@ func (e *MCPEvent) WithServerID(id string) *MCPEvent {
 	return e
 }
 
+// WithToolRequest attaches name, originalName and args on ToolCall of this MCPEvent.
 func (e *MCPEvent) WithToolRequest(name, originalName string, args json.RawMessage) *MCPEvent {
 	if e.ToolCall == nil {
 		e.ToolCall = &ToolCallLog{}
@@ -126,6 +127,7 @@ func (e *MCPEvent) WithToolRequest(name, originalName string, args json.RawMessa
 	return e
 }
 
+// WithToolResult attaches provided result and isError status on ToolCall of this MCPEvent.
 func (e *MCPEvent) WithToolResult(result json.RawMessage, isError bool) *MCPEvent {
 	if e.ToolCall == nil {
 		e.ToolCall = &ToolCallLog{}

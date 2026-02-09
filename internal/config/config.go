@@ -97,6 +97,7 @@ type MCPServerConfig struct {
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
 }
 
+// GetTransport returns McpTransportType based on config data.
 func (s *MCPServerConfig) GetTransport() common.McpTransportType {
 	r, _ := common.GetTransport(s.URL, s.Command)
 	return r

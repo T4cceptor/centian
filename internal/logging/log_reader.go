@@ -125,7 +125,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 	}
 
 	// Extract transport-specific details.
-	command := ""
+	var command string
 	e := entry.Event
 	if e.Routing.Transport == common.HTTPTransport {
 		command = e.Routing.DownstreamURL

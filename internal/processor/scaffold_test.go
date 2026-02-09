@@ -389,9 +389,18 @@ func TestWriteTestInput(t *testing.T) {
 	assert.NilError(t, err)
 	data, readErr := os.ReadFile(path)
 	assert.NilError(t, readErr)
-	var payload map[string]any
-	assert.NilError(t, json.Unmarshal(data, &payload))
-	assert.Equal(t, payload["type"], "request")
+	var input map[string]any
+	assert.NilError(t, json.Unmarshal(data, &input))
+	assert.Equal(t, input["version"], "1.0")
+	assert.Equal(t, input["direction"], "request")
+
+	payload, ok := input["payload"].(map[string]any)
+	assert.Assert(t, ok)
+	request, ok := payload["request"].(map[string]any)
+	assert.Assert(t, ok)
+	params, ok := request["Params"].(map[string]any)
+	assert.Assert(t, ok)
+	assert.Equal(t, params["name"], "test_tool")
 }
 func TestAddProcessorToConfig(t *testing.T) {
 	// Given: a temp config and processor details

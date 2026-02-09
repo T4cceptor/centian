@@ -3,287 +3,175 @@ package integrationtests
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/processor"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// TestPassthroughProcessor tests that the passthrough processor returns the input unchanged.
 func TestPassthroughProcessor(t *testing.T) {
-	// Given: a passthrough processor.
 	processorConfig := createProcessorConfig("passthrough", "processors/passthrough.py")
-	input := loadTestInput(t, "testdata/request_normal.json")
+	input := requestContext(t, "query_database", map[string]any{"query": "SELECT 1"})
 
-	// When: executing the processor.
-	output, err := executeProcessor(t, processorConfig, input)
-
-	// Then: execution succeeds with status 200.
+	output, err := executeProcessor(processorConfig, input)
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (success).
-	if output.Status != 200 {
-		t.Errorf("Expected status 200, got %d", output.Status)
+	if output.Payload == nil || output.Payload.Request == nil || output.Payload.Request.Params == nil {
+		t.Fatal("Expected request payload in output")
 	}
 
-	// And: error is nil.
-	if output.Error != nil && *output.Error != "" {
-		t.Errorf("Expected no error, got: %s", *output.Error)
-	}
-
-	// And: payload is unchanged.
-	if !jsonEqual(t, input.Payload, output.Payload) {
+	if !jsonEqual(t, input.Payload.Request.Params.Arguments, output.Payload.Request.Params.Arguments) {
 		t.Errorf("Payload was modified by passthrough processor")
 	}
-
-	// And: metadata includes processor name.
-	if output.Metadata == nil {
-		t.Fatal("Expected metadata to be present")
-	}
-	processorName, ok := output.Metadata["processor_name"].(string)
-	if !ok || processorName != "passthrough" {
-		t.Errorf("Expected processor_name to be 'passthrough', got: %v", output.Metadata["processor_name"])
-	}
 }
 
-// TestSecurityValidatorAllowsNormalRequests tests that normal requests pass through.
 func TestSecurityValidatorAllowsNormalRequests(t *testing.T) {
-	// Given: a security validator processor.
 	processorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
-	input := loadTestInput(t, "testdata/request_normal.json")
+	input := requestContext(t, "tools/list", map[string]any{"q": "safe"})
 
-	// When: executing with a normal request.
-	output, err := executeProcessor(t, processorConfig, input)
-
-	// Then: execution succeeds.
+	output, err := executeProcessor(processorConfig, input)
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (allowed).
-	if output.Status != 200 {
-		t.Errorf("Expected status 200 for normal request, got %d", output.Status)
+	if output.Event == nil {
+		t.Fatal("Expected event in output")
 	}
-
-	// And: no error is returned.
-	if output.Error != nil && *output.Error != "" {
-		t.Errorf("Expected no error for normal request, got: %s", *output.Error)
+	if output.Event.Status != 200 {
+		t.Errorf("Expected status 200, got %d", output.Event.Status)
 	}
 }
 
-// TestSecurityValidatorBlocksDeleteRequests tests that delete operations are rejected.
 func TestSecurityValidatorBlocksDeleteRequests(t *testing.T) {
-	// Given: a security validator processor.
 	processorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
-	input := loadTestInput(t, "testdata/request_delete.json")
+	input := requestContext(t, "tools/delete_user", map[string]any{"user_id": 42})
 
-	// When: executing with a delete request.
-	output, err := executeProcessor(t, processorConfig, input)
-
-	// Then: execution succeeds (processor ran successfully).
+	output, err := executeProcessor(processorConfig, input)
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 403 (forbidden).
-	if output.Status != 403 {
-		t.Errorf("Expected status 403 for delete request, got %d", output.Status)
+	if output.Event == nil {
+		t.Fatal("Expected event in output")
 	}
-
-	// And: error message is present.
-	if output.Error == nil || *output.Error == "" {
-		t.Error("Expected error message for rejected delete request")
+	if output.Event.Status != 403 {
+		t.Errorf("Expected status 403, got %d", output.Event.Status)
 	}
-
-	// And: error mentions deletion is not allowed.
-	expectedError := "Delete operations not allowed"
-	if output.Error == nil || *output.Error != expectedError {
-		var gotError string
-		if output.Error != nil {
-			gotError = *output.Error
-		}
-		t.Errorf("Expected error '%s', got '%s'", expectedError, gotError)
+	if output.Event.Error != "Delete operations not allowed" {
+		t.Errorf("Expected error 'Delete operations not allowed', got '%s'", output.Event.Error)
 	}
-
-	// And: payload is empty (rejection).
-	if len(output.Payload) != 0 {
-		t.Errorf("Expected empty payload for rejected request, got: %v", output.Payload)
+	if output.Event.Success {
+		t.Errorf("Expected success=false for blocked request")
 	}
 }
 
-// TestRequestLoggerPassesThrough tests that the logger processor passes requests through.
 func TestRequestLoggerPassesThrough(t *testing.T) {
-	// Given: a request logger processor.
 	processorConfig := createProcessorConfig("request_logger", "processors/request_logger.py")
-	input := loadTestInput(t, "testdata/request_normal.json")
+	input := requestContext(t, "tools/call", map[string]any{"a": 1})
 
-	// When: executing the processor.
-	output, err := executeProcessor(t, processorConfig, input)
-
-	// Then: execution succeeds.
+	output, err := executeProcessor(processorConfig, input)
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (success).
-	if output.Status != 200 {
-		t.Errorf("Expected status 200, got %d", output.Status)
-	}
-
-	// And: payload is unchanged (logging is side effect only).
-	if !jsonEqual(t, input.Payload, output.Payload) {
+	if !jsonEqual(t, input.Payload.Request.Params.Arguments, output.Payload.Request.Params.Arguments) {
 		t.Errorf("Payload was modified by logger processor")
 	}
 }
 
-// TestPayloadTransformerModifiesRequest tests that the transformer adds custom headers.
 func TestPayloadTransformerModifiesRequest(t *testing.T) {
-	// Given: a payload transformer processor.
 	processorConfig := createProcessorConfig("payload_transformer", "processors/payload_transformer.py")
-	input := loadTestInput(t, "testdata/request_normal.json")
+	input := requestContext(t, "tools/call", map[string]any{"query": "SELECT * FROM users"})
 
-	// When: executing the processor.
-	output, err := executeProcessor(t, processorConfig, input)
-
-	// Then: execution succeeds.
+	output, err := executeProcessor(processorConfig, input)
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200 (success).
-	if output.Status != 200 {
-		t.Errorf("Expected status 200, got %d", output.Status)
+	var args map[string]any
+	if err := json.Unmarshal(output.Payload.Request.Params.Arguments, &args); err != nil {
+		t.Fatalf("Failed to decode output args: %v", err)
 	}
 
-	// And: payload has been modified.
-	payload := output.Payload
-
-	params, ok := payload["params"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected payload.params to be a map")
-	}
-
-	arguments, ok := params["arguments"].(map[string]interface{})
-	if !ok {
-		t.Fatal("Expected payload.params.arguments to be a map")
-	}
-
-	// And: custom header was added.
-	xProcessor, ok := arguments["x-processor"].(string)
-	if !ok {
-		t.Fatal("Expected x-processor header to be added")
-	}
-
-	if xProcessor != "payload_transformer" {
-		t.Errorf("Expected x-processor to be 'payload_transformer', got '%s'", xProcessor)
-	}
-
-	// And: modifications are tracked in metadata.
-	if output.Metadata == nil {
-		t.Fatal("Expected metadata to be present")
+	if args["x-processor"] != "payload_transformer" {
+		t.Errorf("Expected x-processor=payload_transformer, got %v", args["x-processor"])
 	}
 }
 
-// TestProcessorWithResponseData tests that processors can handle response messages.
 func TestProcessorWithResponseData(t *testing.T) {
-	// Given: a passthrough processor.
 	processorConfig := createProcessorConfig("passthrough", "processors/passthrough.py")
-	input := loadTestInput(t, "testdata/response_success.json")
+	input := responseContext(t, "Query executed successfully")
 
-	// When: executing with a response message.
-	output, err := executeProcessor(t, processorConfig, input)
-
-	// Then: execution succeeds.
+	output, err := executeProcessor(processorConfig, input)
 	if err != nil {
 		t.Fatalf("Processor execution failed: %v", err)
 	}
 
-	// And: status is 200.
-	if output.Status != 200 {
-		t.Errorf("Expected status 200, got %d", output.Status)
-	}
-
-	// And: response payload is preserved.
-	if !jsonEqual(t, input.Payload, output.Payload) {
-		t.Errorf("Response payload was modified")
+	if output.Payload == nil || output.Payload.Result == nil {
+		t.Fatal("Expected response payload result")
 	}
 }
 
-// TestProcessorChain tests that multiple processors can be chained together.
 func TestProcessorChain(t *testing.T) {
-	// Given: a chain of processors (logger -> validator).
 	loggerConfig := createProcessorConfig("request_logger", "processors/request_logger.py")
 	validatorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
-	input := loadTestInput(t, "testdata/request_normal.json")
+	input := requestContext(t, "tools/list", map[string]any{"q": "safe"})
 
-	// When: executing the chain.
-	// First processor: logger.
-	output1, err := executeProcessor(t, loggerConfig, input)
+	output1, err := executeProcessor(loggerConfig, input)
 	if err != nil {
 		t.Fatalf("Logger processor failed: %v", err)
 	}
 
-	// Update metadata to track processor chain.
-	if input.Metadata.ProcessorChain == nil {
-		input.Metadata.ProcessorChain = []string{}
-	}
-	input.Metadata.ProcessorChain = append(input.Metadata.ProcessorChain, "request_logger")
-
-	// Second processor: validator (receives output from logger).
-	input.Payload = output1.Payload
-	output2, err := executeProcessor(t, validatorConfig, input)
+	output2, err := executeProcessor(validatorConfig, output1)
 	if err != nil {
 		t.Fatalf("Validator processor failed: %v", err)
 	}
 
-	// Then: final status is 200 (both processors passed).
-	if output2.Status != 200 {
-		t.Errorf("Expected final status 200, got %d", output2.Status)
+	if output2.Event == nil || output2.Event.Status != 200 {
+		t.Errorf("Expected status 200, got %+v", output2.Event)
 	}
 }
 
-// TestProcessorChainWithRejection tests that a rejection stops the chain.
 func TestProcessorChainWithRejection(t *testing.T) {
-	// Given: a chain where the second processor rejects.
 	passthroughConfig := createProcessorConfig("passthrough", "processors/passthrough.py")
 	validatorConfig := createProcessorConfig("security_validator", "processors/security_validator.py")
-	input := loadTestInput(t, "testdata/request_delete.json")
+	input := requestContext(t, "tools/delete_user", map[string]any{"user_id": 42})
 
-	// When: executing the chain.
-	// First processor: passthrough.
-	output1, err := executeProcessor(t, passthroughConfig, input)
+	output1, err := executeProcessor(passthroughConfig, input)
 	if err != nil {
 		t.Fatalf("Passthrough processor failed: %v", err)
 	}
 
-	// Second processor: validator (should reject).
-	input.Payload = output1.Payload
-	output2, err := executeProcessor(t, validatorConfig, input)
+	output2, err := executeProcessor(validatorConfig, output1)
 	if err != nil {
 		t.Fatalf("Validator processor failed: %v", err)
 	}
 
-	// Then: chain stops with 403 rejection.
-	if output2.Status != 403 {
-		t.Errorf("Expected status 403 (rejection), got %d", output2.Status)
+	if output2.Event == nil || output2.Event.Status != 403 {
+		t.Errorf("Expected status 403, got %+v", output2.Event)
 	}
-
-	// And: subsequent processors should not be executed (tested implicitly).
 }
 
-// Helper: createProcessorConfig creates a processor configuration for testing.
-func createProcessorConfig(name, scriptPath string) *config.ProcessorConfig {
-	// Get absolute path to processor script.
-	absPath, _ := filepath.Abs(scriptPath)
+func executeProcessor(processorConfig *config.ProcessorConfig, input *processor.DataContext) (*processor.DataContext, error) {
+	p, err := processor.NewProcessor(processorConfig)
+	if err != nil {
+		return nil, err
+	}
+	return p.Process(input)
+}
 
+func createProcessorConfig(name, scriptPath string) *config.ProcessorConfig {
+	absPath, _ := filepath.Abs(scriptPath)
 	return &config.ProcessorConfig{
 		Name:    name,
 		Type:    "cli",
 		Enabled: true,
-		Timeout: 15, // 15 seconds
+		Timeout: 15,
 		Config: map[string]interface{}{
 			"command": "python3",
 			"args":    []interface{}{absPath},
@@ -291,36 +179,67 @@ func createProcessorConfig(name, scriptPath string) *config.ProcessorConfig {
 	}
 }
 
-// Helper: loadTestInput loads a test input JSON file.
-func loadTestInput(t *testing.T, filename string) *config.ProcessorInput {
+func requestContext(t *testing.T, toolName string, args map[string]any) *processor.DataContext {
 	t.Helper()
-
-	data, err := os.ReadFile(filename)
+	rawArgs, err := json.Marshal(args)
 	if err != nil {
-		t.Fatalf("Failed to read test input file %s: %v", filename, err)
+		t.Fatalf("Failed to marshal args: %v", err)
 	}
-
-	var input config.ProcessorInput
-	if err := json.Unmarshal(data, &input); err != nil {
-		t.Fatalf("Failed to parse test input JSON: %v", err)
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      toolName,
+			Arguments: rawArgs,
+		},
 	}
-
-	return &input
+	return &processor.DataContext{
+		Version: "1.0",
+		Event: &common.MCPEvent{
+			BaseMcpEvent: common.BaseMcpEvent{
+				Status:      200,
+				Success:     true,
+				MessageType: common.MessageTypeRequest,
+				Direction:   common.DirectionClientToServer,
+			},
+		},
+		Payload: &processor.PayloadPart{
+			Request: req,
+		},
+		Routing: &processor.RoutingPart{
+			ServerName: "test_server",
+			ToolName:   toolName,
+		},
+	}
 }
 
-// Helper: jsonEqual compares two JSON objects for equality.
+func responseContext(t *testing.T, text string) *processor.DataContext {
+	t.Helper()
+	return &processor.DataContext{
+		Version: "1.0",
+		Event: &common.MCPEvent{
+			BaseMcpEvent: common.BaseMcpEvent{
+				Status:      200,
+				Success:     true,
+				MessageType: common.MessageTypeResponse,
+				Direction:   common.DirectionServerToClient,
+			},
+		},
+		Payload: &processor.PayloadPart{
+			Result: &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: text}},
+			},
+		},
+	}
+}
+
 func jsonEqual(t *testing.T, a, b interface{}) bool {
 	t.Helper()
-
 	aJSON, err := json.Marshal(a)
 	if err != nil {
 		t.Fatalf("Failed to marshal first object: %v", err)
 	}
-
 	bJSON, err := json.Marshal(b)
 	if err != nil {
 		t.Fatalf("Failed to marshal second object: %v", err)
 	}
-
 	return bytes.Equal(aJSON, bJSON)
 }

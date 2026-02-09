@@ -71,7 +71,7 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 	return m.cfg
 }
 
-func createTestProxy(t *testing.T, eventProcessor EventProcessorInterface) *MCPProxy {
+func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface) *MCPProxy {
 	t.Helper()
 
 	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
@@ -153,7 +153,7 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 	// And: the downstream received the modified arguments with injected field
 	assert.Equal(t, mockDownstream.CapturedArgs["injected"], "test new request content")
 	assert.Equal(t, mockDownstream.CapturedArgs["original"], "value")
-	assert.Equal(t, mockProcessor.ProcessedDirections, []common.McpEventDirection{
+	assert.DeepEqual(t, mockProcessor.ProcessedDirections, []common.McpEventDirection{
 		common.DirectionClientToServer,
 		common.DirectionServerToClient,
 	})
@@ -164,14 +164,14 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 	// Given: a mock processor that modifies response content
 	mockProcessor := &MockEventProcessor{
-			ResponseModifier: func(callCtx CallContext) {
-				callCtx.SetResult(&mcp.CallToolResult{
-					Content: []mcp.Content{
-						&mcp.TextContent{Text: "test new response content"},
-					},
-				})
-			},
-		}
+		ResponseModifier: func(callCtx CallContext) {
+			callCtx.SetResult(&mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: "test new response content"},
+				},
+			})
+		},
+	}
 
 	// And: a mock downstream that returns original content
 	mockDownstream := &MockDownstreamConnection{
@@ -212,7 +212,7 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	assert.Assert(t, ok, "expected TextContent")
 	assert.Equal(t, textContent.Text, "test new response content")
-	assert.Equal(t, mockProcessor.ProcessedDirections, []common.McpEventDirection{
+	assert.DeepEqual(t, mockProcessor.ProcessedDirections, []common.McpEventDirection{
 		common.DirectionClientToServer,
 		common.DirectionServerToClient,
 	})

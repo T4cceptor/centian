@@ -23,9 +23,9 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 		logAfterProcessing:  true, // TODO: make configurable
 	}
 	for _, config := range processorConfigs {
-		processor, err := processor.NewProcessor(config)
+		p, err := processor.NewProcessor(config)
 		if err == nil {
-			result.processors = append(result.processors, processor)
+			result.processors = append(result.processors, p)
 			continue
 		}
 		// Error cases
@@ -37,20 +37,21 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 	return result, nil
 }
 
-// GetInput uses the provided ProcessorConfig and CallContext to create the input map for the processor
-func GetInput(processorConfig *config.ProcessorConfig, callCtx CallContext) *processor.ProcessorContext {
-	input := &processor.ProcessorContext{}
+// GetInput uses the provided ProcessorConfig and CallContext to create the input map for the processor.
+func GetInput(processorConfig *config.ProcessorConfig, callCtx CallContext) *processor.DataContext {
+	input := &processor.DataContext{}
 	for _, part := range processorConfig.GetParts() {
 		handler, ok := callCtx.GetHandler(part) // TODO: we could have a "GetParts"
 		if ok {
-			handler.Get(callCtx, input)
+			handler.AttachPart(callCtx, input)
 		}
 	}
 	return input
 }
 
-// ApplyResult takes the result from the processor and processes it in order for each configured part of the ProcessorConfig
-func ApplyResult(processorConfig *config.ProcessorConfig, result *processor.ProcessorContext, callCtx CallContext) error {
+// ApplyResult takes the result from the processor and processes
+// it in order for each configured part of the ProcessorConfig.
+func ApplyResult(processorConfig *config.ProcessorConfig, result *processor.DataContext, callCtx CallContext) error {
 	for _, part := range processorConfig.GetParts() {
 		handler, ok := callCtx.GetHandler(part)
 		if !ok {
@@ -79,37 +80,35 @@ func (ep *ProcessingController) Process(callCtx CallContext) error {
 	}
 
 	// Process through each processor
-	if ep.processors != nil && len(ep.processors) > 0 {
-		for _, processor := range ep.processors {
-			processorConfig := processor.GetConfig()
-			// 1. Build input from handlers based on processor's configured parts
-			input := GetInput(processorConfig, callCtx)
+	for _, processor := range ep.processors {
+		processorConfig := processor.GetConfig()
+		// 1. Build input from handlers based on processor's configured parts
+		input := GetInput(processorConfig, callCtx)
 
-			// 2. Execute processor
-			output, err := processor.Process(input)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] %s: %v\n", processorConfig.Name, err)
-				return err
-			}
-
-			// 3. Apply results back via handlers
-			if err := ApplyResult(processorConfig, output, callCtx); err != nil {
-				fmt.Fprintf(os.Stderr, "[PROCESSOR-APPLY-ERROR] %s: %v\n", processorConfig.Name, err)
-				return err // TODO: double check if this makes sense!
-			}
-			// Note: callCtx might be modified here, the modified version
-			// then is also provided to the next processor
-
-			// Further, there is currently no status check here, so even if processor returned
-			// an error status subsequent processors are still triggered
-			// (Note the difference between error during processing and error status)
-			// This can be intentional - e.g.:
-			// 1. payload eval processor -> fails
-			// 2. logging processor -> logs status, in this case the failure
-
-			// In the future, this might be changed, for example to make it configurable which
-			// processors are run in case of an early return or error
+		// 2. Execute processor
+		output, err := processor.Process(input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] %s: %v\n", processorConfig.Name, err)
+			return err
 		}
+
+		// 3. Apply results back via handlers
+		if err := ApplyResult(processorConfig, output, callCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "[PROCESSOR-APPLY-ERROR] %s: %v\n", processorConfig.Name, err)
+			return err // TODO: double check if this makes sense!
+		}
+		// Note: callCtx might be modified here, the modified version
+		// then is also provided to the next processor
+
+		// Further, there is currently no status check here, so even if processor returned
+		// an error status subsequent processors are still triggered
+		// (Note the difference between error during processing and error status)
+		// This can be intentional - e.g.:
+		// 1. payload eval processor -> fails
+		// 2. logging processor -> logs status, in this case the failure
+
+		// In the future, this might be changed, for example to make it configurable which
+		// processors are run in case of an early return or error
 	}
 
 	// Log after processing
