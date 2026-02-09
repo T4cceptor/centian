@@ -392,6 +392,8 @@ func TestWriteTestInput(t *testing.T) {
 	var input map[string]any
 	assert.NilError(t, json.Unmarshal(data, &input))
 	assert.Equal(t, input["version"], "1.0")
+	_, hasDirection := input["direction"]
+	assert.Assert(t, !hasDirection)
 
 	payload, ok := input["payload"].(map[string]any)
 	assert.Assert(t, ok)

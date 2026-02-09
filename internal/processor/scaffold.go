@@ -425,7 +425,7 @@ func javascriptLogic(procType scaffoldType) string {
 
   const logEntry = {
     timestamp: new Date().toISOString(),
-    direction: ctx.direction || "unknown",
+    direction: (ctx.event && ctx.event.direction) || "unknown",
     tool_name: params.name || "unknown"
   };
 
@@ -489,7 +489,7 @@ func typescriptLogic(procType scaffoldType) string {
 
   const logEntry = {
     timestamp: new Date().toISOString(),
-    direction: ctx.direction || "unknown",
+    direction: (ctx.event && (ctx.event as Record<string, unknown>).direction) || "unknown",
     tool_name: params.name || "unknown"
   };
 
@@ -535,7 +535,7 @@ CTX=$(echo "$CTX" | jq '
 		return `# Example: Log to file
 LOG_FILE="$HOME/centian/logs/processor.log"
 mkdir -p "$(dirname "$LOG_FILE")"
-DIRECTION=$(echo "$CTX" | jq -r '.direction // "unknown"')
+DIRECTION=$(echo "$CTX" | jq -r '.event.direction // "unknown"')
 TOOL_NAME=$(echo "$CTX" | jq -r '.payload.request.Params.name // "unknown"')
 echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"direction\":\"$DIRECTION\",\"tool_name\":\"$TOOL_NAME\"}" >> "$LOG_FILE"`
 	case typeCustom:
@@ -790,17 +790,17 @@ class RoutingPart:
 
 
 @dataclass
-class ProcessorContext:
+class DataContext:
     version: str = ""
     event: Optional[Dict[str, Any]] = None
     payload: Optional[PayloadPart] = None
     routing: Optional[RoutingPart] = None
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> "ProcessorContext":
+    def from_dict(data: Dict[str, Any]) -> "DataContext":
         payload_source = data.get("payload")
         routing_source = data.get("routing")
-        return ProcessorContext(
+        return DataContext(
             version=data.get("version", ""),
             event=data.get("event"),
             payload=PayloadPart.from_dict(payload_source) if isinstance(payload_source, dict) else None,
@@ -816,7 +816,7 @@ class ProcessorContext:
         })
 
 
-def process(ctx: ProcessorContext) -> ProcessorContext:
+def process(ctx: DataContext) -> DataContext:
 
 PROCESSOR_LOGIC
 
@@ -825,14 +825,14 @@ PROCESSOR_LOGIC
 def main():
     try:
         input_data = json.load(sys.stdin)
-        ctx = ProcessorContext.from_dict(input_data)
+        ctx = DataContext.from_dict(input_data)
 
         result = process(ctx)
         print(json.dumps(result.to_dict()))
         sys.exit(0)
 
     except Exception as e:
-        fallback = ProcessorContext(
+        fallback = DataContext(
             event={
                 "status": 500,
                 "error": str(e),
@@ -928,15 +928,14 @@ interface RoutingPart {
   original_tool_name?: string;
 }
 
-interface ProcessorContext {
+interface DataContext {
   version?: string;
-  direction?: string;
   event?: Record<string, unknown>;
   payload?: PayloadPart;
   routing?: RoutingPart;
 }
 
-function processContext(ctx: ProcessorContext): ProcessorContext {
+function processContext(ctx: DataContext): DataContext {
 
 PROCESSOR_LOGIC
 
@@ -952,12 +951,12 @@ function main(): void {
 
   process.stdin.on('end', () => {
     try {
-      const event: ProcessorContext = JSON.parse(input);
+      const event: DataContext = JSON.parse(input);
       const result = processContext(event);
       console.log(JSON.stringify(result));
       process.exit(0);
     } catch (err) {
-      const result: ProcessorContext = {
+      const result: DataContext = {
         event: {
           status: 500,
           error: (err as Error).message,
