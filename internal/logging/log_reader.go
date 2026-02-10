@@ -136,12 +136,21 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 		}
 	}
 
-	// TODO: how do we get this information when displaying logs?
-	// detail := entry.Event.GetRawMessage()
-	// if baseEvent.Error != "" {
-	// 	detail = baseEvent.Error
-	// }
-	// detail = truncate(detail, 80)
+	var detail string
+	if entry.Event.ToolCall != nil {
+		detail = entry.Event.ToolCall.Name
+		if entry.Event.ToolCall.Arguments != nil {
+			var out []byte
+			err := entry.Event.ToolCall.Arguments.UnmarshalJSON(out)
+			if err != nil {
+				detail = fmt.Sprintf("%s - %s", detail, out)
+			}
+		}
+	}
+	if entry.Event.Error != "" {
+		detail = entry.Event.Error
+	}
+	detail = truncate(detail, 80)
 
 	sessionInfo := baseEvent.SessionID
 	if sessionInfo == "" {
@@ -155,7 +164,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 		status,
 		command,
 		sessionInfo,
-		"",
+		detail,
 	)
 }
 

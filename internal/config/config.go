@@ -219,16 +219,18 @@ type ProcessorConfig struct {
 	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing" (default: ["payload"])
 	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
 
-	// Whether processor is required to run, "false" by default,
+	// Determines if processor is required to run, "false" by default,
 	// meaning the processor can both fail initiation and
-	// processing without causing the whole processor chain to fail
+	// processing without causing the whole processor chain to fail.
+	// If set to true, a failure will cause subsequent processors NOT to run.
 	Required bool `json:"required"`
 }
 
 // GetParts returns the configured parts, defaulting to ["payload"] if not specified.
 func (p *ProcessorConfig) GetParts() []string {
 	if len(p.Parts) == 0 {
-		return []string{"payload"} // TODO: decide if this is intended or if config validation should fail if processor has no parts
+		// TODO: create "parts enum"
+		return []string{"payload", "meta"}
 	}
 	return p.Parts
 }

@@ -48,7 +48,7 @@ type RoutingLog struct {
 
 // ToolCallLog captures tool call specific details.
 //
-// Note: this is typically only filled for logging MCPEvents
+// Note: this is typically only filled for logging MCPEvents.
 type ToolCallLog struct {
 	// Name is the tool name being called
 	Name string `json:"name"`
