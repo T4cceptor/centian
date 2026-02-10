@@ -316,9 +316,7 @@ func TestProcess_NoProcessors_LogsBeforeAndAfter(t *testing.T) {
 	callCtx.SetLogHandler(logHandler)
 
 	ep := &ProcessingController{
-		processors:          nil,
-		logBeforeProcessing: true,
-		logAfterProcessing:  true,
+		processors: nil,
 	}
 
 	err := ep.Process(callCtx)
@@ -383,9 +381,7 @@ func TestProcess_ExecutesProcessorsInOrder(t *testing.T) {
 	}
 
 	ep := &ProcessingController{
-		processors:          []processor.ProcessorInterface{p1, p2},
-		logBeforeProcessing: false,
-		logAfterProcessing:  false,
+		processors: []processor.ProcessorInterface{p1, p2},
 	}
 
 	err := ep.Process(callCtx)
@@ -416,9 +412,7 @@ func TestProcess_ProcessorErrorStopsPipeline(t *testing.T) {
 	}
 
 	ep := &ProcessingController{
-		processors:          []processor.ProcessorInterface{p1, p2},
-		logBeforeProcessing: false,
-		logAfterProcessing:  false,
+		processors: []processor.ProcessorInterface{p1, p2},
 	}
 
 	err := ep.Process(callCtx)
@@ -447,9 +441,7 @@ func TestProcess_ApplyErrorStopsPipeline(t *testing.T) {
 	}
 
 	ep := &ProcessingController{
-		processors:          []processor.ProcessorInterface{p1},
-		logBeforeProcessing: false,
-		logAfterProcessing:  false,
+		processors: []processor.ProcessorInterface{p1},
 	}
 
 	err := ep.Process(callCtx)
