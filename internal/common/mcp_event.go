@@ -5,11 +5,11 @@ import (
 	"time"
 )
 
-// TODO: rework all of this code based on CallContext
-
 // MCPEvent is a unified event type for all MCP transports.
 // It provides a transport-agnostic structure that can represent events from
 // HTTP, stdio, SDK-based proxies, or any future transport mechanism.
+//
+// It is mainly used to hold event metadata for the CallContext interface.
 type MCPEvent struct {
 	BaseMcpEvent
 
@@ -47,6 +47,8 @@ type RoutingLog struct {
 }
 
 // ToolCallLog captures tool call specific details.
+//
+// Note: this is typically only filled for logging MCPEvents
 type ToolCallLog struct {
 	// Name is the tool name being called
 	Name string `json:"name"`
