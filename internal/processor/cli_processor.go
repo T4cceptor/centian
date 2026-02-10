@@ -106,11 +106,10 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 }
 
 type processorInputDTO struct {
-	Version   string           `json:"version,omitempty"`
-	Direction string           `json:"direction,omitempty"`
-	Event     *common.MCPEvent `json:"event,omitempty"`
-	Payload   *payloadPartDTO  `json:"payload,omitempty"`
-	Routing   *RoutingPart     `json:"routing,omitempty"`
+	Version string           `json:"version,omitempty"`
+	Event   *common.MCPEvent `json:"event,omitempty"`
+	Payload *payloadPartDTO  `json:"payload,omitempty"`
+	Routing *RoutingPart     `json:"routing,omitempty"`
 }
 
 type payloadPartDTO struct {
@@ -160,13 +159,14 @@ func cloneRequestForDTO(req *mcp.CallToolRequest) *callToolRequestDTO {
 		Arguments: argsCopy,
 		Meta:      req.Params.Meta,
 	}
-	// TODO: double check!
 	return &callToolRequestDTO{Params: params}
 }
 
 // extractCommandAndArgs extracts command and arguments from processor config.
 func extractCommandAndArgs(processorConfig *config.ProcessorConfig) (string, []string, error) {
 	// Extract command from config.
+	// TODO: we could provide dedicated structs for the different processors as config
+	// if we were using interfaces this would likely make things easier here
 	command, ok := processorConfig.Config["command"].(string)
 	if !ok {
 		return "", nil, fmt.Errorf("processor '%s': config.command must be a string", processorConfig.Name)

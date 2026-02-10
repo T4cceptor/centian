@@ -10,17 +10,13 @@ import (
 
 // ProcessingController is used to call the main processing loop for any MCP transport method.
 type ProcessingController struct {
-	processors          []processor.ProcessorInterface
-	logBeforeProcessing bool
-	logAfterProcessing  bool
+	processors []processor.ProcessorInterface
 }
 
 // NewProcessingController returns a new ProcessingController using the provided processor configs.
 func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*ProcessingController, error) {
 	result := &ProcessingController{
-		processors:          make([]processor.ProcessorInterface, 0),
-		logBeforeProcessing: true, // TODO: make configurable
-		logAfterProcessing:  true, // TODO: make configurable
+		processors: make([]processor.ProcessorInterface, 0),
 	}
 	for _, config := range processorConfigs {
 		p, err := processor.NewProcessor(config)
@@ -71,14 +67,6 @@ func ApplyResult(processorConfig *config.ProcessorConfig, result *processor.Data
 
 // Process runs all processors on the CallContext using handlers to build input and apply results.
 func (ep *ProcessingController) Process(callCtx CallContext) error {
-	// Log before processing
-	if ep.logBeforeProcessing {
-		if err := callCtx.GetLogHandler().Log(callCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "[LOG-ERROR] %v\n", err)
-			// TODO: double check if we need to do something here
-		}
-	}
-
 	// Process through each processor
 	for _, processor := range ep.processors {
 		processorConfig := processor.GetConfig()
@@ -112,11 +100,9 @@ func (ep *ProcessingController) Process(callCtx CallContext) error {
 	}
 
 	// Log after processing
-	if ep.logAfterProcessing {
-		if err := callCtx.GetLogHandler().Log(callCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "[LOG-ERROR] %v\n", err)
-			// TODO: double check if we need to do something here
-		}
+	if err := callCtx.GetLogHandler().Log(callCtx); err != nil {
+		fmt.Fprintf(os.Stderr, "[LOG-ERROR] %v\n", err)
+		// TODO: double check if we need to do something here
 	}
 
 	return nil

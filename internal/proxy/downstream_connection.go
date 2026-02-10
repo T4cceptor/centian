@@ -115,9 +115,9 @@ func (rt HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		// Use Set to overwrite, or Add to append.
 		cloned.Header.Set(k, v)
 	}
-	// TODO: raw request processing
+	// TODO: enable raw request processing
 	resp, err := base.RoundTrip(cloned)
-	// TODO: raw response processing
+	// TODO: enable raw response processing
 	return resp, err
 }
 
@@ -141,8 +141,6 @@ func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (
 		// HTTP transport
 		httpClient := &http.Client{
 			Transport: HeaderRoundTripper{
-				// TODO: we could create a method on this transport to modify the headers on the fly
-				// however, this might cause thread-related issues!
 				Headers: allHeaders,
 			},
 			Timeout: 30 * time.Second,
@@ -176,10 +174,6 @@ func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// TODO: logging & processing
-	// TODO: tool aggregation/federation
-
 	dc.tools = result.Tools
 	return nil
 }

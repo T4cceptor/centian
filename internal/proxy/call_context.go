@@ -32,9 +32,6 @@ type CallContext interface {
 	GetEventInfo() *common.MCPEvent // Returns the attached MCPEvent
 	SetEventInfo(*common.MCPEvent)  // Sets the provided MCPEvent
 
-	// TODO: refactor this: ideally we would provide another interface that has access to all of this information!
-	// e.g. CallContext.GetEventInfo().GetStatus() -> this is an opportunity to reuse MCPEvent!
-
 	// Original request (immutable deep clone - for auditing/comparison)
 	GetOriginalServerName() string            // Returns name of the original server
 	GetOriginalRequest() *mcp.CallToolRequest // Returns original CallToolRequest
@@ -62,8 +59,6 @@ type CallContext interface {
 
 	GetMessageType() common.McpMessageType
 	SetMessageType(common.McpMessageType)
-
-	// --- end of TODO - se above
 
 	// Routing context (reuses common.RoutingContext)
 	GetRoutingContext() *common.RoutingLog

@@ -146,7 +146,6 @@ func (h *DefaultRoutingHandler) Apply(callCtx CallContext, result *processor.Dat
 
 // DefaultLogHandler provides simple, default functionality for logging CallContext data.
 type DefaultLogHandler struct {
-	// TODO: enable data redaction in logs -> new logger
 	logger *logging.Logger
 }
 

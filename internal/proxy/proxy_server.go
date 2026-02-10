@@ -106,7 +106,7 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 // For aggregated mode, the map has multiple entries.
 type CentianProxySession struct {
 	id              string
-	initialized     bool                                     // TODO: when is this true?
+	initialized     bool
 	upstreamServer  *mcp.Server                              // The upstream server, connecting to the MCP client/AI agent
 	downstreamConns map[string]DownstreamConnectionInterface // Downstream MCP servers
 	authHeaders     map[string]string                        // Auth headers provided by the client for this session
@@ -325,7 +325,7 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	}
 	return mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
-		Version: "1.0.0", // TODO: make this configurable - later version will be used to define capabilities!
+		Version: p.server.Config.Version,
 	}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{
 			Tools: &mcp.ToolCapabilities{
@@ -513,7 +513,6 @@ func (p *MCPProxy) Close() error {
 // ============================================================================
 
 func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next http.Handler) http.Handler {
-	// TODO: move away from this file
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			next.ServeHTTP(w, r)
@@ -538,7 +537,6 @@ func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next
 }
 
 func extractAuthToken(header string) string {
-	// TODO: move into utils file
 	if header == "" {
 		return ""
 	}
@@ -550,7 +548,6 @@ func extractAuthToken(header string) string {
 }
 
 func writeUnauthorized(w http.ResponseWriter, headerName string) {
-	// TODO: move into utils file
 	if strings.EqualFold(headerName, "Authorization") {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 	}
@@ -617,7 +614,6 @@ func (c *CentianProxy) Setup() error {
 		RegisterEndpoint(gateway.endpoint, gateway, c.Mux, nil)
 
 		// Optionally: register individual endpoints for each server
-		// TODO: make this configurable
 		for serverName, serverCfg := range gatewayConfig.MCPServers {
 			if !serverCfg.IsEnabled() {
 				continue
