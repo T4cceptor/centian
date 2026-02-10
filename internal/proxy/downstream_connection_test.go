@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -122,6 +124,40 @@ func TestDownstreamConnectionDefaults(t *testing.T) {
 
 	// Then: no error is returned
 	assert.NilError(t, err)
+}
+
+func TestDownstreamConnectionGetError(t *testing.T) {
+	// Given: a connection with no recorded connection error.
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	assert.Assert(t, dc.GetError() == nil)
+
+	// When: a connection error is recorded.
+	expectedErr := errors.New("connection failed")
+	dc.connError = expectedErr
+
+	// Then: accessor returns the recorded error.
+	assert.Equal(t, dc.GetError(), expectedErr)
+}
+
+func TestDownstreamConnectionConnectedAt(t *testing.T) {
+	// Given: a connection that has not connected yet.
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	assert.Assert(t, dc.ConnectedAt().IsZero())
+
+	// When: connectedAt is set.
+	expected := time.Unix(1700000000, 0).UTC()
+	dc.connectedAt = expected
+
+	// Then: accessor returns the stored timestamp.
+	assert.Equal(t, dc.ConnectedAt(), expected)
+}
+
+func TestDownstreamConnectionServerName(t *testing.T) {
+	// Given: a named downstream connection.
+	dc := NewDownstreamConnection("my-server", &config.MCPServerConfig{})
+
+	// Then: accessor returns the configured server name.
+	assert.Equal(t, dc.ServerName(), "my-server")
 }
 
 func containsEnv(env []string, entry string) bool {
