@@ -190,14 +190,9 @@ func (g *GatewayConfig) HasServer(name string) bool {
 
 //////// PROCESSOR CONFIG STRUCTS ///////.
 
-//////
-// TODO: the below structs are no longer used, except for the scaffolding - which should be refactored
-//////
-
 // ProcessorConfig defines a single processor that executes during MCP request/response flow.
 // Processors are composable units that can inspect, modify, or reject MCP messages.
 //
-// TODO: move below documentation into a better place
 // Type-specific configuration (Config field):
 //
 // For CLIProcessor processors:
@@ -237,44 +232,6 @@ func (p *ProcessorConfig) GetParts() []string {
 	}
 	return p.Parts
 }
-
-// ProcessorInput represents the JSON input passed to processors via stdin.
-// This structure provides all context needed for the processor to make decisions.
-type ProcessorInput struct {
-	Type       string                 `json:"type"`       // "request" or "response"
-	Timestamp  string                 `json:"timestamp"`  // ISO 8601 timestamp
-	Connection ConnectionContext      `json:"connection"` // Connection metadata
-	Payload    map[string]interface{} `json:"payload"`    // MCP message payload
-	Metadata   ProcessorMetadata      `json:"metadata"`   // Additional context
-}
-
-// ConnectionContext provides connection-level metadata for processors.
-type ConnectionContext struct {
-	ServerName string `json:"server_name"` // Name of the MCP server
-	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
-	SessionID  string `json:"session_id"`  // Unique session identifier
-	// TODO: potentially add server data in here like URL/CMD, headers/args, etc.
-	// see also chain.go - line 89 - talking about the same idea
-}
-
-// ProcessorMetadata contains additional context for processor execution.
-type ProcessorMetadata struct {
-	ProcessorChain  []string               `json:"processor_chain"`  // Names of processors already executed
-	OriginalPayload map[string]interface{} `json:"original_payload"` // Original unmodified payload
-}
-
-// ProcessorOutput represents the JSON output expected from processors via stdout.
-// Processors must return this structure to indicate their decision and any modifications.
-type ProcessorOutput struct {
-	Status   int                    `json:"status"`             // HTTP-style status: 200, 40x, 50x
-	Payload  map[string]interface{} `json:"payload"`            // Modified or original payload
-	Error    *string                `json:"error"`              // Error message if status >= 400, otherwise null
-	Metadata map[string]interface{} `json:"metadata,omitempty"` // Processor-specific metadata
-}
-
-/////////
-// END TODO
-////////
 
 // DefaultConfig returns a default configuration.
 func DefaultConfig() *GlobalConfig {
