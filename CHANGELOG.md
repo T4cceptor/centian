@@ -26,7 +26,7 @@ All notable changes to this project will be documented in this file.
 - Fixed scaffold/runtime schema drift across Python/JS/TS/Bash templates.
 - Fixed compile/lint/test regressions introduced during iterative refactoring.
 
-## v0.1.0 - 2026-01-31
+## v0.0.1 - 2026-01-31
 
 ### Added
 - MCP HTTP proxy with aggregated gateway and single-server endpoints.
