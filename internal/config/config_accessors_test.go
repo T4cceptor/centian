@@ -10,7 +10,7 @@ import (
 func TestProcessorConfigGetParts(t *testing.T) {
 	t.Run("returns default payload part when empty", func(t *testing.T) {
 		cfg := &ProcessorConfig{}
-		assert.DeepEqual(t, cfg.GetParts(), []string{"payload"})
+		assert.DeepEqual(t, cfg.GetParts(), []string{"payload", "meta"})
 	})
 
 	t.Run("returns configured parts when provided", func(t *testing.T) {

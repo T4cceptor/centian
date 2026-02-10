@@ -310,7 +310,7 @@ func TestApplyResult_HandlerErrorReturned(t *testing.T) {
 	assert.Equal(t, expectedErr, err)
 }
 
-func TestProcess_NoProcessors_LogsBeforeAndAfter(t *testing.T) {
+func TestProcess_NoProcessors_LogsOnlyOnce(t *testing.T) {
 	callCtx := newMockCallContext()
 	logHandler := &mockLogHandler{}
 	callCtx.SetLogHandler(logHandler)
@@ -321,7 +321,7 @@ func TestProcess_NoProcessors_LogsBeforeAndAfter(t *testing.T) {
 
 	err := ep.Process(callCtx)
 	assert.NilError(t, err)
-	assert.Equal(t, 2, logHandler.logCalls)
+	assert.Equal(t, 1, logHandler.logCalls)
 }
 
 func TestProcess_ExecutesProcessorsInOrder(t *testing.T) {
