@@ -35,12 +35,11 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"pkg"},
 		},
 	}
-	event1.SetRawMessage("older")
 	event2 := common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
@@ -51,12 +50,11 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"pkg"},
 		},
 	}
-	event2.SetRawMessage("newer")
 	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []common.MCPEvent{event1})
 	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []common.MCPEvent{event2})
 
@@ -99,11 +97,10 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "test",
 		},
 	}
-	event1.SetRawMessage("up")
 	event2 := common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC),
@@ -114,11 +111,10 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 		},
 	}
-	event2.SetRawMessage("latest")
 	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []common.MCPEvent{
 		event1,
 		event2,
@@ -167,7 +163,7 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 
 func TestFormatDisplayLine(t *testing.T) {
 	// Given: an annotated log entry with session ID and command details.
-	event := &common.MCPEvent{
+	event := common.MCPEvent{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
 			Transport:        "stdio",
@@ -177,7 +173,7 @@ func TestFormatDisplayLine(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"@mcp/server"},
 		},
@@ -186,7 +182,6 @@ func TestFormatDisplayLine(t *testing.T) {
 		Event:      event,
 		SourceFile: "/tmp/log",
 	}
-	event.SetRawMessage("ping")
 
 	// When: formatting the entry for display.
 	line := FormatDisplayLine(&entry)

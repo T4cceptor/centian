@@ -11,9 +11,11 @@ import (
 // NamespaceSeparator is used to create tool names in an aggregated proxy server.
 const NamespaceSeparator = "___"
 
+var newUUIDV7 = uuid.NewV7
+
 func getNewUUIDV7() string {
 	result := ""
-	if id, err := uuid.NewV7(); err == nil {
+	if id, err := newUUIDV7(); err == nil {
 		result = id.String()
 	}
 	if result == "" {

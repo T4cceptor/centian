@@ -38,12 +38,11 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingContext{
+		Routing: common.RoutingLog{
 			DownstreamCommand: "npx",
 			Args:              []string{"@server"},
 		},
 	}
-	e.SetRawMessage("ping")
 
 	writeTestLogFile(t, filepath.Join(tempDir, "requests_2025-01-05.jsonl"), []common.MCPEvent{e})
 

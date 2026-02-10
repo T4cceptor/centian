@@ -3,7 +3,6 @@ package common
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
 	"gotest.tools/assert"
 )
@@ -167,107 +166,6 @@ func TestMcpMessageType_UnmarshalJSON_UnknownType(t *testing.T) {
 }
 
 // ========================================.
-// StdioMcpEvent.RawMessage Tests.
-// ========================================.
-
-func TestStdioMcpEvent_RawMessage(t *testing.T) {
-	// Given: a StdioMcpEvent with message.
-	event := MCPEvent{}
-	event.SetRawMessage("stdio test message")
-
-	// When: calling RawMessage.
-	result := event.GetRawMessage()
-
-	// Then: should return message.
-	assert.Equal(t, "stdio test message", result)
-}
-
-func TestStdioMcpEvent_RawMessage_EmptyMessage(t *testing.T) {
-	// Given: a StdioMcpEvent with empty message.
-	event := MCPEvent{}
-	event.SetRawMessage("")
-
-	// When: calling RawMessage.
-	result := event.GetRawMessage()
-
-	// Then: should return empty string.
-	assert.Equal(t, "", result)
-}
-
-// ========================================.
-// StdioMcpEvent.MarshalJSON Tests.
-// ========================================.
-
-func TestStdioMcpEvent_MarshalJSON_Complete(t *testing.T) {
-	// Given: a complete StdioMcpEvent.
-	event := MCPEvent{
-		BaseMcpEvent: BaseMcpEvent{
-			Timestamp:   time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
-			Transport:   "stdio",
-			RequestID:   "stdio-req-123",
-			Direction:   DirectionClientToServer,
-			MessageType: MessageTypeRequest,
-			Success:     true,
-		},
-		Routing: RoutingContext{
-			DownstreamCommand: "npx",
-			Args:              []string{"--version"},
-		},
-	}
-	event.SetRawMessage("stdio message content")
-
-	// When: marshaling to JSON.
-	data, err := json.Marshal(event)
-
-	// Then: should serialize successfully with raw_message field.
-	assert.NilError(t, err)
-
-	var result map[string]interface{}
-	err = json.Unmarshal(data, &result)
-	assert.NilError(t, err)
-
-	assert.Equal(t, "stdio message content", result["raw_message"])
-	assert.Equal(t, "stdio", result["transport"])
-	assert.Equal(t, "npx", result["routing"].(map[string]any)["downstream_cmd"])
-}
-
-// ========================================.
-// Integration Tests.
-// ========================================.
-
-func TestStdioMcpEvent_RoundTripJSON(t *testing.T) {
-	// Given: a complete StdioMcpEvent.
-	original := MCPEvent{
-		BaseMcpEvent: BaseMcpEvent{
-			Timestamp:   time.Date(2025, 1, 7, 12, 0, 0, 0, time.UTC),
-			Transport:   "stdio",
-			RequestID:   "stdio-rt-123",
-			Direction:   DirectionClientToServer,
-			MessageType: MessageTypeRequest,
-			Success:     true,
-		},
-		Routing: RoutingContext{
-			DownstreamCommand: "npx",
-			Args:              []string{"-v"},
-		},
-	}
-	original.SetRawMessage("stdio round trip")
-
-	// When: marshaling and unmarshaling.
-	data, err := json.Marshal(original)
-	assert.NilError(t, err)
-
-	var decoded map[string]interface{}
-	err = json.Unmarshal(data, &decoded)
-	assert.NilError(t, err)
-
-	// Then: should preserve all fields including raw_message.
-	assert.Equal(t, "stdio round trip", decoded["raw_message"])
-	assert.Equal(t, "stdio", decoded["transport"])
-	assert.Equal(t, "npx", decoded["routing"].(map[string]any)["downstream_cmd"])
-}
-
-// ========================================.
 // Edge Cases.
 // ========================================.
 
@@ -276,11 +174,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 	baseMcpEvent := BaseMcpEvent{
 		Transport: "my-test-transport",
 	}
-	mcpEvents := []McpEventInterface{
-		&MCPEvent{
-			BaseMcpEvent: baseMcpEvent,
-		},
-	}
+	mcpEvents := []MCPEvent{{BaseMcpEvent: baseMcpEvent}}
 
 	for _, event := range mcpEvents {
 		// When: calling IsRequest and IsResponse.
@@ -293,9 +187,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 
 func TestSetStatus_Works(t *testing.T) {
 	// Given: some MCP Events.
-	mcpEvents := []McpEventInterface{
-		&MCPEvent{},
-	}
+	mcpEvents := []MCPEvent{{}}
 
 	for _, event := range mcpEvents {
 		// When: calling IsRequest and IsResponse.

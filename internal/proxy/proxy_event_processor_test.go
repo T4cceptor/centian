@@ -1,454 +1,449 @@
 package proxy
 
 import (
-	"os"
-	"path/filepath"
+	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
-	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/processor"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
 
-// ========================================.
-// Test Helpers.
-// ========================================.
-
-// mockMcpEvent is a simple mock implementation of McpEventInterface for testing.
-type mockMcpEvent struct {
-	rawMessage       string
-	modified         bool
-	hasContent       bool
-	status           int
-	baseEvent        common.BaseMcpEvent
-	processingErrors map[string]error
+type mockCallContext struct {
+	request            *mcp.CallToolRequest
+	originalRequest    *mcp.CallToolRequest
+	result             *mcp.CallToolResult
+	originalResult     *mcp.CallToolResult
+	event              *common.MCPEvent
+	routing            *common.RoutingLog
+	handlers           map[string]CallContextHandler
+	logHandler         LogHandler
+	serverName         string
+	originalServerName string
 }
 
-func newMockMcpEvent(rawMessage string, hasContent bool) *mockMcpEvent {
-	return &mockMcpEvent{
-		rawMessage: rawMessage,
-		hasContent: hasContent,
-		status:     200,
-		baseEvent: common.BaseMcpEvent{
-			ProcessingErrors: make(map[string]error),
-			MessageType:      "request",
-			Transport:        "stdio",
-			SessionID:        "test-session",
+func newMockCallContext() *mockCallContext {
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "test-tool",
+			Arguments: json.RawMessage(`{"hello":"world"}`),
 		},
-		processingErrors: make(map[string]error),
+	}
+
+	return &mockCallContext{
+		request:            req,
+		originalRequest:    deepCloneRequest(req),
+		event:              common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
+		routing:            &common.RoutingLog{ServerName: "server-a", Transport: common.StdioTransport},
+		handlers:           map[string]CallContextHandler{},
+		serverName:         "server-a",
+		originalServerName: "server-a",
 	}
 }
 
-func (m *mockMcpEvent) GetRawMessage() string             { return m.rawMessage }
-func (m *mockMcpEvent) SetRawMessage(msg string)          { m.rawMessage = msg }
-func (m *mockMcpEvent) SetModified(modified bool)         { m.modified = modified }
-func (m *mockMcpEvent) HasContent() bool                  { return m.hasContent }
-func (m *mockMcpEvent) IsRequest() bool                   { return false }
-func (m *mockMcpEvent) IsResponse() bool                  { return true }
-func (m *mockMcpEvent) GetBaseEvent() common.BaseMcpEvent { return m.baseEvent }
-func (m *mockMcpEvent) SetStatus(status int)              { m.status = status }
+func (m *mockCallContext) SendRequest(ctx context.Context) error { return nil }
+func (m *mockCallContext) HasResult() bool                       { return m.result != nil }
+func (m *mockCallContext) GetResult() *mcp.CallToolResult        { return m.result }
+func (m *mockCallContext) GetOriginalResult() *mcp.CallToolResult {
+	return m.originalResult
+}
+func (m *mockCallContext) SetResult(result *mcp.CallToolResult) {
+	if m.originalResult == nil {
+		m.originalResult = result
+	}
+	m.result = result
+}
+func (m *mockCallContext) GetEventInfo() *common.MCPEvent { return m.event }
+func (m *mockCallContext) SetEventInfo(event *common.MCPEvent) {
+	m.event = event
+}
+func (m *mockCallContext) GetOriginalServerName() string { return m.originalServerName }
+func (m *mockCallContext) GetOriginalRequest() *mcp.CallToolRequest {
+	return m.originalRequest
+}
+func (m *mockCallContext) GetOriginalToolName() string {
+	if m.originalRequest == nil || m.originalRequest.Params == nil {
+		return ""
+	}
+	return m.originalRequest.Params.Name
+}
+func (m *mockCallContext) GetServerName() string { return m.serverName }
+func (m *mockCallContext) SetServerName(name string) {
+	m.serverName = name
+	if m.routing != nil {
+		m.routing.ServerName = name
+	}
+}
+func (m *mockCallContext) GetRequest() *mcp.CallToolRequest { return m.request }
+func (m *mockCallContext) GetToolName() string {
+	if m.request == nil || m.request.Params == nil {
+		return ""
+	}
+	return m.request.Params.Name
+}
+func (m *mockCallContext) GetStatus() int       { return m.event.Status }
+func (m *mockCallContext) SetStatus(status int) { m.event.Status = status }
+func (m *mockCallContext) GetError() string     { return m.event.Error }
+func (m *mockCallContext) SetError(msg string)  { m.event.Error = msg }
+func (m *mockCallContext) GetRequestID() string { return m.event.RequestID }
+func (m *mockCallContext) GetSessionID() string { return m.event.SessionID }
+func (m *mockCallContext) GetDirection() common.McpEventDirection {
+	return m.event.Direction
+}
+func (m *mockCallContext) SetDirection(direction common.McpEventDirection) {
+	m.event.Direction = direction
+}
+func (m *mockCallContext) GetMessageType() common.McpMessageType { return m.event.MessageType }
+func (m *mockCallContext) SetMessageType(msgType common.McpMessageType) {
+	m.event.MessageType = msgType
+}
+func (m *mockCallContext) GetRoutingContext() *common.RoutingLog { return m.routing }
+func (m *mockCallContext) GetHandler(part string) (CallContextHandler, bool) {
+	handler, ok := m.handlers[part]
+	return handler, ok
+}
+func (m *mockCallContext) SetHandler(part string, handler CallContextHandler) {
+	m.handlers[part] = handler
+}
+func (m *mockCallContext) GetLogHandler() LogHandler { return m.logHandler }
+func (m *mockCallContext) SetLogHandler(handler LogHandler) {
+	m.logHandler = handler
+}
 
-func createTestLogger(t *testing.T) *logging.Logger {
-	// Given: a temporary log directory setup.
-	tempDir := t.TempDir()
-	origHome := os.Getenv("HOME")
+var _ CallContext = (*mockCallContext)(nil)
 
-	// Set up temp HOME for logger.
-	os.Setenv("HOME", tempDir)
-	t.Cleanup(func() {
-		os.Setenv("HOME", origHome)
+type mockHandler struct {
+	getCalls   int
+	applyCalls int
+	getFn      func(callCtx CallContext, input *processor.DataContext)
+	applyFn    func(callCtx CallContext, output *processor.DataContext) error
+}
+
+func (m *mockHandler) AttachPart(callCtx CallContext, input *processor.DataContext) {
+	m.getCalls++
+	if m.getFn != nil {
+		m.getFn(callCtx, input)
+	}
+}
+
+func (m *mockHandler) Apply(callCtx CallContext, output *processor.DataContext) error {
+	m.applyCalls++
+	if m.applyFn != nil {
+		return m.applyFn(callCtx, output)
+	}
+	return nil
+}
+
+type mockLogHandler struct {
+	logCalls int
+	logErr   error
+}
+
+func (m *mockLogHandler) ToLogEntry(callCtx CallContext) *common.MCPEvent { return nil }
+func (m *mockLogHandler) Log(callCtx CallContext) error {
+	m.logCalls++
+	return m.logErr
+}
+
+type mockProcessor struct {
+	cfg       *config.ProcessorConfig
+	processFn func(input *processor.DataContext) (*processor.DataContext, error)
+	callCount int
+	lastInput *processor.DataContext
+}
+
+func (m *mockProcessor) Process(input *processor.DataContext) (*processor.DataContext, error) {
+	m.callCount++
+	m.lastInput = input
+	if m.processFn != nil {
+		return m.processFn(input)
+	}
+	return &processor.DataContext{}, nil
+}
+
+func (m *mockProcessor) GetConfig() *config.ProcessorConfig {
+	return m.cfg
+}
+
+var _ processor.ProcessorInterface = (*mockProcessor)(nil)
+
+func TestNewProcessingController_SkipsNonRequiredInvalidProcessor(t *testing.T) {
+	ep, err := NewProcessingController([]*config.ProcessorConfig{
+		{
+			Name:     "optional-disabled",
+			Type:     "cli",
+			Enabled:  false,
+			Required: false,
+		},
 	})
 
-	// Create logs directory.
-	logDir := filepath.Join(tempDir, ".centian", "logs")
-	err := os.MkdirAll(logDir, 0o750)
 	assert.NilError(t, err)
-
-	// When: creating a logger.
-	logger, err := logging.NewLogger()
-	assert.NilError(t, err)
-	return logger
+	assert.Equal(t, 0, len(ep.processors))
 }
 
-// ========================================.
-// NewEventProcessor Tests.
-// ========================================.
+func TestNewProcessingController_FailsRequiredInvalidProcessor(t *testing.T) {
+	_, err := NewProcessingController([]*config.ProcessorConfig{
+		{
+			Name:     "required-disabled",
+			Type:     "cli",
+			Enabled:  false,
+			Required: true,
+		},
+	})
 
-func TestNewEventProcessor_WithValidInputs(t *testing.T) {
-	// Given: a logger and processor chain.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	chain, err := processor.NewChain(nil, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	// When: creating a new event processor.
-	ep := NewEventProcessor(logger, chain)
-
-	// Then: should create processor with correct defaults.
-	assert.Assert(t, ep != nil)
-	assert.Assert(t, ep.logger == logger)
-	assert.Assert(t, ep.processorChain == chain)
-	assert.Equal(t, true, ep.logBeforeProcessing)
-	assert.Equal(t, true, ep.logAfterProcessing)
+	assert.Assert(t, err != nil)
 }
 
-func TestNewEventProcessor_WithNilChain(t *testing.T) {
-	// Given: a logger and nil processor chain.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	// When: creating a new event processor with nil chain.
-	ep := NewEventProcessor(logger, nil)
-
-	// Then: should create processor successfully.
-	assert.Assert(t, ep != nil)
-	assert.Assert(t, ep.processorChain == nil)
-}
-
-// ========================================.
-// Process Tests - No Processors.
-// ========================================.
-
-func TestProcess_WithNoProcessors_LogsEvent(t *testing.T) {
-	// Given: an event processor with no processors.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process successfully.
-	assert.NilError(t, err)
-	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":"test"}`, event.GetRawMessage())
-}
-
-func TestProcess_WithNoProcessors_NoContent(t *testing.T) {
-	// Given: an event processor with no processors and event with no content.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent("", false)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process successfully without modification.
-	assert.NilError(t, err)
-	assert.Equal(t, "", event.GetRawMessage())
-}
-
-func TestProcess_WithEmptyProcessorChain_SkipsProcessing(t *testing.T) {
-	// Given: an event processor with empty processor chain.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	chain, err := processor.NewChain(nil, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
-
-	// When: processing an event.
-	err = ep.Process(event)
-
-	// Then: should skip processing (no processors in chain).
-	assert.NilError(t, err)
-	assert.Equal(t, `{"jsonrpc":"2.0","id":1,"result":"test"}`, event.GetRawMessage())
-}
-
-// ========================================.
-// Process Tests - Edge Cases.
-// ========================================.
-
-func TestProcess_WithInvalidJSON_HandlesGracefully(t *testing.T) {
-	// Given: an event processor.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent(`{invalid json}`, true)
-
-	// When: processing an event with invalid JSON.
-	err := ep.Process(event)
-
-	// Then: should handle gracefully.
-	assert.NilError(t, err)
-	// Invalid JSON should be preserved as-is.
-	assert.Equal(t, `{invalid json}`, event.GetRawMessage())
-}
-
-func TestProcess_LoggingDisabled_SkipsLogging(t *testing.T) {
-	// Given: an event processor with logging disabled.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	ep.logBeforeProcessing = false
-	ep.logAfterProcessing = false
-
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process without logging.
-	assert.NilError(t, err)
-	assert.Equal(t, 0, len(event.baseEvent.ProcessingErrors))
-}
-
-func TestProcess_WithEmptyMessage_ProcessesSuccessfully(t *testing.T) {
-	// Given: an event processor with empty message.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	event := newMockMcpEvent("", false)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process successfully.
-	assert.NilError(t, err)
-	assert.Equal(t, "", event.GetRawMessage())
-}
-
-func TestProcess_EventWithoutContent_SkipsProcessors(t *testing.T) {
-	// Given: an event processor with processors but event has no content.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	chain, err := processor.NewChain(nil, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent("", false) // No content
-
-	// When: processing an event without content.
-	err = ep.Process(event)
-
-	// Then: should skip processors.
-	assert.NilError(t, err)
-	assert.Equal(t, "", event.GetRawMessage())
-}
-
-// ========================================.
-// Logging Tests.
-// ========================================.
-
-func TestProcess_LogBeforeProcessing_CallsLogger(t *testing.T) {
-	// Given: an event processor with logging enabled.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	ep.logBeforeProcessing = true
-	ep.logAfterProcessing = false
-
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process and log.
-	assert.NilError(t, err)
-}
-
-func TestProcess_LogAfterProcessing_CallsLogger(t *testing.T) {
-	// Given: an event processor with after-logging enabled.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	ep.logBeforeProcessing = false
-	ep.logAfterProcessing = true
-
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process and log after.
-	assert.NilError(t, err)
-}
-
-func TestProcess_BothLoggingEnabled_LogsTwice(t *testing.T) {
-	// Given: an event processor with both logging enabled.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	ep := NewEventProcessor(logger, nil)
-	ep.logBeforeProcessing = true
-	ep.logAfterProcessing = true
-
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"result":"test"}`, true)
-
-	// When: processing an event.
-	err := ep.Process(event)
-
-	// Then: should process and log twice.
-	assert.NilError(t, err)
-}
-
-// ========================================.
-// Process Tests - With Processor Chain.
-// ========================================.
-
-func TestProcess_WithPassthroughProcessor_ModifiesMessage(t *testing.T) {
-	// Given: an event processor with passthrough processor.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	processorConfig := createTestProcessor("passthrough", "../../tests/integrationtests/processors/passthrough.py")
-	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":1,"method":"test/method","params":{}}`, true)
-
-	// When: processing an event through the chain.
-	err = ep.Process(event)
-
-	// Then: should process successfully.
-	assert.NilError(t, err)
-	// Passthrough processor returns status 200.
-	assert.Equal(t, 200, event.status)
-}
-
-func TestProcess_WithPayloadTransformer_ModifiesPayload(t *testing.T) {
-	// Given: an event processor with payload transformer.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	processorConfig := createTestProcessor("payload_transformer", "../../tests/integrationtests/processors/payload_transformer.py")
-	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	originalMsg := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"test","arguments":{}}}`
-	event := newMockMcpEvent(originalMsg, true)
-
-	// When: processing an event through the transformer.
-	err = ep.Process(event)
-
-	// Then: should process successfully with modification.
-	assert.NilError(t, err)
-	assert.Equal(t, 200, event.status)
-	assert.Equal(t, true, event.modified)
-	// Message should be different from original.
-	assert.Assert(t, event.GetRawMessage() != originalMsg)
-}
-
-func TestProcess_WithSecurityValidator_RejectsDeleteRequests(t *testing.T) {
-	// Given: an event processor with security validator.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	processorConfig := createTestProcessor("security_validator", "../../tests/integrationtests/processors/security_validator.py")
-	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	deleteMsg := `{"jsonrpc":"2.0","id":3,"method":"files/delete","params":{"path":"/test"}}`
-	event := newMockMcpEvent(deleteMsg, true)
-
-	// When: processing a delete request.
-	err = ep.Process(event)
-
-	// Then: should process but reject with 403.
-	assert.NilError(t, err)
-	assert.Equal(t, 403, event.status)
-	// Error should be set in processing errors.
-	assert.Assert(t, len(event.baseEvent.ProcessingErrors) > 0)
-}
-
-func TestProcess_WithSecurityValidator_AllowsNormalRequests(t *testing.T) {
-	// Given: an event processor with security validator.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	processorConfig := createTestProcessor("security_validator", "../../tests/integrationtests/processors/security_validator.py")
-	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	normalMsg := `{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}`
-	event := newMockMcpEvent(normalMsg, true)
-
-	// When: processing a normal request.
-	err = ep.Process(event)
-
-	// Then: should process successfully.
-	assert.NilError(t, err)
-	assert.Equal(t, 200, event.status)
-}
-
-func TestProcess_WithMultipleProcessors_ExecutesInOrder(t *testing.T) {
-	// Given: an event processor with multiple processors.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	processor1 := createTestProcessor("passthrough", "../../tests/integrationtests/processors/passthrough.py")
-	processor2 := createTestProcessor("request_logger", "../../tests/integrationtests/processors/request_logger.py")
-	chain, err := processor.NewChain([]*config.ProcessorConfig{processor1, processor2}, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	event := newMockMcpEvent(`{"jsonrpc":"2.0","id":5,"method":"test/method","params":{}}`, true)
-
-	// When: processing through multiple processors.
-	err = ep.Process(event)
-
-	// Then: should execute all processors successfully.
-	assert.NilError(t, err)
-	assert.Equal(t, 200, event.status)
-}
-
-func TestProcess_WithDisabledProcessor_SkipsProcessor(t *testing.T) {
-	// Given: an event processor with disabled processor.
-	logger := createTestLogger(t)
-	defer logger.Close()
-
-	processorConfig := createTestProcessor("passthrough", "../../tests/integrationtests/processors/passthrough.py")
-	processorConfig.Enabled = false
-	chain, err := processor.NewChain([]*config.ProcessorConfig{processorConfig}, "test-server", "test-session")
-	assert.NilError(t, err)
-
-	ep := NewEventProcessor(logger, chain)
-	originalMsg := `{"jsonrpc":"2.0","id":6,"method":"test/method","params":{}}`
-	event := newMockMcpEvent(originalMsg, true)
-
-	// When: processing with disabled processor.
-	err = ep.Process(event)
-
-	// Then: should skip processor (no modification).
-	assert.NilError(t, err)
-	assert.Equal(t, originalMsg, event.GetRawMessage())
-	assert.Equal(t, false, event.modified)
-}
-
-// ========================================.
-// Test Helper - Processor Creation.
-// ========================================.
-
-func createTestProcessor(name, scriptPath string) *config.ProcessorConfig {
-	// Get absolute path to processor script.
-	absPath, _ := filepath.Abs(scriptPath)
-
-	return &config.ProcessorConfig{
-		Name:    name,
-		Type:    "cli",
-		Enabled: true,
-		Timeout: 15,
-		Config: map[string]interface{}{
-			"command": "python3",
-			"args":    []interface{}{absPath},
+func TestGetInput_UsesConfiguredHandlers(t *testing.T) {
+	callCtx := newMockCallContext()
+
+	payloadHandler := &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{Request: callCtx.GetRequest()}
 		},
 	}
+	metaHandler := &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Event = callCtx.GetEventInfo()
+		},
+	}
+
+	callCtx.SetHandler("payload", payloadHandler)
+	callCtx.SetHandler("meta", metaHandler)
+
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"payload", "meta"},
+	}
+
+	input := GetInput(processorConfig, callCtx)
+
+	assert.Assert(t, input.Payload != nil)
+	assert.Assert(t, input.Event != nil)
+	assert.Equal(t, 1, payloadHandler.getCalls)
+	assert.Equal(t, 1, metaHandler.getCalls)
+}
+
+func TestGetInput_SkipsMissingHandler(t *testing.T) {
+	callCtx := newMockCallContext()
+	payloadHandler := &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{}
+		},
+	}
+
+	callCtx.SetHandler("payload", payloadHandler)
+
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"payload", "routing"},
+	}
+
+	input := GetInput(processorConfig, callCtx)
+
+	assert.Assert(t, input.Payload != nil)
+	assert.Assert(t, input.Routing == nil)
+	assert.Equal(t, 1, payloadHandler.getCalls)
+}
+
+func TestApplyResult_AppliesConfiguredHandlers(t *testing.T) {
+	callCtx := newMockCallContext()
+
+	payloadHandler := &mockHandler{
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			callCtx.SetStatus(201)
+			return nil
+		},
+	}
+	metaHandler := &mockHandler{
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			callCtx.SetError("meta-updated")
+			return nil
+		},
+	}
+	callCtx.SetHandler("payload", payloadHandler)
+	callCtx.SetHandler("meta", metaHandler)
+
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"payload", "meta"},
+	}
+	result := &processor.DataContext{
+		Payload: &processor.PayloadPart{},
+		Event:   common.NewMCPRequestEvent("stdio"),
+	}
+
+	err := ApplyResult(processorConfig, result, callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, payloadHandler.applyCalls)
+	assert.Equal(t, 1, metaHandler.applyCalls)
+	assert.Equal(t, 201, callCtx.GetStatus())
+	assert.Equal(t, "meta-updated", callCtx.GetError())
+}
+
+func TestApplyResult_MissingHandlerReturnsError(t *testing.T) {
+	callCtx := newMockCallContext()
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"payload"},
+	}
+
+	err := ApplyResult(processorConfig, &processor.DataContext{}, callCtx)
+	assert.Assert(t, err != nil)
+}
+
+func TestApplyResult_HandlerErrorReturned(t *testing.T) {
+	callCtx := newMockCallContext()
+	expectedErr := errors.New("apply failed")
+	handler := &mockHandler{
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			return expectedErr
+		},
+	}
+	callCtx.SetHandler("payload", handler)
+
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"payload"},
+	}
+
+	err := ApplyResult(processorConfig, &processor.DataContext{}, callCtx)
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestProcess_NoProcessors_LogsOnlyOnce(t *testing.T) {
+	callCtx := newMockCallContext()
+	logHandler := &mockLogHandler{}
+	callCtx.SetLogHandler(logHandler)
+
+	ep := &ProcessingController{
+		processors: nil,
+	}
+
+	err := ep.Process(callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, logHandler.logCalls)
+}
+
+func TestProcess_ExecutesProcessorsInOrder(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+
+	payloadHandler := &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{Request: callCtx.GetRequest()}
+		},
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			if output.Payload == nil {
+				return nil
+			}
+			if output.Payload.Request != nil {
+				callCtx.GetRequest().Params = output.Payload.Request.Params
+			}
+			if output.Payload.Result != nil {
+				callCtx.SetResult(output.Payload.Result)
+			}
+			return nil
+		},
+	}
+	callCtx.SetHandler("payload", payloadHandler)
+
+	cfg1 := &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}}
+	cfg2 := &config.ProcessorConfig{Name: "p2", Parts: []string{"payload"}}
+
+	p1 := &mockProcessor{
+		cfg: cfg1,
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			request := &mcp.CallToolRequest{
+				Params: &mcp.CallToolParamsRaw{
+					Name:      input.Payload.Request.Params.Name,
+					Arguments: json.RawMessage(`{"step":1}`),
+				},
+			}
+			return &processor.DataContext{
+				Payload: &processor.PayloadPart{Request: request},
+			}, nil
+		},
+	}
+	p2 := &mockProcessor{
+		cfg: cfg2,
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			var payload map[string]any
+			_ = json.Unmarshal(input.Payload.Request.Params.Arguments, &payload)
+			assert.Equal(t, float64(1), payload["step"])
+			return &processor.DataContext{
+				Payload: &processor.PayloadPart{
+					Result: &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: "done"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{p1, p2},
+	}
+
+	err := ep.Process(callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, p1.callCount)
+	assert.Equal(t, 1, p2.callCount)
+	assert.Assert(t, callCtx.HasResult())
+}
+
+func TestProcess_ProcessorErrorStopsPipeline(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+	callCtx.SetHandler("payload", &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{Request: callCtx.GetRequest()}
+		},
+	})
+
+	expectedErr := errors.New("processor failed")
+	p1 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return nil, expectedErr
+		},
+	}
+	p2 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p2", Parts: []string{"payload"}},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{p1, p2},
+	}
+
+	err := ep.Process(callCtx)
+	assert.Equal(t, expectedErr, err)
+	assert.Equal(t, 1, p1.callCount)
+	assert.Equal(t, 0, p2.callCount)
+}
+
+func TestProcess_ApplyErrorStopsPipeline(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+	callCtx.SetHandler("payload", &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{}
+		},
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			return errors.New("apply failed")
+		},
+	})
+
+	p1 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return &processor.DataContext{Payload: &processor.PayloadPart{}}, nil
+		},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{p1},
+	}
+
+	err := ep.Process(callCtx)
+	assert.Assert(t, err != nil)
 }

@@ -48,3 +48,18 @@ func IsURLCompliant(name string) bool {
 	matched, _ := regexp.MatchString(pattern, name)
 	return matched
 }
+
+// GetTransport returns the McpTransportType based on provided url and cmd fields.
+func GetTransport(url, cmd string) (McpTransportType, error) {
+	if url != "" && cmd != "" {
+		return InvalidTransport, fmt.Errorf("both url and cmd are set - only one is allowed")
+	}
+	if url != "" && cmd == "" {
+		return HTTPTransport, nil
+	}
+	if url == "" && cmd != "" {
+		return StdioTransport, nil
+	}
+	// this handles: if url == "" && cmd == ""
+	return UnknownTransport, fmt.Errorf("both url and cmd are empty")
+}

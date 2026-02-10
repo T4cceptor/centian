@@ -110,7 +110,7 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 	mux := http.NewServeMux()
 
 	// When: registering handler and calling without auth
-	RegisterHandler("/mcp/gateway", proxy, mux, nil)
+	RegisterEndpoint("/mcp/gateway", proxy, mux, nil)
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
 	recorder := httptest.NewRecorder()
 	handler, _ := mux.Handler(request)

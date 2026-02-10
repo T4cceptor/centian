@@ -50,7 +50,6 @@ func (ui *InitUI) promptInitOption(printWelcome bool) (InitOption, error) {
 		fmt.Printf("How would you like to initialize your configuration?\n\n")
 		fmt.Printf("  [1] Quickstart (sequential-thinking, requires npx)\n")
 		fmt.Printf("  [2] Start with empty config\n")
-		// TODO: add this back in once discovery is fixed: fmt.Printf("  [3] Auto-discover existing MCP servers (recommended)\n")
 		fmt.Printf("  [3] Import an existing MCP config file\n\n")
 	}
 	fmt.Printf("Choice [1/2/3]: ")
@@ -66,7 +65,6 @@ func (ui *InitUI) promptInitOption(printWelcome bool) (InitOption, error) {
 		return InitOptionQuickstart, nil
 	case "2":
 		return InitOptionEmpty, nil
-	// TODO: add discovery again (return InitOptionDiscovery, nil) - requires refactoring/fixing of current discovery
 	case "3":
 		return InitOptionFromPath, nil
 	default:

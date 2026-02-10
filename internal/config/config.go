@@ -85,16 +85,22 @@ func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
 // including all necessary arguments, e.g. command, arguments,
 // environment variables, and metadata.
 type MCPServerConfig struct {
-	Name        string                 `json:"name"`                  // Display name
-	Command     string                 `json:"command,omitempty"`     // Executable command (for stdio/process transport)
-	Args        []string               `json:"args,omitempty"`        // Command arguments
+	Name        string                 `json:"name"`                  // MCP Server name - used to reference this specific server
+	Command     string                 `json:"command,omitempty"`     // MCP Server Executable command (for stdio/process transport)
+	Args        []string               `json:"args,omitempty"`        // MCP Server Command arguments
 	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
-	URL         string                 `json:"url,omitempty"`         // HTTP/WebSocket URL (for http/sse transport)
+	URL         string                 `json:"url,omitempty"`         // MCP Server URL (for http/sse transport)
 	Headers     map[string]string      `json:"headers,omitempty"`     // HTTP headers (supports ${ENV_VAR} substitution)
 	Enabled     *bool                  `json:"enabled,omitempty"`     // Whether server is active
 	Description string                 `json:"description,omitempty"` // Human readable description
 	Source      string                 `json:"source,omitempty"`      // Source file path for auto-discovered servers
 	Config      map[string]interface{} `json:"config,omitempty"`      // Server-specific config
+}
+
+// GetTransport returns McpTransportType based on config data.
+func (s *MCPServerConfig) GetTransport() common.McpTransportType {
+	r, _ := common.GetTransport(s.URL, s.Command)
+	return r
 }
 
 // IsEnabled returns true if the MCP server is either explicitly enabled or the flag is unset (nil).
@@ -187,7 +193,6 @@ func (g *GatewayConfig) HasServer(name string) bool {
 // ProcessorConfig defines a single processor that executes during MCP request/response flow.
 // Processors are composable units that can inspect, modify, or reject MCP messages.
 //
-// TODO: move below documentation into a better place
 // Type-specific configuration (Config field):
 //
 // For CLIProcessor processors:
@@ -211,41 +216,23 @@ type ProcessorConfig struct {
 	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
 	Enabled bool                   `json:"enabled"`           // Whether processor is active
 	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
+	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing" (default: ["payload"])
 	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
+
+	// Determines if processor is required to run, "false" by default,
+	// meaning the processor can both fail initiation and
+	// processing without causing the whole processor chain to fail.
+	// If set to true, a failure will cause subsequent processors NOT to run.
+	Required bool `json:"required"`
 }
 
-// ProcessorInput represents the JSON input passed to processors via stdin.
-// This structure provides all context needed for the processor to make decisions.
-type ProcessorInput struct {
-	Type       string                 `json:"type"`       // "request" or "response"
-	Timestamp  string                 `json:"timestamp"`  // ISO 8601 timestamp
-	Connection ConnectionContext      `json:"connection"` // Connection metadata
-	Payload    map[string]interface{} `json:"payload"`    // MCP message payload
-	Metadata   ProcessorMetadata      `json:"metadata"`   // Additional context
-}
-
-// ConnectionContext provides connection-level metadata for processors.
-type ConnectionContext struct {
-	ServerName string `json:"server_name"` // Name of the MCP server
-	Transport  string `json:"transport"`   // Transport type: stdio, http, websocket
-	SessionID  string `json:"session_id"`  // Unique session identifier
-	// TODO: potentially add server data in here like URL/CMD, headers/args, etc.
-	// see also chain.go - line 89 - talking about the same idea
-}
-
-// ProcessorMetadata contains additional context for processor execution.
-type ProcessorMetadata struct {
-	ProcessorChain  []string               `json:"processor_chain"`  // Names of processors already executed
-	OriginalPayload map[string]interface{} `json:"original_payload"` // Original unmodified payload
-}
-
-// ProcessorOutput represents the JSON output expected from processors via stdout.
-// Processors must return this structure to indicate their decision and any modifications.
-type ProcessorOutput struct {
-	Status   int                    `json:"status"`             // HTTP-style status: 200, 40x, 50x
-	Payload  map[string]interface{} `json:"payload"`            // Modified or original payload
-	Error    *string                `json:"error"`              // Error message if status >= 400, otherwise null
-	Metadata map[string]interface{} `json:"metadata,omitempty"` // Processor-specific metadata
+// GetParts returns the configured parts, defaulting to ["payload"] if not specified.
+func (p *ProcessorConfig) GetParts() []string {
+	if len(p.Parts) == 0 {
+		// TODO: create "parts enum"
+		return []string{"payload", "meta"}
+	}
+	return p.Parts
 }
 
 // DefaultConfig returns a default configuration.

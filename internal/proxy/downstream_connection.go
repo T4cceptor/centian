@@ -115,9 +115,9 @@ func (rt HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		// Use Set to overwrite, or Add to append.
 		cloned.Header.Set(k, v)
 	}
-	// TODO: raw request processing
+	// TODO: enable raw request processing
 	resp, err := base.RoundTrip(cloned)
-	// TODO: raw response processing
+	// TODO: enable raw response processing
 	return resp, err
 }
 
@@ -174,10 +174,6 @@ func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// TODO: logging & processing
-	// TODO: tool aggregation/federation
-
 	dc.tools = result.Tools
 	return nil
 }
@@ -226,15 +222,20 @@ func (dc *DownstreamConnection) IsConnected() bool {
 	return dc.connected
 }
 
-// Status returns the current connection status (thread-safe).
-func (dc *DownstreamConnection) Status() ConnectionStatus {
+// GetConfig returns the server configuration for this connection.
+func (dc *DownstreamConnection) GetConfig() *config.MCPServerConfig {
+	return dc.config
+}
+
+// GetStatus returns the current connection status (thread-safe).
+func (dc *DownstreamConnection) GetStatus() ConnectionStatus {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 	return dc.status
 }
 
-// Error returns the connection error if status is Failed (thread-safe).
-func (dc *DownstreamConnection) Error() error {
+// GetError returns the connection error if status is Failed (thread-safe).
+func (dc *DownstreamConnection) GetError() error {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 	return dc.connError

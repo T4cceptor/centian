@@ -2,7 +2,9 @@ package discovery
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -221,6 +223,88 @@ func TestListDiscoverers(t *testing.T) {
 	assert.Equal(t, list[0]["available"], "true")
 }
 
+func TestClaudeDesktopDiscovererMetadata(t *testing.T) {
+	d := &ClaudeDesktopDiscoverer{}
+
+	assert.Equal(t, d.Name(), "Claude Desktop")
+	assert.Equal(t, d.Description(), "Scans Claude Desktop configuration for MCP servers")
+	assert.Equal(t, d.IsAvailable(), runtime.GOOS == darwin || runtime.GOOS == windows)
+}
+
+func TestVSCodeDiscovererMetadataAndDiscover(t *testing.T) {
+	// Given: isolated cwd and home/appdata paths.
+	tempDir := t.TempDir()
+	oldWD, err := os.Getwd()
+	assert.NilError(t, err)
+	assert.NilError(t, os.Chdir(tempDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(oldWD)
+	})
+
+	homeDir := filepath.Join(tempDir, "home")
+	assert.NilError(t, os.MkdirAll(homeDir, 0o755))
+	t.Setenv("HOME", homeDir)
+
+	if runtime.GOOS == windows {
+		appData := filepath.Join(tempDir, "appdata")
+		assert.NilError(t, os.MkdirAll(appData, 0o755))
+		t.Setenv("APPDATA", appData)
+	}
+
+	// Workspace mcp config (valid).
+	workspaceMCP := filepath.Join(tempDir, ".vscode", "mcp.json")
+	assert.NilError(t, os.MkdirAll(filepath.Dir(workspaceMCP), 0o755))
+	assert.NilError(t, os.WriteFile(workspaceMCP, []byte(`{"servers":{"workspace-demo":{"command":"node"}}}`), 0o644))
+
+	// Workspace settings config (invalid) to verify Discover ignores individual path errors.
+	workspaceSettings := filepath.Join(tempDir, ".vscode", "settings.json")
+	assert.NilError(t, os.WriteFile(workspaceSettings, []byte(`{invalid`), 0o644))
+
+	// User settings config (valid).
+	userSettings := ""
+	switch runtime.GOOS {
+	case darwin:
+		userSettings = filepath.Join(homeDir, "Library", "Application Support", "Code", "User", "settings.json")
+	case linux:
+		userSettings = filepath.Join(homeDir, ".config", "Code", "User", "settings.json")
+	case windows:
+		userSettings = filepath.Join(os.Getenv("APPDATA"), "Code", "User", "settings.json")
+	}
+	if userSettings != "" {
+		assert.NilError(t, os.MkdirAll(filepath.Dir(userSettings), 0o755))
+		assert.NilError(t, os.WriteFile(userSettings, []byte(`{"mcp.servers":{"user-demo":{"command":"python"}}}`), 0o644))
+	}
+
+	// When: discovering via VS Code discoverer.
+	d := &VSCodeDiscoverer{}
+	servers, err := d.Discover()
+
+	// Then: metadata accessors and discovery behavior are correct.
+	assert.NilError(t, err)
+	assert.Equal(t, d.Name(), "VS Code")
+	assert.Equal(t, d.Description(), "Scans VS Code workspace and user settings for MCP configurations")
+	assert.Assert(t, d.IsAvailable())
+	assert.Assert(t, hasServerNamed(servers, "workspace-demo"))
+	if userSettings != "" {
+		assert.Assert(t, hasServerNamed(servers, "user-demo"))
+	}
+}
+
+func TestRegexDiscovererMetadata(t *testing.T) {
+	r := &RegexDiscoverer{
+		DiscovererName:        "custom-regex",
+		DiscovererDescription: "custom regex discovery",
+		Enabled:               true,
+	}
+
+	assert.Equal(t, r.Name(), "custom-regex")
+	assert.Equal(t, r.Description(), "custom regex discovery")
+	assert.Assert(t, r.IsAvailable())
+
+	r.Enabled = false
+	assert.Assert(t, !r.IsAvailable())
+}
+
 func findGroup(groups []ConfigFileGroup, sourcePath string) ConfigFileGroup {
 	for i := range groups {
 		if groups[i].SourcePath == sourcePath {
@@ -237,6 +321,15 @@ func findServerByName(servers []Server, name string) *Server {
 		}
 	}
 	return nil
+}
+
+func hasServerNamed(servers []Server, name string) bool {
+	for _, server := range servers {
+		if server.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func findNamesByPrefix(servers []Server, prefix string) []string {
