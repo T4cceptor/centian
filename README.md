@@ -130,6 +130,14 @@ centian processor new
 
 The scaffold can optionally add the processor to your config automatically.
 
+## Demo
+
+The `demo/` folder contains a small, practical walkthrough showing two processor use-cases:
+- OpenTelemetry span export for MCP tool-call observability.
+- Regex-based redaction of sensitive values in MCP responses.
+
+These examples are intended to demonstrate extension patterns and are not production-hardened security/monitoring implementations.
+
 ## Logging
 
 Centian logs MCP activity to `~/.centian/logs/`:

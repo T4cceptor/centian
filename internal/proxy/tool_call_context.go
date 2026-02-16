@@ -94,7 +94,6 @@ func NewToolCallContext(
 
 // buildRoutingContext creates a RoutingContext from proxy and session info.
 func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingLog {
-	// TODO: double check if this is actually required
 	// ideally we would combine this somehow with MCPevent data struct
 	rc := &common.RoutingLog{
 		Gateway:    proxy.name,

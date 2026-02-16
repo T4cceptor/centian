@@ -1,0 +1,63 @@
+{
+  "name": "Centian Demo",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "8080",
+    "timeout": 30,
+    "logLevel": "info"
+  },
+  "gateways": {
+    "demo": {
+      "mcpServers": {
+        "sequential-thinking": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-sequential-thinking"
+          ],
+          "enabled": true,
+          "description": "Demo MCP server"
+        }
+      }
+    }
+  },
+  "processors": [
+    {
+      "name": "demo_otel_span_logger",
+      "type": "cli",
+      "enabled": true,
+      "required": false,
+      "timeout": 10,
+      "parts": [
+        "payload",
+        "meta",
+        "routing"
+      ],
+      "config": {
+        "command": "python3",
+        "args": [
+          "__REPO_ROOT__/demo/processors/otel_span_logger.py"
+        ]
+      }
+    },
+    {
+      "name": "demo_response_redactor",
+      "type": "cli",
+      "enabled": true,
+      "required": false,
+      "timeout": 10,
+      "parts": [
+        "payload",
+        "meta"
+      ],
+      "config": {
+        "command": "python3",
+        "args": [
+          "__REPO_ROOT__/demo/processors/response_redactor.py"
+        ]
+      }
+    }
+  ]
+}
