@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 )
@@ -522,6 +523,60 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 
 	// Validate type-specific config.
 	return validateProcessorTypeConfig(processor)
+}
+
+// HasProcessor returns true if a processor with the given name exists in the global config.
+func (g *GlobalConfig) HasProcessor(name string) bool {
+	for _, p := range g.Processors {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// AddProcessor appends a processor to the global processor chain.
+func (g *GlobalConfig) AddProcessor(p *ProcessorConfig) {
+	g.Processors = append(g.Processors, p)
+}
+
+// ReplaceProcessor replaces an existing processor by name, preserving its position in the chain.
+// Returns false if no processor with the given name was found.
+func (g *GlobalConfig) ReplaceProcessor(name string, p *ProcessorConfig) bool {
+	for i, existing := range g.Processors {
+		if existing.Name == name {
+			g.Processors[i] = p
+			return true
+		}
+	}
+	return false
+}
+
+// InferProcessorNameFromPath extracts a processor name from a file path.
+// Strips the directory and extension, lowercases the result.
+func InferProcessorNameFromPath(path string) string {
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	return strings.ToLower(name)
+}
+
+// InferCommandFromPath determines the runtime command and args for a CLI processor
+// based on the file extension of the script path.
+func InferCommandFromPath(path string) (command string, args []string, err error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".py":
+		return "python3", []string{path}, nil
+	case ".js":
+		return "node", []string{path}, nil
+	case ".ts":
+		return "npx", []string{"ts-node", path}, nil
+	case ".sh":
+		return "bash", []string{path}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported file extension '%s' - supported: .py, .js, .ts, .sh", ext)
+	}
 }
 
 // validateProcessorTypeConfig validates type-specific processor configuration.
