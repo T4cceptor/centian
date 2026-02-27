@@ -148,6 +148,53 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 	assert.Equal(t, recorder.Result().StatusCode, http.StatusUnauthorized)
 }
 
+func TestAPIKeyMiddlewareWithHeader_AttachesAuthData(t *testing.T) {
+	store := createTestAPIKeyStore(t)
+	called := false
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		authData := getAuthData(r.Context())
+		assert.Assert(t, authData != nil)
+		assert.Equal(t, authData.AuthHeaderName, "Authorization")
+		assert.Equal(t, authData.Gateway, "gateway-a")
+		assert.Assert(t, authData.Headers != nil)
+		assert.Assert(t, authData.KeyEntry != nil)
+		assert.Equal(t, authData.KeyEntry.ID, "key_test")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
+	request.Header.Set("Authorization", "Bearer plain-key")
+	handler.ServeHTTP(recorder, request)
+
+	assert.Assert(t, called)
+	assert.Equal(t, recorder.Result().StatusCode, http.StatusOK)
+}
+
+func TestAPIKeyMiddlewareWithHeader_EnforcesGatewayScope(t *testing.T) {
+	store := createScopedAPIKeyStore(t, "plain-key", []string{"gateway-a"})
+	called := false
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-b", http.NoBody)
+	request.Header.Set("Authorization", "Bearer plain-key")
+	handler.ServeHTTP(recorder, request)
+
+	assert.Assert(t, !called)
+	assert.Equal(t, recorder.Result().StatusCode, http.StatusUnauthorized)
+}
+
+func TestGetGatewayFromPath(t *testing.T) {
+	assert.Equal(t, getGatewayFromPath("/mcp/default"), "default")
+	assert.Equal(t, getGatewayFromPath("/mcp/default/server"), "default")
+	assert.Equal(t, getGatewayFromPath("/other/path"), "")
+}
+
 func TestNewCentianProxy_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
 	// Given: proxy settings that bind to all interfaces with auth unset
 	globalConfig := &config.GlobalConfig{
@@ -534,6 +581,20 @@ func createTestAPIKeyStore(t *testing.T) *auth.APIKeyStore {
 	t.Helper()
 	entry, err := auth.NewAPIKeyEntry("plain-key")
 	assert.NilError(t, err)
+	entry.ID = "key_test"
+	path := filepath.Join(t.TempDir(), "api_keys.json")
+	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
+	store, err := auth.LoadAPIKeys(path)
+	assert.NilError(t, err)
+	return store
+}
+
+func createScopedAPIKeyStore(t *testing.T, plain string, gateways []string) *auth.APIKeyStore {
+	t.Helper()
+	entry, err := auth.NewAPIKeyEntry(plain)
+	assert.NilError(t, err)
+	entry.ID = "key_test"
+	entry.Gateways = gateways
 	path := filepath.Join(t.TempDir(), "api_keys.json")
 	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
 	store, err := auth.LoadAPIKeys(path)

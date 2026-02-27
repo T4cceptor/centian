@@ -52,6 +52,7 @@ type CallContext interface {
 	// Session and request identification
 	GetRequestID() string // Returns unique request ID
 	GetSessionID() string // Returns session ID
+	GetAuthData() *AuthData
 
 	// Direction (processors need to know request vs response phase)
 	GetDirection() common.McpEventDirection

@@ -11,10 +11,11 @@ type DataContext struct {
 	Version string `json:"version"` // "1.0" - for evolution
 
 	// Parts - only populated based on processor config
-	Event   *common.MCPEvent `json:"event,omitempty"`   // Contains event metadata
-	Payload *PayloadPart     `json:"payload,omitempty"` // Payload of the request and result
-	Routing *RoutingPart     `json:"routing,omitempty"`
-	// Future: Headers, Auth, etc.
+	Event   *common.MCPEvent    `json:"event,omitempty"`   // Contains event metadata
+	Payload *PayloadPart        `json:"payload,omitempty"` // Payload of the request and result
+	Routing *RoutingPart        `json:"routing,omitempty"`
+	Auth    *common.AuthContext `json:"auth,omitempty"` // Auth identity and principal context
+	// Future: Headers, etc.
 }
 
 // PayloadPart holds payload information in ProcessorContext.

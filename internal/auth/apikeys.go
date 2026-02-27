@@ -35,9 +35,10 @@ type APIKeyFile struct {
 
 // APIKeyEntry represents a stored API key hash and metadata.
 type APIKeyEntry struct {
-	ID        string `json:"id"`
-	Hash      string `json:"hash"`
-	CreatedAt string `json:"created_at"`
+	ID        string   `json:"id"`
+	Hash      string   `json:"hash"`
+	CreatedAt string   `json:"created_at"`
+	Gateways  []string `json:"gateways,omitempty"`
 }
 
 // APIKeyStore stores API keys loaded from disk for quick validation.
@@ -99,6 +100,26 @@ func (s *APIKeyStore) Lookup(key string) (*APIKeyEntry, bool) {
 		}
 	}
 	return nil, false
+}
+
+// AllowsGateway checks whether this key is allowed to access the given gateway.
+//
+// Backward compatibility:
+// - Empty Gateway lists are treated as allow-all.
+// - "*" is treated as allow-all.
+func (e *APIKeyEntry) AllowsGateway(gateway string) bool {
+	if e == nil {
+		return false
+	}
+	if len(e.Gateways) == 0 {
+		return true
+	}
+	for _, gw := range e.Gateways {
+		if gw == "*" || strings.EqualFold(strings.TrimSpace(gw), strings.TrimSpace(gateway)) {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate returns true if the provided API key exists in the store.

@@ -141,6 +141,26 @@ func TestProcessorValidation(t *testing.T) {
 			errorMsg:  "config is required",
 		},
 		{
+			name: "invalid processor part",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "bad-part",
+						Type:    "cli",
+						Enabled: true,
+						Parts:   []string{"payload", "unknown-part"},
+						Config: map[string]interface{}{
+							"command": "python",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "unsupported part 'unknown-part'",
+		},
+		{
 			name: "cli processor missing command",
 			config: &GlobalConfig{
 				Version:  "1.0.0",

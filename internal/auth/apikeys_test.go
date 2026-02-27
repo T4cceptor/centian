@@ -50,7 +50,7 @@ func TestLoadDefaultAPIKeys(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, store.Path(), path)
 	assert.Equal(t, store.Count(), 1)
-	if !store.Validate(plain) {
+	if _, ok := store.Resolve(plain); !ok {
 		t.Fatalf("expected key to validate")
 	}
 }
@@ -110,10 +110,13 @@ func TestLoadAPIKeys_ObjectFormat(t *testing.T) {
 	if store.Count() != 2 {
 		t.Fatalf("expected 2 keys, got %d", store.Count())
 	}
-	if !store.Validate("key-1") || !store.Validate("key-2") {
+	if _, ok := store.Resolve("key-1"); !ok {
+		t.Fatalf("expected key-1 to be present")
+	}
+	if _, ok := store.Resolve("key-2"); !ok {
 		t.Fatalf("expected keys to be present")
 	}
-	if store.Validate("missing") {
+	if _, ok := store.Resolve("missing"); ok {
 		t.Fatalf("expected missing key to be invalid")
 	}
 }
@@ -188,9 +191,44 @@ func TestAppendAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load api keys: %v", err)
 	}
-	if !store.Validate(plain) {
+	if _, ok := store.Resolve(plain); !ok {
 		t.Fatalf("expected key to validate")
 	}
+}
+
+func TestResolve(t *testing.T) {
+	plain := "sk-test-resolve"
+	path := writeTempFile(t, `{"keys":[{"id":"key_resolve","hash":"`+hashKey(t, plain)+`","created_at":"2025-01-01T00:00:00Z"}]}`)
+	store, err := LoadAPIKeys(path)
+	assert.NilError(t, err)
+
+	entry, ok := store.Resolve(plain)
+	assert.Assert(t, ok)
+	assert.Assert(t, entry != nil)
+	assert.Equal(t, entry.ID, "key_resolve")
+
+	_, ok = store.Resolve("sk-missing")
+	assert.Assert(t, !ok)
+}
+
+func TestAPIKeyEntryAllowsGateway(t *testing.T) {
+	t.Run("empty gateways allows all", func(t *testing.T) {
+		entry := &APIKeyEntry{ID: "key_any"}
+		assert.Assert(t, entry.AllowsGateway("default"))
+		assert.Assert(t, entry.AllowsGateway("other"))
+	})
+
+	t.Run("explicit gateway is enforced", func(t *testing.T) {
+		entry := &APIKeyEntry{ID: "key_scope", Gateways: []string{"alpha"}}
+		assert.Assert(t, entry.AllowsGateway("alpha"))
+		assert.Assert(t, !entry.AllowsGateway("beta"))
+	})
+
+	t.Run("wildcard allows all", func(t *testing.T) {
+		entry := &APIKeyEntry{ID: "key_star", Gateways: []string{"*"}}
+		assert.Assert(t, entry.AllowsGateway("alpha"))
+		assert.Assert(t, entry.AllowsGateway("beta"))
+	})
 }
 
 func writeTempFile(t *testing.T, contents string) string {

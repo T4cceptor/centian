@@ -120,10 +120,11 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 }
 
 type processorInputDTO struct {
-	Version string           `json:"version,omitempty"`
-	Event   *common.MCPEvent `json:"event,omitempty"`
-	Payload *payloadPartDTO  `json:"payload,omitempty"`
-	Routing *RoutingPart     `json:"routing,omitempty"`
+	Version string              `json:"version,omitempty"`
+	Event   *common.MCPEvent    `json:"event,omitempty"`
+	Payload *payloadPartDTO     `json:"payload,omitempty"`
+	Routing *RoutingPart        `json:"routing,omitempty"`
+	Auth    *common.AuthContext `json:"auth,omitempty"`
 }
 
 type payloadPartDTO struct {
@@ -146,6 +147,7 @@ func marshalProcessorInput(input *DataContext) ([]byte, error) {
 		Version: input.Version,
 		Event:   input.Event,
 		Routing: input.Routing,
+		Auth:    input.Auth,
 	}
 
 	if input.Payload != nil {

@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/processor"
@@ -31,6 +33,12 @@ func newHandlerTestCallContext() *ToolCallContext {
 		originalResult:     &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result-original"}}},
 		event:              common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
 		routingContext:     &common.RoutingContext{ServerName: "server-current"},
+		authData: &AuthData{
+			AuthHeaderName: "Authorization",
+			Gateway:        "gateway-a",
+			Headers:        http.Header{"Authorization": []string{"Bearer plain-key"}},
+			KeyEntry:       &auth.APIKeyEntry{ID: "key_1"},
+		},
 	}
 }
 
@@ -187,6 +195,31 @@ func TestDefaultRoutingHandlerApply(t *testing.T) {
 
 		assert.Assert(t, err != nil)
 	})
+}
+
+func TestDefaultAuthHandlerAttachPartAndApply(t *testing.T) {
+	callCtx := newHandlerTestCallContext()
+	input := &processor.DataContext{}
+	handler := &DefaultAuthHandler{}
+
+	handler.AttachPart(callCtx, input)
+	assert.Assert(t, input.Auth != nil)
+	assert.Assert(t, input.Auth.Authenticated)
+	assert.Equal(t, input.Auth.KeyID, "key_1")
+	assert.Equal(t, input.Auth.Gateway, "gateway-a")
+	assert.Equal(t, input.Auth.AuthHeader, "Authorization")
+	assert.Equal(t, input.Auth.InternalSessionID, "sess-1")
+	assert.Assert(t, input.Auth.PrincipalID != "")
+	assert.Assert(t, input.Auth.CredentialFingerprint != "")
+
+	// Auth is read-only and ignored on apply.
+	output := &processor.DataContext{
+		Auth: &common.AuthContext{PrincipalID: "modified"},
+	}
+	err := handler.Apply(callCtx, output)
+	assert.NilError(t, err)
+	assert.Assert(t, callCtx.GetAuthData() != nil)
+	assert.Equal(t, callCtx.GetAuthData().KeyEntry.ID, "key_1")
 }
 
 func TestDefaultLogHandlerToLogEntry(t *testing.T) {

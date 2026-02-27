@@ -225,7 +225,7 @@ type ProcessorConfig struct {
 	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
 	Enabled bool                   `json:"enabled"`           // Whether processor is active
 	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
-	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing" (default: ["payload"])
+	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing", "auth" (default: ["payload","meta"])
 	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
 
 	// Determines if processor is required to run, "false" by default,
@@ -580,6 +580,10 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 		processor.Timeout = 15 // Default 15 seconds
 	}
 
+	if err := validateProcessorParts(processor); err != nil {
+		return err
+	}
+
 	// Validate config field is present.
 	if processor.Config == nil {
 		return fmt.Errorf("processor '%s': config is required", processor.Name)
@@ -587,6 +591,21 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 
 	// Validate type-specific config.
 	return validateProcessorTypeConfig(processor)
+}
+
+func validateProcessorParts(processor *ProcessorConfig) error {
+	allowedParts := map[string]bool{
+		"payload": true,
+		"meta":    true,
+		"routing": true,
+		"auth":    true,
+	}
+	for _, part := range processor.GetParts() {
+		if !allowedParts[part] {
+			return fmt.Errorf("processor '%s': unsupported part '%s' (allowed: payload, meta, routing, auth)", processor.Name, part)
+		}
+	}
+	return nil
 }
 
 // HasProcessor returns true if a processor with the given name exists in the global config.
