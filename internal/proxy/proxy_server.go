@@ -469,6 +469,10 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 		// from either the downstream MCP or any of the applied processors
 		return nil, err
 	}
+	txtContent, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
+	if txtContent != nil {
+		fmt.Printf("received result: %#v\n\n", txtContent)
+	}
 
 	// 5. Process RESPONSE phase (Server → Client)
 	if err := p.ProcessCall(callCtx, common.DirectionServerToClient, common.MessageTypeResponse); err != nil {
@@ -478,6 +482,10 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	// Note: HasResult will always be true here, compare to above HasResult check
 
 	// 6. Return (potentially modified) result
+	txtContent2, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
+	if txtContent2 != nil {
+		fmt.Printf("returned result: %#v\n\n", txtContent2)
+	}
 	return callCtx.GetResult(), nil
 }
 
