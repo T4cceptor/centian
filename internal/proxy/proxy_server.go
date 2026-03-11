@@ -580,10 +580,13 @@ func writeUnauthorized(w http.ResponseWriter, headerName string) {
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
 
-func logRequestBodyForDebug(r *http.Request) {
+func logRequestForDebug(r *http.Request) {
 	if !common.DebugLoggingEnabled() || r == nil || r.Body == nil {
 		return
 	}
+
+	common.LogDebug("Received request: %s - %s - %s", r.Method, r.URL, r.UserAgent())
+	common.LogDebug("Received headers: %#v", r.Header)
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -614,8 +617,7 @@ func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, opti
 	}
 	baseHandler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server {
-			common.LogDebug("Received request: %s - %s - %s", r.Method, r.URL, r.UserAgent())
-			logRequestBodyForDebug(r)
+			logRequestForDebug(r)
 			return proxy.GetServerForRequest(r)
 		},
 		options,
