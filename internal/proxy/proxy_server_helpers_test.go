@@ -24,7 +24,7 @@ func TestCreateSession_AuthHeaders(t *testing.T) {
 	request.Header.Set("X-Auth-Token", "keep-too")
 
 	// When: creating a session
-	session := proxy.createSession("session-1", request)
+	session := proxy.createSession("session-1", request, sharedLocalIdentity)
 
 	// Then: auth header is excluded and other headers are kept
 	assert.Equal(t, session.authHeaders["X-API-Key"], "keep")
@@ -41,7 +41,7 @@ func TestCreateSession_IncludesAuthorizationWhenNotConfigured(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer token")
 
 	// When: creating a session
-	session := proxy.createSession("session-1", request)
+	session := proxy.createSession("session-1", request, sharedLocalIdentity)
 
 	// Then: authorization is captured
 	assert.Equal(t, session.authHeaders["Authorization"], "Bearer token")

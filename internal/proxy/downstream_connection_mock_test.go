@@ -9,9 +9,11 @@ import (
 
 // MockDownstreamConnection is a shared test double for DownstreamConnectionInterface.
 type MockDownstreamConnection struct {
-	connected bool
-	tools     []*mcp.Tool
-	cfg       *config.MCPServerConfig
+	connected    bool
+	tools        []*mcp.Tool
+	cfg          *config.MCPServerConfig
+	ConnectCalls int
+	CloseCalls   int
 
 	// Captured call data.
 	CapturedToolName string
@@ -24,6 +26,11 @@ type MockDownstreamConnection struct {
 }
 
 func (m *MockDownstreamConnection) Connect(_ context.Context, _ map[string]string) error {
+	m.ConnectCalls++
+	if m.ErrorToReturn != nil {
+		m.Status = StatusFailed
+		return m.ErrorToReturn
+	}
 	m.Status = StatusConnected
 	m.connected = true
 	return nil
@@ -52,6 +59,8 @@ func (m *MockDownstreamConnection) Tools() []*mcp.Tool {
 }
 
 func (m *MockDownstreamConnection) Close() error {
+	m.CloseCalls++
+	m.connected = false
 	return nil
 }
 
