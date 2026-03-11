@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -23,6 +24,13 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 		if err == nil {
 			result.processors = append(result.processors, p)
 			continue
+		}
+		if errors.Is(err, processor.ErrProcessorDisabled) {
+			if config.Required {
+				return nil, fmt.Errorf("unable to configure required processor '%s', Error: %w", config.Name, err)
+			}
+			fmt.Printf("processor '%s' is disabled, skipping...", config.Name)
+			continue // we do nothing here
 		}
 		// Error cases
 		if config.Required {

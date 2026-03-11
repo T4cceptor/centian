@@ -242,6 +242,21 @@ func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySessio
 // Can be overridden via config in the future.
 const defaultMinConnectionWait = 15 * time.Second
 
+// sanitizeLogValue strips control characters to prevent log injection.
+func sanitizeLogValue(value string) string {
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r':
+			return ' '
+		case r < 32 || r == 127:
+			return -1
+		default:
+			return r
+		}
+	}, value)
+	return strings.TrimSpace(sanitized)
+}
+
 // getServerForSession connects to downstream server(s) and registers their tools progressively.
 // Uses progressive connection: server is returned after minWait even if some downstreams are still connecting.
 // Tools are registered as each downstream connects, and SDK auto-sends tools/list_changed notifications.
@@ -251,7 +266,8 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server
 		return session.upstreamServer
 	}
 
-	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, session.id)
+	//nolint:gosec // session.id is sanitized for log safety; gosec cannot infer custom sanitizers.
+	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
 
 	// Create server immediately (empty tools initially)
 	server := p.NewMcpServer()
@@ -408,7 +424,8 @@ func (p *MCPProxy) connectAndRegister(
 	}
 	p.toolRegMu.Unlock()
 
-	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, serverName, len(conn.Tools()))
+	//nolint:gosec // serverName is config-validated and sanitized; gosec cannot infer this data flow.
+	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
 }
 
 // waitForMinimumReady waits for minimum time OR all connections resolved (whichever first).
@@ -469,6 +486,10 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 		// from either the downstream MCP or any of the applied processors
 		return nil, err
 	}
+	txtContent, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
+	if txtContent != nil {
+		fmt.Printf("received result: %#v\n\n", txtContent)
+	}
 
 	// 5. Process RESPONSE phase (Server → Client)
 	if err := p.ProcessCall(callCtx, common.DirectionServerToClient, common.MessageTypeResponse); err != nil {
@@ -478,6 +499,10 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	// Note: HasResult will always be true here, compare to above HasResult check
 
 	// 6. Return (potentially modified) result
+	txtContent2, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
+	if txtContent2 != nil {
+		fmt.Printf("returned result: %#v\n\n", txtContent2)
+	}
 	return callCtx.GetResult(), nil
 }
 

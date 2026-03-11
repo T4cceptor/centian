@@ -1,0 +1,16 @@
+# Python cache/artifacts for demo processors
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/

@@ -1,0 +1,55 @@
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${JAEGER_UI_HOST_PORT:-16686}:16686"
+
+  # Demo services for MCP servers
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: centian_poc
+      POSTGRES_USER: centian
+      POSTGRES_PASSWORD: centian_dev_password
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - centian_demo_postgres_data:/var/lib/postgresql/data
+      - ./sql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U centian -d centian_poc"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  centian-demo:
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+    restart: unless-stopped
+    working_dir: /workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PYTHONPATH: /workspace/demo/src
+      OTEL_SERVICE_NAME: centian-demo
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_METRICS_EXPORTER: none
+      OTEL_EXPORTER_OTLP_TIMEOUT: "2"
+      CENTIAN_OTEL_TRACE_PROCESSOR: simple
+      CENTIAN_OTEL_FORCE_FLUSH: "false"
+    ports:
+      - "127.0.0.1:${CENTIAN_HOST_PORT:-8576}:8080"
+    volumes:
+      - ..:/workspace:ro
+    command: ["--config-path", "/workspace/demo/configs/demo_config.json"]
+
+volumes:
+  centian_demo_postgres_data:
+    name: centian_demo_postgres_data

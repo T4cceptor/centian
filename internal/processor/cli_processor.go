@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"time"
@@ -76,6 +77,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 	cmd.Stderr = &stderr
 
 	// Execute the command.
+	log.Printf("[PROCESSOR:CLI] '%s': executing command: %s", e.config.Name, command)
 	err = cmd.Run()
 
 	// Handle timeout.
@@ -92,6 +94,11 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 		return nil, fmt.Errorf("%s", errorMsg)
 	}
 
+	// Log any stderr output even on success — processors may write warnings there.
+	if stderr.Len() > 0 {
+		log.Printf("[PROCESSOR:CLI] '%s': stderr output: %s", e.config.Name, stderr.String())
+	}
+
 	var output DataContext
 	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
 		errorMsg := fmt.Sprintf("processor '%s' returned invalid JSON: %v", e.config.Name, err)
@@ -99,6 +106,14 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 			errorMsg = fmt.Sprintf("%s\nstdout: %s", errorMsg, stdout.String())
 		}
 		return nil, fmt.Errorf("%s", errorMsg)
+	}
+
+	// Warn when the processor was given a payload but returned none — this usually
+	// means the output JSON is in the wrong format, and all payload modifications
+	// (request args, result content) will be silently skipped.
+	if input != nil && input.Payload != nil && output.Payload == nil {
+		log.Printf("[PROCESSOR:CLI] '%s': WARNING: input contained a payload but the output does not — "+
+			"request/result modifications will be skipped. Ensure the processor output includes a \"payload\" field.", e.config.Name)
 	}
 
 	// TODO -> create a map from output

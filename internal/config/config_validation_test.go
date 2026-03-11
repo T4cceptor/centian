@@ -533,3 +533,60 @@ func TestValidateConfigIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
+	t.Run("invalid gateway name fails in non-strict mode", func(t *testing.T) {
+		cfg := &GlobalConfig{
+			Version: "1.0.0",
+			Proxy:   &ProxySettings{},
+			Gateways: map[string]*GatewayConfig{
+				"invalid gateway": {
+					MCPServers: map[string]*MCPServerConfig{},
+				},
+			},
+		}
+
+		err := ValidateConfig(cfg, false)
+		if err == nil {
+			t.Fatal("expected error for invalid gateway name")
+		}
+		if !contains(err.Error(), "name must be URL-safe") {
+			t.Fatalf("expected URL-safe validation error, got: %v", err)
+		}
+	})
+
+	t.Run("invalid server name fails in non-strict mode", func(t *testing.T) {
+		cfg := &GlobalConfig{
+			Version: "1.0.0",
+			Proxy:   &ProxySettings{},
+			Gateways: map[string]*GatewayConfig{
+				"gateway1": {
+					MCPServers: map[string]*MCPServerConfig{
+						"bad/server": {Name: "server1", Command: "node"},
+					},
+				},
+			},
+		}
+
+		err := ValidateConfig(cfg, false)
+		if err == nil {
+			t.Fatal("expected error for invalid server name")
+		}
+		if !contains(err.Error(), "name must be URL-safe") {
+			t.Fatalf("expected URL-safe validation error, got: %v", err)
+		}
+	})
+
+	t.Run("empty gateways still allowed in non-strict mode", func(t *testing.T) {
+		cfg := &GlobalConfig{
+			Version:  "1.0.0",
+			Proxy:    &ProxySettings{},
+			Gateways: map[string]*GatewayConfig{},
+		}
+
+		err := ValidateConfig(cfg, false)
+		if err != nil {
+			t.Fatalf("expected no error for non-strict empty gateways, got: %v", err)
+		}
+	})
+}

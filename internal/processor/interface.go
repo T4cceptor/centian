@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/T4cceptor/centian/internal/config"
@@ -26,13 +27,16 @@ var (
 	_ ProcessorInterface = (*CLIProcessor)(nil)
 )
 
+// ErrProcessorDisabled indicates processor creation was requested for a disabled processor config.
+var ErrProcessorDisabled = errors.New("processor is disabled")
+
 // NewProcessor creates a new processor using the provided ProcessorConfig
 //
 // Currently, it only supports "cli" processors and returns an error if Type != "cli".
 func NewProcessor(processorConfig *config.ProcessorConfig) (ProcessorInterface, error) {
 	// Validate processor is enabled.
 	if !processorConfig.Enabled {
-		return nil, fmt.Errorf("processor '%s' is disabled", processorConfig.Name)
+		return nil, ErrProcessorDisabled
 	}
 
 	// Only CLI processors supported in v1.

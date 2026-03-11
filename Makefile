@@ -70,7 +70,7 @@ test-coverage-html: test-coverage ## Run tests with coverage and open HTML repor
 
 lint: ## Run linter (requires golangci-lint)
 	@echo "Running linter..."
-	golangci-lint run
+	golangci-lint run --timeout=5m ./...
 
 fmt: ## Format code
 	@echo "Formatting code..."

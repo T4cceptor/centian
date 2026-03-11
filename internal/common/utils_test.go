@@ -92,6 +92,7 @@ func TestIsURLCompliant(t *testing.T) {
 		{name: "valid with dash and underscore", input: "gateway_one-2", expected: true},
 		{name: "empty is invalid", input: "", expected: false},
 		{name: "starts with dash is invalid", input: "-gateway", expected: false},
+		{name: "contains slash is invalid", input: "gateway/name", expected: false},
 		{name: "contains space is invalid", input: "bad name", expected: false},
 		{name: "contains symbol is invalid", input: "bad$name", expected: false},
 	}

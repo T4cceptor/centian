@@ -73,4 +73,3 @@ centian
 
 # Local-only test files (may contain credentials or environment-specific configs)
 *.local.go
-
