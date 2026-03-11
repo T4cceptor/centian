@@ -1,50 +1,83 @@
 # Demo
 
-This folder contains a lightweight demo for showing what Centian processors can do in practice.
+This folder provides two local demos with a single Centian config and container:
 
-Purpose:
-- Demonstrate observability hooks by exporting tool-call spans via OpenTelemetry OTLP.
-- Demonstrate response post-processing by redacting common sensitive patterns with regex.
+- Logging gateway (`/mcp/logging-demo`): emits OpenTelemetry tool-call spans to Jaeger.
+- Redaction gateway (`/mcp/modification-demo`): masks sensitive patterns in MCP response text.
 
-These examples are educational starting points, not production-hardened security or monitoring solutions.
+## Structure
 
-## Files
+Run commands from `demo/`.
 
-- `config.demo.json` - demo config template with processor wiring.
-- `processors/otel_span_logger.py` - emits span data for MCP tool calls.
-- `processors/response_redactor.py` - redacts sensitive patterns in response text.
-- `requirements-otel.txt` - Python dependencies for the OTEL demo processor.
+- `configs/demo_config.json`: Centian config with 2 demo gateways and gateway-level processors.
+- `src/`: Python processors and shared helpers.
+- `scripts/setup.sh`: local setup helper.
+- `scripts/smoke_demo.sh`: smoke checks for both demo modes.
+- `docker-compose.yml`: shared infrastructure and demo services.
 
-## Quick Run
+Both demos run with `auth: false` for convenience. This is intentionally insecure and only safe for local testing.
+Published ports are bound to `127.0.0.1` by default.
 
-1. Install OTEL demo dependencies:
+Both gateways are served by the same Centian instance on `localhost:8576`.
 
-```bash
-python3 -m pip install -r demo/requirements-otel.txt
-```
+## Quickstart
 
-2. Generate a runnable config (replace placeholder path):
-
-```bash
-sed "s|__REPO_ROOT__|$(pwd)|g" demo/config.demo.json > /tmp/centian.demo.json
-```
-
-3. Set OTLP endpoint (example: local collector):
+1. Setup, start, and smoke test:
 
 ```bash
-export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="http://localhost:4318/v1/traces"
+cd demo
+make setup
+make demo-up
+make demo-test
 ```
 
-4. Start Centian with demo config:
+2. Add both gateways to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "centian-demo-logging": {
+      "url": "http://localhost:8576/mcp/logging-demo"
+    },
+    "centian-demo-modification": {
+      "url": "http://localhost:8576/mcp/modification-demo"
+    }
+  }
+}
+```
+
+3. Logging gateway checks:
+
+- `List tools exposed by the MCP server.`
+- `Use logging-demo-db___query and query for all employees data.`
+- Inspect traces in Jaeger: `http://localhost:16686`
+
+Expected:
+
+- MCP tool calls succeed through Centian.
+- Jaeger shows spans produced by `demo_otel_span_logger`.
+- Tools are namespaced (for example `postgres-demo___query`).
+
+4. Redaction gateway checks:
+
+- `Use modification-demo-db___query and query for all data on table sample_data_1.`
+
+Expected redaction behavior:
+
+- Emails become `[REDACTED_EMAIL]`
+- SSNs become `[REDACTED_SSN]`
+- Bearer tokens become `Bearer [REDACTED_TOKEN]`
+- AWS access keys become `[REDACTED_AWS_ACCESS_KEY]`
+
+Stop all demo services:
 
 ```bash
-centian start --config-path /tmp/centian.demo.json
+make demo-down
 ```
 
-5. Point your MCP client to:
+## Commands
 
-- `http://127.0.0.1:8080/mcp/demo`
-
-Notes:
-- `response_redactor.py` acts on response payloads (`payload.result`).
-- `otel_span_logger.py` is best-effort and will pass through traffic if OTEL export fails.
+- `make demo-up` builds Centian and starts Postgres, Jaeger, and the unified demo container.
+- `make demo-test` runs smoke checks for both gateways.
+- `make demo-down` stops all demo services.
+- `make clean` removes local Python cache artifacts.

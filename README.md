@@ -132,9 +132,18 @@ The scaffold can optionally add the processor to your config automatically.
 
 ## Demo
 
-The `demo/` folder contains a small, practical walkthrough showing two processor use-cases:
-- OpenTelemetry span export for MCP tool-call observability.
-- Regex-based redaction of sensitive values in MCP responses.
+The `demo/` folder contains two isolated walkthroughs:
+- `demo/logging_demo/` for OpenTelemetry span export on MCP tool calls.
+- `demo/modification_demo/` for regex-based redaction of sensitive response values.
+
+Quick local setup:
+
+```bash
+cd demo
+make setup
+```
+
+Then run either `make demo-logging-up` or `make demo-modification-up`.
 
 These examples are intended to demonstrate extension patterns and are not production-hardened security/monitoring implementations.
 

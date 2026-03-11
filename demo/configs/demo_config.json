@@ -1,0 +1,80 @@
+{
+  "name": "Centian Unified Demo",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "0.0.0.0",
+    "port": "8080",
+    "timeout": 30,
+    "logLevel": "info"
+  },
+  "gateways": {
+    "logging-demo": {
+      "mcpServers": {
+        "logging-demo-db": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-postgres",
+            "postgresql://centian:centian_dev_password@postgres:5432/centian_poc_demo"
+          ],
+          "enabled": true,
+          "description": "Demo Postgres MCP server"
+        }
+      },
+      "processors": [
+        {
+          "name": "demo_otel_span_logger",
+          "type": "cli",
+          "enabled": true,
+          "required": false,
+          "timeout": 10,
+          "parts": [
+            "payload",
+            "meta",
+            "routing"
+          ],
+          "config": {
+            "command": "python3",
+            "args": [
+              "/workspace/demo/src/otel_span_logger.py"
+            ]
+          }
+        }
+      ]
+    },
+    "modification-demo": {
+      "mcpServers": {
+        "modification-demo-db": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-postgres",
+            "postgresql://centian:centian_dev_password@postgres:5432/centian_poc_demo"
+          ],
+          "enabled": true,
+          "description": "Demo Postgres MCP server"
+        }
+      },
+      "processors": [
+        {
+          "name": "demo_response_redactor",
+          "type": "cli",
+          "enabled": true,
+          "required": false,
+          "timeout": 10,
+          "parts": [
+            "payload",
+            "meta"
+          ],
+          "config": {
+            "command": "python3",
+            "args": [
+              "/workspace/demo/src/response_redactor.py"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
