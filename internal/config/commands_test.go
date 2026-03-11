@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -37,6 +38,19 @@ func setupTestEnv(t *testing.T) func() {
 func createTestConfig(t *testing.T) {
 	config := DefaultConfig()
 	err := SaveConfig(config)
+	assert.NilError(t, err)
+}
+
+func writeConfigToPath(t *testing.T, path string, cfg *GlobalConfig) {
+	t.Helper()
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	assert.NilError(t, err)
+
+	err = os.MkdirAll(filepath.Dir(path), 0o755)
+	assert.NilError(t, err)
+
+	err = os.WriteFile(path, data, 0o644)
 	assert.NilError(t, err)
 }
 
@@ -830,6 +844,149 @@ func TestListServers_FailsIfNoConfig(t *testing.T) {
 
 	// Then: should return error.
 	assert.ErrorContains(t, err, "failed to load configuration")
+}
+
+// ========================================
+// restoreConfig Tests
+// ========================================
+
+func TestRestoreConfig_RestoresConfigWithForceFlag(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	existingConfig := DefaultConfig()
+	existingConfig.Name = "Original Config"
+	assert.NilError(t, SaveConfig(existingConfig))
+
+	backupConfig := DefaultConfig()
+	backupConfig.Name = "Restored Config"
+	backupConfig.Gateways = map[string]*GatewayConfig{
+		"backup-gateway": {
+			MCPServers: map[string]*MCPServerConfig{
+				"backup-server": {
+					Name: "backup-server",
+					URL:  "https://backup.example.com/mcp",
+				},
+			},
+		},
+	}
+
+	backupPath := filepath.Join(os.Getenv("HOME"), ".centian", "backup.config.json")
+	writeConfigToPath(t, backupPath, backupConfig)
+
+	ctx := context.Background()
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "path", Value: backupPath},
+			&cli.BoolFlag{Name: "force", Value: true},
+		},
+	}
+
+	err := restoreConfig(ctx, cmd)
+	assert.NilError(t, err)
+
+	restoredConfig, err := LoadConfig()
+	assert.NilError(t, err)
+	assert.Equal(t, "Restored Config", restoredConfig.Name)
+	_, exists := restoredConfig.Gateways["backup-gateway"]
+	assert.Assert(t, exists)
+}
+
+func TestRestoreConfig_FailsForInvalidBackup(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	existingConfig := DefaultConfig()
+	existingConfig.Name = "Original Config"
+	assert.NilError(t, SaveConfig(existingConfig))
+
+	backupPath := filepath.Join(os.Getenv("HOME"), ".centian", "backup.config.json")
+	assert.NilError(t, os.MkdirAll(filepath.Dir(backupPath), 0o755))
+	assert.NilError(t, os.WriteFile(backupPath, []byte("{invalid json"), 0o644))
+
+	ctx := context.Background()
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "path", Value: backupPath},
+			&cli.BoolFlag{Name: "force", Value: true},
+		},
+	}
+
+	err := restoreConfig(ctx, cmd)
+	assert.ErrorContains(t, err, "backup configuration is invalid")
+}
+
+func TestRestoreConfig_CancelsWhenUserDoesNotConfirm(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	existingConfig := DefaultConfig()
+	existingConfig.Name = "Original Config"
+	assert.NilError(t, SaveConfig(existingConfig))
+
+	backupConfig := DefaultConfig()
+	backupConfig.Name = "Restored Config"
+	backupPath := filepath.Join(os.Getenv("HOME"), ".centian", "backup.config.json")
+	writeConfigToPath(t, backupPath, backupConfig)
+
+	restoreStdin := replaceStdin(t, "n\n")
+	defer restoreStdin()
+
+	ctx := context.Background()
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "path", Value: backupPath},
+			&cli.BoolFlag{Name: "force", Value: false},
+		},
+	}
+
+	err := restoreConfig(ctx, cmd)
+	assert.NilError(t, err)
+
+	currentConfig, err := LoadConfig()
+	assert.NilError(t, err)
+	assert.Equal(t, "Original Config", currentConfig.Name)
+}
+
+func TestRestoreConfig_OverwritesAfterUserConfirmation(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	existingConfig := DefaultConfig()
+	existingConfig.Name = "Original Config"
+	assert.NilError(t, SaveConfig(existingConfig))
+
+	backupConfig := DefaultConfig()
+	backupConfig.Name = "Restored Config"
+	backupPath := filepath.Join(os.Getenv("HOME"), ".centian", "backup.config.json")
+	writeConfigToPath(t, backupPath, backupConfig)
+
+	restoreStdin := replaceStdin(t, "yes\n")
+	defer restoreStdin()
+
+	ctx := context.Background()
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "path", Value: backupPath},
+			&cli.BoolFlag{Name: "force", Value: false},
+		},
+	}
+
+	err := restoreConfig(ctx, cmd)
+	assert.NilError(t, err)
+
+	currentConfig, err := LoadConfig()
+	assert.NilError(t, err)
+	assert.Equal(t, "Restored Config", currentConfig.Name)
+}
+
+func TestResolveBackupConfigPath_ExpandsHomePath(t *testing.T) {
+	cleanup := setupTestEnv(t)
+	defer cleanup()
+
+	backupPath, err := resolveBackupConfigPath("~/.centian/backup.config.json")
+	assert.NilError(t, err)
+	assert.Equal(t, filepath.Join(os.Getenv("HOME"), ".centian", "backup.config.json"), backupPath)
 }
 
 // ========================================

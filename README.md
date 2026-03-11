@@ -111,12 +111,58 @@ Minimal example:
 }
 ```
 
+### Valid Configuration Requirements
+
+At a minimum (for config management commands), a config must include:
+
+- `version` (non-empty string)
+- `proxy` (object)
+
+For `centian start` (strict validation), the config must also include:
+
+- At least one gateway in `gateways`
+- Each gateway must have at least one active MCP server
+- Gateway names and server names must be URL-safe (`a-z`, `A-Z`, `0-9`, `_`, `-`)
+- Each server must define exactly one transport:
+  - `command` for stdio, or
+  - `url` for HTTP(S)
+- If `url` is used, it must be a valid `http://` or `https://` URL
+- Header keys and values must be non-empty
+
+You can validate your current config with:
+
+```bash
+centian config validate
+```
+
+### Environment Variable Interpolation
+
+Centian supports environment variable interpolation in `mcpServers.<server>.headers` values.
+
+Example:
+```json
+{
+  "gateways": {
+    "default": {
+      "mcpServers": {
+        "github": {
+          "url": "https://api.githubcopilot.com/mcp/",
+          "headers": {
+            "Authorization": "Bearer ${GITHUB_PAT}",
+            "X-Api-Key": "$API_KEY",
+            "X-Custom": "prefix-${ENV}-suffix"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
 ### Endpoints
 
-- Aggregated gateway endpoint:
-  - `http://127.0.0.1:8080/mcp/<gateway>`
-- Individual server endpoint:
-  - `http://127.0.0.1:8080/mcp/<gateway>/<server>`
+- Aggregated gateway endpoint: `http://localhost:8080/mcp/<gateway>`
+- Individual server endpoint: `http://localhost:8080/mcp/<gateway>/<server>`
 
 In aggregated mode, tools are namespaced to avoid collisions.
 
