@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/urfave/cli/v3"
@@ -22,9 +23,12 @@ var ConfigCommand = &cli.Command{
 		configInitCommand,
 		configShowCommand,
 		configValidateCommand,
+		configRestoreCommand,
 		configRemoveCommand,
 	},
 }
+
+const defaultBackupConfigPath = "~/.centian/backup.config.json"
 
 var configInitCommand = &cli.Command{
 	Name:        "init",
@@ -66,6 +70,26 @@ var configRemoveCommand = &cli.Command{
 		},
 	},
 	Action: removeConfig,
+}
+
+var configRestoreCommand = &cli.Command{
+	Name:        "restore",
+	Usage:       "Restore configuration from a backup file",
+	Description: "Validates and restores a backup configuration into ~/.centian/config.json",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "path",
+			Aliases: []string{"p"},
+			Usage:   "Path to backup configuration file",
+			Value:   defaultBackupConfigPath,
+		},
+		&cli.BoolFlag{
+			Name:    "force",
+			Aliases: []string{"f"},
+			Usage:   "Skip confirmation prompt when overwriting existing configuration",
+		},
+	},
+	Action: restoreConfig,
 }
 
 // ServerCommand provides MCP server management functionality.
@@ -259,6 +283,72 @@ func validateConfigCommand(_ context.Context, _ *cli.Command) error {
 	configPath, _ := GetConfigPath()
 	fmt.Printf("✅ Configuration is valid: %s\n", configPath)
 	return nil
+}
+
+func restoreConfig(_ context.Context, cmd *cli.Command) error {
+	backupPath, err := resolveBackupConfigPath(cmd.String("path"))
+	if err != nil {
+		return err
+	}
+
+	backupConfig, err := LoadConfigFromPath(backupPath)
+	if err != nil {
+		return fmt.Errorf("backup configuration is invalid: %w", err)
+	}
+
+	configPath, err := GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+
+	if _, err := os.Stat(configPath); err == nil {
+		if !cmd.Bool("force") {
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Printf("⚠️  A configuration already exists at %s\n", configPath)
+			fmt.Printf("⚠️  This will overwrite it with backup from %s\n", backupPath)
+			fmt.Printf("Continue? [y/N]: ")
+
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read input: %w", err)
+			}
+
+			response = strings.TrimSpace(strings.ToLower(response))
+			if response != "y" && response != "yes" {
+				fmt.Printf("❌ Operation cancelled")
+				return nil
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to check existing configuration: %w", err)
+	}
+
+	if err := SaveConfig(backupConfig); err != nil {
+		return fmt.Errorf("failed to restore configuration: %w", err)
+	}
+
+	fmt.Printf("✅ Configuration restored from %s to %s\n", backupPath, configPath)
+	return nil
+}
+
+func resolveBackupConfigPath(path string) (string, error) {
+	expandedPath := strings.TrimSpace(path)
+	if expandedPath == "" {
+		expandedPath = defaultBackupConfigPath
+	}
+	if strings.HasPrefix(expandedPath, "~/") || expandedPath == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		if expandedPath == "~" {
+			expandedPath = homeDir
+		} else {
+			expandedPath = filepath.Join(homeDir, expandedPath[2:])
+		}
+	}
+	expandedPath = os.ExpandEnv(expandedPath)
+	return filepath.Clean(expandedPath), nil
 }
 
 func listServers(_ context.Context, cmd *cli.Command) error {
