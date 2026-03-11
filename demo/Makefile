@@ -31,7 +31,7 @@ demo-up: centian-build
 	@echo "Warning: this no-auth setup is only for local demo/testing."
 	@echo "Jaeger UI: http://localhost:$(JAEGER_UI_HOST_PORT)"
 	@echo "No Jaeger login or DSN setup required for this demo path."
-	@echo "Aggregated gateway endpoints in use; tools are namespaced (e.g. postgres-demo___query)."
+	@echo "Aggregated gateway endpoints in use; tools are namespaced (e.g. logging-demo-db___query)."
 
 demo-test:
 	@bash "$(CURDIR)/scripts/smoke_demo.sh" all "$(CENTIAN_HOST_PORT)" "$(JAEGER_UI_HOST_PORT)"

@@ -56,7 +56,7 @@ Expected:
 
 - MCP tool calls succeed through Centian.
 - Jaeger shows spans produced by `demo_otel_span_logger`.
-- Tools are namespaced (for example `postgres-demo___query`).
+- Tools are namespaced (for example `logging-demo-db___query`).
 
 4. Redaction gateway checks:
 
