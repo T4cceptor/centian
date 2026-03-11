@@ -25,7 +25,10 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 			result.processors = append(result.processors, p)
 			continue
 		}
-		if errors.Is(err, processor.DisabledProcessor) {
+		if errors.Is(err, processor.ErrProcessorDisabled) {
+			if config.Required {
+				return nil, fmt.Errorf("unable to configure required processor '%s', Error: %w", config.Name, err)
+			}
 			fmt.Printf("processor '%s' is disabled, skipping...", config.Name)
 			continue // we do nothing here
 		}

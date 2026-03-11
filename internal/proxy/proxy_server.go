@@ -242,6 +242,21 @@ func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySessio
 // Can be overridden via config in the future.
 const defaultMinConnectionWait = 15 * time.Second
 
+// sanitizeLogValue strips control characters to prevent log injection.
+func sanitizeLogValue(value string) string {
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r':
+			return ' '
+		case r < 32 || r == 127:
+			return -1
+		default:
+			return r
+		}
+	}, value)
+	return strings.TrimSpace(sanitized)
+}
+
 // getServerForSession connects to downstream server(s) and registers their tools progressively.
 // Uses progressive connection: server is returned after minWait even if some downstreams are still connecting.
 // Tools are registered as each downstream connects, and SDK auto-sends tools/list_changed notifications.
@@ -251,7 +266,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server
 		return session.upstreamServer
 	}
 
-	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, session.id)
+	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
 
 	// Create server immediately (empty tools initially)
 	server := p.NewMcpServer()
@@ -408,7 +423,7 @@ func (p *MCPProxy) connectAndRegister(
 	}
 	p.toolRegMu.Unlock()
 
-	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, serverName, len(conn.Tools()))
+	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
 }
 
 // waitForMinimumReady waits for minimum time OR all connections resolved (whichever first).

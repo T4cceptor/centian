@@ -27,7 +27,8 @@ var (
 	_ ProcessorInterface = (*CLIProcessor)(nil)
 )
 
-var DisabledProcessor = errors.New("processor is disabled")
+// ErrProcessorDisabled indicates processor creation was requested for a disabled processor config.
+var ErrProcessorDisabled = errors.New("processor is disabled")
 
 // NewProcessor creates a new processor using the provided ProcessorConfig
 //
@@ -35,7 +36,7 @@ var DisabledProcessor = errors.New("processor is disabled")
 func NewProcessor(processorConfig *config.ProcessorConfig) (ProcessorInterface, error) {
 	// Validate processor is enabled.
 	if !processorConfig.Enabled {
-		return nil, DisabledProcessor
+		return nil, ErrProcessorDisabled
 	}
 
 	// Only CLI processors supported in v1.
