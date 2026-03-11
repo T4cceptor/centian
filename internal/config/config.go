@@ -365,6 +365,9 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if config.Proxy == nil {
 		return fmt.Errorf("proxy settings are required in config")
 	}
+	if err := validateNameConventions(config.Gateways); err != nil {
+		return err
+	}
 
 	if strict {
 		// Validate config for operational purposes - meaning: can we start the server with this?
@@ -378,6 +381,25 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	return nil
 }
 
+// validateNameConventions validates gateway and server names.
+// This is run for both strict and non-strict config validation.
+func validateNameConventions(gateways map[string]*GatewayConfig) error {
+	for gatewayName, gatewayConfig := range gateways {
+		if !common.IsURLCompliant(gatewayName) {
+			return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", gatewayName)
+		}
+		if gatewayConfig == nil {
+			return fmt.Errorf("gateway '%s': config cannot be nil", gatewayName)
+		}
+		for serverName := range gatewayConfig.MCPServers {
+			if !common.IsURLCompliant(serverName) {
+				return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", serverName)
+			}
+		}
+	}
+	return nil
+}
+
 // validateGateways validates gateway configurations without requiring any.
 // This allows empty gateway maps (for freshly initialized configs).
 func validateGateways(gateways map[string]*GatewayConfig) error {
@@ -385,6 +407,9 @@ func validateGateways(gateways map[string]*GatewayConfig) error {
 		return fmt.Errorf("no gateways configured - at least one gateway is required")
 	}
 	for gatewayName, gatewayConfig := range gateways {
+		if gatewayConfig == nil {
+			return fmt.Errorf("gateway '%s': config cannot be nil", gatewayName)
+		}
 		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
 			return err
 		}
@@ -441,6 +466,9 @@ func validateServer(name string, server *MCPServerConfig) error {
 	// Validate server name is URL compliant (used in endpoint paths).
 	if !common.IsURLCompliant(name) {
 		return fmt.Errorf("server '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
+	}
+	if server == nil {
+		return fmt.Errorf("server '%s': config cannot be nil", name)
 	}
 
 	// Validate transport consistency - must have either Command (stdio) OR URL (http), not both.

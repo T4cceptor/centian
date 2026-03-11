@@ -266,6 +266,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server
 		return session.upstreamServer
 	}
 
+	//nolint:gosec // session.id is sanitized for log safety; gosec cannot infer custom sanitizers.
 	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
 
 	// Create server immediately (empty tools initially)
@@ -423,6 +424,7 @@ func (p *MCPProxy) connectAndRegister(
 	}
 	p.toolRegMu.Unlock()
 
+	//nolint:gosec // serverName is config-validated and sanitized; gosec cannot infer this data flow.
 	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
 }
 
