@@ -92,7 +92,9 @@ Minimal example:
     "host": "127.0.0.1",
     "port": "8080",
     "timeout": 30,
-    "logLevel": "info"
+    "logLevel": "info",
+    "logOutput": "file",
+    "logFile": "~/.centian/centian.log"
   },
   "gateways": {
     "default": {
@@ -195,9 +197,47 @@ These examples are intended to demonstrate extension patterns and are not produc
 
 ## Logging
 
-Centian logs MCP activity to `~/.centian/logs/`:
+Centian has two different logging/observability paths, and they serve different purposes.
+
+### Internal Proxy Logging
+
+These logs are for Centian's own internal runtime behavior only: proxy startup, downstream connection state, processor execution failures, and similar implementation details.
+
+Configure them under `proxy`:
+
+```json
+{
+  "proxy": {
+    "logLevel": "info",
+    "logOutput": "file",
+    "logFile": "~/.centian/centian.log"
+  }
+}
+```
+
+- `logLevel`: `debug`, `info`, `warn`, `error`
+- `logOutput`: `file`, `console`, `both`
+- `logFile`: optional file path when file output is enabled
+
+By default, internal proxy logs are written to `~/.centian/centian.log`.
+
+### MCP Communication Logging
+
+Logs about actual MCP requests/responses are separate from the internal logger. They are written to `~/.centian/logs/` as MCP event records:
 
 - `requests.jsonl` – MCP requests with timestamps and session IDs
+
+Use this path when you want to inspect or retain MCP traffic.
+
+### Processor-Based Observability
+
+If you want to log, export, redact, or otherwise process MCP communication details, use processors rather than the internal proxy logger. This is the correct place for request/response-specific observability, audit enrichment, and custom telemetry.
+
+See:
+
+- [demo/README.md](demo/README.md) for end-to-end examples
+- `demo/src/otel_span_logger.py` for telemetry export
+- `demo/src/response_redactor.py` for response transformation/redaction
 
 ## Commands (Quick Reference)
 

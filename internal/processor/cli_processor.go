@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"time"
@@ -77,7 +76,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 	cmd.Stderr = &stderr
 
 	// Execute the command.
-	log.Printf("[PROCESSOR:CLI] '%s': executing command: %s", e.config.Name, command)
+	common.LogDebug("[PROCESSOR:CLI] '%s': executing command: %s", e.config.Name, command)
 	err = cmd.Run()
 
 	// Handle timeout.
@@ -96,7 +95,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 
 	// Log any stderr output even on success — processors may write warnings there.
 	if stderr.Len() > 0 {
-		log.Printf("[PROCESSOR:CLI] '%s': stderr output: %s", e.config.Name, stderr.String())
+		common.LogWarn("[PROCESSOR:CLI] '%s': stderr output: %s", e.config.Name, stderr.String())
 	}
 
 	var output DataContext
@@ -112,7 +111,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 	// means the output JSON is in the wrong format, and all payload modifications
 	// (request args, result content) will be silently skipped.
 	if input != nil && input.Payload != nil && output.Payload == nil {
-		log.Printf("[PROCESSOR:CLI] '%s': WARNING: input contained a payload but the output does not — "+
+		common.LogWarn("[PROCESSOR:CLI] '%s': input contained a payload but the output does not; "+
 			"request/result modifications will be skipped. Ensure the processor output includes a \"payload\" field.", e.config.Name)
 	}
 

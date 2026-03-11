@@ -59,7 +59,7 @@ func NewToolCallContext(
 	conn, err := session.GetConnectionByName(serverName)
 	transport := common.UnknownTransport
 	if err != nil {
-		fmt.Printf("unable to get connection for '%s'", serverName)
+		common.LogWarn("unable to get connection for '%s': %v", serverName, err)
 	} else {
 		transport = conn.GetConfig().GetTransport()
 	}
@@ -264,7 +264,7 @@ func (c *ToolCallContext) GetToolName() string {
 	if c.proxy.isAggregatedProxy {
 		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
 		if len(parts) < 2 {
-			fmt.Printf("failed to recreate original tool name from: %s", toolName)
+			common.LogWarn("failed to recreate original tool name from %s", toolName)
 			return ""
 		}
 		toolName = strings.Join(parts[1:], "")

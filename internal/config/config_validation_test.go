@@ -590,3 +590,73 @@ func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
+	tests := []struct {
+		name      string
+		proxy     *ProxySettings
+		wantError string
+	}{
+		{
+			name: "defaults log settings when omitted",
+			proxy: &ProxySettings{
+				Port: "8080",
+			},
+		},
+		{
+			name: "accepts supported log output",
+			proxy: &ProxySettings{
+				Port:      "8080",
+				LogLevel:  "DEBUG",
+				LogOutput: "BOTH",
+			},
+		},
+		{
+			name: "rejects unsupported log level",
+			proxy: &ProxySettings{
+				Port:     "8080",
+				LogLevel: "trace",
+			},
+			wantError: "proxy.logLevel",
+		},
+		{
+			name: "rejects unsupported log output",
+			proxy: &ProxySettings{
+				Port:      "8080",
+				LogOutput: "syslog",
+			},
+			wantError: "proxy.logOutput",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &GlobalConfig{
+				Version:  "1.0.0",
+				Proxy:    tt.proxy,
+				Gateways: map[string]*GatewayConfig{},
+			}
+
+			err := ValidateConfig(cfg, false)
+			if tt.wantError != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantError)
+				}
+				if !contains(err.Error(), tt.wantError) {
+					t.Fatalf("expected error containing %q, got %v", tt.wantError, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if cfg.Proxy.LogLevel == "" {
+				t.Fatal("expected log level default to be applied")
+			}
+			if cfg.Proxy.LogOutput == "" {
+				t.Fatal("expected log output default to be applied")
+			}
+		})
+	}
+}

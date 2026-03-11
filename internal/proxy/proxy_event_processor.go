@@ -3,8 +3,8 @@ package proxy
 import (
 	"errors"
 	"fmt"
-	"os"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/processor"
 )
@@ -29,14 +29,14 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 			if config.Required {
 				return nil, fmt.Errorf("unable to configure required processor '%s', Error: %w", config.Name, err)
 			}
-			fmt.Printf("processor '%s' is disabled, skipping...", config.Name)
+			common.LogInfo("processor '%s' is disabled, skipping", config.Name)
 			continue // we do nothing here
 		}
 		// Error cases
 		if config.Required {
 			return nil, fmt.Errorf("unable to configure required processor '%s', Error: %w", config.Name, err)
 		}
-		fmt.Printf("unable to configure processor '%s', Error: %s", config.Name, err.Error())
+		common.LogWarn("unable to configure processor '%s': %s", config.Name, err.Error())
 	}
 	return result, nil
 }
@@ -84,13 +84,13 @@ func (ep *ProcessingController) Process(callCtx CallContext) error {
 		// 2. Execute processor
 		output, err := processor.Process(input)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[PROCESSOR-ERROR] %s: %v\n", processorConfig.Name, err)
+			common.LogError("processor '%s' failed: %v", processorConfig.Name, err)
 			return err
 		}
 
 		// 3. Apply results back via handlers
 		if err := ApplyResult(processorConfig, output, callCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "[PROCESSOR-APPLY-ERROR] %s: %v\n", processorConfig.Name, err)
+			common.LogError("processor '%s' failed to apply output: %v", processorConfig.Name, err)
 			return err // TODO: double check if this makes sense!
 		}
 		// Note: callCtx might be modified here, the modified version
@@ -109,7 +109,7 @@ func (ep *ProcessingController) Process(callCtx CallContext) error {
 
 	// Log after processing
 	if err := callCtx.GetLogHandler().Log(callCtx); err != nil {
-		fmt.Fprintf(os.Stderr, "[LOG-ERROR] %v\n", err)
+		common.LogError("failed to write MCP event log: %v", err)
 		// TODO: double check if we need to do something here
 	}
 

@@ -1,10 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -80,9 +81,14 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 			return nil, fmt.Errorf("failed to load api keys: %w", err)
 		}
 		apiKeyStore = loadedStore
-		common.LogInfo("Loaded %d API keys from %s", apiKeyStore.Count(), apiKeyStore.Path())
+		keyCount := apiKeyStore.Count()
+		if keyCount == 0 {
+			common.LogWarn("Auth enabled but no API keys available from %s\n", apiKeyStore.Path())
+		} else {
+			common.LogInfo("Loaded %d API keys from %s\n", apiKeyStore.Count(), apiKeyStore.Path())
+		}
 	} else {
-		common.LogInfo("API key auth disabled via config")
+		common.LogInfo("API key auth disabled via config\n")
 	}
 
 	return &CentianProxy{
@@ -197,7 +203,7 @@ func NewSingleProxy(serverName, endpoint string, serverConfig *config.MCPServerC
 func (p *MCPProxy) GetServerForRequest(r *http.Request) *mcp.Server {
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
-		sessionID = getNewUUIDV7()
+		sessionID = "csid-" + getNewUUIDV7() // we add "csid" to identify the session id as "internal" / not provided by the client!
 	}
 	common.LogInfo("MCPProxy[%s]: Getting server for session %s", p.name, sessionID)
 
@@ -267,7 +273,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server
 	}
 
 	//nolint:gosec // session.id is sanitized for log safety; gosec cannot infer custom sanitizers.
-	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
+	common.LogDebug("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
 
 	// Create server immediately (empty tools initially)
 	server := p.NewMcpServer()
@@ -286,7 +292,7 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server
 	if totalDownstreams == 0 {
 		// No downstreams configured - return empty server
 		session.initialized = true
-		log.Printf("MCPProxy[%s]: No downstream servers configured", p.name)
+		common.LogWarn("MCPProxy[%s]: No downstream servers configured", p.name)
 		return server
 	}
 
@@ -320,13 +326,13 @@ func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server
 				connErrors = append(connErrors, fmt.Sprintf("%s: %v", name, conn.GetError()))
 			}
 		}
-		log.Printf("MCPProxy[%s]: All connections failed: %v", p.name, connErrors)
+		common.LogError("MCPProxy[%s]: All connections failed: %v", p.name, connErrors)
 		// Return server anyway - client will get empty tool list
 		// This is arguably correct: no tools are available
 	case connectedCount == 0:
-		log.Printf("MCPProxy[%s]: No connections ready after initial wait, continuing in background", p.name)
+		common.LogWarn("MCPProxy[%s]: No connections ready after initial wait, continuing in background", p.name)
 	default:
-		log.Printf("MCPProxy[%s]: %d/%d connections ready, %d still connecting",
+		common.LogInfo("MCPProxy[%s]: %d/%d connections ready, %d still connecting",
 			p.name, connectedCount, totalDownstreams, totalDownstreams-resolved)
 	}
 
@@ -404,7 +410,7 @@ func (p *MCPProxy) connectAndRegister(
 	conn := session.downstreamConns[serverName]
 
 	if conn == nil {
-		log.Printf("MCPProxy[%s]: No connection object for %s", p.name, serverName)
+		common.LogError("MCPProxy[%s]: No connection object for %s", p.name, serverName)
 		return
 	}
 
@@ -413,7 +419,7 @@ func (p *MCPProxy) connectAndRegister(
 	// Connect updates conn.status internally (connecting → connected/failed)
 	if err := conn.Connect(ctx, session.authHeaders); err != nil {
 		// conn.status already set to StatusFailed by Connect()
-		log.Printf("MCPProxy[%s]: Failed to connect to %s: %v", p.name, serverName, err)
+		common.LogWarn("MCPProxy[%s]: Failed to connect to %s: %v", p.name, serverName, err)
 		return
 	}
 
@@ -425,7 +431,7 @@ func (p *MCPProxy) connectAndRegister(
 	p.toolRegMu.Unlock()
 
 	//nolint:gosec // serverName is config-validated and sanitized; gosec cannot infer this data flow.
-	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
+	common.LogInfo("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
 }
 
 // waitForMinimumReady waits for minimum time OR all connections resolved (whichever first).
@@ -450,7 +456,7 @@ func (p *MCPProxy) waitForMinimumReady(
 		case <-timer.C:
 			// Minimum wait elapsed - return control to caller
 			// Remaining connections continue in background
-			log.Printf("MCPProxy[%s]: Minimum wait elapsed, %d/%d connections resolved", p.name, resolved, total)
+			common.LogDebug("MCPProxy[%s]: Minimum wait elapsed, %d/%d connections resolved", p.name, resolved, total)
 			return resolved
 		}
 	}
@@ -464,6 +470,7 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 		return nil, err
 	}
 	ctx = WithCallContext(ctx, callCtx)
+	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
 
 	// 2. Process REQUEST phase (Client → Server)
 	if err := p.ProcessCall(callCtx, common.DirectionClientToServer, common.MessageTypeRequest); err != nil {
@@ -486,10 +493,6 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 		// from either the downstream MCP or any of the applied processors
 		return nil, err
 	}
-	txtContent, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
-	if txtContent != nil {
-		fmt.Printf("received result: %#v\n\n", txtContent)
-	}
 
 	// 5. Process RESPONSE phase (Server → Client)
 	if err := p.ProcessCall(callCtx, common.DirectionServerToClient, common.MessageTypeResponse); err != nil {
@@ -499,10 +502,6 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	// Note: HasResult will always be true here, compare to above HasResult check
 
 	// 6. Return (potentially modified) result
-	txtContent2, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
-	if txtContent2 != nil {
-		fmt.Printf("returned result: %#v\n\n", txtContent2)
-	}
 	return callCtx.GetResult(), nil
 }
 
@@ -581,6 +580,30 @@ func writeUnauthorized(w http.ResponseWriter, headerName string) {
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
 
+func logRequestBodyForDebug(r *http.Request) {
+	if !common.DebugLoggingEnabled() || r == nil || r.Body == nil {
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		common.LogWarn("Failed to read request body for debug logging: %v", err)
+		return
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+
+	if len(bodyBytes) == 0 {
+		common.LogDebug("Received request body: <empty>")
+		return
+	}
+
+	common.LogDebug("Received request body (%d bytes): %s", len(bodyBytes), string(bodyBytes))
+}
+
 // RegisterEndpoint registers a ServerProvider with the HTTP mux.
 func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
 	if options == nil {
@@ -591,12 +614,16 @@ func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, opti
 	}
 	baseHandler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server {
+			common.LogDebug("Received request: %s - %s - %s", r.Method, r.URL, r.UserAgent())
+			logRequestBodyForDebug(r)
 			return proxy.GetServerForRequest(r)
 		},
 		options,
 	)
 
-	var handler http.Handler = baseHandler
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseHandler.ServeHTTP(w, r)
+	})
 	if proxy.server != nil && proxy.server.APIKeys != nil {
 		headerName := proxy.server.AuthHeader
 		if headerName == "" {
@@ -682,6 +709,9 @@ func (p *MCPProxy) initEventProcessor() error {
 		return err
 	}
 	p.eventProcessor = pc
-	common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, len(allProcessors))
+	processorCount := len(allProcessors)
+	if processorCount > 0 {
+		common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, processorCount)
+	}
 	return nil
 }

@@ -57,7 +57,6 @@ func (h *DefaultPayloadHandler) AttachPart(callCtx CallContext, input *processor
 // Behavior: both result.Payload.Request.Params and result.Payload.Result
 // will be used to modify CallContext accordingly.
 func (h *DefaultPayloadHandler) Apply(callCtx CallContext, result *processor.DataContext) error {
-	fmt.Printf("result: %#v\n\n", result)
 	payload := result.Payload
 	if payload == nil {
 		return nil // No payload changes
