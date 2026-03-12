@@ -97,27 +97,24 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 	if host == "" {
 		host = config.DefaultProxyHost
 	}
-	fmt.Fprintf(os.Stderr, "[CENTIAN] %s\n", serverName)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Starting HTTP proxy server...\n")
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Host: %s\n", host)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Port: %s\n", globalConfig.Proxy.Port)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Timeout: %ds\n", globalConfig.Proxy.Timeout)
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Gateways: %d\n", len(globalConfig.Gateways))
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Total MCP servers: %d\n", totalServers)
-	fmt.Fprintf(os.Stderr, "\n")
-
-	fmt.Fprintf(os.Stderr, "[CENTIAN] Configured endpoints:\n")
+	common.LogInfo("%s", serverName)
+	common.LogInfo("Starting HTTP proxy server")
+	common.LogInfo("Host: %s", host)
+	common.LogInfo("Port: %s", globalConfig.Proxy.Port)
+	common.LogInfo("Timeout: %ds", globalConfig.Proxy.Timeout)
+	common.LogInfo("Gateways: %d", len(globalConfig.Gateways))
+	common.LogInfo("Total MCP servers: %d", totalServers)
+	common.LogInfo("Configured endpoints:")
 	for gatewayName, gateway := range globalConfig.Gateways {
 		for serverName, server := range gateway.MCPServers {
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 			if server.URL != "" {
-				fmt.Fprintf(os.Stderr, "  - http://%s:%s%s -> %s\n",
+				common.LogInfo("  - http://%s:%s%s -> %s",
 					host, globalConfig.Proxy.Port, endpoint, server.URL)
 			}
 			if server.Command != "" {
-				fmt.Fprintf(
-					os.Stderr,
-					"  - http://%s:%s%s -> %s -- %s\n",
+				common.LogInfo(
+					"  - http://%s:%s%s -> %s -- %s",
 					host,
 					globalConfig.Proxy.Port,
 					endpoint,
@@ -127,7 +124,6 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 			}
 		}
 	}
-	fmt.Fprintf(os.Stderr, "\n")
 	return nil
 }
 
@@ -160,7 +156,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	defer func() {
 		_ = common.CloseLogger()
 	}()
-	common.LogInfo("[CENTIAN] Loaded config from: %s\n", configPath)
+	common.LogInfo("Loaded config from: %s", configPath)
 
 	// Create HTTP proxy server.
 	server, err := proxy.NewCentianProxy(globalConfig)
@@ -188,19 +184,19 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 		}
 	}()
 
-	common.LogInfo("Centian proxy servers started successfully\n")
-	fmt.Fprintf(os.Stderr, "Press Ctrl+C to stop\n\n")
+	common.LogInfo("Centian proxy servers started successfully")
+	common.LogInfo("Press Ctrl+C to stop")
 
 	// Wait for either signal or server error.
 	select {
 	case <-sigChan:
-		common.LogInfo("Centian received shutdown signal, stopping server...\n")
+		common.LogInfo("Centian received shutdown signal, stopping server...")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("error during shutdown: %w", err)
 		}
-		common.LogInfo("Centian server stopped successfully\n")
+		common.LogInfo("Centian server stopped successfully")
 		return nil
 	case err := <-errChan:
 		return err
