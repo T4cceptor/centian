@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	urfavecli "github.com/urfave/cli/v3"
 )
@@ -141,21 +142,12 @@ func TestPrintServerInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a server configuration.
-			// Capture stderr output.
-			oldStderr := os.Stderr
-			r, w, _ := os.Pipe()
-			os.Stderr = w
+			// Given: a server configuration and a logger that writes to a buffer.
+			var logOutput bytes.Buffer
+			assertServerLogger(t, &logOutput)
 
 			// When: printing server info.
 			err := printServerInfo(tt.config)
-
-			// Restore stderr and capture output.
-			w.Close()
-			os.Stderr = oldStderr
-			var buf bytes.Buffer
-			buf.ReadFrom(r)
-			output := buf.String()
 
 			// Then: verify error expectation.
 			if tt.wantError {
@@ -168,6 +160,7 @@ func TestPrintServerInfo(t *testing.T) {
 				}
 
 				// Then: verify expected strings in output.
+				output := logOutput.String()
 				for _, expected := range tt.expectInOutput {
 					if !strings.Contains(output, expected) {
 						t.Errorf("Expected output to contain '%s', but it didn't.\nOutput:\n%s", expected, output)
@@ -461,19 +454,11 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 				}()
 			}
 
-			// Capture stderr.
-			oldStderr := os.Stderr
-			r, w, _ := os.Pipe()
-			os.Stderr = w
+			var logOutput bytes.Buffer
+			assertServerLogger(t, &logOutput)
 
 			// When: printing server info.
 			_ = printServerInfo(tt.config)
-
-			// Restore stderr.
-			w.Close()
-			os.Stderr = oldStderr
-			var buf bytes.Buffer
-			buf.ReadFrom(r)
 
 			// Then: if we reach here without panic, test passes.
 			if tt.expectPanic {
@@ -481,4 +466,20 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertServerLogger(t *testing.T, writer *bytes.Buffer) {
+	t.Helper()
+
+	err := common.InitInternalLogger(common.LoggerOptions{
+		Level:         "info",
+		Output:        "console",
+		ConsoleWriter: writer,
+	})
+	if err != nil {
+		t.Fatalf("InitInternalLogger() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = common.CloseLogger()
+	})
 }

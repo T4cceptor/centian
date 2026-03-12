@@ -14,8 +14,8 @@ import (
 // Implements the CallContext interface.
 type ToolCallContext struct {
 	// Infrastructure references
-	proxy   *MCPProxy            // Gateway (has back-ref to server via proxy.server)
-	session *CentianProxySession // Session (downstream connections)
+	proxy           *MCPProxy        // Gateway (has back-ref to server via proxy.server)
+	upstreamSession *UpstreamSession // The upstream client session currently executing the tool call.
 
 	// Original request (immutable - deep cloned for auditing/comparison)
 	originalServerName string
@@ -44,7 +44,7 @@ type ToolCallContext struct {
 func NewToolCallContext(
 	ctx context.Context,
 	proxy *MCPProxy,
-	session *CentianProxySession,
+	upstreamSession *UpstreamSession,
 	serverName string,
 	req *mcp.CallToolRequest,
 ) (CallContext, error) {
@@ -53,25 +53,25 @@ func NewToolCallContext(
 		return nil, fmt.Errorf("server attached to the proxy component is nil (%v)", proxy)
 	}
 	// Build routing context
-	routingCtx := buildRoutingContext(proxy, session, serverName)
+	routingCtx := buildRoutingContext(proxy, upstreamSession, serverName)
 	// TODO: get headers from ctx
 
-	conn, err := session.GetConnectionByName(serverName)
+	conn, err := upstreamSession.GetConnectionByName(serverName)
 	transport := common.UnknownTransport
 	if err != nil {
-		fmt.Printf("unable to get connection for '%s'", serverName)
+		common.LogWarn("unable to get connection for '%s': %v", serverName, err)
 	} else {
 		transport = conn.GetConfig().GetTransport()
 	}
 
 	event := common.NewMCPRequestEvent(string(transport)).
 		WithRequestID(getNewUUIDV7()).
-		WithSessionID(session.id).
+		WithSessionID(upstreamSession.id).
 		WithServerID(proxy.server.ServerID) // nil check was done above
 
 	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,
-		session:            session,
+		upstreamSession:    upstreamSession,
 		originalServerName: serverName,
 		originalRequest:    deepCloneRequest(req), // Immutable clone
 		request:            req,                   // Mutable, will be modified by handlers
@@ -93,7 +93,7 @@ func NewToolCallContext(
 }
 
 // buildRoutingContext creates a RoutingContext from proxy and session info.
-func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverName string) *common.RoutingLog {
+func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serverName string) *common.RoutingLog {
 	// ideally we would combine this somehow with MCPevent data struct
 	rc := &common.RoutingLog{
 		Gateway:    proxy.name,
@@ -102,7 +102,7 @@ func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverNa
 	}
 
 	// Try to get connection details
-	if conn, ok := session.downstreamConns[serverName]; ok {
+	if conn, ok := upstreamSession.downstreamConns[serverName]; ok {
 		cfg := conn.GetConfig()
 		if cfg != nil {
 			if cfg.URL != "" {
@@ -125,7 +125,7 @@ func buildRoutingContext(proxy *MCPProxy, session *CentianProxySession, serverNa
 func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Resolve connection based on (potentially modified) serverName
 	serverName := c.GetRoutingContext().ServerName
-	conn, ok := c.session.downstreamConns[serverName]
+	conn, ok := c.upstreamSession.downstreamConns[serverName]
 	if !ok {
 		return fmt.Errorf("server %s not found (original: %s)",
 			serverName, c.originalServerName)
@@ -244,7 +244,7 @@ func (c *ToolCallContext) GetServerName() string {
 // Note: creates routing context if it doesn't exist.
 func (c *ToolCallContext) SetServerName(name string) {
 	if c.routingContext == nil {
-		c.routingContext = buildRoutingContext(c.proxy, c.session, c.GetServerName())
+		c.routingContext = buildRoutingContext(c.proxy, c.upstreamSession, c.GetServerName())
 	}
 	c.routingContext.ServerName = name
 }
@@ -264,7 +264,7 @@ func (c *ToolCallContext) GetToolName() string {
 	if c.proxy.isAggregatedProxy {
 		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
 		if len(parts) < 2 {
-			fmt.Printf("failed to recreate original tool name from: %s", toolName)
+			common.LogWarn("failed to recreate original tool name from %s", toolName)
 			return ""
 		}
 		toolName = strings.Join(parts[1:], "")
@@ -303,10 +303,10 @@ func (c *ToolCallContext) GetRequestID() string {
 
 // GetSessionID returns the current session ID.
 func (c *ToolCallContext) GetSessionID() string {
-	if c.session == nil {
+	if c.upstreamSession == nil {
 		return ""
 	}
-	return c.session.id
+	return c.upstreamSession.id
 }
 
 // Routing context

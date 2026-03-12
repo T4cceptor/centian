@@ -41,6 +41,12 @@ const DefaultAuthHeader = "X-Centian-Auth"
 // DefaultProxyHost represents the default bind address for the Centian server.
 const DefaultProxyHost = "127.0.0.1"
 
+// Default proxy logging settings.
+const (
+	DefaultProxyLogLevel  = "info"
+	DefaultProxyLogOutput = "file"
+)
+
 // IsAuthEnabled returns true when auth is enabled or unset.
 func (g *GlobalConfig) IsAuthEnabled() bool {
 	if g == nil || g.AuthEnabled == nil {
@@ -132,20 +138,22 @@ func (s *MCPServerConfig) GetSubstitutedHeaders() map[string]string {
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Host     string `json:"host,omitempty"`     // Bind address for the proxy
-	Port     string `json:"port,omitempty"`     // HTTP proxy port (if enabled)
-	LogLevel string `json:"logLevel,omitempty"` // debug, info, warn, error
-	LogFile  string `json:"logFile,omitempty"`  // Log file path
-	Timeout  int    `json:"timeout,omitempty"`  // Request timeout in seconds
+	Host      string `json:"host,omitempty"`      // Bind address for the proxy
+	Port      string `json:"port,omitempty"`      // HTTP proxy port (if enabled)
+	LogLevel  string `json:"logLevel,omitempty"`  // debug, info, warn, error
+	LogOutput string `json:"logOutput,omitempty"` // file, console, both
+	LogFile   string `json:"logFile,omitempty"`   // Log file path for internal logger
+	Timeout   int    `json:"timeout,omitempty"`   // Request timeout in seconds
 }
 
 // NewDefaultProxySettings creates a new ProxySettings with default values.
 func NewDefaultProxySettings() ProxySettings {
 	return ProxySettings{
-		Host:     DefaultProxyHost,
-		Port:     "8080",
-		Timeout:  30,
-		LogLevel: "info",
+		Host:      DefaultProxyHost,
+		Port:      "8080",
+		Timeout:   30,
+		LogLevel:  DefaultProxyLogLevel,
+		LogOutput: DefaultProxyLogOutput,
 	}
 }
 
@@ -365,6 +373,9 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if config.Proxy == nil {
 		return fmt.Errorf("proxy settings are required in config")
 	}
+	if err := validateProxySettings(config.Proxy); err != nil {
+		return err
+	}
 	if err := validateNameConventions(config.Gateways); err != nil {
 		return err
 	}
@@ -378,6 +389,31 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func validateProxySettings(proxy *ProxySettings) error {
+	proxy.LogLevel = strings.ToLower(strings.TrimSpace(proxy.LogLevel))
+	if proxy.LogLevel == "" {
+		proxy.LogLevel = DefaultProxyLogLevel
+	}
+	switch proxy.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("proxy.logLevel: unsupported value %q (expected debug, info, warn, or error)", proxy.LogLevel)
+	}
+
+	proxy.LogOutput = strings.ToLower(strings.TrimSpace(proxy.LogOutput))
+	if proxy.LogOutput == "" {
+		proxy.LogOutput = DefaultProxyLogOutput
+	}
+	switch proxy.LogOutput {
+	case "file", "console", "both":
+	default:
+		return fmt.Errorf("proxy.logOutput: unsupported value %q (expected file, console, or both)", proxy.LogOutput)
+	}
+
+	proxy.LogFile = strings.TrimSpace(proxy.LogFile)
 	return nil
 }
 

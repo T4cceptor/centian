@@ -87,17 +87,24 @@ func LoadAPIKeys(path string) (*APIKeyStore, error) {
 	}, nil
 }
 
-// Validate returns true if the provided API key exists in the store.
-func (s *APIKeyStore) Validate(key string) bool {
+// Lookup returns the matching API key entry for the provided plaintext key.
+func (s *APIKeyStore) Lookup(key string) (*APIKeyEntry, bool) {
 	if s == nil {
-		return false
+		return nil, false
 	}
-	for _, entry := range s.entries {
+	for i := range s.entries {
+		entry := &s.entries[i]
 		if err := bcrypt.CompareHashAndPassword([]byte(entry.Hash), []byte(key)); err == nil {
-			return true
+			return entry, true
 		}
 	}
-	return false
+	return nil, false
+}
+
+// Validate returns true if the provided API key exists in the store.
+func (s *APIKeyStore) Validate(key string) bool {
+	_, ok := s.Lookup(key)
+	return ok
 }
 
 // Count returns the number of unique API keys in the store.

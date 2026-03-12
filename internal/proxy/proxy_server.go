@@ -1,17 +1,21 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/T4cceptor/centian/internal/auth"
+	centauth "github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
@@ -38,7 +42,7 @@ type CentianProxy struct {
 	Server     *http.Server
 	Logger     *logging.Logger // Shared base logger (ONE file handle)
 	Gateways   map[string]*MCPProxy
-	APIKeys    *auth.APIKeyStore
+	APIKeys    *centauth.APIKeyStore
 	AuthHeader string
 }
 
@@ -70,19 +74,24 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 	}
 
 	// loading API Key store
-	var apiKeyStore *auth.APIKeyStore
+	var apiKeyStore *centauth.APIKeyStore
 	if globalConfig.IsAuthEnabled() {
-		loadedStore, err := auth.LoadDefaultAPIKeys()
+		loadedStore, err := centauth.LoadDefaultAPIKeys()
 		if err != nil {
-			if errors.Is(err, auth.ErrAPIKeysNotFound) {
+			if errors.Is(err, centauth.ErrAPIKeysNotFound) {
 				return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
 			}
 			return nil, fmt.Errorf("failed to load api keys: %w", err)
 		}
 		apiKeyStore = loadedStore
-		common.LogInfo("Loaded %d API keys from %s", apiKeyStore.Count(), apiKeyStore.Path())
+		keyCount := apiKeyStore.Count()
+		if keyCount == 0 {
+			common.LogWarn("Auth enabled but no API keys available from %s\n", apiKeyStore.Path())
+		} else {
+			common.LogInfo("Loaded %d API keys from %s\n", apiKeyStore.Count(), apiKeyStore.Path())
+		}
 	} else {
-		common.LogInfo("API key auth disabled via config")
+		common.LogInfo("API key auth disabled via config\n")
 	}
 
 	return &CentianProxy{
@@ -101,19 +110,47 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 // MCPProxy - Unified proxy for both aggregated and single-server modes
 // ============================================================================
 
-// CentianProxySession represents a session with one or more downstream connections.
-// For single-server mode, the map has exactly one entry.
-// For aggregated mode, the map has multiple entries.
-type CentianProxySession struct {
+// UpstreamSession represents one MCP client session talking to this proxy endpoint.
+//
+// It owns only upstream-facing state:
+// - the upstream MCP session ID
+// - the per-session upstream mcp.Server exposed to the SDK
+// - the resolved request identity and forwarded auth headers captured from the client
+//
+// It does not own downstream lifecycle. Instead, it points at a reusable
+// DownstreamConnectionPool via poolKey and receives whichever downstream
+// connections that pool currently owns.
+type UpstreamSession struct {
 	id              string
 	initialized     bool
-	upstreamServer  *mcp.Server                              // The upstream server, connecting to the MCP client/AI agent
-	downstreamConns map[string]DownstreamConnectionInterface // Downstream MCP servers
-	authHeaders     map[string]string                        // Auth headers provided by the client for this session
+	upstreamServer  *mcp.Server                              // Server returned to the MCP SDK for this upstream session.
+	downstreamConns map[string]DownstreamConnectionInterface // Current downstream connections borrowed from the assigned pool.
+	registeredTools map[string]struct{}                      // Tools already registered on upstreamServer for this session.
+	authHeaders     map[string]string                        // Forwarded auth headers captured from the client request that created this session.
+	identityKey     string                                   // Stable caller identity used when choosing a reusable downstream pool.
+	poolKey         string                                   // Lookup key of the DownstreamConnectionPool backing this upstream session.
 }
 
+// DownstreamConnectionPool owns the reusable downstream connection set for one
+// pool key.
+//
+// A pool key represents one proxy endpoint plus the caller identity and any
+// forwarded auth state that affects downstream initialization. Multiple
+// UpstreamSessions can attach to the same pool so reconnecting clients can reuse
+// already-initialized downstream MCP sessions.
+type DownstreamConnectionPool struct {
+	identityKey      string
+	poolKey          string
+	downstreamConns  map[string]DownstreamConnectionInterface // Reusable downstream connections owned by this pool.
+	upstreamSessions map[string]*UpstreamSession              // Upstream sessions currently attached to this pool.
+	connecting       map[string]bool                          // Tracks downstreams currently connecting in the background.
+	lastUsed         time.Time                                // Timestamp for future cleanup/eviction decisions.
+}
+
+const initialDownstreamReadyWait = 500 * time.Millisecond
+
 // GetConnectionByName returns a MCP connection for the given server name.
-func (s *CentianProxySession) GetConnectionByName(serverName string) (DownstreamConnectionInterface, error) {
+func (s *UpstreamSession) GetConnectionByName(serverName string) (DownstreamConnectionInterface, error) {
 	conn, ok := s.downstreamConns[serverName]
 	if !ok {
 		return nil, fmt.Errorf("no connection to server '%s' found", serverName)
@@ -134,8 +171,12 @@ type MCPProxy struct {
 	// Downstream connection templates (created on init, cloned per-session)
 	downstreams map[string]*DownstreamConnection
 
-	// Session management: sessionID → *ProxySession
-	sessions map[string]*CentianProxySession
+	// upstreamSessions tracks MCP client sessions by the upstream session ID
+	// provided by the SDK/client.
+	upstreamSessions map[string]*UpstreamSession
+
+	// downstreamPools tracks reusable downstream connection ownership by poolKey.
+	downstreamPools map[string]*DownstreamConnectionPool
 
 	// Mode configuration: determines if the proxy is for a single downstream connection or multiple
 	//
@@ -155,6 +196,8 @@ type MCPProxy struct {
 
 	// toolRegMu protects AddTool calls during progressive registration
 	toolRegMu sync.Mutex
+
+	connectionFactory func(string, *config.MCPServerConfig) DownstreamConnectionInterface
 }
 
 // NewAggregatedProxy creates a proxy that aggregates multiple downstream servers.
@@ -165,7 +208,8 @@ func NewAggregatedProxy(gatewayName, endpoint string, gatewayConfig *config.Gate
 		endpoint:          endpoint,
 		config:            gatewayConfig,
 		downstreams:       make(map[string]*DownstreamConnection),
-		sessions:          make(map[string]*CentianProxySession),
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		isAggregatedProxy: true,
 	}
 
@@ -188,7 +232,8 @@ func NewSingleProxy(serverName, endpoint string, serverConfig *config.MCPServerC
 		downstreams: map[string]*DownstreamConnection{
 			serverName: NewDownstreamConnection(serverName, serverConfig),
 		},
-		sessions:          make(map[string]*CentianProxySession),
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		isAggregatedProxy: false,
 	}
 }
@@ -197,20 +242,48 @@ func NewSingleProxy(serverName, endpoint string, serverConfig *config.MCPServerC
 func (p *MCPProxy) GetServerForRequest(r *http.Request) *mcp.Server {
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
-		sessionID = getNewUUIDV7()
+		sessionID = "csid-" + getNewUUIDV7() // we add "csid" to identify the session id as "internal" / not provided by the client!
 	}
 	common.LogInfo("MCPProxy[%s]: Getting server for session %s", p.name, sessionID)
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	session, exists := p.sessions[sessionID]
-	if !exists {
-		session = p.createSession(sessionID, r)
-		p.sessions[sessionID] = session
-		session.upstreamServer = p.getServerForSession(session)
+	identityKey, err := p.resolveIdentityKey(r)
+	if err != nil {
+		common.LogError("MCPProxy[%s]: Failed to resolve request identity: %v", p.name, err)
+		return nil
 	}
-	return session.upstreamServer
+
+	p.mu.Lock()
+	upstreamSession, exists := p.upstreamSessions[sessionID]
+	var (
+		downstreamPool *DownstreamConnectionPool
+		reusedPool     bool
+		newSession     bool
+	)
+	if !exists {
+		upstreamSession = p.createUpstreamSession(sessionID, r, identityKey)
+		p.upstreamSessions[sessionID] = upstreamSession
+		downstreamPool, reusedPool = p.initializeUpstreamSessionLocked(upstreamSession)
+		newSession = true
+	} else if upstreamSession.identityKey != identityKey {
+		p.mu.Unlock()
+		common.LogWarn(
+			"MCPProxy[%s]: session identity mismatch for session %s (existing=%s current=%s)",
+			p.name,
+			sessionID,
+			upstreamSession.identityKey,
+			identityKey,
+		)
+		return nil
+	}
+	p.mu.Unlock()
+
+	if newSession {
+		if !reusedPool {
+			p.waitForFirstUsableDownstream(downstreamPool, initialDownstreamReadyWait)
+		}
+		p.registerConnectedToolsForUpstreamSession(upstreamSession, downstreamPool)
+	}
+	return upstreamSession.upstreamServer
 }
 
 func getAuthHeaders(p *MCPProxy, r *http.Request) map[string]string {
@@ -228,19 +301,20 @@ func getAuthHeaders(p *MCPProxy, r *http.Request) map[string]string {
 	return authHeaders
 }
 
-func (p *MCPProxy) createSession(id string, r *http.Request) *CentianProxySession {
+// createUpstreamSession captures the request state needed to attach a new
+// upstream MCP session to the correct reusable downstream pool.
+func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey string) *UpstreamSession {
 	authHeaders := getAuthHeaders(p, r)
-	return &CentianProxySession{
+	return &UpstreamSession{
 		id:              id,
 		initialized:     false,
 		downstreamConns: make(map[string]DownstreamConnectionInterface),
+		registeredTools: make(map[string]struct{}),
 		authHeaders:     authHeaders,
+		identityKey:     identityKey,
+		poolKey:         p.getDownstreamPoolKey(identityKey, authHeaders),
 	}
 }
-
-// Minimum wait time before returning server during progressive connection.
-// Can be overridden via config in the future.
-const defaultMinConnectionWait = 15 * time.Second
 
 // sanitizeLogValue strips control characters to prevent log injection.
 func sanitizeLogValue(value string) string {
@@ -257,80 +331,273 @@ func sanitizeLogValue(value string) string {
 	return strings.TrimSpace(sanitized)
 }
 
-// getServerForSession connects to downstream server(s) and registers their tools progressively.
-// Uses progressive connection: server is returned after minWait even if some downstreams are still connecting.
-// Tools are registered as each downstream connects, and SDK auto-sends tools/list_changed notifications.
-// Always returns a valid server (possibly with no tools if all connections failed).
-func (p *MCPProxy) getServerForSession(session *CentianProxySession) *mcp.Server {
-	if session.initialized {
-		return session.upstreamServer
+func (p *MCPProxy) resolveIdentityKey(r *http.Request) (string, error) {
+	if p.server == nil || p.server.APIKeys == nil {
+		return sharedLocalIdentity, nil
 	}
+	identity, ok := requestIdentityFromContext(r.Context())
+	if !ok {
+		return "", fmt.Errorf("authenticated request missing resolved API key identity")
+	}
+	return identity, nil
+}
 
+func (p *MCPProxy) getDownstreamPoolKey(identityKey string, authHeaders map[string]string) string {
+	return fmt.Sprintf("%s|%s|%s", p.endpoint, identityKey, authHeadersFingerprint(authHeaders))
+}
+
+func (p *MCPProxy) newDownstreamConnection(name string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
+	if p.connectionFactory != nil {
+		return p.connectionFactory(name, cfg)
+	}
+	return NewDownstreamConnection(name, cfg)
+}
+
+// initializeUpstreamSessionLocked attaches a new upstream session to the
+// appropriate downstream pool. Caller must hold p.mu.
+func (p *MCPProxy) initializeUpstreamSessionLocked(session *UpstreamSession) (*DownstreamConnectionPool, bool) {
 	//nolint:gosec // session.id is sanitized for log safety; gosec cannot infer custom sanitizers.
-	log.Printf("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
+	common.LogDebug("MCPProxy[%s]: Initializing session %s", p.name, sanitizeLogValue(session.id))
 
 	// Create server immediately (empty tools initially)
 	server := p.NewMcpServer()
 	session.upstreamServer = server
 
-	// Pre-create DownstreamConnection objects (status: pending)
-	// This allows us to query their state during/after connection
-	// Note: No lock needed here - session is not yet visible to other goroutines
-	// (session.initialized is false, and we complete all writes before spawning goroutines)
-	for serverName, connTemplate := range p.downstreams {
-		conn := NewDownstreamConnection(serverName, connTemplate.config)
-		session.downstreamConns[serverName] = conn
-	}
-
-	totalDownstreams := len(p.downstreams)
-	if totalDownstreams == 0 {
-		// No downstreams configured - return empty server
-		session.initialized = true
-		log.Printf("MCPProxy[%s]: No downstream servers configured", p.name)
-		return server
-	}
-
-	// Channel to signal connection completion (success or failure)
-	done := make(chan string, totalDownstreams)
-
-	// Spawn connection goroutines - tools are registered as each connects
-	for serverName := range p.downstreams {
-		go p.connectAndRegister(session, server, serverName, done)
-	}
-
-	// Wait phase: minimum wait time OR all connections resolved (whichever first)
-	resolved := p.waitForMinimumReady(done, totalDownstreams, defaultMinConnectionWait)
-
+	downstreamPool, reused := p.getOrCreateDownstreamPool(session)
+	session.downstreamConns = downstreamPool.downstreamConns
 	session.initialized = true
+	return downstreamPool, reused
+}
 
-	// Count successful connections
-	connectedCount := 0
-	for _, conn := range session.downstreamConns {
-		if conn.GetStatus() == StatusConnected {
-			connectedCount++
+// getOrCreateDownstreamPool returns the reusable downstream pool matching the
+// upstream session's poolKey and ensures any missing/failed downstream
+// connections are being connected.
+func (p *MCPProxy) getOrCreateDownstreamPool(session *UpstreamSession) (*DownstreamConnectionPool, bool) {
+	if existing, ok := p.downstreamPools[session.poolKey]; ok {
+		existing.lastUsed = time.Now()
+		existing.upstreamSessions[session.id] = session
+		p.ensureDownstreamConnectionsLocked(existing, session.authHeaders)
+		return existing, true
+	}
+
+	entry := &DownstreamConnectionPool{
+		identityKey:      session.identityKey,
+		poolKey:          session.poolKey,
+		downstreamConns:  make(map[string]DownstreamConnectionInterface, len(p.downstreams)),
+		upstreamSessions: map[string]*UpstreamSession{session.id: session},
+		connecting:       make(map[string]bool),
+		lastUsed:         time.Now(),
+	}
+	p.downstreamPools[session.poolKey] = entry
+	p.ensureDownstreamConnectionsLocked(entry, session.authHeaders)
+	return entry, false
+}
+
+func (p *MCPProxy) ensureDownstreamConnectionsLocked(entry *DownstreamConnectionPool, authHeaders map[string]string) {
+	for serverName, connTemplate := range p.downstreams {
+		conn, exists := entry.downstreamConns[serverName]
+		if !exists || conn.GetStatus() == StatusFailed {
+			conn = p.newDownstreamConnection(serverName, connTemplate.config)
+			entry.downstreamConns[serverName] = conn
+		}
+		if entry.connecting[serverName] {
+			continue
+		}
+		if conn.GetStatus() == StatusConnected && conn.IsConnected() {
+			continue
+		}
+		entry.connecting[serverName] = true
+		go p.connectDownstreamPoolConnection(entry.poolKey, serverName, conn, cloneAuthHeaders(authHeaders))
+	}
+}
+
+func (p *MCPProxy) waitForFirstUsableDownstream(pool *DownstreamConnectionPool, timeout time.Duration) {
+	if pool == nil {
+		return
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if p.poolHasUsableDownstream(pool) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (p *MCPProxy) poolHasUsableDownstream(pool *DownstreamConnectionPool) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	for serverName, conn := range pool.downstreamConns {
+		if pool.connecting[serverName] {
+			continue
+		}
+		if conn.IsConnected() && len(conn.Tools()) > 0 {
+			return true
 		}
 	}
+	return false
+}
 
+func (p *MCPProxy) registerConnectedToolsForUpstreamSession(
+	upstreamSession *UpstreamSession,
+	downstreamPool *DownstreamConnectionPool,
+) {
+	if upstreamSession == nil || upstreamSession.upstreamServer == nil || downstreamPool == nil {
+		return
+	}
+
+	totalDownstreams := len(downstreamPool.downstreamConns)
+	if totalDownstreams == 0 {
+		common.LogWarn("MCPProxy[%s]: No downstream servers available for pool key %s", p.name, upstreamSession.poolKey)
+		return
+	}
+
+	summary := downstreamRegistrationSummary{}
+
+	p.mu.RLock()
+	p.toolRegMu.Lock()
+	for serverName, conn := range downstreamPool.downstreamConns {
+		p.inspectDownstreamForRegistration(
+			upstreamSession,
+			downstreamPool,
+			serverName,
+			conn,
+			&summary,
+		)
+	}
+	p.toolRegMu.Unlock()
+	p.mu.RUnlock()
+
+	p.logDownstreamRegistrationSummary(upstreamSession, totalDownstreams, summary)
+}
+
+type downstreamRegistrationSummary struct {
+	connectedCount  int
+	connectingCount int
+	connErrors      []string
+}
+
+func (p *MCPProxy) inspectDownstreamForRegistration(
+	upstreamSession *UpstreamSession,
+	downstreamPool *DownstreamConnectionPool,
+	serverName string,
+	conn DownstreamConnectionInterface,
+	summary *downstreamRegistrationSummary,
+) {
+	if downstreamPool.connecting[serverName] {
+		summary.connectingCount++
+		return
+	}
+
+	status := conn.GetStatus()
+	if status == StatusConnected && conn.IsConnected() {
+		summary.connectedCount++
+		p.registerDownstreamTools(upstreamSession, serverName, conn.Tools())
+		return
+	}
+
+	if status == StatusConnecting || status == StatusPending {
+		summary.connectingCount++
+		return
+	}
+
+	if status == StatusFailed && conn.GetError() != nil {
+		summary.connErrors = append(summary.connErrors, fmt.Sprintf("%s: %v", serverName, conn.GetError()))
+	}
+}
+
+func (p *MCPProxy) registerDownstreamTools(
+	upstreamSession *UpstreamSession,
+	serverName string,
+	tools []*mcp.Tool,
+) {
+	for _, tool := range tools {
+		p.registerTool(upstreamSession.upstreamServer, upstreamSession, serverName, tool)
+	}
+}
+
+func (p *MCPProxy) logDownstreamRegistrationSummary(
+	upstreamSession *UpstreamSession,
+	totalDownstreams int,
+	summary downstreamRegistrationSummary,
+) {
 	switch {
-	case connectedCount == 0 && resolved >= totalDownstreams:
-		// All connections attempted but none succeeded
-		var connErrors []string
-		for name, conn := range session.downstreamConns {
-			if conn.GetStatus() == StatusFailed && conn.GetError() != nil {
-				connErrors = append(connErrors, fmt.Sprintf("%s: %v", name, conn.GetError()))
+	case summary.connectedCount > 0:
+		common.LogInfo(
+			"MCPProxy[%s]: Upstream session %s using pooled downstream session %s with %d/%d connected servers",
+			p.name,
+			upstreamSession.id,
+			upstreamSession.poolKey,
+			summary.connectedCount,
+			totalDownstreams,
+		)
+	case summary.connectingCount > 0:
+		common.LogInfo(
+			"MCPProxy[%s]: Initializing pooled downstream session %s in background (%d/%d still connecting)",
+			p.name,
+			upstreamSession.poolKey,
+			summary.connectingCount,
+			totalDownstreams,
+		)
+	case len(summary.connErrors) > 0:
+		common.LogError("MCPProxy[%s]: All connections failed: %v", p.name, summary.connErrors)
+	default:
+		common.LogWarn("MCPProxy[%s]: No pooled downstream connections are connected for %s", p.name, upstreamSession.poolKey)
+	}
+}
+
+// connectDownstreamPoolConnection establishes one downstream connection owned by
+// a reusable pool and registers its tools with every currently attached
+// UpstreamSession once the connect succeeds.
+func (p *MCPProxy) connectDownstreamPoolConnection(
+	poolKey string,
+	serverName string,
+	conn DownstreamConnectionInterface,
+	authHeaders map[string]string,
+) {
+	if err := conn.Connect(context.Background(), authHeaders); err != nil {
+		p.mu.Lock()
+		if entry, ok := p.downstreamPools[poolKey]; ok {
+			if current, exists := entry.downstreamConns[serverName]; exists && current == conn {
+				delete(entry.connecting, serverName)
 			}
 		}
-		log.Printf("MCPProxy[%s]: All connections failed: %v", p.name, connErrors)
-		// Return server anyway - client will get empty tool list
-		// This is arguably correct: no tools are available
-	case connectedCount == 0:
-		log.Printf("MCPProxy[%s]: No connections ready after initial wait, continuing in background", p.name)
-	default:
-		log.Printf("MCPProxy[%s]: %d/%d connections ready, %d still connecting",
-			p.name, connectedCount, totalDownstreams, totalDownstreams-resolved)
+		p.mu.Unlock()
+		common.LogWarn("MCPProxy[%s]: Failed to connect pooled downstream %s: %v", p.name, serverName, err)
+		return
 	}
 
-	return server
+	p.mu.Lock()
+	upstreamSessions := make([]*UpstreamSession, 0)
+	if entry, ok := p.downstreamPools[poolKey]; ok {
+		if current, exists := entry.downstreamConns[serverName]; exists && current == conn {
+			delete(entry.connecting, serverName)
+			entry.lastUsed = time.Now()
+			for _, upstreamSession := range entry.upstreamSessions {
+				upstreamSessions = append(upstreamSessions, upstreamSession)
+			}
+		}
+	}
+	p.mu.Unlock()
+
+	if len(upstreamSessions) == 0 {
+		return
+	}
+
+	p.toolRegMu.Lock()
+	for _, upstreamSession := range upstreamSessions {
+		if upstreamSession == nil || upstreamSession.upstreamServer == nil {
+			continue
+		}
+		for _, tool := range conn.Tools() {
+			p.registerTool(upstreamSession.upstreamServer, upstreamSession, serverName, tool)
+		}
+	}
+	p.toolRegMu.Unlock()
+
+	common.LogInfo("MCPProxy[%s]: Connected pooled downstream %s with %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
 }
 
 // NewMcpServer returns a new *mcp.Server based on the MCPProxy name.
@@ -354,7 +621,12 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 	})
 }
 
-func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession, serverName string, tool *mcp.Tool) {
+// registerTool adds one downstream tool to one upstream-facing server instance.
+func (p *MCPProxy) registerTool(server *mcp.Server, upstreamSession *UpstreamSession, serverName string, tool *mcp.Tool) {
+	if upstreamSession.registeredTools == nil {
+		upstreamSession.registeredTools = make(map[string]struct{})
+	}
+
 	clonedTool := deepCloneTool(tool)
 	toolServerName := serverName // capture for closure
 
@@ -363,9 +635,15 @@ func (p *MCPProxy) registerTool(server *mcp.Server, session *CentianProxySession
 		clonedTool.Name = fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
 		clonedTool.Description = fmt.Sprintf("[%s] %s", serverName, tool.Description)
 	}
+
+	if _, exists := upstreamSession.registeredTools[clonedTool.Name]; exists {
+		return
+	}
+	upstreamSession.registeredTools[clonedTool.Name] = struct{}{}
+
 	// else: pass-through mode - keep original name
 	server.AddTool(clonedTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleToolCall(ctx, session, toolServerName, req)
+		return p.handleToolCall(ctx, upstreamSession, toolServerName, req)
 	})
 }
 
@@ -389,81 +667,14 @@ func (p *MCPProxy) ProcessCall(callCtx CallContext, direction common.McpEventDir
 	return nil
 }
 
-// connectAndRegister handles single downstream connection + tool registration.
-// Connection must already exist in session.downstreamConns with status pending.
-func (p *MCPProxy) connectAndRegister(
-	session *CentianProxySession,
-	server *mcp.Server,
-	serverName string,
-	done chan<- string,
-) {
-	defer func() { done <- serverName }()
-
-	// Get the pre-created connection (status: pending)
-	// Note: No lock needed - session.downstreamConns was fully populated before this goroutine started
-	conn := session.downstreamConns[serverName]
-
-	if conn == nil {
-		log.Printf("MCPProxy[%s]: No connection object for %s", p.name, serverName)
-		return
-	}
-
-	ctx := context.Background()
-
-	// Connect updates conn.status internally (connecting → connected/failed)
-	if err := conn.Connect(ctx, session.authHeaders); err != nil {
-		// conn.status already set to StatusFailed by Connect()
-		log.Printf("MCPProxy[%s]: Failed to connect to %s: %v", p.name, serverName, err)
-		return
-	}
-
-	// Connection successful - register tools with mutex protection
-	p.toolRegMu.Lock()
-	for _, tool := range conn.Tools() {
-		p.registerTool(server, session, serverName, tool)
-	}
-	p.toolRegMu.Unlock()
-
-	//nolint:gosec // serverName is config-validated and sanitized; gosec cannot infer this data flow.
-	log.Printf("MCPProxy[%s]: Connected to %s, registered %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
-}
-
-// waitForMinimumReady waits for minimum time OR all connections resolved (whichever first).
-func (p *MCPProxy) waitForMinimumReady(
-	done <-chan string,
-	total int,
-	minWait time.Duration,
-) int {
-	resolved := 0
-
-	timer := time.NewTimer(minWait)
-	defer timer.Stop()
-
-	for resolved < total {
-		select {
-		case <-done:
-			resolved++
-			// If all connections resolved before minWait, exit early
-			if resolved >= total {
-				return resolved
-			}
-		case <-timer.C:
-			// Minimum wait elapsed - return control to caller
-			// Remaining connections continue in background
-			log.Printf("MCPProxy[%s]: Minimum wait elapsed, %d/%d connections resolved", p.name, resolved, total)
-			return resolved
-		}
-	}
-	return resolved
-}
-
-func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (p *MCPProxy) handleToolCall(ctx context.Context, upstreamSession *UpstreamSession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// 1. Create CallContext
-	callCtx, err := NewToolCallContext(ctx, p, session, serverName, req)
+	callCtx, err := NewToolCallContext(ctx, p, upstreamSession, serverName, req)
 	if err != nil {
 		return nil, err
 	}
 	ctx = WithCallContext(ctx, callCtx)
+	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
 
 	// 2. Process REQUEST phase (Client → Server)
 	if err := p.ProcessCall(callCtx, common.DirectionClientToServer, common.MessageTypeRequest); err != nil {
@@ -481,14 +692,11 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 
 	// 4. CallContext executes the downstream call
 	if err := callCtx.SendRequest(ctx); err != nil {
+		p.invalidatePooledDownstream(upstreamSession.poolKey)
 		// Note: err != nil means there was an error in sending the request,
 		// this does NOT have an impact on an error state being returned
 		// from either the downstream MCP or any of the applied processors
 		return nil, err
-	}
-	txtContent, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
-	if txtContent != nil {
-		fmt.Printf("received result: %#v\n\n", txtContent)
 	}
 
 	// 5. Process RESPONSE phase (Server → Client)
@@ -499,10 +707,6 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *CentianProxySess
 	// Note: HasResult will always be true here, compare to above HasResult check
 
 	// 6. Return (potentially modified) result
-	txtContent2, _ := callCtx.GetResult().Content[0].(*mcp.TextContent)
-	if txtContent2 != nil {
-		fmt.Printf("returned result: %#v\n\n", txtContent2)
-	}
 	return callCtx.GetResult(), nil
 }
 
@@ -520,24 +724,24 @@ func deepCloneTool(tool *mcp.Tool) *mcp.Tool {
 }
 
 // Close terminates all sessions and their downstream connections.
-func (p *MCPProxy) Close() error {
+func (p *MCPProxy) Close() []error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var err error = nil
-	for _, session := range p.sessions {
-		for _, conn := range session.downstreamConns {
-			err = conn.Close()
-		}
+	errs := make([]error, 0)
+	for poolKey, entry := range p.downstreamPools {
+		closeErrs := p.closePoolEntryLocked(entry)
+		errs = append(errs, closeErrs...)
+		delete(p.downstreamPools, poolKey)
 	}
-	return err
+	return errs
 }
 
 // ============================================================================
 // HTTP Handler Registration
 // ============================================================================
 
-func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next http.Handler) http.Handler {
+func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			next.ServeHTTP(w, r)
@@ -551,13 +755,15 @@ func apiKeyMiddlewareWithHeader(store *auth.APIKeyStore, headerName string, next
 			return
 		}
 
-		if !store.Validate(token) {
+		entry, ok := store.Lookup(token)
+		if !ok {
 			writeUnauthorized(w, headerName)
 			common.LogWarn("Unauthorized request: invalid auth token from %s", r.RemoteAddr)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		ctx := withRequestIdentity(r.Context(), "auth:"+entry.ID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -581,6 +787,113 @@ func writeUnauthorized(w http.ResponseWriter, headerName string) {
 	_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 }
 
+func logRequestForDebug(r *http.Request) {
+	if !common.DebugLoggingEnabled() || r == nil || r.Body == nil {
+		return
+	}
+
+	common.LogDebug("Received request: %s - %s - %s", r.Method, r.URL, r.UserAgent())
+	common.LogDebug("Received headers: %#v", redactHeaders(r.Header))
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		common.LogWarn("Failed to read request body for debug logging: %v", err)
+		return
+	}
+
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	r.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+
+	if len(bodyBytes) == 0 {
+		common.LogDebug("Received request body: <empty>")
+		return
+	}
+
+	common.LogDebug("Received request body (%d bytes): %s", len(bodyBytes), string(bodyBytes))
+}
+
+func authHeadersFingerprint(authHeaders map[string]string) string {
+	if len(authHeaders) == 0 {
+		return "forwarded-auth:none"
+	}
+
+	keys := make([]string, 0, len(authHeaders))
+	for key := range authHeaders {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var builder strings.Builder
+	for _, key := range keys {
+		builder.WriteString(key)
+		builder.WriteString("=")
+		builder.WriteString(authHeaders[key])
+		builder.WriteString("\n")
+	}
+
+	sum := sha256.Sum256([]byte(builder.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+func cloneAuthHeaders(headers map[string]string) map[string]string {
+	if len(headers) == 0 {
+		return map[string]string{}
+	}
+
+	cloned := make(map[string]string, len(headers))
+	for key, value := range headers {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func redactHeaders(headers http.Header) http.Header {
+	redacted := make(http.Header, len(headers))
+	for key, values := range headers {
+		if strings.EqualFold(key, "Authorization") || strings.EqualFold(key, "X-Centian-Auth") ||
+			strings.EqualFold(key, "X-API-Key") || strings.EqualFold(key, "X-Auth-Token") {
+			redacted[key] = []string{"<redacted>"}
+			continue
+		}
+		copied := make([]string, len(values))
+		copy(copied, values)
+		redacted[key] = copied
+	}
+	return redacted
+}
+
+func (p *MCPProxy) invalidatePooledDownstream(poolKey string) {
+	if poolKey == "" {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	entry, ok := p.downstreamPools[poolKey]
+	if !ok {
+		return
+	}
+	common.LogWarn("MCPProxy[%s]: Invalidating pooled downstream session %s", p.name, poolKey)
+	_ = p.closePoolEntryLocked(entry)
+	delete(p.downstreamPools, poolKey)
+}
+
+func (p *MCPProxy) closePoolEntryLocked(entry *DownstreamConnectionPool) []error {
+	if entry == nil {
+		return nil
+	}
+	errs := make([]error, 0)
+	for _, conn := range entry.downstreamConns {
+		if closeErr := conn.Close(); closeErr != nil {
+			errs = append(errs, closeErr)
+		}
+	}
+	return errs
+}
+
 // RegisterEndpoint registers a ServerProvider with the HTTP mux.
 func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
 	if options == nil {
@@ -591,12 +904,15 @@ func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, opti
 	}
 	baseHandler := mcp.NewStreamableHTTPHandler(
 		func(r *http.Request) *mcp.Server {
+			logRequestForDebug(r)
 			return proxy.GetServerForRequest(r)
 		},
 		options,
 	)
 
-	var handler http.Handler = baseHandler
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		baseHandler.ServeHTTP(w, r)
+	})
 	if proxy.server != nil && proxy.server.APIKeys != nil {
 		headerName := proxy.server.AuthHeader
 		if headerName == "" {
@@ -682,6 +998,9 @@ func (p *MCPProxy) initEventProcessor() error {
 		return err
 	}
 	p.eventProcessor = pc
-	common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, len(allProcessors))
+	processorCount := len(allProcessors)
+	if processorCount > 0 {
+		common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, processorCount)
+	}
 	return nil
 }

@@ -250,6 +250,12 @@ func showConfig(_ context.Context, cmd *cli.Command) error {
 		if config.Proxy.LogLevel != "" {
 			fmt.Printf("Log Level: %s\n", config.Proxy.LogLevel)
 		}
+		if config.Proxy.LogOutput != "" {
+			fmt.Printf("Log Output: %s\n", config.Proxy.LogOutput)
+		}
+		if config.Proxy.LogFile != "" {
+			fmt.Printf("Log File: %s\n", config.Proxy.LogFile)
+		}
 		fmt.Printf("Gateways: %d configured\n", len(config.Gateways))
 
 		allServers := []*MCPServerConfig{}

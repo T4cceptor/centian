@@ -16,6 +16,8 @@ Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextproto
 
 ## Quick Start
 
+Note: if you do not already have a MCP setup locally you can also look into the next section Demo.
+
 1) **Install**
 
 ```bash
@@ -76,6 +78,26 @@ Example:
     - (Optional): to process requests and responses by downstream MCPs, add a new processor via `centian processor new` and follow the instructions.
 
 
+## Demo
+
+The `demo/` folder contains two isolated walkthroughs:
+- `demo/logging_demo/` for OpenTelemetry span export on MCP tool calls.
+- `demo/modification_demo/` for regex-based redaction of sensitive response values.
+
+Quick local setup:
+
+```bash
+cd demo
+make setup
+```
+
+Then run either `make demo-logging-up` or `make demo-modification-up`.
+
+These examples are intended to demonstrate extension patterns and are not production-hardened security/monitoring implementations.
+
+For further details, checkout `demo/README.md`.
+
+
 ## Configuration
 
 Centian uses a single JSON config at `~/.centian/config.json`.
@@ -92,7 +114,9 @@ Minimal example:
     "host": "127.0.0.1",
     "port": "8080",
     "timeout": 30,
-    "logLevel": "info"
+    "logLevel": "info",
+    "logOutput": "file",
+    "logFile": "~/.centian/centian.log"
   },
   "gateways": {
     "default": {
@@ -166,6 +190,39 @@ Example:
 
 In aggregated mode, tools are namespaced to avoid collisions.
 
+## Session Management
+
+Centian manages two different session layers:
+
+- **Upstream sessions** are the sessions between an MCP client and Centian.
+- **Downstream sessions** are the sessions Centian opens to the configured MCP servers behind a gateway.
+
+These two layers are intentionally managed separately. An upstream session still exists per MCP client session, but the downstream connections attached to it can be reused from a pool.
+
+### Current Behavior
+
+- If `auth` is `true`, Centian identifies the caller by the matched API key ID.
+- If `auth` is `false`, Centian uses one shared local identity per endpoint.
+- Downstream session reuse is keyed by `endpoint + identity`.
+
+This means:
+
+- Reconnects from the same authenticated client reuse the same downstream MCP session set for that endpoint.
+- Unauthenticated local traffic shares one downstream MCP session set per endpoint.
+- Different endpoints do not share downstream sessions with each other.
+
+### Why This Exists
+
+Some MCP clients reconnect frequently or do not reliably reuse `Mcp-Session-Id`. If downstream sessions were tied directly to every upstream reconnect, Centian would repeatedly re-initialize downstream MCP servers.
+
+The current pooling model avoids that by keeping upstream session handling separate from downstream session ownership:
+
+- the upstream session keeps references to downstream connections
+- the pool owns downstream lifecycle and reuse
+
+This applies to both stateful and stateless upstream MCP traffic. Even if the upstream side is stateless, Centian can still reuse downstream sessions internally when the identity and endpoint match.
+
+
 ## Processors
 
 Processors let you enforce policies or transform MCP traffic (request/response). You can scaffold a processor with:
@@ -176,28 +233,49 @@ centian processor new
 
 The scaffold can optionally add the processor to your config automatically.
 
-## Demo
-
-The `demo/` folder contains two isolated walkthroughs:
-- `demo/logging_demo/` for OpenTelemetry span export on MCP tool calls.
-- `demo/modification_demo/` for regex-based redaction of sensitive response values.
-
-Quick local setup:
-
-```bash
-cd demo
-make setup
-```
-
-Then run either `make demo-logging-up` or `make demo-modification-up`.
-
-These examples are intended to demonstrate extension patterns and are not production-hardened security/monitoring implementations.
-
 ## Logging
 
-Centian logs MCP activity to `~/.centian/logs/`:
+Centian has two different logging/observability paths, and they serve different purposes.
+
+### Internal Proxy Logging
+
+These logs are for Centian's own internal runtime behavior only: proxy startup, downstream connection state, processor execution failures, and similar implementation details.
+
+Configure them under `proxy`:
+
+```json
+{
+  "proxy": {
+    "logLevel": "info",
+    "logOutput": "file",
+    "logFile": "~/.centian/centian.log"
+  }
+}
+```
+
+- `logLevel`: `debug`, `info`, `warn`, `error`
+- `logOutput`: `file`, `console`, `both`
+- `logFile`: optional file path when file output is enabled
+
+By default, internal proxy logs are written to `~/.centian/centian.log`.
+
+### MCP Communication Logging
+
+Logs about actual MCP requests/responses are separate from the internal logger. They are written to `~/.centian/logs/` as MCP event records:
 
 - `requests.jsonl` – MCP requests with timestamps and session IDs
+
+Use this path when you want to inspect or retain MCP traffic.
+
+### Processor-Based Observability
+
+If you want to log, export, redact, or otherwise process MCP communication details, use processors rather than the internal proxy logger. This is the correct place for request/response-specific observability, audit enrichment, and custom telemetry.
+
+See:
+
+- [demo/README.md](demo/README.md) for end-to-end examples
+- `demo/src/otel_span_logger.py` for telemetry export
+- `demo/src/response_redactor.py` for response transformation/redaction
 
 ## Commands (Quick Reference)
 

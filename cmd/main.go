@@ -24,10 +24,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/T4cceptor/centian/internal/cli"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	urfavecli "github.com/urfave/cli/v3"
 )
@@ -36,6 +38,10 @@ import (
 var version = "dev"
 
 func main() {
+	if err := common.InitInternalLogger(common.LoggerOptions{}); err != nil {
+		log.Printf("warning: failed to initialize internal logger: %v", err)
+	}
+
 	// Create CLI app.
 	app := &urfavecli.Command{
 		Name:                  "centian",
@@ -55,7 +61,18 @@ func main() {
 	}
 
 	// Run the CLI app.
+	exitCode := 0
 	if err := app.Run(context.Background(), os.Args); err != nil {
-		log.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		exitCode = 1
+	}
+	if err := common.CloseLogger(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to close internal logger: %v\n", err)
+		if exitCode == 0 {
+			exitCode = 1
+		}
+	}
+	if exitCode != 0 {
+		os.Exit(exitCode)
 	}
 }

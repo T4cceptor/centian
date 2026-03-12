@@ -118,6 +118,29 @@ func TestLoadAPIKeys_ObjectFormat(t *testing.T) {
 	}
 }
 
+func TestAPIKeyStoreLookup(t *testing.T) {
+	// Given: a store with one API key
+	plain := "lookup-key"
+	path := writeTempFile(t, `{"keys":[{"id":"key_lookup","hash":"`+hashKey(t, plain)+`","created_at":"2025-01-01T00:00:00Z"}]}`)
+	store, err := LoadAPIKeys(path)
+	assert.NilError(t, err)
+
+	// When: looking up the valid key
+	entry, ok := store.Lookup(plain)
+
+	// Then: the matching entry is returned
+	assert.Assert(t, ok)
+	assert.Assert(t, entry != nil)
+	assert.Equal(t, entry.ID, "key_lookup")
+
+	// When: looking up an invalid key
+	entry, ok = store.Lookup("missing")
+
+	// Then: no entry is returned
+	assert.Assert(t, !ok)
+	assert.Assert(t, entry == nil)
+}
+
 func TestLoadAPIKeys_ArrayFormat(t *testing.T) {
 	// Given: a JSON array (unsupported format)
 	path := writeTempFile(t, `["key-1","key-2"]`)
