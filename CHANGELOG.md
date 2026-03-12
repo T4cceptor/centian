@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.0.4 - 2026-03-12
+
+### Major
+- Added `centian processor add` to register existing processors from a file path with inferred name and runtime command.
+- Added a unified local demo stack under `./demo` with Docker Compose, seeded data, and ready-to-run logging and redaction gateway examples.
+- Added `centian config restore` to restore the active config from a backup file with validation, confirmation prompts, and custom backup path support.
+- Reworked proxy session handling to decouple upstream MCP sessions from reusable downstream connection pools keyed by caller identity and forwarded auth context.
+
+### Minor
+- Improved CLI processor execution logging and stderr visibility for easier debugging.
+- Added configurable proxy/internal logging output and level settings through proxy config.
+- Expanded README and demo documentation for processor setup, config restore behavior, and local demo quickstart flows.
+- Moved the DeepWiki proxy coverage into an opt-in external integration test flow.
+- Added coverage for processor add, config restore, proxy pool reuse/isolation, auth identity propagation, logging config validation, and demo-related regression paths.
+
+### Bugfixes
+- Fixed downstream teardown behavior so upstream reconnects or repeated initialization no longer unnecessarily reset client-facing sessions.
+- Fixed downstream pool reuse to isolate connections correctly across caller identities and forwarded auth changes while preserving reuse for matching contexts.
+- Fixed restore behavior to validate backup configs before overwrite and to support `~` and environment-variable expansion in backup paths.
+- Fixed demo and processor routing/logging edge cases that previously caused unexpected failures or timeout-prone behavior in local demo scenarios.
+
 ## v0.0.3 - 2026-02-10
 
 ### Major
