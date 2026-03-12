@@ -61,6 +61,51 @@ func TestGetEndpointString(t *testing.T) {
 	assert.Assert(t, err != nil)
 }
 
+func TestParseAggregatedToolName(t *testing.T) {
+	cases := []struct {
+		name           string
+		rawName        string
+		expectedServer string
+		expectedTool   string
+		wantErr        bool
+	}{
+		{
+			name:           "valid namespaced tool",
+			rawName:        "server___query",
+			expectedServer: "server",
+			expectedTool:   "query",
+		},
+		{
+			name:           "wrong server namespace",
+			rawName:        "other___query",
+			expectedServer: "server",
+			wantErr:        true,
+		},
+		{
+			name:    "malformed separator",
+			rawName: "server___nested___query",
+			wantErr: true,
+		},
+		{
+			name:    "missing namespace",
+			rawName: "query",
+			wantErr: true,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			toolName, err := parseAggregatedToolName(testCase.rawName, testCase.expectedServer)
+			if testCase.wantErr {
+				assert.Assert(t, err != nil)
+				return
+			}
+			assert.NilError(t, err)
+			assert.Equal(t, toolName, testCase.expectedTool)
+		})
+	}
+}
+
 func TestExtractAuthToken(t *testing.T) {
 	// Given: header values
 	cases := []struct {

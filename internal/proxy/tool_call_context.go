@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -69,12 +68,27 @@ func NewToolCallContext(
 		WithSessionID(upstreamSession.id).
 		WithServerID(proxy.server.ServerID) // nil check was done above
 
+	// request holds the current mutable MCP tool name. In aggregated mode we
+	// normalize it once before processing so all later code sees the current
+	// downstream tool name directly. originalRequest keeps the raw upstream name.
+	originalRequest := deepCloneRequest(req) // cloned here because req is being modified
+	if proxy.isAggregatedProxy {
+		if req == nil || req.Params == nil {
+			return nil, fmt.Errorf("aggregated tool call requires request params")
+		}
+		toolName, err := parseAggregatedToolName(req.Params.Name, serverName)
+		if err != nil {
+			return nil, err
+		}
+		req.Params.Name = toolName
+	}
+
 	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,
 		upstreamSession:    upstreamSession,
 		originalServerName: serverName,
-		originalRequest:    deepCloneRequest(req), // Immutable clone
-		request:            req,                   // Mutable, will be modified by handlers
+		originalRequest:    originalRequest, // Immutable clone of the upstream request
+		request:            req,             // Mutable, will be modified by handlers
 		routingContext:     routingCtx,
 		event:              event,
 	}
@@ -257,16 +271,7 @@ func (c *ToolCallContext) GetToolName() string {
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
-	toolName := c.request.Params.Name
-	if c.proxy.isAggregatedProxy {
-		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
-		if len(parts) < 2 {
-			common.LogWarn("failed to recreate original tool name from %s", toolName)
-			return ""
-		}
-		toolName = strings.Join(parts[1:], "")
-	}
-	return toolName
+	return c.request.Params.Name
 }
 
 // Status and error handling

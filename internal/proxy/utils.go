@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -10,6 +11,25 @@ import (
 
 // NamespaceSeparator is used to create tool names in an aggregated proxy server.
 const NamespaceSeparator = "___"
+
+// parseAggregatedToolName validates an aggregated tool name and returns the
+// downstream tool name that should be used for processing and dispatch.
+//
+// Note: this is to be used BEFORE processing the request, otherwise it
+// might return false-positive errors!
+func parseAggregatedToolName(rawName, expectedServer string) (string, error) {
+	parts := strings.SplitN(rawName, NamespaceSeparator, 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("invalid aggregated tool name %q", rawName)
+	}
+	if strings.Contains(parts[1], NamespaceSeparator) {
+		return "", fmt.Errorf("invalid aggregated tool name %q", rawName)
+	}
+	if expectedServer != "" && parts[0] != expectedServer {
+		return "", fmt.Errorf("aggregated tool %q targets server %q, expected %q", rawName, parts[0], expectedServer)
+	}
+	return parts[1], nil
+}
 
 var newUUIDV7 = uuid.NewV7
 
