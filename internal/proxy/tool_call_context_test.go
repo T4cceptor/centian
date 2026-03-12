@@ -284,17 +284,25 @@ func TestToolCallContextAccessors(t *testing.T) {
 	assert.Equal(t, toolCtx.GetServerName(), "new-srv")
 	assert.Equal(t, toolCtx.GetRoutingContext().Gateway, "gw")
 
-	// And: aggregated tool names are de-namespaced.
-	assert.Equal(t, toolCtx.GetToolName(), "tool_name")
+	// And: raw and downstream tool names are both available.
+	toolCtx.request.Params.Name = "new-srv___tool_name"
+	assert.Equal(t, toolCtx.GetRawToolName(), "new-srv___tool_name")
+	assert.Equal(t, toolCtx.GetToolName(), "new-srv___tool_name")
+	assert.Equal(t, toolCtx.GetDownstreamToolName(), "tool_name")
 	assert.Equal(t, toolCtx.GetOriginalToolName(), "orig_tool")
 
-	// And: malformed aggregated name returns empty.
+	// And: malformed aggregated names fall back to the raw tool name.
 	toolCtx.request.Params.Name = "malformed"
-	assert.Equal(t, toolCtx.GetToolName(), "")
+	assert.Equal(t, toolCtx.GetDownstreamToolName(), "malformed")
+
+	// And: mismatched namespaces are not used for downstream dispatch.
+	toolCtx.request.Params.Name = "other___tool_name"
+	assert.Equal(t, toolCtx.GetDownstreamToolName(), "other___tool_name")
 
 	// And: nil request returns empty.
 	toolCtx.request = nil
-	assert.Equal(t, toolCtx.GetToolName(), "")
+	assert.Equal(t, toolCtx.GetRawToolName(), "")
+	assert.Equal(t, toolCtx.GetDownstreamToolName(), "")
 
 	// And: status/error accessors round-trip values.
 	toolCtx.SetStatus(422)
@@ -357,4 +365,39 @@ func TestToolCallContextSessionAndOriginalAccessors(t *testing.T) {
 	assert.Equal(t, toolCtx.GetOriginalToolName(), "")
 	assert.Equal(t, toolCtx.GetRequestID(), "req-1")
 	assert.Equal(t, toolCtx.GetOriginalServerName(), "")
+}
+
+func TestToolCallContextRewriteToolName(t *testing.T) {
+	t.Run("rewrites plain tool names in aggregated mode", func(t *testing.T) {
+		toolCtx := &ToolCallContext{
+			proxy: &MCPProxy{
+				isAggregatedProxy: true,
+			},
+			routingContext: &common.RoutingLog{ServerName: "srv"},
+			request: &mcp.CallToolRequest{
+				Params: &mcp.CallToolParamsRaw{Name: "srv___tool_name"},
+			},
+		}
+
+		err := toolCtx.RewriteToolName("tool_updated")
+
+		assert.NilError(t, err)
+		assert.Equal(t, toolCtx.GetRawToolName(), "srv___tool_updated")
+	})
+
+	t.Run("rejects mismatched namespaced tool names in aggregated mode", func(t *testing.T) {
+		toolCtx := &ToolCallContext{
+			proxy: &MCPProxy{
+				isAggregatedProxy: true,
+			},
+			routingContext: &common.RoutingLog{ServerName: "srv"},
+			request: &mcp.CallToolRequest{
+				Params: &mcp.CallToolParamsRaw{Name: "srv___tool_name"},
+			},
+		}
+
+		err := toolCtx.RewriteToolName("other___tool_updated")
+
+		assert.Assert(t, errors.Is(err, ErrUnexpectedToolNamespace))
+	})
 }

@@ -674,7 +674,7 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, upstreamSession *Upstream
 		return nil, err
 	}
 	ctx = WithCallContext(ctx, callCtx)
-	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
+	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetDownstreamToolName())
 
 	// 2. Process REQUEST phase (Client → Server)
 	if err := p.ProcessCall(callCtx, common.DirectionClientToServer, common.MessageTypeRequest); err != nil {

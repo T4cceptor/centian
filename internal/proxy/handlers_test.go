@@ -175,6 +175,22 @@ func TestDefaultRoutingHandlerApply(t *testing.T) {
 		assert.Equal(t, callCtx.GetRequest().Params.Name, "tool-updated")
 	})
 
+	t.Run("does not rewrite aggregated raw tool name when downstream tool is unchanged", func(t *testing.T) {
+		callCtx := newHandlerTestCallContext()
+		callCtx.proxy = &MCPProxy{isAggregatedProxy: true}
+		callCtx.routingContext.ServerName = "server-current"
+		callCtx.request.Params.Name = "server-current___tool-current"
+
+		err := handler.Apply(callCtx, &processor.DataContext{
+			Routing: &processor.RoutingPart{
+				ToolName: "tool-current",
+			},
+		})
+
+		assert.NilError(t, err)
+		assert.Equal(t, callCtx.GetRequest().Params.Name, "server-current___tool-current")
+	})
+
 	t.Run("fails when tool name is set but request is nil", func(t *testing.T) {
 		callCtx := newHandlerTestCallContext()
 		callCtx.request = nil

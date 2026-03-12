@@ -2,13 +2,11 @@ package proxy
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/processor"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // CallContextHandler handles a specific part of the processing context.
@@ -112,7 +110,7 @@ func (h *DefaultRoutingHandler) AttachPart(callCtx CallContext, input *processor
 	}
 	input.Routing = &processor.RoutingPart{
 		ServerName:         callCtx.GetServerName(),
-		ToolName:           callCtx.GetToolName(),
+		ToolName:           callCtx.GetDownstreamToolName(),
 		OriginalServerName: callCtx.GetOriginalServerName(),
 		OriginalToolname:   callCtx.GetOriginalToolName(),
 	}
@@ -127,15 +125,10 @@ func (h *DefaultRoutingHandler) Apply(callCtx CallContext, result *processor.Dat
 	if result.Routing.ServerName != "" {
 		callCtx.SetServerName(result.Routing.ServerName)
 	}
-	if result.Routing.ToolName != "" {
-		req := callCtx.GetRequest()
-		if req == nil {
-			return fmt.Errorf("call context does not contain request")
+	if result.Routing.ToolName != "" && result.Routing.ToolName != callCtx.GetDownstreamToolName() {
+		if err := callCtx.RewriteToolName(result.Routing.ToolName); err != nil {
+			return err
 		}
-		if req.Params == nil {
-			req.Params = &mcp.CallToolParamsRaw{}
-		}
-		req.Params.Name = result.Routing.ToolName
 	}
 	return nil
 }
@@ -187,7 +180,7 @@ func (h *DefaultLogHandler) ToLogEntry(callCtx CallContext) *common.MCPEvent {
 	// Add arguments for request
 	req := callCtx.GetRequest()
 	if req != nil && req.Params != nil {
-		event.WithToolRequest(callCtx.GetToolName(), callCtx.GetOriginalToolName(), req.Params.Arguments)
+		event.WithToolRequest(callCtx.GetDownstreamToolName(), callCtx.GetOriginalToolName(), req.Params.Arguments)
 	}
 
 	// Add result for response

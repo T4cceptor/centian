@@ -79,11 +79,27 @@ func (m *mockCallContext) SetServerName(name string) {
 	}
 }
 func (m *mockCallContext) GetRequest() *mcp.CallToolRequest { return m.request }
-func (m *mockCallContext) GetToolName() string {
+func (m *mockCallContext) GetRawToolName() string {
 	if m.request == nil || m.request.Params == nil {
 		return ""
 	}
 	return m.request.Params.Name
+}
+func (m *mockCallContext) GetToolName() string {
+	return m.GetRawToolName()
+}
+func (m *mockCallContext) GetDownstreamToolName() string {
+	return m.GetRawToolName()
+}
+func (m *mockCallContext) RewriteToolName(toolName string) error {
+	if m.request == nil {
+		return errors.New("call context does not contain request")
+	}
+	if m.request.Params == nil {
+		m.request.Params = &mcp.CallToolParamsRaw{}
+	}
+	m.request.Params.Name = toolName
+	return nil
 }
 func (m *mockCallContext) GetStatus() int       { return m.event.Status }
 func (m *mockCallContext) SetStatus(status int) { m.event.Status = status }

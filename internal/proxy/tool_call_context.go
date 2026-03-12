@@ -3,8 +3,8 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -143,7 +143,11 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 
 	// Make the call with current request data
 	// Note: per-request headers require CallTool signature change (Phase 3)
-	result, err := conn.CallTool(ctx, c.GetToolName(), args)
+	toolName, err := c.resolveDownstreamToolName()
+	if err != nil {
+		return err
+	}
+	result, err := conn.CallTool(ctx, toolName, args)
 	if err != nil {
 		return err
 	}
@@ -254,22 +258,81 @@ func (c *ToolCallContext) GetRequest() *mcp.CallToolRequest {
 	return c.request
 }
 
-// GetToolName returns the current tool name.
-func (c *ToolCallContext) GetToolName() string {
+// GetRawToolName returns the current raw request tool name.
+func (c *ToolCallContext) GetRawToolName() string {
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
-	// here we check if we have an aggregated server, then change the name accordingly.
-	toolName := c.request.Params.Name
-	if c.proxy.isAggregatedProxy {
-		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
-		if len(parts) < 2 {
-			common.LogWarn("failed to recreate original tool name from %s", toolName)
-			return ""
-		}
-		toolName = strings.Join(parts[1:], "")
+	return c.request.Params.Name
+}
+
+// GetToolName returns the current raw request tool name.
+func (c *ToolCallContext) GetToolName() string {
+	return c.GetRawToolName()
+}
+
+// GetDownstreamToolName returns the current tool name to use for downstream dispatch.
+//
+// In aggregated mode this strips the server namespace when present. Malformed
+// names fall back to the raw tool name, while namespace mismatches are logged
+// and also fall back to the raw value for non-dispatch uses.
+func (c *ToolCallContext) GetDownstreamToolName() string {
+	toolName, err := c.resolveDownstreamToolName()
+	if err != nil {
+		common.LogWarn("failed to resolve downstream tool name for %q on server %q: %v", c.GetRawToolName(), c.GetServerName(), err)
+		return c.GetRawToolName()
 	}
 	return toolName
+}
+
+// RewriteToolName rewrites the current request tool name for the active routing mode.
+func (c *ToolCallContext) RewriteToolName(toolName string) error {
+	req := c.GetRequest()
+	if req == nil {
+		return fmt.Errorf("call context does not contain request")
+	}
+	if req.Params == nil {
+		req.Params = &mcp.CallToolParamsRaw{}
+	}
+	if c.proxy == nil || !c.proxy.isAggregatedProxy {
+		req.Params.Name = toolName
+		return nil
+	}
+
+	parsed, err := ParseAggregatedToolName(toolName, c.GetServerName())
+	switch {
+	case err == nil && parsed.IsNamespaced:
+		req.Params.Name = toolName
+		return nil
+	case err == nil:
+		rawName, formatErr := formatAggregatedToolName(c.GetServerName(), toolName)
+		if formatErr != nil {
+			return formatErr
+		}
+		req.Params.Name = rawName
+		return nil
+	case errors.Is(err, ErrMalformedAggregatedToolName):
+		return err
+	default:
+		return err
+	}
+}
+
+func (c *ToolCallContext) resolveDownstreamToolName() (string, error) {
+	toolName := c.GetRawToolName()
+	if toolName == "" || c.proxy == nil || !c.proxy.isAggregatedProxy {
+		return toolName, nil
+	}
+
+	parsed, err := ParseAggregatedToolName(toolName, c.GetServerName())
+	if err == nil {
+		return parsed.ToolName, nil
+	}
+	if errors.Is(err, ErrMalformedAggregatedToolName) {
+		common.LogWarn("failed to parse aggregated tool name %q for server %q, using raw tool name", toolName, c.GetServerName())
+		return toolName, nil
+	}
+	return "", err
 }
 
 // Status and error handling
