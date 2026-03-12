@@ -14,10 +14,12 @@ type MockDownstreamConnection struct {
 	cfg          *config.MCPServerConfig
 	ConnectCalls int
 	CloseCalls   int
+	ConnectFunc  func(context.Context, map[string]string) error
 
 	// Captured call data.
-	CapturedToolName string
-	CapturedArgs     map[string]any
+	CapturedToolName     string
+	CapturedArgs         map[string]any
+	CapturedConnectAuths []map[string]string
 
 	// Configurable downstream behavior.
 	ResultToReturn *mcp.CallToolResult
@@ -25,8 +27,19 @@ type MockDownstreamConnection struct {
 	Status         ConnectionStatus
 }
 
-func (m *MockDownstreamConnection) Connect(_ context.Context, _ map[string]string) error {
+func (m *MockDownstreamConnection) Connect(ctx context.Context, headers map[string]string) error {
 	m.ConnectCalls++
+	capturedHeaders := make(map[string]string, len(headers))
+	for key, value := range headers {
+		capturedHeaders[key] = value
+	}
+	m.CapturedConnectAuths = append(m.CapturedConnectAuths, capturedHeaders)
+	if m.ConnectFunc != nil {
+		if err := m.ConnectFunc(ctx, headers); err != nil {
+			m.Status = StatusFailed
+			return err
+		}
+	}
 	if m.ErrorToReturn != nil {
 		m.Status = StatusFailed
 		return m.ErrorToReturn

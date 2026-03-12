@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
@@ -277,6 +279,149 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	assert.Assert(t, server2 != nil)
 	assert.Equal(t, len(created), 1)
 	assert.Equal(t, len(proxy.pooledDownstreams), 1)
+}
+
+func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
+	// Given: a proxy with a downstream connect that does not complete immediately
+	releaseConnect := make(chan struct{})
+	proxy := &MCPProxy{
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		sessions:          make(map[string]*CentianProxySession),
+		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
+			return &MockDownstreamConnection{
+				cfg: cfg,
+				tools: []*mcp.Tool{
+					{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
+				},
+				ConnectFunc: func(_ context.Context, _ map[string]string) error {
+					<-releaseConnect
+					return nil
+				},
+			}
+		},
+		server: &CentianProxy{
+			Config: &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	serverResult := make(chan *mcp.Server, 1)
+
+	// When: requesting a server while downstream connection is still pending
+	go func() {
+		serverResult <- proxy.GetServerForRequest(request)
+	}()
+
+	// Then: the upstream server should be returned without waiting for the slow connect
+	select {
+	case server := <-serverResult:
+		assert.Assert(t, server != nil)
+	case <-time.After(2000 * time.Millisecond):
+		close(releaseConnect)
+		<-serverResult
+		t.Fatal("expected GetServerForRequest to return before downstream connect completed")
+	}
+
+	close(releaseConnect)
+}
+
+func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing.T) {
+	// Given: a proxy that forwards downstream auth separately from Centian auth
+	var created []*MockDownstreamConnection
+	proxy := &MCPProxy{
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		sessions:          make(map[string]*CentianProxySession),
+		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
+			conn := &MockDownstreamConnection{
+				cfg: cfg,
+				tools: []*mcp.Tool{
+					{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
+				},
+			}
+			created = append(created, conn)
+			return conn
+		},
+		server: &CentianProxy{
+			APIKeys:    createTestAPIKeyStore(t),
+			AuthHeader: "X-Centian-Auth",
+			Config:     &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request1 := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request1.Header.Set("Authorization", "Bearer downstream-token-1")
+	request1 = request1.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	request2 := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request2.Header.Set("Authorization", "Bearer downstream-token-2")
+	request2.Header.Set("Mcp-Session-Id", "session-2")
+	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	// When: the same Centian identity reconnects with a different downstream credential
+	server1 := proxy.GetServerForRequest(request1)
+	server2 := proxy.GetServerForRequest(request2)
+
+	// Then: a new downstream pool should be established with the new forwarded auth
+	assert.Assert(t, server1 != nil)
+	assert.Assert(t, server2 != nil)
+	assert.Equal(t, len(created), 2)
+	assert.Equal(t, created[0].CapturedConnectAuths[0]["Authorization"], "Bearer downstream-token-1")
+	assert.Equal(t, created[1].CapturedConnectAuths[0]["Authorization"], "Bearer downstream-token-2")
+}
+
+func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing.T) {
+	// Given: an aggregated proxy where one downstream fails the first time
+	createdByServer := make(map[string]int)
+	proxy := &MCPProxy{
+		name:     "gateway",
+		endpoint: "/mcp/gateway",
+		downstreams: map[string]*DownstreamConnection{
+			"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"}),
+			"server2": NewDownstreamConnection("server2", &config.MCPServerConfig{Command: "node"}),
+		},
+		sessions:          make(map[string]*CentianProxySession),
+		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		connectionFactory: func(name string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
+			createdByServer[name]++
+			conn := &MockDownstreamConnection{
+				cfg: cfg,
+				tools: []*mcp.Tool{
+					{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
+				},
+			}
+			if name == "server2" && createdByServer[name] == 1 {
+				conn.ErrorToReturn = errors.New("dial failed")
+			}
+			return conn
+		},
+		server: &CentianProxy{
+			APIKeys:    createTestAPIKeyStore(t),
+			AuthHeader: "Authorization",
+			Config:     &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request1 := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request1 = request1.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	request2 := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request2.Header.Set("Mcp-Session-Id", "session-2")
+	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	// When: a later session with the same identity arrives after a partial failure
+	server1 := proxy.GetServerForRequest(request1)
+	server2 := proxy.GetServerForRequest(request2)
+
+	// Then: the failed downstream should be retried for the later session
+	assert.Assert(t, server1 != nil)
+	assert.Assert(t, server2 != nil)
+	assert.Equal(t, createdByServer["server2"], 2)
 }
 
 func createTestAPIKeyStore(t *testing.T) *auth.APIKeyStore {
