@@ -3,8 +3,8 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -32,7 +32,7 @@ type ToolCallContext struct {
 	event *common.MCPEvent
 
 	// Routing context (reuses common.RoutingContext)
-	routingContext *common.RoutingLog
+	routingContext *common.RoutingContext
 
 	// Handlers
 	handlers   map[string]CallContextHandler
@@ -56,7 +56,7 @@ func NewToolCallContext(
 	routingCtx := buildRoutingContext(proxy, upstreamSession, serverName)
 	// TODO: get headers from ctx
 
-	conn, err := upstreamSession.GetConnectionByName(serverName)
+	conn, err := upstreamSession.GetConnectionByServerName(serverName)
 	transport := common.UnknownTransport
 	if err != nil {
 		common.LogWarn("unable to get connection for '%s': %v", serverName, err)
@@ -93,9 +93,9 @@ func NewToolCallContext(
 }
 
 // buildRoutingContext creates a RoutingContext from proxy and session info.
-func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serverName string) *common.RoutingLog {
+func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serverName string) *common.RoutingContext {
 	// ideally we would combine this somehow with MCPevent data struct
-	rc := &common.RoutingLog{
+	rc := &common.RoutingContext{
 		Gateway:    proxy.name,
 		ServerName: serverName,
 		Endpoint:   proxy.endpoint,
@@ -124,11 +124,10 @@ func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serv
 // downstream call, instead an immediate error response will be returned.
 func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Resolve connection based on (potentially modified) serverName
-	serverName := c.GetRoutingContext().ServerName
-	conn, ok := c.upstreamSession.downstreamConns[serverName]
-	if !ok {
-		return fmt.Errorf("server %s not found (original: %s)",
-			serverName, c.originalServerName)
+	serverName := c.GetServerName()
+	conn, err := c.upstreamSession.GetConnectionByServerName(serverName)
+	if err != nil {
+		return err
 	}
 	if !conn.IsConnected() {
 		return fmt.Errorf("server %s found (original: %s), but not connected",
@@ -143,11 +142,7 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 
 	// Make the call with current request data
 	// Note: per-request headers require CallTool signature change (Phase 3)
-	toolName, err := c.resolveDownstreamToolName()
-	if err != nil {
-		return err
-	}
-	result, err := conn.CallTool(ctx, toolName, args)
+	result, err := conn.CallTool(ctx, c.GetToolName(), args)
 	if err != nil {
 		return err
 	}
@@ -229,7 +224,6 @@ func (c *ToolCallContext) GetOriginalToolName() string {
 	if c.originalRequest == nil || c.originalRequest.Params == nil {
 		return ""
 	}
-	// TODO: add aggregated logic here! -> this makes it really convenient to call this then!
 	return c.originalRequest.Params.Name
 }
 
@@ -258,81 +252,21 @@ func (c *ToolCallContext) GetRequest() *mcp.CallToolRequest {
 	return c.request
 }
 
-// GetRawToolName returns the current raw request tool name.
-func (c *ToolCallContext) GetRawToolName() string {
+// GetToolName returns the current tool name.
+func (c *ToolCallContext) GetToolName() string {
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
-	return c.request.Params.Name
-}
-
-// GetToolName returns the current raw request tool name.
-func (c *ToolCallContext) GetToolName() string {
-	return c.GetRawToolName()
-}
-
-// GetDownstreamToolName returns the current tool name to use for downstream dispatch.
-//
-// In aggregated mode this strips the server namespace when present. Malformed
-// names fall back to the raw tool name, while namespace mismatches are logged
-// and also fall back to the raw value for non-dispatch uses.
-func (c *ToolCallContext) GetDownstreamToolName() string {
-	toolName, err := c.resolveDownstreamToolName()
-	if err != nil {
-		common.LogWarn("failed to resolve downstream tool name for %q on server %q: %v", c.GetRawToolName(), c.GetServerName(), err)
-		return c.GetRawToolName()
+	toolName := c.request.Params.Name
+	if c.proxy.isAggregatedProxy {
+		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
+		if len(parts) < 2 {
+			common.LogWarn("failed to recreate original tool name from %s", toolName)
+			return ""
+		}
+		toolName = strings.Join(parts[1:], "")
 	}
 	return toolName
-}
-
-// RewriteToolName rewrites the current request tool name for the active routing mode.
-func (c *ToolCallContext) RewriteToolName(toolName string) error {
-	req := c.GetRequest()
-	if req == nil {
-		return fmt.Errorf("call context does not contain request")
-	}
-	if req.Params == nil {
-		req.Params = &mcp.CallToolParamsRaw{}
-	}
-	if c.proxy == nil || !c.proxy.isAggregatedProxy {
-		req.Params.Name = toolName
-		return nil
-	}
-
-	parsed, err := ParseAggregatedToolName(toolName, c.GetServerName())
-	switch {
-	case err == nil && parsed.IsNamespaced:
-		req.Params.Name = toolName
-		return nil
-	case err == nil:
-		rawName, formatErr := formatAggregatedToolName(c.GetServerName(), toolName)
-		if formatErr != nil {
-			return formatErr
-		}
-		req.Params.Name = rawName
-		return nil
-	case errors.Is(err, ErrMalformedAggregatedToolName):
-		return err
-	default:
-		return err
-	}
-}
-
-func (c *ToolCallContext) resolveDownstreamToolName() (string, error) {
-	toolName := c.GetRawToolName()
-	if toolName == "" || c.proxy == nil || !c.proxy.isAggregatedProxy {
-		return toolName, nil
-	}
-
-	parsed, err := ParseAggregatedToolName(toolName, c.GetServerName())
-	if err == nil {
-		return parsed.ToolName, nil
-	}
-	if errors.Is(err, ErrMalformedAggregatedToolName) {
-		common.LogWarn("failed to parse aggregated tool name %q for server %q, using raw tool name", toolName, c.GetServerName())
-		return toolName, nil
-	}
-	return "", err
 }
 
 // Status and error handling
@@ -375,7 +309,7 @@ func (c *ToolCallContext) GetSessionID() string {
 // Routing context
 
 // GetRoutingContext returns the attached RoutingLog.
-func (c *ToolCallContext) GetRoutingContext() *common.RoutingLog {
+func (c *ToolCallContext) GetRoutingContext() *common.RoutingContext {
 	return c.routingContext
 }
 

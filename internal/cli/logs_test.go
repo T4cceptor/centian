@@ -38,7 +38,7 @@ func TestHandleLogsCommandOutputsEntries(t *testing.T) {
 			Success:          true,
 			ProcessingErrors: make(map[string]error),
 		},
-		Routing: common.RoutingLog{
+		Routing: common.RoutingContext{
 			DownstreamCommand: "npx",
 			Args:              []string{"@server"},
 		},

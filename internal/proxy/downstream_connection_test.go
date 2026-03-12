@@ -172,7 +172,7 @@ func containsEnv(env []string, entry string) bool {
 func TestDownstreamConnectionConnect_EarlyReturn(t *testing.T) {
 	// Given: an already connected downstream
 	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
-	dc.connected = true
+	dc.status = StatusConnected
 
 	// When: connecting
 	err := dc.Connect(context.Background(), nil)

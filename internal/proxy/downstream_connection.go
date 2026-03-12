@@ -17,10 +17,11 @@ type ConnectionStatus string
 
 // Connection status constants for tracking downstream connection lifecycle.
 const (
-	StatusPending    ConnectionStatus = "pending"
-	StatusConnecting ConnectionStatus = "connecting"
-	StatusConnected  ConnectionStatus = "connected"
-	StatusFailed     ConnectionStatus = "failed"
+	StatusPending      ConnectionStatus = "pending"
+	StatusConnecting   ConnectionStatus = "connecting"
+	StatusConnected    ConnectionStatus = "connected"
+	StatusFailed       ConnectionStatus = "failed"
+	StatusDisconnected ConnectionStatus = "disconnected"
 )
 
 // DownstreamConnection represents a connection to a downstream MCP server.
@@ -30,7 +31,6 @@ type DownstreamConnection struct {
 	client     *mcp.Client
 	session    *mcp.ClientSession
 	tools      []*mcp.Tool
-	connected  bool
 	mu         sync.RWMutex
 
 	// Progressive connection tracking
@@ -39,21 +39,23 @@ type DownstreamConnection struct {
 	connectedAt time.Time
 }
 
+// GetServerName returns the server name for this DownstreamConnection.
+func (dc *DownstreamConnection) GetServerName() string {
+	return dc.serverName
+}
+
 // Connect establishes connection to downstream server
 // authHeaders: additional headers from upstream request (for passthrough auth).
 func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[string]string) error {
-	dc.mu.Lock()
-	defer dc.mu.Unlock()
-
-	if dc.connected {
+	if dc.IsConnected() {
 		return nil // Already connected
 	}
-
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
 	dc.status = StatusConnecting
-
 	dc.client = mcp.NewClient(&mcp.Implementation{
 		Name:    dc.serverName,
-		Version: "1.0.0", // TODO: replace with gateway version
+		Version: "1.0.0", // TODO: replace with gateway version?
 	}, nil)
 
 	transport, err := dc.createTransport(authHeaders)
@@ -78,19 +80,16 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 		dc.connError = err
 		return fmt.Errorf("failed to discover tools: %w", err)
 	}
-
-	dc.connected = true
 	dc.status = StatusConnected
 	dc.connectedAt = time.Now()
 	return nil
 }
 
 // NewDownstreamConnection creates an unconnected downstream wrapper.
-func NewDownstreamConnection(name string, cfg *config.MCPServerConfig) *DownstreamConnection {
+func NewDownstreamConnection(serverName string, cfg *config.MCPServerConfig) *DownstreamConnection {
 	return &DownstreamConnection{
-		serverName: name,
+		serverName: serverName,
 		config:     cfg,
-		connected:  false,
 		status:     StatusPending,
 	}
 }
@@ -183,7 +182,7 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, a
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
-	if !dc.connected || dc.session == nil {
+	if !dc.IsConnected() || dc.session == nil {
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
 
@@ -204,7 +203,7 @@ func (dc *DownstreamConnection) Close() error {
 			return err
 		}
 	}
-	dc.connected = false
+	dc.status = StatusConnected
 	return nil
 }
 
@@ -219,7 +218,7 @@ func (dc *DownstreamConnection) Tools() []*mcp.Tool {
 func (dc *DownstreamConnection) IsConnected() bool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
-	return dc.connected
+	return dc.status == StatusConnected
 }
 
 // GetConfig returns the server configuration for this connection.

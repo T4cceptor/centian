@@ -41,10 +41,7 @@ type CallContext interface {
 	GetServerName() string            // Returns current server name
 	SetServerName(string)             // Sets current server name, can be used for re-routing
 	GetRequest() *mcp.CallToolRequest // Returns current CallToolRequest
-	GetRawToolName() string           // Returns current raw request tool name
-	GetToolName() string              // Returns current raw request tool name
-	GetDownstreamToolName() string    // Returns the tool name to use for downstream dispatch
-	RewriteToolName(string) error     // Rewrites the current request tool name for the active routing mode
+	GetToolName() string              // Returns current tool name
 
 	// Status and error handling
 	GetStatus() int   // Returns current status code (0 = not set, 200 = ok, 4xx/5xx = error)
@@ -64,7 +61,7 @@ type CallContext interface {
 	SetMessageType(common.McpMessageType)
 
 	// Routing context (reuses common.RoutingContext)
-	GetRoutingContext() *common.RoutingLog
+	GetRoutingContext() *common.RoutingContext
 
 	// Handler access
 	GetHandler(part string) (CallContextHandler, bool) // Returns handler for given part (payload, meta, routing, etc.)

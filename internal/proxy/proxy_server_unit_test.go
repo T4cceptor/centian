@@ -394,13 +394,16 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 		connectionFactory: func(name string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			createdByServer[name]++
 			conn := &MockDownstreamConnection{
-				cfg: cfg,
+				serverName: name,
+				cfg:        cfg,
+				Status:     StatusConnected,
 				tools: []*mcp.Tool{
 					{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
 				},
 			}
 			if name == "server2" && createdByServer[name] == 1 {
 				conn.ErrorToReturn = errors.New("dial failed")
+				conn.Status = StatusFailed
 			}
 			return conn
 		},

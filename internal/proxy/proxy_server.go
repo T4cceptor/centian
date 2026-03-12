@@ -147,10 +147,19 @@ type DownstreamConnectionPool struct {
 	lastUsed         time.Time                                // Timestamp for future cleanup/eviction decisions.
 }
 
+// GetConnectionByServerName returns a MCP connection for the given server name.
+func (d *DownstreamConnectionPool) GetConnectionByServerName(serverName string) (DownstreamConnectionInterface, error) {
+	conn, ok := d.downstreamConns[serverName]
+	if !ok {
+		return nil, fmt.Errorf("no connection to server '%s' found", serverName)
+	}
+	return conn, nil
+}
+
 const initialDownstreamReadyWait = 500 * time.Millisecond
 
-// GetConnectionByName returns a MCP connection for the given server name.
-func (s *UpstreamSession) GetConnectionByName(serverName string) (DownstreamConnectionInterface, error) {
+// GetConnectionByServerName returns a MCP connection for the given server name.
+func (s *UpstreamSession) GetConnectionByServerName(serverName string) (DownstreamConnectionInterface, error) {
 	conn, ok := s.downstreamConns[serverName]
 	if !ok {
 		return nil, fmt.Errorf("no connection to server '%s' found", serverName)
@@ -346,11 +355,11 @@ func (p *MCPProxy) getDownstreamPoolKey(identityKey string, authHeaders map[stri
 	return fmt.Sprintf("%s|%s|%s", p.endpoint, identityKey, authHeadersFingerprint(authHeaders))
 }
 
-func (p *MCPProxy) newDownstreamConnection(name string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
+func (p *MCPProxy) newDownstreamConnection(serverName string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 	if p.connectionFactory != nil {
-		return p.connectionFactory(name, cfg)
+		return p.connectionFactory(serverName, cfg)
 	}
-	return NewDownstreamConnection(name, cfg)
+	return NewDownstreamConnection(serverName, cfg)
 }
 
 // initializeUpstreamSessionLocked attaches a new upstream session to the
@@ -395,19 +404,22 @@ func (p *MCPProxy) getOrCreateDownstreamPool(session *UpstreamSession) (*Downstr
 
 func (p *MCPProxy) ensureDownstreamConnectionsLocked(entry *DownstreamConnectionPool, authHeaders map[string]string) {
 	for serverName, connTemplate := range p.downstreams {
-		conn, exists := entry.downstreamConns[serverName]
-		if !exists || conn.GetStatus() == StatusFailed {
+		conn, err := entry.GetConnectionByServerName(serverName)
+		if err != nil || conn.GetStatus() == StatusFailed {
 			conn = p.newDownstreamConnection(serverName, connTemplate.config)
 			entry.downstreamConns[serverName] = conn
 		}
+		// TODO: why do we have 2 different fields for status here?
+		// 1. entry.connecting[serverName] -> true - see below
+		// 2. conn.GetStatus() == StatusConnecting
 		if entry.connecting[serverName] {
 			continue
 		}
-		if conn.GetStatus() == StatusConnected && conn.IsConnected() {
+		if conn.IsConnected() {
 			continue
 		}
 		entry.connecting[serverName] = true
-		go p.connectDownstreamPoolConnection(entry.poolKey, serverName, conn, cloneAuthHeaders(authHeaders))
+		go p.connectDownstreamPoolConnection(entry.poolKey, conn, cloneAuthHeaders(authHeaders))
 	}
 }
 
@@ -492,9 +504,12 @@ func (p *MCPProxy) inspectDownstreamForRegistration(
 	}
 
 	status := conn.GetStatus()
-	if status == StatusConnected && conn.IsConnected() {
+	if conn.IsConnected() {
 		summary.connectedCount++
-		p.registerDownstreamTools(upstreamSession, serverName, conn.Tools())
+		// Registering downstream tools on upstream Session (endpoint)
+		for _, tool := range conn.Tools() {
+			p.registerTool(upstreamSession, serverName, tool)
+		}
 		return
 	}
 
@@ -505,16 +520,6 @@ func (p *MCPProxy) inspectDownstreamForRegistration(
 
 	if status == StatusFailed && conn.GetError() != nil {
 		summary.connErrors = append(summary.connErrors, fmt.Sprintf("%s: %v", serverName, conn.GetError()))
-	}
-}
-
-func (p *MCPProxy) registerDownstreamTools(
-	upstreamSession *UpstreamSession,
-	serverName string,
-	tools []*mcp.Tool,
-) {
-	for _, tool := range tools {
-		p.registerTool(upstreamSession.upstreamServer, upstreamSession, serverName, tool)
 	}
 }
 
@@ -553,11 +558,13 @@ func (p *MCPProxy) logDownstreamRegistrationSummary(
 // UpstreamSession once the connect succeeds.
 func (p *MCPProxy) connectDownstreamPoolConnection(
 	poolKey string,
-	serverName string,
 	conn DownstreamConnectionInterface,
 	authHeaders map[string]string,
 ) {
+	serverName := conn.GetServerName()
+	// TODO: feels like we should set the status of the DownstreamConnection here somewhere...
 	if err := conn.Connect(context.Background(), authHeaders); err != nil {
+		// TODO: comment explaining this more in-depth
 		p.mu.Lock()
 		if entry, ok := p.downstreamPools[poolKey]; ok {
 			if current, exists := entry.downstreamConns[serverName]; exists && current == conn {
@@ -592,7 +599,7 @@ func (p *MCPProxy) connectDownstreamPoolConnection(
 			continue
 		}
 		for _, tool := range conn.Tools() {
-			p.registerTool(upstreamSession.upstreamServer, upstreamSession, serverName, tool)
+			p.registerTool(upstreamSession, serverName, tool)
 		}
 	}
 	p.toolRegMu.Unlock()
@@ -622,7 +629,8 @@ func (p *MCPProxy) NewMcpServer() *mcp.Server {
 }
 
 // registerTool adds one downstream tool to one upstream-facing server instance.
-func (p *MCPProxy) registerTool(server *mcp.Server, upstreamSession *UpstreamSession, serverName string, tool *mcp.Tool) {
+func (p *MCPProxy) registerTool(upstreamSession *UpstreamSession, serverName string, tool *mcp.Tool) {
+	server := upstreamSession.upstreamServer
 	if upstreamSession.registeredTools == nil {
 		upstreamSession.registeredTools = make(map[string]struct{})
 	}
@@ -674,7 +682,7 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, upstreamSession *Upstream
 		return nil, err
 	}
 	ctx = WithCallContext(ctx, callCtx)
-	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetDownstreamToolName())
+	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
 
 	// 2. Process REQUEST phase (Client → Server)
 	if err := p.ProcessCall(callCtx, common.DirectionClientToServer, common.MessageTypeRequest); err != nil {

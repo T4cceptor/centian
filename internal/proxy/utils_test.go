@@ -61,61 +61,6 @@ func TestGetEndpointString(t *testing.T) {
 	assert.Assert(t, err != nil)
 }
 
-func TestParseAggregatedToolName(t *testing.T) {
-	cases := []struct {
-		name           string
-		rawName        string
-		expectedServer string
-		expectedTool   string
-		namespaced     bool
-		namespace      string
-		expectedErr    error
-	}{
-		{
-			name:           "valid namespaced tool",
-			rawName:        "server___query",
-			expectedServer: "server",
-			expectedTool:   "query",
-			namespaced:     true,
-			namespace:      "server",
-		},
-		{
-			name:         "plain tool name",
-			rawName:      "query",
-			expectedTool: "query",
-		},
-		{
-			name:           "wrong server namespace",
-			rawName:        "other___query",
-			expectedServer: "server",
-			expectedTool:   "query",
-			namespaced:     true,
-			namespace:      "other",
-			expectedErr:    ErrUnexpectedToolNamespace,
-		},
-		{
-			name:         "malformed separator",
-			rawName:      "server___nested___query",
-			expectedTool: "server___nested___query",
-			expectedErr:  ErrMalformedAggregatedToolName,
-		},
-	}
-
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			parsed, err := ParseAggregatedToolName(testCase.rawName, testCase.expectedServer)
-			if testCase.expectedErr != nil {
-				assert.Assert(t, errors.Is(err, testCase.expectedErr))
-			} else {
-				assert.NilError(t, err)
-			}
-			assert.Equal(t, parsed.ToolName, testCase.expectedTool)
-			assert.Equal(t, parsed.IsNamespaced, testCase.namespaced)
-			assert.Equal(t, parsed.NamespaceServer, testCase.namespace)
-		})
-	}
-}
-
 func TestExtractAuthToken(t *testing.T) {
 	// Given: header values
 	cases := []struct {

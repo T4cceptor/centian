@@ -8,7 +8,6 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
-	"github.com/T4cceptor/centian/internal/processor"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -81,14 +80,14 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 
 	// And: a mock downstream that captures what it receives
 	mockDownstream := &MockDownstreamConnection{
-		connected: true,
-		cfg:       &config.MCPServerConfig{URL: "http://test"},
+		cfg: &config.MCPServerConfig{URL: "http://test"},
 		ResultToReturn: &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "original response"},
 			},
 		},
 	}
+	mockDownstream.Status = StatusConnected
 
 	// And: a proxy with the mock processor and session with mock downstream
 	proxy := createTestProxy(t, mockProcessor)
@@ -138,14 +137,14 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 
 	// And: a mock downstream that returns original content
 	mockDownstream := &MockDownstreamConnection{
-		connected: true,
-		cfg:       &config.MCPServerConfig{URL: "http://test"},
+		cfg: &config.MCPServerConfig{URL: "http://test"},
 		ResultToReturn: &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "original response"},
 			},
 		},
 	}
+	mockDownstream.Status = StatusConnected
 
 	// And: a proxy with the mock processor and session with mock downstream
 	proxy := createTestProxy(t, mockProcessor)
@@ -179,49 +178,4 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 		common.DirectionClientToServer,
 		common.DirectionServerToClient,
 	})
-}
-
-func TestHandleToolCall_AggregatedRoutingRoundTripKeepsNamespacedRequest(t *testing.T) {
-	roundTripProcessor := &mockProcessor{
-		cfg: &config.ProcessorConfig{
-			Name:  "routing-roundtrip",
-			Parts: []string{"payload", "meta", "routing"},
-		},
-		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
-			return input, nil
-		},
-	}
-
-	mockDownstream := &MockDownstreamConnection{
-		connected: true,
-		cfg:       &config.MCPServerConfig{URL: "http://test"},
-		ResultToReturn: &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
-		},
-	}
-
-	proxy := createTestProxy(t, &ProcessingController{
-		processors: []processor.ProcessorInterface{roundTripProcessor},
-	})
-	proxy.isAggregatedProxy = true
-
-	session := &UpstreamSession{
-		id: "test-session",
-		downstreamConns: map[string]DownstreamConnectionInterface{
-			"logging-demo-db": mockDownstream,
-		},
-	}
-
-	req := &mcp.CallToolRequest{
-		Params: &mcp.CallToolParamsRaw{
-			Name:      "logging-demo-db___query",
-			Arguments: json.RawMessage(`{"sql":"select 1"}`),
-		},
-	}
-
-	_, err := proxy.handleToolCall(context.Background(), session, "logging-demo-db", req)
-
-	assert.NilError(t, err)
-	assert.Equal(t, mockDownstream.CapturedToolName, "query")
-	assert.Equal(t, req.Params.Name, "logging-demo-db___query")
 }

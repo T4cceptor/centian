@@ -11,7 +11,7 @@ import (
 // MockDownstreamConnection is a shared test double for DownstreamConnectionInterface.
 type MockDownstreamConnection struct {
 	mu           sync.RWMutex
-	connected    bool
+	serverName   string
 	tools        []*mcp.Tool
 	cfg          *config.MCPServerConfig
 	ConnectCalls int
@@ -27,6 +27,13 @@ type MockDownstreamConnection struct {
 	ResultToReturn *mcp.CallToolResult
 	ErrorToReturn  error
 	Status         ConnectionStatus
+}
+
+func (m *MockDownstreamConnection) GetServerName() string {
+	if m.serverName != "" {
+		return m.serverName
+	}
+	return "mock-server"
 }
 
 func (m *MockDownstreamConnection) Connect(ctx context.Context, headers map[string]string) error {
@@ -50,7 +57,6 @@ func (m *MockDownstreamConnection) Connect(ctx context.Context, headers map[stri
 		return m.ErrorToReturn
 	}
 	m.Status = StatusConnected
-	m.connected = true
 	return nil
 }
 
@@ -77,7 +83,7 @@ func (m *MockDownstreamConnection) CallTool(_ context.Context, toolName string, 
 func (m *MockDownstreamConnection) IsConnected() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.connected
+	return m.Status == StatusConnected
 }
 
 func (m *MockDownstreamConnection) Tools() []*mcp.Tool {
@@ -90,7 +96,7 @@ func (m *MockDownstreamConnection) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.CloseCalls++
-	m.connected = false
+	m.Status = StatusDisconnected
 	return nil
 }
 
