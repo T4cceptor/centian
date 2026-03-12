@@ -8,6 +8,7 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/processor"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -52,6 +53,20 @@ func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface)
 			Logger:   logger,
 		},
 	}
+}
+
+type passthroughProcessor struct {
+	cfg       *config.ProcessorConfig
+	lastInput *processor.DataContext
+}
+
+func (p *passthroughProcessor) Process(input *processor.DataContext) (*processor.DataContext, error) {
+	p.lastInput = input
+	return input, nil
+}
+
+func (p *passthroughProcessor) GetConfig() *config.ProcessorConfig {
+	return p.cfg
 }
 
 // TestHandleToolCall_ProcessorModifiesRequest verifies that when the event processor
@@ -178,4 +193,64 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 		common.DirectionClientToServer,
 		common.DirectionServerToClient,
 	})
+}
+
+// TestHandleToolCall_AggregatedPassthroughProcessorKeepsNormalizedToolName verifies
+// that a processor receiving payload and routing data and returning them unchanged
+// does not reintroduce the aggregated upstream namespace into the current request state.
+func TestHandleToolCall_AggregatedPassthroughProcessorKeepsNormalizedToolName(t *testing.T) {
+	mockProcessor := &passthroughProcessor{
+		cfg: &config.ProcessorConfig{
+			Name:  "passthrough",
+			Parts: []string{"payload", "routing"},
+		},
+	}
+
+	mockDownstream := &MockDownstreamConnection{
+		cfg: &config.MCPServerConfig{URL: "http://test"},
+		ResultToReturn: &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "ok"},
+			},
+		},
+		Status: StatusConnected,
+	}
+
+	proxy := createTestProxy(t, &ProcessingController{
+		processors: []processor.ProcessorInterface{mockProcessor},
+	})
+	proxy.isAggregatedProxy = true
+
+	session := &UpstreamSession{
+		id: "test-session",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"test-server": mockDownstream,
+		},
+	}
+
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "test-server___test-tool",
+			Arguments: json.RawMessage(`{"original": "value"}`),
+		},
+	}
+
+	result, err := proxy.handleToolCall(context.Background(), session, "test-server", req)
+
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, mockProcessor.lastInput != nil)
+	assert.Assert(t, mockProcessor.lastInput.Payload != nil)
+	assert.Assert(t, mockProcessor.lastInput.Payload.Request != nil)
+	assert.Assert(t, mockProcessor.lastInput.Payload.OriginalRequest != nil)
+	assert.Assert(t, mockProcessor.lastInput.Routing != nil)
+
+	assert.Equal(t, mockProcessor.lastInput.Payload.Request.Params.Name, "test-tool")
+	assert.Equal(t, mockProcessor.lastInput.Payload.OriginalRequest.Params.Name, "test-server___test-tool")
+	assert.Equal(t, mockProcessor.lastInput.Routing.ToolName, "test-tool")
+	assert.Equal(t, mockProcessor.lastInput.Routing.OriginalToolname, "test-server___test-tool")
+
+	assert.Equal(t, req.Params.Name, "test-tool")
+	assert.Equal(t, mockDownstream.CapturedToolName, "test-tool")
+	assert.Equal(t, mockDownstream.CapturedArgs["original"], "value")
 }
