@@ -454,57 +454,97 @@ func (p *MCPProxy) registerConnectedToolsForUpstreamSession(
 		return
 	}
 
-	connectedCount := 0
-	connectingCount := 0
-	var connErrors []string
+	summary := downstreamRegistrationSummary{}
 
 	p.mu.RLock()
 	p.toolRegMu.Lock()
 	for serverName, conn := range downstreamPool.downstreamConns {
-		if downstreamPool.connecting[serverName] {
-			connectingCount++
-			continue
-		}
-		if conn.GetStatus() == StatusConnected && conn.IsConnected() {
-			connectedCount++
-			for _, tool := range conn.Tools() {
-				p.registerTool(upstreamSession.upstreamServer, upstreamSession, serverName, tool)
-			}
-			continue
-		}
-		if conn.GetStatus() == StatusConnecting || conn.GetStatus() == StatusPending {
-			connectingCount++
-			continue
-		}
-		if conn.GetStatus() == StatusFailed && conn.GetError() != nil {
-			connErrors = append(connErrors, fmt.Sprintf("%s: %v", serverName, conn.GetError()))
-		}
+		p.inspectDownstreamForRegistration(
+			upstreamSession,
+			downstreamPool,
+			serverName,
+			conn,
+			&summary,
+		)
 	}
 	p.toolRegMu.Unlock()
 	p.mu.RUnlock()
 
+	p.logDownstreamRegistrationSummary(upstreamSession, totalDownstreams, summary)
+}
+
+type downstreamRegistrationSummary struct {
+	connectedCount  int
+	connectingCount int
+	connErrors      []string
+}
+
+func (p *MCPProxy) inspectDownstreamForRegistration(
+	upstreamSession *UpstreamSession,
+	downstreamPool *DownstreamConnectionPool,
+	serverName string,
+	conn DownstreamConnectionInterface,
+	summary *downstreamRegistrationSummary,
+) {
+	if downstreamPool.connecting[serverName] {
+		summary.connectingCount++
+		return
+	}
+
+	status := conn.GetStatus()
+	if status == StatusConnected && conn.IsConnected() {
+		summary.connectedCount++
+		p.registerDownstreamTools(upstreamSession, serverName, conn.Tools())
+		return
+	}
+
+	if status == StatusConnecting || status == StatusPending {
+		summary.connectingCount++
+		return
+	}
+
+	if status == StatusFailed && conn.GetError() != nil {
+		summary.connErrors = append(summary.connErrors, fmt.Sprintf("%s: %v", serverName, conn.GetError()))
+	}
+}
+
+func (p *MCPProxy) registerDownstreamTools(
+	upstreamSession *UpstreamSession,
+	serverName string,
+	tools []*mcp.Tool,
+) {
+	for _, tool := range tools {
+		p.registerTool(upstreamSession.upstreamServer, upstreamSession, serverName, tool)
+	}
+}
+
+func (p *MCPProxy) logDownstreamRegistrationSummary(
+	upstreamSession *UpstreamSession,
+	totalDownstreams int,
+	summary downstreamRegistrationSummary,
+) {
 	switch {
-	case connectedCount == 0 && connectingCount > 0:
-		common.LogInfo(
-			"MCPProxy[%s]: Initializing pooled downstream session %s in background (%d/%d still connecting)",
-			p.name,
-			upstreamSession.poolKey,
-			connectingCount,
-			totalDownstreams,
-		)
-	case connectedCount == 0 && len(connErrors) > 0:
-		common.LogError("MCPProxy[%s]: All connections failed: %v", p.name, connErrors)
-	case connectedCount == 0:
-		common.LogWarn("MCPProxy[%s]: No pooled downstream connections are connected for %s", p.name, upstreamSession.poolKey)
-	case connectedCount > 0:
+	case summary.connectedCount > 0:
 		common.LogInfo(
 			"MCPProxy[%s]: Upstream session %s using pooled downstream session %s with %d/%d connected servers",
 			p.name,
 			upstreamSession.id,
 			upstreamSession.poolKey,
-			connectedCount,
+			summary.connectedCount,
 			totalDownstreams,
 		)
+	case summary.connectingCount > 0:
+		common.LogInfo(
+			"MCPProxy[%s]: Initializing pooled downstream session %s in background (%d/%d still connecting)",
+			p.name,
+			upstreamSession.poolKey,
+			summary.connectingCount,
+			totalDownstreams,
+		)
+	case len(summary.connErrors) > 0:
+		common.LogError("MCPProxy[%s]: All connections failed: %v", p.name, summary.connErrors)
+	default:
+		common.LogWarn("MCPProxy[%s]: No pooled downstream connections are connected for %s", p.name, upstreamSession.poolKey)
 	}
 }
 
