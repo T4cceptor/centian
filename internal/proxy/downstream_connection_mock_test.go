@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"sync"
 
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -9,6 +10,7 @@ import (
 
 // MockDownstreamConnection is a shared test double for DownstreamConnectionInterface.
 type MockDownstreamConnection struct {
+	mu           sync.RWMutex
 	connected    bool
 	tools        []*mcp.Tool
 	cfg          *config.MCPServerConfig
@@ -28,6 +30,9 @@ type MockDownstreamConnection struct {
 }
 
 func (m *MockDownstreamConnection) Connect(ctx context.Context, headers map[string]string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.ConnectCalls++
 	capturedHeaders := make(map[string]string, len(headers))
 	for key, value := range headers {
@@ -50,33 +55,47 @@ func (m *MockDownstreamConnection) Connect(ctx context.Context, headers map[stri
 }
 
 func (m *MockDownstreamConnection) GetStatus() ConnectionStatus {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.Status
 }
 
 func (m *MockDownstreamConnection) GetError() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.ErrorToReturn
 }
 
 func (m *MockDownstreamConnection) CallTool(_ context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.CapturedToolName = toolName
 	m.CapturedArgs = args
 	return m.ResultToReturn, m.ErrorToReturn
 }
 
 func (m *MockDownstreamConnection) IsConnected() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.connected
 }
 
 func (m *MockDownstreamConnection) Tools() []*mcp.Tool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.tools
 }
 
 func (m *MockDownstreamConnection) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.CloseCalls++
 	m.connected = false
 	return nil
 }
 
 func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.cfg
 }

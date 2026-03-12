@@ -28,7 +28,7 @@ func TestBuildRoutingContext(t *testing.T) {
 	proxy := &MCPProxy{name: "gateway-a", endpoint: "/mcp/gateway-a"}
 
 	t.Run("http transport", func(t *testing.T) {
-		session := &CentianProxySession{
+		session := &UpstreamSession{
 			downstreamConns: map[string]DownstreamConnectionInterface{
 				"srv": &MockDownstreamConnection{
 					cfg: &config.MCPServerConfig{URL: "https://example.com/mcp"},
@@ -48,7 +48,7 @@ func TestBuildRoutingContext(t *testing.T) {
 	})
 
 	t.Run("stdio transport", func(t *testing.T) {
-		session := &CentianProxySession{
+		session := &UpstreamSession{
 			downstreamConns: map[string]DownstreamConnectionInterface{
 				"srv": &MockDownstreamConnection{
 					cfg: &config.MCPServerConfig{
@@ -79,7 +79,7 @@ func TestNewToolCallContext(t *testing.T) {
 
 	t.Run("fails when proxy server is nil", func(t *testing.T) {
 		proxy := &MCPProxy{name: "gw", endpoint: "/mcp/gw"}
-		session := &CentianProxySession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
+		session := &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
 
 		// When: constructing context without server.
 		_, err := NewToolCallContext(context.Background(), proxy, session, "srv", request)
@@ -94,7 +94,7 @@ func TestNewToolCallContext(t *testing.T) {
 			endpoint: "/mcp/gw",
 			server:   &CentianProxy{ServerID: "server-id", Logger: nil},
 		}
-		session := &CentianProxySession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
+		session := &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
 
 		// When: constructing context without logger.
 		_, err := NewToolCallContext(context.Background(), proxy, session, "srv", request)
@@ -119,7 +119,7 @@ func TestNewToolCallContext(t *testing.T) {
 				Logger:   logger,
 			},
 		}
-		session := &CentianProxySession{
+		session := &UpstreamSession{
 			id: "sess-1",
 			downstreamConns: map[string]DownstreamConnectionInterface{
 				"srv": &MockDownstreamConnection{
@@ -163,7 +163,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 		return &ToolCallContext{
 			proxy:              &MCPProxy{},
 			originalServerName: "orig-srv",
-			session: &CentianProxySession{
+			upstreamSession: &UpstreamSession{
 				downstreamConns: map[string]DownstreamConnectionInterface{
 					"srv": conn,
 				},
@@ -183,7 +183,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 		toolCtx := &ToolCallContext{
 			proxy:              &MCPProxy{},
 			originalServerName: "orig-srv",
-			session: &CentianProxySession{
+			upstreamSession: &UpstreamSession{
 				downstreamConns: map[string]DownstreamConnectionInterface{},
 			},
 			routingContext: &common.RoutingLog{ServerName: "srv"},
@@ -256,7 +256,7 @@ func TestToolCallContextAccessors(t *testing.T) {
 			endpoint:          "/mcp/gw",
 			isAggregatedProxy: true,
 		},
-		session: &CentianProxySession{
+		upstreamSession: &UpstreamSession{
 			id:              "sess-1",
 			downstreamConns: map[string]DownstreamConnectionInterface{},
 		},

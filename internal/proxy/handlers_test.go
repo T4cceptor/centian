@@ -23,7 +23,7 @@ func newHandlerTestCallContext() *ToolCallContext {
 
 	return &ToolCallContext{
 		proxy:              &MCPProxy{},
-		session:            &CentianProxySession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}},
+		upstreamSession:    &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}},
 		originalServerName: "server-original",
 		originalRequest:    deepCloneRequest(req),
 		request:            req,

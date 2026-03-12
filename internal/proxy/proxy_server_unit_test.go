@@ -169,11 +169,11 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 	// Given: a proxy with a custom downstream connection factory
 	var created []*MockDownstreamConnection
 	proxy := &MCPProxy{
-		name:              "gateway",
-		endpoint:          "/mcp/gateway",
-		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		sessions:          make(map[string]*CentianProxySession),
-		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		name:             "gateway",
+		endpoint:         "/mcp/gateway",
+		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{
 				cfg: cfg,
@@ -205,18 +205,18 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 	assert.Assert(t, server1 != nil)
 	assert.Assert(t, server2 != nil)
 	assert.Equal(t, len(created), 1)
-	assert.Equal(t, len(proxy.pooledDownstreams), 1)
+	assert.Equal(t, len(proxy.downstreamPools), 1)
 }
 
 func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *testing.T) {
 	// Given: a proxy with a custom downstream connection factory
 	var created []*MockDownstreamConnection
 	proxy := &MCPProxy{
-		name:              "gateway",
-		endpoint:          "/mcp/gateway",
-		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		sessions:          make(map[string]*CentianProxySession),
-		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		name:             "gateway",
+		endpoint:         "/mcp/gateway",
+		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{cfg: cfg, tools: []*mcp.Tool{{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}}}}
 			created = append(created, conn)
@@ -243,18 +243,18 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 	assert.Assert(t, server1 != nil)
 	assert.Assert(t, server2 != nil)
 	assert.Equal(t, len(created), 2)
-	assert.Equal(t, len(proxy.pooledDownstreams), 2)
+	assert.Equal(t, len(proxy.downstreamPools), 2)
 }
 
 func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	// Given: a proxy without auth and with a custom downstream connection factory
 	var created []*MockDownstreamConnection
 	proxy := &MCPProxy{
-		name:              "gateway",
-		endpoint:          "/mcp/gateway",
-		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		sessions:          make(map[string]*CentianProxySession),
-		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		name:             "gateway",
+		endpoint:         "/mcp/gateway",
+		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{cfg: cfg, tools: []*mcp.Tool{{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}}}}
 			created = append(created, conn)
@@ -278,18 +278,18 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	assert.Assert(t, server1 != nil)
 	assert.Assert(t, server2 != nil)
 	assert.Equal(t, len(created), 1)
-	assert.Equal(t, len(proxy.pooledDownstreams), 1)
+	assert.Equal(t, len(proxy.downstreamPools), 1)
 }
 
 func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 	// Given: a proxy with a downstream connect that does not complete immediately
 	releaseConnect := make(chan struct{})
 	proxy := &MCPProxy{
-		name:              "gateway",
-		endpoint:          "/mcp/gateway",
-		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		sessions:          make(map[string]*CentianProxySession),
-		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		name:             "gateway",
+		endpoint:         "/mcp/gateway",
+		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			return &MockDownstreamConnection{
 				cfg: cfg,
@@ -332,11 +332,11 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 	// Given: a proxy that forwards downstream auth separately from Centian auth
 	var created []*MockDownstreamConnection
 	proxy := &MCPProxy{
-		name:              "gateway",
-		endpoint:          "/mcp/gateway",
-		downstreams:       map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		sessions:          make(map[string]*CentianProxySession),
-		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		name:             "gateway",
+		endpoint:         "/mcp/gateway",
+		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{
 				cfg: cfg,
@@ -370,7 +370,11 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 	// Then: a new downstream pool should be established with the new forwarded auth
 	assert.Assert(t, server1 != nil)
 	assert.Assert(t, server2 != nil)
-	assert.Equal(t, len(created), 2)
+	waitForCondition(t, time.Second, func() bool {
+		return len(created) == 2 &&
+			len(created[0].CapturedConnectAuths) == 1 &&
+			len(created[1].CapturedConnectAuths) == 1
+	})
 	assert.Equal(t, created[0].CapturedConnectAuths[0]["Authorization"], "Bearer downstream-token-1")
 	assert.Equal(t, created[1].CapturedConnectAuths[0]["Authorization"], "Bearer downstream-token-2")
 }
@@ -385,8 +389,8 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 			"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"}),
 			"server2": NewDownstreamConnection("server2", &config.MCPServerConfig{Command: "node"}),
 		},
-		sessions:          make(map[string]*CentianProxySession),
-		pooledDownstreams: make(map[string]*downstreamPoolEntry),
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(name string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			createdByServer[name]++
 			conn := &MockDownstreamConnection{
@@ -414,8 +418,21 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	request2.Header.Set("Mcp-Session-Id", "session-2")
 	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
 
-	// When: a later session with the same identity arrives after a partial failure
+	// When: the first session creates a partial failure
 	server1 := proxy.GetServerForRequest(request1)
+	waitForCondition(t, time.Second, func() bool {
+		poolKey := proxy.getDownstreamPoolKey("auth:key_1", map[string]string{})
+		proxy.mu.RLock()
+		defer proxy.mu.RUnlock()
+		entry, ok := proxy.downstreamPools[poolKey]
+		if !ok {
+			return false
+		}
+		conn, exists := entry.downstreamConns["server2"]
+		return exists && conn.GetStatus() == StatusFailed && !entry.connecting["server2"]
+	})
+
+	// And: a later session with the same identity arrives after that failure settled
 	server2 := proxy.GetServerForRequest(request2)
 
 	// Then: the failed downstream should be retried for the later session
@@ -433,4 +450,18 @@ func createTestAPIKeyStore(t *testing.T) *auth.APIKeyStore {
 	store, err := auth.LoadAPIKeys(path)
 	assert.NilError(t, err)
 	return store
+}
+
+func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("condition was not met before timeout")
 }

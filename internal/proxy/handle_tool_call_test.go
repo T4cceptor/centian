@@ -91,7 +91,7 @@ func TestHandleToolCall_ProcessorModifiesRequest(t *testing.T) {
 
 	// And: a proxy with the mock processor and session with mock downstream
 	proxy := createTestProxy(t, mockProcessor)
-	session := &CentianProxySession{
+	session := &UpstreamSession{
 		id: "test-session",
 		downstreamConns: map[string]DownstreamConnectionInterface{
 			"test-server": mockDownstream,
@@ -148,7 +148,7 @@ func TestHandleToolCall_ProcessorModifiesResponse(t *testing.T) {
 
 	// And: a proxy with the mock processor and session with mock downstream
 	proxy := createTestProxy(t, mockProcessor)
-	session := &CentianProxySession{
+	session := &UpstreamSession{
 		id: "test-session",
 		downstreamConns: map[string]DownstreamConnectionInterface{
 			"test-server": mockDownstream,
