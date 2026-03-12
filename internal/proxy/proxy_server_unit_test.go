@@ -60,7 +60,7 @@ func TestAPIKeyMiddlewareWithHeader_NoStore(t *testing.T) {
 
 func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 	// Given: an API key store with one key
-	store := createTestAPIKeyStore(t, "plain-key")
+	store := createTestAPIKeyStore(t)
 
 	called := false
 	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +100,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 
 func TestAPIKeyMiddlewareWithHeader_AttachesIdentityToContext(t *testing.T) {
 	// Given: an API key store with one key
-	store := createTestAPIKeyStore(t, "plain-key")
+	store := createTestAPIKeyStore(t)
 
 	var identity string
 	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +121,7 @@ func TestAPIKeyMiddlewareWithHeader_AttachesIdentityToContext(t *testing.T) {
 
 func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 	// Given: a proxy with API key auth
-	store := createTestAPIKeyStore(t, "plain-key")
+	store := createTestAPIKeyStore(t)
 	proxy := &MCPProxy{
 		name:     "gateway",
 		endpoint: "/mcp/gateway",
@@ -183,7 +183,7 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 			return conn
 		},
 		server: &CentianProxy{
-			APIKeys:    createTestAPIKeyStore(t, "plain-key"),
+			APIKeys:    createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -221,7 +221,7 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 			return conn
 		},
 		server: &CentianProxy{
-			APIKeys:    createTestAPIKeyStore(t, "plain-key"),
+			APIKeys:    createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -279,9 +279,9 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	assert.Equal(t, len(proxy.pooledDownstreams), 1)
 }
 
-func createTestAPIKeyStore(t *testing.T, plain string) *auth.APIKeyStore {
+func createTestAPIKeyStore(t *testing.T) *auth.APIKeyStore {
 	t.Helper()
-	entry, err := auth.NewAPIKeyEntry(plain)
+	entry, err := auth.NewAPIKeyEntry("plain-key")
 	assert.NilError(t, err)
 	path := filepath.Join(t.TempDir(), "api_keys.json")
 	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))

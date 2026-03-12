@@ -378,7 +378,8 @@ func (p *MCPProxy) getOrCreateDownstreamPoolEntry(session *CentianProxySession) 
 			return existing, true
 		}
 		common.LogWarn("MCPProxy[%s]: Evicting unusable pooled downstream session %s", p.name, session.poolKey)
-		p.closePoolEntryLocked(existing)
+		errs := p.closePoolEntryLocked(existing)
+		common.LogError("errors trying to close downstream connections: %v", errs)
 		delete(p.pooledDownstreams, session.poolKey)
 	}
 
@@ -397,8 +398,6 @@ func (p *MCPProxy) createDownstreamConnections(authHeaders map[string]string) ma
 	downstreamConns := make(map[string]DownstreamConnectionInterface, len(p.downstreams))
 	var wg sync.WaitGroup
 	for serverName, connTemplate := range p.downstreams {
-		serverName := serverName
-		connTemplate := connTemplate
 		conn := p.newDownstreamConnection(serverName, connTemplate.config)
 		downstreamConns[serverName] = conn
 		wg.Add(1)
@@ -537,18 +536,17 @@ func deepCloneTool(tool *mcp.Tool) *mcp.Tool {
 }
 
 // Close terminates all sessions and their downstream connections.
-func (p *MCPProxy) Close() error {
+func (p *MCPProxy) Close() []error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var err error
+	errs := make([]error, 0)
 	for poolKey, entry := range p.pooledDownstreams {
-		if closeErr := p.closePoolEntryLocked(entry); closeErr != nil {
-			err = closeErr
-		}
+		closeErrs := p.closePoolEntryLocked(entry)
+		errs = append(errs, closeErrs...)
 		delete(p.pooledDownstreams, poolKey)
 	}
-	return err
+	return errs
 }
 
 // ============================================================================
@@ -660,17 +658,17 @@ func (p *MCPProxy) invalidatePooledDownstream(poolKey string) {
 	delete(p.pooledDownstreams, poolKey)
 }
 
-func (p *MCPProxy) closePoolEntryLocked(entry *downstreamPoolEntry) error {
+func (p *MCPProxy) closePoolEntryLocked(entry *downstreamPoolEntry) []error {
 	if entry == nil {
 		return nil
 	}
-	var err error
+	errs := make([]error, 0)
 	for _, conn := range entry.downstreamConns {
 		if closeErr := conn.Close(); closeErr != nil {
-			err = closeErr
+			errs = append(errs, closeErr)
 		}
 	}
-	return err
+	return errs
 }
 
 // RegisterEndpoint registers a ServerProvider with the HTTP mux.
