@@ -50,7 +50,7 @@ func TestLoadDefaultAPIKeys(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, store.Path(), path)
 	assert.Equal(t, store.Count(), 1)
-	if _, ok := store.Resolve(plain); !ok {
+	if _, ok := store.Lookup(plain); !ok {
 		t.Fatalf("expected key to validate")
 	}
 }
@@ -110,13 +110,13 @@ func TestLoadAPIKeys_ObjectFormat(t *testing.T) {
 	if store.Count() != 2 {
 		t.Fatalf("expected 2 keys, got %d", store.Count())
 	}
-	if _, ok := store.Resolve("key-1"); !ok {
+	if _, ok := store.Lookup("key-1"); !ok {
 		t.Fatalf("expected key-1 to be present")
 	}
-	if _, ok := store.Resolve("key-2"); !ok {
+	if _, ok := store.Lookup("key-2"); !ok {
 		t.Fatalf("expected keys to be present")
 	}
-	if _, ok := store.Resolve("missing"); ok {
+	if _, ok := store.Lookup("missing"); ok {
 		t.Fatalf("expected missing key to be invalid")
 	}
 }
@@ -191,7 +191,7 @@ func TestAppendAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load api keys: %v", err)
 	}
-	if _, ok := store.Resolve(plain); !ok {
+	if _, ok := store.Lookup(plain); !ok {
 		t.Fatalf("expected key to validate")
 	}
 }
@@ -202,12 +202,12 @@ func TestResolve(t *testing.T) {
 	store, err := LoadAPIKeys(path)
 	assert.NilError(t, err)
 
-	entry, ok := store.Resolve(plain)
+	entry, ok := store.Lookup(plain)
 	assert.Assert(t, ok)
 	assert.Assert(t, entry != nil)
 	assert.Equal(t, entry.ID, "key_resolve")
 
-	_, ok = store.Resolve("sk-missing")
+	_, ok = store.Lookup("sk-missing")
 	assert.Assert(t, !ok)
 }
 

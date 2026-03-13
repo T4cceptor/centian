@@ -311,7 +311,7 @@ func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey
 		authHeaders:     authHeaders,
 		identityKey:     identityKey,
 		poolKey:         p.getDownstreamPoolKey(identityKey, authHeaders),
-		authData:        authData.Clone(),
+		// authData:        authData.Clone(),
 	}
 }
 
