@@ -312,7 +312,7 @@ go build -o build/centian ./cmd/main.go
 - stdio servers run locally: Stdio MCP servers run on the host under the same user context as Centian. Only configure stdio servers if you trust the clients using Centian, since they can access local resources through those servers. For the future, we are looking into starting stdio-based servers in a virtualized environment.
 - OAuth not yet supported: Centian does not support OAuth (upstream or downstream) in v0.1. You can use headers for auth; client‑provided headers are forwarded, proxy‑configured headers can override them.
 - Shared credentials reduce auditability: If you set auth headers at the proxy level, all downstream requests share the same identity. Prefer per‑client credentials so downstream servers can audit and rate‑limit correctly, or provide appropriate processors and logging to ensure auditability.
-- Future changes: please be aware that the APIs and especially data structures we are using to log events and provide information to processors are still evolving and might change in the future, especially before version 1.0.0. Further, changes in MCP are reflected by the MCP Go SDK and are dependent on it.
+- Future changes: please be aware that the APIs and especially data structures we are using to log events and provide information to processors are still evolving and might change in the future, especially before version 1.0.0. Further, changes in MCP are reflected by the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) and are dependent on it.
 
 ## Development
 

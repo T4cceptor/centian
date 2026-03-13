@@ -3,7 +3,7 @@ module github.com/T4cceptor/centian
 go 1.25.6
 
 require (
-	github.com/modelcontextprotocol/go-sdk v1.2.0
+	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/urfave/cli/v3 v3.6.2
 	golang.org/x/crypto v0.24.0
 )
@@ -11,6 +11,9 @@ require (
 require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.4 // indirect
+	golang.org/x/sys v0.40.0 // indirect
 )
 
 require (
