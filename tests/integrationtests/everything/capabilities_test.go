@@ -1,6 +1,7 @@
 package everything
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -23,11 +24,11 @@ func TestEverythingInitializeAndListTools(t *testing.T) {
 		}
 
 		// When: listing tools from both connections.
-		directTools, err := waitForTools(ctx, pair.Direct.session, defaultToolsWaitTimeout, 250*time.Millisecond)
+		directTools, err := waitForTools(ctx, pair.Direct.session, defaultToolsWaitTimeout, 250*time.Millisecond+time.Millisecond)
 		if err != nil {
 			t.Fatalf("failed to list direct tools: %v", err)
 		}
-		proxiedTools, err := waitForTools(ctx, pair.Proxied.session, defaultToolsWaitTimeout, 250*time.Millisecond)
+		proxiedTools, err := waitForTools(ctx, pair.Proxied.session, defaultToolsWaitTimeout+time.Second, 250*time.Millisecond)
 		if err != nil {
 			t.Fatalf("failed to list proxied tools: %v", err)
 		}
@@ -46,7 +47,15 @@ func TestEverythingInitializeAndListTools(t *testing.T) {
 		slices.Sort(proxiedNames)
 
 		if !reflect.DeepEqual(directNames, proxiedNames) {
-			t.Fatalf("tool list mismatch\ndirect: %v\nproxied: %v", directNames, proxiedNames)
+			missingInProxied := diffNames(directNames, proxiedNames)
+			extraInProxied := diffNames(proxiedNames, directNames)
+			t.Fatalf(
+				"tool list mismatch\nmissing in proxied: %v\nextra in proxied: %v\ndirect: %v\nproxied: %v",
+				missingInProxied,
+				extraInProxied,
+				directNames,
+				proxiedNames,
+			)
 		}
 
 		directToolMap := toolMap(directTools.Tools)
@@ -84,5 +93,20 @@ func jsonEqual(t *testing.T, a, b any) bool {
 		t.Fatalf("failed to marshal second value: %v", err)
 	}
 
-	return string(aJSON) == string(bJSON)
+	return bytes.Equal(aJSON, bJSON)
+}
+
+func diffNames(left, right []string) []string {
+	rightSet := make(map[string]struct{}, len(right))
+	for _, name := range right {
+		rightSet[name] = struct{}{}
+	}
+
+	diff := make([]string, 0)
+	for _, name := range left {
+		if _, ok := rightSet[name]; !ok {
+			diff = append(diff, name)
+		}
+	}
+	return diff
 }

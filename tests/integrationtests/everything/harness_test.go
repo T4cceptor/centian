@@ -2,6 +2,7 @@ package everything
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -25,6 +26,8 @@ const (
 	everythingServerArgsEnv     = "CENTIAN_EVERYTHING_SERVER_ARGS"
 	defaultSessionTimeout       = 30 * time.Second
 	defaultToolsWaitTimeout     = 20 * time.Second
+	defaultEverythingServerCmd  = "npx"
+	defaultEverythingServerArgs = "-y @modelcontextprotocol/server-everything"
 )
 
 type everythingServerCommand struct {
@@ -43,6 +46,33 @@ type notificationRecorder struct {
 	promptListChanged   int
 	rootsListChanged    int
 	elicitationComplete int
+}
+
+type notificationSnapshot struct {
+	LogCount               int
+	ProgressCount          int
+	ResourceUpdateCount    int
+	ToolListChangedCount   int
+	ResourceListChanged    int
+	PromptListChangedCount int
+	RootsListChangedCount  int
+	ElicitationComplete    int
+}
+
+type phase3Classification string
+
+const (
+	classificationMatch                phase3Classification = "match"
+	classificationProxyDivergence      phase3Classification = "proxy_divergence"
+	classificationUnsupportedInCentian phase3Classification = "unsupported_in_centian"
+)
+
+type phase3Outcome struct {
+	Name           string
+	Classification phase3Classification
+	Summary        string
+	DirectDetails  string
+	ProxiedDetails string
 }
 
 type instrumentedSession struct {
@@ -241,6 +271,22 @@ func (r *notificationRecorder) incrementElicitationComplete() {
 	r.elicitationComplete++
 }
 
+func (r *notificationRecorder) snapshot() notificationSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return notificationSnapshot{
+		LogCount:               len(r.logMessages),
+		ProgressCount:          len(r.progressMessages),
+		ResourceUpdateCount:    len(r.resourceUpdates),
+		ToolListChangedCount:   r.toolListChanged,
+		ResourceListChanged:    r.resourceListChanged,
+		PromptListChangedCount: r.promptListChanged,
+		RootsListChangedCount:  r.rootsListChanged,
+		ElicitationComplete:    r.elicitationComplete,
+	}
+}
+
 func loadEverythingServerCommand(t *testing.T) everythingServerCommand {
 	t.Helper()
 
@@ -250,10 +296,15 @@ func loadEverythingServerCommand(t *testing.T) everythingServerCommand {
 
 	command := strings.TrimSpace(os.Getenv(everythingServerCmdEnv))
 	if command == "" {
-		t.Skipf("set %s to the everything server command", everythingServerCmdEnv)
+		command = defaultEverythingServerCmd
 	}
 
-	args := strings.Fields(os.Getenv(everythingServerArgsEnv))
+	argsEnv := strings.TrimSpace(os.Getenv(everythingServerArgsEnv))
+	if argsEnv == "" {
+		argsEnv = defaultEverythingServerArgs
+	}
+
+	args := strings.Fields(argsEnv)
 	return everythingServerCommand{
 		Command: command,
 		Args:    args,
@@ -419,4 +470,79 @@ func toolMap(tools []*mcp.Tool) map[string]*mcp.Tool {
 		result[tool.Name] = tool
 	}
 	return result
+}
+
+func mustFindTool(t *testing.T, tools []*mcp.Tool, name string) {
+	t.Helper()
+
+	for _, tool := range tools {
+		if tool.Name == name {
+			return
+		}
+	}
+
+	t.Fatalf("expected tool %q to exist", name)
+}
+
+func mustCallTool(
+	t *testing.T,
+	ctx context.Context,
+	session *mcp.ClientSession,
+	name string,
+	args map[string]any,
+) *mcp.CallToolResult {
+	t.Helper()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      name,
+		Arguments: args,
+	})
+	if err != nil {
+		t.Fatalf("failed to call tool %q: %v", name, err)
+	}
+	return result
+}
+
+func mustCallToolWithParams(
+	t *testing.T,
+	ctx context.Context,
+	session *mcp.ClientSession,
+	params *mcp.CallToolParams,
+) *mcp.CallToolResult {
+	t.Helper()
+
+	result, err := session.CallTool(ctx, params)
+	if err != nil {
+		t.Fatalf("failed to call tool %q: %v", params.Name, err)
+	}
+	return result
+}
+
+func prettyJSON(t *testing.T, value any) string {
+	t.Helper()
+
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal json: %v", err)
+	}
+
+	return string(data)
+}
+
+func reportPhase3Outcome(t *testing.T, outcome *phase3Outcome) {
+	t.Helper()
+
+	if outcome.Classification == classificationMatch {
+		t.Logf("%s: %s", outcome.Classification, outcome.Summary)
+		return
+	}
+
+	t.Fatalf(
+		"phase 3 probe %q classified as %s\nsummary: %s\ndirect:\n%s\nproxied:\n%s",
+		outcome.Name,
+		outcome.Classification,
+		outcome.Summary,
+		outcome.DirectDetails,
+		outcome.ProxiedDetails,
+	)
 }
