@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
@@ -164,6 +165,31 @@ func TestMarshalProcessorInput_StripsUnmarshalableRequestFields(t *testing.T) {
 	assert.Assert(t, !hasExtra)
 	_, hasSession := request["Session"]
 	assert.Assert(t, !hasSession)
+}
+
+func TestMarshalProcessorInput_IncludesAuthPart(t *testing.T) {
+	input := &DataContext{
+		Version: "1.0",
+		Auth: &common.AuthContext{
+			Authenticated: true,
+			PrincipalID:   "principal-1",
+			PrincipalType: "api_key",
+			KeyID:         "key_1",
+			Gateway:       "default",
+		},
+	}
+
+	encoded, err := marshalProcessorInput(input)
+	assert.NilError(t, err)
+
+	var decoded map[string]any
+	assert.NilError(t, json.Unmarshal(encoded, &decoded))
+
+	authPart, ok := decoded["auth"].(map[string]any)
+	assert.Assert(t, ok)
+	assert.Equal(t, authPart["principal_id"], "principal-1")
+	assert.Equal(t, authPart["principal_type"], "api_key")
+	assert.Equal(t, authPart["key_id"], "key_1")
 }
 
 func TestCLIProcessorProcess(t *testing.T) {

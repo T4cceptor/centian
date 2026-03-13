@@ -82,7 +82,7 @@ func TestNewToolCallContext(t *testing.T) {
 		session := &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
 
 		// When: constructing context without server.
-		_, err := NewToolCallContext(context.Background(), proxy, session, "srv", request)
+		_, err := NewToolCallContext(proxy, session, "srv", request)
 
 		// Then: construction fails.
 		assert.Assert(t, err != nil)
@@ -97,7 +97,7 @@ func TestNewToolCallContext(t *testing.T) {
 		session := &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
 
 		// When: constructing context without logger.
-		_, err := NewToolCallContext(context.Background(), proxy, session, "srv", request)
+		_, err := NewToolCallContext(proxy, session, "srv", request)
 
 		// Then: construction fails.
 		assert.Assert(t, err != nil)
@@ -121,6 +121,10 @@ func TestNewToolCallContext(t *testing.T) {
 		}
 		session := &UpstreamSession{
 			id: "sess-1",
+			authData: &AuthData{
+				AuthHeaderName: "Authorization",
+				Gateway:        "gw",
+			},
 			downstreamConns: map[string]DownstreamConnectionInterface{
 				"srv": &MockDownstreamConnection{
 					cfg: &config.MCPServerConfig{URL: "https://example.com/mcp"},
@@ -129,7 +133,7 @@ func TestNewToolCallContext(t *testing.T) {
 		}
 
 		// When: constructing a valid tool call context.
-		callCtxIface, err := NewToolCallContext(context.Background(), proxy, session, "srv", request)
+		callCtxIface, err := NewToolCallContext(proxy, session, "srv", request)
 		assert.NilError(t, err)
 
 		callCtx, ok := callCtxIface.(*ToolCallContext)
@@ -142,14 +146,18 @@ func TestNewToolCallContext(t *testing.T) {
 		assert.Equal(t, callCtx.GetMessageType(), common.MessageTypeRequest)
 		assert.Assert(t, callCtx.GetRequestID() != "")
 		assert.Assert(t, callCtx.GetLogHandler() != nil)
+		assert.Assert(t, callCtx.GetAuthData() != nil)
+		assert.Equal(t, callCtx.GetAuthData().Gateway, "gw")
 
 		// And: handlers are registered.
 		_, hasPayload := callCtx.GetHandler("payload")
 		_, hasMeta := callCtx.GetHandler("meta")
 		_, hasRouting := callCtx.GetHandler("routing")
+		_, hasAuth := callCtx.GetHandler("auth")
 		assert.Assert(t, hasPayload)
 		assert.Assert(t, hasMeta)
 		assert.Assert(t, hasRouting)
+		assert.Assert(t, hasAuth)
 
 		// And: original request was deep-cloned.
 		assert.Assert(t, callCtx.GetOriginalRequest() != callCtx.GetRequest())
@@ -189,7 +197,7 @@ func TestNewToolCallContext(t *testing.T) {
 			},
 		}
 
-		callCtxIface, err := NewToolCallContext(context.Background(), proxy, session, "srv", req)
+		callCtxIface, err := NewToolCallContext(proxy, session, "srv", req)
 		assert.NilError(t, err)
 
 		callCtx := callCtxIface.(*ToolCallContext)
@@ -231,7 +239,7 @@ func TestNewToolCallContext(t *testing.T) {
 			},
 		}
 
-		_, err = NewToolCallContext(context.Background(), proxy, session, "srv", req)
+		_, err = NewToolCallContext(proxy, session, "srv", req)
 		assert.Assert(t, err != nil)
 	})
 }
@@ -436,6 +444,7 @@ func TestToolCallContextSessionAndOriginalAccessors(t *testing.T) {
 
 	// Given: nil session and nil original request.
 	assert.Equal(t, toolCtx.GetSessionID(), "")
+	assert.Assert(t, toolCtx.GetAuthData() == nil)
 	assert.Equal(t, toolCtx.GetOriginalToolName(), "")
 	assert.Equal(t, toolCtx.GetRequestID(), "req-1")
 	assert.Equal(t, toolCtx.GetOriginalServerName(), "")

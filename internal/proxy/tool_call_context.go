@@ -32,6 +32,7 @@ type ToolCallContext struct {
 
 	// Routing context (reuses common.RoutingContext)
 	routingContext *common.RoutingContext
+	authData       *AuthData
 
 	// Handlers
 	handlers   map[string]CallContextHandler
@@ -41,7 +42,6 @@ type ToolCallContext struct {
 // NewToolCallContext creates a new ToolCallContext.
 // Returns CallContext interface to allow implementation swapping.
 func NewToolCallContext(
-	ctx context.Context,
 	proxy *MCPProxy,
 	upstreamSession *UpstreamSession,
 	serverName string,
@@ -91,12 +91,14 @@ func NewToolCallContext(
 		request:            req,             // Mutable, will be modified by handlers
 		routingContext:     routingCtx,
 		event:              event,
+		authData:           upstreamSession.authData.Clone(),
 	}
 
 	// Register handlers
 	toolCallCtx.SetHandler("payload", &DefaultPayloadHandler{})
 	toolCallCtx.SetHandler("meta", &DefaultMetaHandler{})
 	toolCallCtx.SetHandler("routing", &DefaultRoutingHandler{})
+	toolCallCtx.SetHandler("auth", &DefaultAuthHandler{})
 
 	// Set default log handler - proxy.server nil check was done above
 	if proxy.server.Logger == nil {
@@ -311,6 +313,11 @@ func (c *ToolCallContext) GetSessionID() string {
 	return c.upstreamSession.id
 }
 
+// GetAuthData returns auth mapping data attached to this call.
+func (c *ToolCallContext) GetAuthData() *AuthData {
+	return c.authData
+}
+
 // Routing context
 
 // GetRoutingContext returns the attached RoutingLog.
@@ -331,7 +338,7 @@ func (c *ToolCallContext) GetHandler(part string) (CallContextHandler, bool) {
 
 // SetHandler sets the provided handler for the provided part.
 //
-// Automatically creates the handlers slice if its nil.
+// Automatically creates the handlers map if it is nil.
 func (c *ToolCallContext) SetHandler(part string, h CallContextHandler) {
 	if c.handlers == nil {
 		c.handlers = make(map[string]CallContextHandler)
@@ -344,7 +351,7 @@ func (c *ToolCallContext) GetLogHandler() LogHandler {
 	return c.logHandler
 }
 
-// SetLogHandler sets the provided longer handler.
+// SetLogHandler sets the provided log handler.
 func (c *ToolCallContext) SetLogHandler(l LogHandler) {
 	c.logHandler = l
 }

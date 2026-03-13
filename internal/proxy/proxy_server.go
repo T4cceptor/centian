@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -128,6 +129,7 @@ type UpstreamSession struct {
 	authHeaders     map[string]string                        // Forwarded auth headers captured from the client request that created this session.
 	identityKey     string                                   // Stable caller identity used when choosing a reusable downstream pool.
 	poolKey         string                                   // Lookup key of the DownstreamConnectionPool backing this upstream session.
+	authData        *AuthData                                // Raw auth mapping data for handlers/processors
 }
 
 // DownstreamConnectionPool owns the reusable downstream connection set for one
@@ -302,6 +304,7 @@ func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey
 		excludedAuthHeader = p.server.AuthHeader
 	}
 	authHeaders := getAuthHeaders(r.Header, excludedAuthHeader)
+	authData := getAuthData(r.Context())
 	return &UpstreamSession{
 		id:              id,
 		downstreamConns: make(map[string]DownstreamConnectionInterface),
@@ -309,6 +312,7 @@ func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey
 		authHeaders:     authHeaders,
 		identityKey:     identityKey,
 		poolKey:         p.getDownstreamPoolKey(identityKey, authHeaders),
+		authData:        authData.Clone(),
 	}
 }
 
@@ -664,7 +668,7 @@ func (p *MCPProxy) ProcessCall(callCtx CallContext, direction common.McpEventDir
 
 func (p *MCPProxy) handleToolCall(ctx context.Context, upstreamSession *UpstreamSession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	// 1. Create CallContext
-	callCtx, err := NewToolCallContext(ctx, p, upstreamSession, serverName, req)
+	callCtx, err := NewToolCallContext(p, upstreamSession, serverName, req)
 	if err != nil {
 		return nil, err
 	}
@@ -757,9 +761,44 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, 
 			return
 		}
 
+		gatewayName := getGatewayFromPath(r.URL.Path)
+		if !entry.AllowsGateway(gatewayName) {
+			writeUnauthorized(w, headerName)
+			common.LogWarn("Unauthorized request: key '%s' not allowed for gateway '%s' from %s", entry.ID, gatewayName, r.RemoteAddr)
+			return
+		}
 		ctx := withRequestIdentity(r.Context(), "auth:"+entry.ID)
+		authData := &AuthData{
+			AuthHeaderName: headerName,
+			Gateway:        gatewayName,
+			Headers:        r.Header.Clone(),
+			KeyEntry:       entry,
+		}
+		ctx = withAuthData(ctx, authData)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func getGatewayFromPath(requestPath string) string {
+	normalized := path.Clean("/" + strings.TrimSpace(requestPath))
+	parts := strings.Split(normalized, "/")
+	// Expected:
+	// /mcp/<gateway>
+	// /mcp/<gateway>/<server>
+	if len(parts) >= 3 && parts[1] == "mcp" {
+		return parts[2]
+	}
+	return ""
+}
+
+func getCredentialFingerprint(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:])
+}
+
+func getPrincipalID(keyID, gateway string) string {
+	hash := sha256.Sum256([]byte(strings.TrimSpace(keyID) + ":" + strings.TrimSpace(gateway)))
+	return hex.EncodeToString(hash[:])
 }
 
 func extractAuthToken(header string) string {

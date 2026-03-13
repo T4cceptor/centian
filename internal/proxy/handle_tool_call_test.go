@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -253,4 +255,98 @@ func TestHandleToolCall_AggregatedPassthroughProcessorKeepsNormalizedToolName(t 
 	assert.Equal(t, req.Params.Name, "test-tool")
 	assert.Equal(t, mockDownstream.CapturedToolName, "test-tool")
 	assert.Equal(t, mockDownstream.CapturedArgs["original"], "value")
+}
+
+// TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession verifies
+// the auth flow end-to-end: the auth middleware annotates the request, session
+// creation snapshots that auth data, and the processor receives the sanitized
+// auth context during a real tool call.
+func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *testing.T) {
+	mockProcessor := &passthroughProcessor{
+		cfg: &config.ProcessorConfig{
+			Name:  "auth-passthrough",
+			Parts: []string{"auth"},
+		},
+	}
+
+	mockDownstream := &MockDownstreamConnection{
+		serverName: "test-server",
+		cfg:        &config.MCPServerConfig{URL: "http://test"},
+		tools: []*mcp.Tool{
+			{Name: "test-tool", Description: "test tool", InputSchema: map[string]any{"type": "object"}},
+		},
+		ResultToReturn: &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "ok"},
+			},
+		},
+		Status: StatusConnected,
+	}
+
+	proxy := createTestProxy(t, &ProcessingController{
+		processors: []processor.ProcessorInterface{mockProcessor},
+	})
+	proxy.endpoint = "/mcp/gateway-a/test-server"
+	proxy.downstreams = map[string]*DownstreamConnection{
+		"test-server": NewDownstreamConnection("test-server", &config.MCPServerConfig{URL: "http://test"}),
+	}
+	proxy.upstreamSessions = make(map[string]*UpstreamSession)
+	proxy.downstreamPools = make(map[string]*DownstreamConnectionPool)
+	proxy.connectionFactory = func(_ string, _ *config.MCPServerConfig) DownstreamConnectionInterface {
+		return mockDownstream
+	}
+	proxy.server.APIKeys = createTestAPIKeyStore(t)
+	proxy.server.AuthHeader = "Authorization"
+	proxy.server.Config = &config.GlobalConfig{Version: "1.0.0"}
+
+	handler := apiKeyMiddlewareWithHeader(proxy.server.APIKeys, proxy.server.AuthHeader, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := proxy.GetServerForRequest(r)
+		assert.Assert(t, server != nil)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a/test-server", http.NoBody)
+	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Mcp-Session-Id", "sess-auth")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, recorder.Result().StatusCode, http.StatusOK)
+
+	proxy.mu.RLock()
+	session := proxy.upstreamSessions["sess-auth"]
+	proxy.mu.RUnlock()
+
+	assert.Assert(t, session != nil)
+	assert.Assert(t, session.authData != nil)
+	assert.Equal(t, session.authData.AuthHeaderName, "Authorization")
+	assert.Equal(t, session.authData.Gateway, "gateway-a")
+	assert.Assert(t, session.authData.KeyEntry != nil)
+	assert.Equal(t, session.authData.KeyEntry.ID, "key_test")
+
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "test-tool",
+			Arguments: json.RawMessage(`{"hello":"world"}`),
+		},
+	}
+
+	result, err := proxy.handleToolCall(context.Background(), session, "test-server", req)
+
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, mockProcessor.lastInput != nil)
+	assert.Assert(t, mockProcessor.lastInput.Auth != nil)
+	assert.Assert(t, mockProcessor.lastInput.Auth.Authenticated)
+	assert.Equal(t, mockProcessor.lastInput.Auth.PrincipalType, "api_key")
+	assert.Equal(t, mockProcessor.lastInput.Auth.KeyID, "key_test")
+	assert.Equal(t, mockProcessor.lastInput.Auth.Gateway, "gateway-a")
+	assert.Equal(t, mockProcessor.lastInput.Auth.AuthHeader, "Authorization")
+	assert.Equal(t, mockProcessor.lastInput.Auth.InternalSessionID, "sess-auth")
+	assert.Equal(t, mockProcessor.lastInput.Auth.TransportSessionID, "sess-auth")
+	assert.Equal(t, mockProcessor.lastInput.Auth.PrincipalID, getPrincipalID("key_test", "gateway-a"))
+	assert.Equal(t, mockProcessor.lastInput.Auth.CredentialFingerprint, getCredentialFingerprint("plain-key"))
+	assert.Equal(t, mockDownstream.CapturedToolName, "test-tool")
+	assert.Equal(t, mockDownstream.CapturedArgs["hello"], "world")
 }

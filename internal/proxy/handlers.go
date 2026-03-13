@@ -141,6 +141,68 @@ func (h *DefaultRoutingHandler) Apply(callCtx CallContext, result *processor.Dat
 }
 
 // =============================================================================
+// AuthHandler - provides read-only auth context to processors
+// =============================================================================
+
+// DefaultAuthHandler attaches auth context and treats it as immutable.
+type DefaultAuthHandler struct{}
+
+// AttachPart attaches auth information from CallContext to input ProcessorContext.
+func (h *DefaultAuthHandler) AttachPart(callCtx CallContext, input *processor.DataContext) {
+	if input == nil || callCtx == nil {
+		return
+	}
+	input.Auth = h.buildAuthContext(callCtx)
+}
+
+func (h *DefaultAuthHandler) buildAuthContext(callCtx CallContext) *common.AuthContext {
+	if callCtx == nil {
+		return nil
+	}
+	authData := callCtx.GetAuthData()
+	if authData == nil {
+		return nil
+	}
+
+	authCtx := &common.AuthContext{
+		Authenticated: true,
+		PrincipalType: "api_key",
+		Gateway:       authData.Gateway,
+		AuthHeader:    authData.AuthHeaderName,
+		// Internal session ID comes from proxy session mapping.
+		InternalSessionID: callCtx.GetSessionID(),
+	}
+
+	if authData.KeyEntry != nil {
+		authCtx.KeyID = authData.KeyEntry.ID
+		authCtx.PrincipalID = getPrincipalID(authData.KeyEntry.ID, authData.Gateway)
+	}
+
+	token := ""
+	if authData.Headers != nil {
+		token = extractAuthToken(authData.Headers.Get(authData.AuthHeaderName))
+		if token == "" {
+			token = extractAuthToken(authData.Headers.Get("Authorization"))
+		}
+		authCtx.TransportSessionID = authData.Headers.Get("Mcp-Session-Id")
+	}
+	if token != "" {
+		authCtx.CredentialFingerprint = getCredentialFingerprint(token)
+	}
+
+	// Prefer request-bound MCP session ID if available.
+	if req := callCtx.GetRequest(); req != nil && req.Session != nil {
+		authCtx.TransportSessionID = req.Session.ID()
+	}
+	return authCtx
+}
+
+// Apply ignores auth modifications from processors to keep auth context read-only.
+func (h *DefaultAuthHandler) Apply(_ CallContext, _ *processor.DataContext) error {
+	return nil
+}
+
+// =============================================================================
 // DefaultLogHandler - produces MCPEvent-compatible log entries
 // =============================================================================
 

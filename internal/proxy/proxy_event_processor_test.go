@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/processor"
@@ -20,6 +22,7 @@ type mockCallContext struct {
 	originalResult     *mcp.CallToolResult
 	event              *common.MCPEvent
 	routing            *common.RoutingContext
+	authData           *AuthData
 	handlers           map[string]CallContextHandler
 	logHandler         LogHandler
 	serverName         string
@@ -35,10 +38,16 @@ func newMockCallContext() *mockCallContext {
 	}
 
 	return &mockCallContext{
-		request:            req,
-		originalRequest:    deepCloneRequest(req),
-		event:              common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
-		routing:            &common.RoutingContext{ServerName: "server-a", Transport: common.StdioTransport},
+		request:         req,
+		originalRequest: deepCloneRequest(req),
+		event:           common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
+		routing:         &common.RoutingContext{ServerName: "server-a", Transport: common.StdioTransport},
+		authData: &AuthData{
+			AuthHeaderName: "Authorization",
+			Gateway:        "gateway-a",
+			Headers:        http.Header{"Authorization": []string{"Bearer test-token"}},
+			KeyEntry:       &auth.APIKeyEntry{ID: "key_1"},
+		},
 		handlers:           map[string]CallContextHandler{},
 		serverName:         "server-a",
 		originalServerName: "server-a",
@@ -91,6 +100,9 @@ func (m *mockCallContext) GetError() string     { return m.event.Error }
 func (m *mockCallContext) SetError(msg string)  { m.event.Error = msg }
 func (m *mockCallContext) GetRequestID() string { return m.event.RequestID }
 func (m *mockCallContext) GetSessionID() string { return m.event.SessionID }
+func (m *mockCallContext) GetAuthData() *AuthData {
+	return m.authData
+}
 func (m *mockCallContext) GetDirection() common.McpEventDirection {
 	return m.event.Direction
 }
@@ -225,6 +237,26 @@ func TestGetInput_UsesConfiguredHandlers(t *testing.T) {
 	assert.Assert(t, input.Event != nil)
 	assert.Equal(t, 1, payloadHandler.getCalls)
 	assert.Equal(t, 1, metaHandler.getCalls)
+}
+
+func TestGetInput_WithAuthPart(t *testing.T) {
+	callCtx := newMockCallContext()
+
+	authHandler := &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Auth = (&DefaultAuthHandler{}).buildAuthContext(callCtx)
+		},
+	}
+	callCtx.SetHandler("auth", authHandler)
+
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"auth"},
+	}
+	input := GetInput(processorConfig, callCtx)
+
+	assert.Assert(t, input.Auth != nil)
+	assert.Equal(t, input.Auth.KeyID, "key_1")
+	assert.Equal(t, 1, authHandler.getCalls)
 }
 
 func TestGetInput_SkipsMissingHandler(t *testing.T) {
