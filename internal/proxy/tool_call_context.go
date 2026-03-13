@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -32,7 +31,7 @@ type ToolCallContext struct {
 	event *common.MCPEvent
 
 	// Routing context (reuses common.RoutingContext)
-	routingContext *common.RoutingLog
+	routingContext *common.RoutingContext
 
 	// Handlers
 	handlers   map[string]CallContextHandler
@@ -56,7 +55,7 @@ func NewToolCallContext(
 	routingCtx := buildRoutingContext(proxy, upstreamSession, serverName)
 	// TODO: get headers from ctx
 
-	conn, err := upstreamSession.GetConnectionByName(serverName)
+	conn, err := upstreamSession.GetConnectionByServerName(serverName)
 	transport := common.UnknownTransport
 	if err != nil {
 		common.LogWarn("unable to get connection for '%s': %v", serverName, err)
@@ -69,12 +68,27 @@ func NewToolCallContext(
 		WithSessionID(upstreamSession.id).
 		WithServerID(proxy.server.ServerID) // nil check was done above
 
+	// request holds the current mutable MCP tool name. In aggregated mode we
+	// normalize it once before processing so all later code sees the current
+	// downstream tool name directly. originalRequest keeps the raw upstream name.
+	originalRequest := deepCloneRequest(req) // cloned here because req is being modified
+	if proxy.isAggregatedProxy {
+		if req == nil || req.Params == nil {
+			return nil, fmt.Errorf("aggregated tool call requires request params")
+		}
+		toolName, err := parseAggregatedToolName(req.Params.Name, serverName)
+		if err != nil {
+			return nil, err
+		}
+		req.Params.Name = toolName
+	}
+
 	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,
 		upstreamSession:    upstreamSession,
 		originalServerName: serverName,
-		originalRequest:    deepCloneRequest(req), // Immutable clone
-		request:            req,                   // Mutable, will be modified by handlers
+		originalRequest:    originalRequest, // Immutable clone of the upstream request
+		request:            req,             // Mutable, will be modified by handlers
 		routingContext:     routingCtx,
 		event:              event,
 	}
@@ -93,9 +107,9 @@ func NewToolCallContext(
 }
 
 // buildRoutingContext creates a RoutingContext from proxy and session info.
-func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serverName string) *common.RoutingLog {
+func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serverName string) *common.RoutingContext {
 	// ideally we would combine this somehow with MCPevent data struct
-	rc := &common.RoutingLog{
+	rc := &common.RoutingContext{
 		Gateway:    proxy.name,
 		ServerName: serverName,
 		Endpoint:   proxy.endpoint,
@@ -124,11 +138,10 @@ func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serv
 // downstream call, instead an immediate error response will be returned.
 func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Resolve connection based on (potentially modified) serverName
-	serverName := c.GetRoutingContext().ServerName
-	conn, ok := c.upstreamSession.downstreamConns[serverName]
-	if !ok {
-		return fmt.Errorf("server %s not found (original: %s)",
-			serverName, c.originalServerName)
+	serverName := c.GetServerName()
+	conn, err := c.upstreamSession.GetConnectionByServerName(serverName)
+	if err != nil {
+		return err
 	}
 	if !conn.IsConnected() {
 		return fmt.Errorf("server %s found (original: %s), but not connected",
@@ -225,7 +238,6 @@ func (c *ToolCallContext) GetOriginalToolName() string {
 	if c.originalRequest == nil || c.originalRequest.Params == nil {
 		return ""
 	}
-	// TODO: add aggregated logic here! -> this makes it really convenient to call this then!
 	return c.originalRequest.Params.Name
 }
 
@@ -259,17 +271,7 @@ func (c *ToolCallContext) GetToolName() string {
 	if c.request == nil || c.request.Params == nil {
 		return ""
 	}
-	// here we check if we have an aggregated server, then change the name accordingly.
-	toolName := c.request.Params.Name
-	if c.proxy.isAggregatedProxy {
-		parts := strings.SplitN(toolName, NamespaceSeparator, 2)
-		if len(parts) < 2 {
-			common.LogWarn("failed to recreate original tool name from %s", toolName)
-			return ""
-		}
-		toolName = strings.Join(parts[1:], "")
-	}
-	return toolName
+	return c.request.Params.Name
 }
 
 // Status and error handling
@@ -312,7 +314,7 @@ func (c *ToolCallContext) GetSessionID() string {
 // Routing context
 
 // GetRoutingContext returns the attached RoutingLog.
-func (c *ToolCallContext) GetRoutingContext() *common.RoutingLog {
+func (c *ToolCallContext) GetRoutingContext() *common.RoutingContext {
 	return c.routingContext
 }
 

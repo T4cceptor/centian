@@ -160,6 +160,65 @@ func TestDownstreamConnectionServerName(t *testing.T) {
 	assert.Equal(t, dc.ServerName(), "my-server")
 }
 
+func TestDownstreamConnectionGetConfigAndStatus(t *testing.T) {
+	cfg := &config.MCPServerConfig{URL: "https://example.com/mcp"}
+	dc := NewDownstreamConnection("server", cfg)
+	dc.status = StatusFailed
+
+	assert.Assert(t, dc.GetConfig() == cfg)
+	assert.Equal(t, dc.GetStatus(), StatusFailed)
+}
+
+func TestDownstreamConnectionDiscoverTools(t *testing.T) {
+	clientSession, cleanup := connectTestClientSession(t, func(server *mcp.Server) {
+		mcp.AddTool(server, &mcp.Tool{Name: "ping", Description: "ping"}, func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "pong"}},
+			}, nil, nil
+		})
+	})
+	defer cleanup()
+
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	dc.session = clientSession
+
+	err := dc.discoverTools(context.Background())
+
+	assert.NilError(t, err)
+	assert.Equal(t, len(dc.tools), 1)
+	assert.Equal(t, dc.tools[0].Name, "ping")
+}
+
+func TestDownstreamConnectionCallTool_NotConnected(t *testing.T) {
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+
+	result, err := dc.CallTool(context.Background(), "ping", map[string]any{"k": "v"})
+
+	assert.Assert(t, result == nil)
+	assert.ErrorContains(t, err, "not connected to server")
+}
+
+func TestDownstreamConnectionCallTool(t *testing.T) {
+	clientSession, cleanup := connectTestClientSession(t, func(server *mcp.Server) {
+		mcp.AddTool(server, &mcp.Tool{Name: "ping", Description: "ping"}, func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: args["message"].(string)}},
+			}, nil, nil
+		})
+	})
+	defer cleanup()
+
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	dc.session = clientSession
+	dc.status = StatusConnected
+
+	result, err := dc.CallTool(context.Background(), "ping", map[string]any{"message": "pong"})
+
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Equal(t, result.Content[0].(*mcp.TextContent).Text, "pong")
+}
+
 func containsEnv(env []string, entry string) bool {
 	for _, value := range env {
 		if value == entry {
@@ -169,10 +228,35 @@ func containsEnv(env []string, entry string) bool {
 	return false
 }
 
+func connectTestClientSession(t *testing.T, register func(server *mcp.Server)) (*mcp.ClientSession, func()) {
+	t.Helper()
+
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "server", Version: "1.0.0"}, nil)
+	if register != nil {
+		register(server)
+	}
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	assert.NilError(t, err)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1.0.0"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	assert.NilError(t, err)
+
+	cleanup := func() {
+		_ = clientSession.Close()
+		_ = serverSession.Close()
+	}
+
+	return clientSession, cleanup
+}
+
 func TestDownstreamConnectionConnect_EarlyReturn(t *testing.T) {
 	// Given: an already connected downstream
 	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
-	dc.connected = true
+	dc.status = StatusConnected
 
 	// When: connecting
 	err := dc.Connect(context.Background(), nil)

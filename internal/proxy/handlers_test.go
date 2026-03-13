@@ -30,7 +30,7 @@ func newHandlerTestCallContext() *ToolCallContext {
 		result:             &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result-current"}}},
 		originalResult:     &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result-original"}}},
 		event:              common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
-		routingContext:     &common.RoutingLog{ServerName: "server-current"},
+		routingContext:     &common.RoutingContext{ServerName: "server-current"},
 	}
 }
 
@@ -245,7 +245,7 @@ func TestDefaultLogHandlerGetTransport(t *testing.T) {
 	callCtx.routingContext = nil
 	assert.Equal(t, handler.getTransport(callCtx), "unknown")
 
-	callCtx.routingContext = &common.RoutingLog{Transport: common.HTTPTransport}
+	callCtx.routingContext = &common.RoutingContext{Transport: common.HTTPTransport}
 	assert.Equal(t, handler.getTransport(callCtx), string(common.HTTPTransport))
 }
 

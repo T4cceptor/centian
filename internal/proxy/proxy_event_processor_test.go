@@ -19,7 +19,7 @@ type mockCallContext struct {
 	result             *mcp.CallToolResult
 	originalResult     *mcp.CallToolResult
 	event              *common.MCPEvent
-	routing            *common.RoutingLog
+	routing            *common.RoutingContext
 	handlers           map[string]CallContextHandler
 	logHandler         LogHandler
 	serverName         string
@@ -38,7 +38,7 @@ func newMockCallContext() *mockCallContext {
 		request:            req,
 		originalRequest:    deepCloneRequest(req),
 		event:              common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
-		routing:            &common.RoutingLog{ServerName: "server-a", Transport: common.StdioTransport},
+		routing:            &common.RoutingContext{ServerName: "server-a", Transport: common.StdioTransport},
 		handlers:           map[string]CallContextHandler{},
 		serverName:         "server-a",
 		originalServerName: "server-a",
@@ -101,7 +101,7 @@ func (m *mockCallContext) GetMessageType() common.McpMessageType { return m.even
 func (m *mockCallContext) SetMessageType(msgType common.McpMessageType) {
 	m.event.MessageType = msgType
 }
-func (m *mockCallContext) GetRoutingContext() *common.RoutingLog { return m.routing }
+func (m *mockCallContext) GetRoutingContext() *common.RoutingContext { return m.routing }
 func (m *mockCallContext) GetHandler(part string) (CallContextHandler, bool) {
 	handler, ok := m.handlers[part]
 	return handler, ok

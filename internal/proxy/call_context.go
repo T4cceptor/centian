@@ -61,7 +61,7 @@ type CallContext interface {
 	SetMessageType(common.McpMessageType)
 
 	// Routing context (reuses common.RoutingContext)
-	GetRoutingContext() *common.RoutingLog
+	GetRoutingContext() *common.RoutingContext
 
 	// Handler access
 	GetHandler(part string) (CallContextHandler, bool) // Returns handler for given part (payload, meta, routing, etc.)

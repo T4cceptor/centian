@@ -14,14 +14,14 @@ type MCPEvent struct {
 	BaseMcpEvent
 
 	// Routing context (always present)
-	Routing RoutingLog `json:"routing"`
+	Routing RoutingContext `json:"routing"`
 
 	// Tool call context (optional - only for tool call events)
 	ToolCall *ToolCallLog `json:"tool_call,omitempty"`
 }
 
-// RoutingLog captures where the request is going.
-type RoutingLog struct {
+// RoutingContext captures where the request is going.
+type RoutingContext struct {
 	// Transport describes the used transport for this connection (http or stdio)
 	Transport McpTransportType `json:"transport,omitempty"`
 
@@ -87,7 +87,7 @@ func NewMCPEvent(
 			ProcessingErrors: make(map[string]error),
 			Metadata:         make(map[string]string),
 		},
-		Routing: RoutingLog{},
+		Routing: RoutingContext{},
 	}
 }
 

@@ -156,6 +156,84 @@ func TestNewToolCallContext(t *testing.T) {
 		callCtx.GetRequest().Params.Arguments = json.RawMessage(`{"k":"changed"}`)
 		assert.Equal(t, string(callCtx.GetOriginalRequest().Params.Arguments), `{"k":"v"}`)
 	})
+
+	t.Run("normalizes aggregated tool names into current request state", func(t *testing.T) {
+		t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+		logger, err := logging.NewLogger()
+		assert.NilError(t, err)
+		t.Cleanup(func() {
+			_ = logger.Close()
+		})
+
+		req := &mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{
+				Name:      "srv___query",
+				Arguments: json.RawMessage(`{"k":"v"}`),
+			},
+		}
+		proxy := &MCPProxy{
+			name:              "gw",
+			endpoint:          "/mcp/gw",
+			isAggregatedProxy: true,
+			server: &CentianProxy{
+				ServerID: "server-id",
+				Logger:   logger,
+			},
+		}
+		session := &UpstreamSession{
+			id: "sess-1",
+			downstreamConns: map[string]DownstreamConnectionInterface{
+				"srv": &MockDownstreamConnection{
+					cfg: &config.MCPServerConfig{URL: "https://example.com/mcp"},
+				},
+			},
+		}
+
+		callCtxIface, err := NewToolCallContext(context.Background(), proxy, session, "srv", req)
+		assert.NilError(t, err)
+
+		callCtx := callCtxIface.(*ToolCallContext)
+		assert.Equal(t, callCtx.GetToolName(), "query")
+		assert.Equal(t, callCtx.GetOriginalToolName(), "srv___query")
+		assert.Equal(t, req.Params.Name, "query")
+		assert.Equal(t, callCtx.GetOriginalRequest().Params.Name, "srv___query")
+	})
+
+	t.Run("fails early for malformed aggregated tool names", func(t *testing.T) {
+		t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+		logger, err := logging.NewLogger()
+		assert.NilError(t, err)
+		t.Cleanup(func() {
+			_ = logger.Close()
+		})
+
+		req := &mcp.CallToolRequest{
+			Params: &mcp.CallToolParamsRaw{
+				Name:      "malformed",
+				Arguments: json.RawMessage(`{"k":"v"}`),
+			},
+		}
+		proxy := &MCPProxy{
+			name:              "gw",
+			endpoint:          "/mcp/gw",
+			isAggregatedProxy: true,
+			server: &CentianProxy{
+				ServerID: "server-id",
+				Logger:   logger,
+			},
+		}
+		session := &UpstreamSession{
+			id: "sess-1",
+			downstreamConns: map[string]DownstreamConnectionInterface{
+				"srv": &MockDownstreamConnection{
+					cfg: &config.MCPServerConfig{URL: "https://example.com/mcp"},
+				},
+			},
+		}
+
+		_, err = NewToolCallContext(context.Background(), proxy, session, "srv", req)
+		assert.Assert(t, err != nil)
+	})
 }
 
 func TestToolCallContextSendRequest(t *testing.T) {
@@ -168,7 +246,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 					"srv": conn,
 				},
 			},
-			routingContext: &common.RoutingLog{ServerName: "srv"},
+			routingContext: &common.RoutingContext{ServerName: "srv"},
 			request: &mcp.CallToolRequest{
 				Params: &mcp.CallToolParamsRaw{
 					Name:      "tool_name",
@@ -186,7 +264,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 			upstreamSession: &UpstreamSession{
 				downstreamConns: map[string]DownstreamConnectionInterface{},
 			},
-			routingContext: &common.RoutingLog{ServerName: "srv"},
+			routingContext: &common.RoutingContext{ServerName: "srv"},
 			request: &mcp.CallToolRequest{
 				Params: &mcp.CallToolParamsRaw{Name: "tool_name", Arguments: json.RawMessage(`{}`)},
 			},
@@ -199,8 +277,8 @@ func TestToolCallContextSendRequest(t *testing.T) {
 
 	t.Run("fails when connection is not connected", func(t *testing.T) {
 		toolCtx := makeContext(&MockDownstreamConnection{
-			cfg:       &config.MCPServerConfig{Command: "python3"},
-			connected: false,
+			cfg:    &config.MCPServerConfig{Command: "python3"},
+			Status: StatusFailed,
 		}, json.RawMessage(`{}`))
 
 		err := toolCtx.SendRequest(context.Background())
@@ -209,8 +287,8 @@ func TestToolCallContextSendRequest(t *testing.T) {
 
 	t.Run("fails on invalid request arguments", func(t *testing.T) {
 		toolCtx := makeContext(&MockDownstreamConnection{
-			cfg:       &config.MCPServerConfig{Command: "python3"},
-			connected: true,
+			cfg:    &config.MCPServerConfig{Command: "python3"},
+			Status: StatusConnected,
 		}, json.RawMessage(`{invalid}`))
 
 		err := toolCtx.SendRequest(context.Background())
@@ -220,7 +298,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 	t.Run("returns downstream call error", func(t *testing.T) {
 		toolCtx := makeContext(&MockDownstreamConnection{
 			cfg:           &config.MCPServerConfig{Command: "python3"},
-			connected:     true,
+			Status:        StatusConnected,
 			ErrorToReturn: errors.New("downstream failed"),
 		}, json.RawMessage(`{"a":1}`))
 
@@ -230,8 +308,8 @@ func TestToolCallContextSendRequest(t *testing.T) {
 
 	t.Run("successfully calls downstream and sets result", func(t *testing.T) {
 		conn := &MockDownstreamConnection{
-			cfg:       &config.MCPServerConfig{Command: "python3"},
-			connected: true,
+			cfg:    &config.MCPServerConfig{Command: "python3"},
+			Status: StatusConnected,
 			ResultToReturn: &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
 			},
@@ -284,13 +362,17 @@ func TestToolCallContextAccessors(t *testing.T) {
 	assert.Equal(t, toolCtx.GetServerName(), "new-srv")
 	assert.Equal(t, toolCtx.GetRoutingContext().Gateway, "gw")
 
-	// And: aggregated tool names are de-namespaced.
-	assert.Equal(t, toolCtx.GetToolName(), "tool_name")
+	// And: tool name accessors are plain request accessors.
+	assert.Equal(t, toolCtx.GetToolName(), "srv___tool_name")
 	assert.Equal(t, toolCtx.GetOriginalToolName(), "orig_tool")
 
-	// And: malformed aggregated name returns empty.
+	// And: malformed names are returned as-is if the request is already in memory.
 	toolCtx.request.Params.Name = "malformed"
-	assert.Equal(t, toolCtx.GetToolName(), "")
+	assert.Equal(t, toolCtx.GetToolName(), "malformed")
+
+	// And: namespaced values are returned exactly as currently stored on the request.
+	toolCtx.request.Params.Name = "other___tool_name"
+	assert.Equal(t, toolCtx.GetToolName(), "other___tool_name")
 
 	// And: nil request returns empty.
 	toolCtx.request = nil
