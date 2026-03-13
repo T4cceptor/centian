@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
@@ -442,6 +445,89 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	assert.Assert(t, server1 != nil)
 	assert.Assert(t, server2 != nil)
 	assert.Equal(t, createdByServer["server2"], 2)
+}
+
+func TestLogRequestForDebugPreservesRequestBody(t *testing.T) {
+	var console bytes.Buffer
+	err := common.InitInternalLogger(common.LoggerOptions{
+		Level:         "debug",
+		Output:        "console",
+		ConsoleWriter: &console,
+	})
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = common.CloseLogger()
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", io.NopCloser(bytes.NewBufferString(`{"hello":"world"}`)))
+	req.Header.Set("Authorization", "Bearer secret")
+
+	logRequestForDebug(req)
+
+	body, err := io.ReadAll(req.Body)
+	assert.NilError(t, err)
+	assert.Equal(t, string(body), `{"hello":"world"}`)
+	assert.Assert(t, req.GetBody != nil)
+
+	clonedBody, err := req.GetBody()
+	assert.NilError(t, err)
+	defer clonedBody.Close()
+
+	clonedData, err := io.ReadAll(clonedBody)
+	assert.NilError(t, err)
+	assert.Equal(t, string(clonedData), `{"hello":"world"}`)
+	assert.Assert(t, bytes.Contains(console.Bytes(), []byte("Received request body")))
+	assert.Assert(t, !bytes.Contains(console.Bytes(), []byte("Bearer secret")))
+}
+
+func TestInvalidatePooledDownstream(t *testing.T) {
+	conn := &MockDownstreamConnection{Status: StatusConnected}
+	proxy := &MCPProxy{
+		name: "gateway",
+		downstreamPools: map[string]*DownstreamConnectionPool{
+			"pool-1": {
+				poolKey: "pool-1",
+				downstreamConns: map[string]DownstreamConnectionInterface{
+					"server1": conn,
+				},
+			},
+		},
+	}
+
+	proxy.invalidatePooledDownstream("pool-1")
+
+	assert.Equal(t, conn.CloseCalls, 1)
+	assert.Assert(t, proxy.downstreamPools["pool-1"] == nil)
+}
+
+func TestClosePoolEntryLocked(t *testing.T) {
+	okConn := &MockDownstreamConnection{}
+	failingConn := &closeErrorDownstreamConnection{
+		MockDownstreamConnection: &MockDownstreamConnection{},
+		closeErr:                 errors.New("close failed"),
+	}
+
+	errs := (&MCPProxy{}).closePoolEntryLocked(&DownstreamConnectionPool{
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"ok":   okConn,
+			"fail": failingConn,
+		},
+	})
+
+	assert.Equal(t, okConn.CloseCalls, 1)
+	assert.Equal(t, failingConn.CloseCalls, 1)
+	assert.Equal(t, len(errs), 1)
+	assert.ErrorContains(t, errs[0], "close failed")
+}
+
+type closeErrorDownstreamConnection struct {
+	*MockDownstreamConnection
+	closeErr error
+}
+
+func (c *closeErrorDownstreamConnection) Close() error {
+	c.CloseCalls++
+	return c.closeErr
 }
 
 func createTestAPIKeyStore(t *testing.T) *auth.APIKeyStore {
