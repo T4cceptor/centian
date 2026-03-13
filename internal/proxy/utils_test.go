@@ -127,7 +127,7 @@ func TestRedactHeaders(t *testing.T) {
 	headers := http.Header{
 		"Authorization":  []string{"Bearer upstream"},
 		"X-Centian-Auth": []string{"centian-secret"},
-		"X-API-Key":      []string{"api-key"},
+		"X-Api-Key":      []string{"api-key"},
 		"X-Auth-Token":   []string{"auth-token"},
 		"X-Other":        []string{"visible"},
 	}
@@ -136,7 +136,7 @@ func TestRedactHeaders(t *testing.T) {
 
 	assert.DeepEqual(t, redacted["Authorization"], []string{"<redacted>"})
 	assert.DeepEqual(t, redacted["X-Centian-Auth"], []string{"<redacted>"})
-	assert.DeepEqual(t, redacted["X-API-Key"], []string{"<redacted>"})
+	assert.DeepEqual(t, redacted["X-Api-Key"], []string{"<redacted>"})
 	assert.DeepEqual(t, redacted["X-Auth-Token"], []string{"<redacted>"})
 	assert.DeepEqual(t, redacted["X-Other"], []string{"visible"})
 	assert.DeepEqual(t, headers["Authorization"], []string{"Bearer upstream"})
