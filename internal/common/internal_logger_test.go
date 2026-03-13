@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -117,4 +118,39 @@ func TestInitInternalLoggerRejectsInvalidOptions(t *testing.T) {
 	if err := InitInternalLogger(LoggerOptions{Output: "syslog"}); err == nil {
 		t.Fatal("expected invalid log output to fail")
 	}
+}
+
+func TestInternalLoggerConcurrentInitAndLog(t *testing.T) {
+	t.Cleanup(func() {
+		_ = CloseLogger()
+	})
+
+	var wg sync.WaitGroup
+
+	for i := range 8 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			var console bytes.Buffer
+			if err := InitInternalLogger(LoggerOptions{
+				Level:         "debug",
+				Output:        "console",
+				ConsoleWriter: &console,
+			}); err != nil {
+				t.Errorf("InitInternalLogger() error = %v", err)
+			}
+			LogWarn("warn from worker %d", i)
+		}(i)
+	}
+
+	for range 32 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			LogWarn("concurrent warn")
+			_ = DebugLoggingEnabled()
+		}()
+	}
+
+	wg.Wait()
 }

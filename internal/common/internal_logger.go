@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 const (
@@ -188,7 +189,10 @@ func (l *InternalLogger) log(level LogLevel, prefix, message string, args ...int
 }
 
 // Global logger instance.
-var globalLogger *InternalLogger
+var (
+	globalLogger   *InternalLogger
+	globalLoggerMu sync.RWMutex
+)
 
 // InitInternalLogger initializes or replaces the global logger.
 func InitInternalLogger(options LoggerOptions) error {
@@ -196,6 +200,10 @@ func InitInternalLogger(options LoggerOptions) error {
 	if err != nil {
 		return err
 	}
+
+	globalLoggerMu.Lock()
+	defer globalLoggerMu.Unlock()
+
 	if globalLogger != nil {
 		_ = globalLogger.Close()
 	}
@@ -205,6 +213,9 @@ func InitInternalLogger(options LoggerOptions) error {
 
 // CloseLogger closes the global logger.
 func CloseLogger() error {
+	globalLoggerMu.Lock()
+	defer globalLoggerMu.Unlock()
+
 	if globalLogger != nil {
 		err := globalLogger.Close()
 		globalLogger = nil
@@ -215,6 +226,9 @@ func CloseLogger() error {
 
 // LogInfo logs an info message using the global logger.
 func LogInfo(message string, args ...interface{}) {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
+
 	if globalLogger != nil {
 		globalLogger.Info(message, args...)
 	}
@@ -222,6 +236,9 @@ func LogInfo(message string, args ...interface{}) {
 
 // LogError logs an error message using the global logger.
 func LogError(message string, args ...interface{}) {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
+
 	if globalLogger != nil {
 		globalLogger.Error(message, args...)
 	}
@@ -229,6 +246,9 @@ func LogError(message string, args ...interface{}) {
 
 // LogDebug logs a debug message using the global logger.
 func LogDebug(message string, args ...interface{}) {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
+
 	if globalLogger != nil {
 		globalLogger.Debug(message, args...)
 	}
@@ -236,6 +256,9 @@ func LogDebug(message string, args ...interface{}) {
 
 // LogWarn logs a warning message using the global logger.
 func LogWarn(message string, args ...interface{}) {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
+
 	if globalLogger != nil {
 		globalLogger.Warn(message, args...)
 	}
@@ -243,5 +266,8 @@ func LogWarn(message string, args ...interface{}) {
 
 // DebugLoggingEnabled returns true when the global logger will emit debug logs.
 func DebugLoggingEnabled() bool {
+	globalLoggerMu.RLock()
+	defer globalLoggerMu.RUnlock()
+
 	return globalLogger != nil && globalLogger.level <= logLevelDebug
 }
