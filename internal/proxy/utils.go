@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 
 // NamespaceSeparator is used to create tool names in an aggregated proxy server.
 const NamespaceSeparator = "___"
+
+var (
+	forwardedAuthHeaders = []string{"Authorization", "X-API-Key", "X-Auth-Token"}
+	redactedAuthHeaders  = []string{"Authorization", "X-Centian-Auth", "X-API-Key", "X-Auth-Token"}
+)
 
 // parseAggregatedToolName validates an aggregated tool name and returns the
 // downstream tool name that should be used for processing and dispatch.
@@ -29,6 +35,42 @@ func parseAggregatedToolName(rawName, expectedServer string) (string, error) {
 		return "", fmt.Errorf("aggregated tool %q targets server %q, expected %q", rawName, parts[0], expectedServer)
 	}
 	return parts[1], nil
+}
+
+func getAuthHeaders(headers http.Header, excludedHeader string) map[string]string {
+	authHeaders := make(map[string]string)
+	for _, headerName := range forwardedAuthHeaders {
+		if excludedHeader != "" && strings.EqualFold(headerName, excludedHeader) {
+			continue
+		}
+		if value := headers.Get(headerName); value != "" {
+			authHeaders[headerName] = value
+		}
+	}
+	return authHeaders
+}
+
+func redactHeaders(headers http.Header) http.Header {
+	redacted := make(http.Header, len(headers))
+	for key, values := range headers {
+		if headerNameInList(key, redactedAuthHeaders) {
+			redacted[key] = []string{"<redacted>"}
+			continue
+		}
+		copied := make([]string, len(values))
+		copy(copied, values)
+		redacted[key] = copied
+	}
+	return redacted
+}
+
+func headerNameInList(headerName string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.EqualFold(headerName, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 var newUUIDV7 = uuid.NewV7
