@@ -304,6 +304,7 @@ func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey
 		excludedAuthHeader = p.server.AuthHeader
 	}
 	authHeaders := getAuthHeaders(r.Header, excludedAuthHeader)
+	authData := getAuthData(r.Context())
 	return &UpstreamSession{
 		id:              id,
 		downstreamConns: make(map[string]DownstreamConnectionInterface),
@@ -311,7 +312,7 @@ func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey
 		authHeaders:     authHeaders,
 		identityKey:     identityKey,
 		poolKey:         p.getDownstreamPoolKey(identityKey, authHeaders),
-		// authData:        authData.Clone(),
+		authData:        authData.Clone(),
 	}
 }
 
@@ -773,7 +774,7 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, 
 			Headers:        r.Header.Clone(),
 			KeyEntry:       entry,
 		}
-		r = r.WithContext(withAuthData(r.Context(), authData))
+		ctx = withAuthData(ctx, authData)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
