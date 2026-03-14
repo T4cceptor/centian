@@ -3,8 +3,40 @@
 This file is authoritative for repo workflows, structure, and expectations.
 Other agent guidance should link here and avoid duplication.
 
+## Repository Identity & Purpose
+Centian is the MCP proxy for this repository.
+
+- Repository owner: `T4cceptor`
+- Repository name: `centian`
+- Repository URL: `https://github.com/T4cceptor/centian`
+- Primary role: proxy MCP communication through a single CLI-managed endpoint
+- Core capabilities:
+  - Proxy MCP communication to downstream systems
+  - Log and monitor MCP requests and results
+  - Process requests and responses to inspect, modify, or block them
+  - Aggregate downstream systems behind one endpoint, using tool namespacing to keep them distinguishable
+
 ## Project Structure & Module Organization
-Centian is a Go workspace. The executable entrypoint lives in `cmd/main.go`, while feature modules sit under `internal/cli`, `internal/proxy`, `internal/logging`, and `internal/config`. Shared libraries that need to be exported reside in `pkg/`. Generated binaries and artifacts belong in `build/`. Test data and configuration fixtures are kept in `tests/test_configs/`—keep new fixtures there to avoid polluting source directories.
+Centian is a Go CLI application. The executable entrypoint lives in `cmd/main.go`.
+
+Basic repository structure:
+- `cmd/`: CLI entrypoint and top-level command wiring
+- `internal/cli/`: command handlers for config, logs, auth, processor, server, and completion flows
+- `internal/proxy/`: MCP proxy server, downstream connection handling, tool-call context, and request/response processing hooks
+- `internal/logging/`: log readers and shared logging helpers
+- `internal/config/`: config models, validation, accessors, and config-oriented CLI operations
+- `internal/processor/`: processor interfaces, scaffolding, and CLI processor execution support
+- `internal/discovery/`: discovery and parsing of MCP-related configuration sources
+- `internal/auth/`: API key and authentication helpers
+- `internal/common/`: shared MCP models, auth context, utilities, and internal logging primitives
+- `docs/`: architecture and setup documentation
+- `demo/`: demo assets, configs, and supporting scripts
+- `scripts/`: repository scripts
+- `tests/test_configs/`: config fixtures and sample MCP client/server configs
+- `tests/integrationtests/`: end-to-end and processor integration coverage
+- `build/`: compiled binaries and generated artifacts
+
+There is currently no active `pkg/` export surface in this repository; prefer `internal/` packages unless a true public package is needed.
 
 ## Build, Test, and Development Commands
 Use Go tools or the Makefile targets. `go build -o build/centian ./cmd/main.go` compiles the CLI once. `make build` wraps the same build with version metadata. `make dev` runs the full developer loop (`clean`, `fmt`, `vet`, `test`, `build`). Run unit tests with `go test ./...`; add `-race` locally when touching concurrency. `make test` enables verbose race-detected tests. Run `golangci-lint run` when available; the Makefile exposes it via `make lint`.
