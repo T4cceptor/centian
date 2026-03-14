@@ -85,21 +85,27 @@ func TestNewAggregatedProxy(t *testing.T) {
 
 	// Then: only enabled servers are present
 	assert.Assert(t, proxy.isAggregatedProxy)
-	assert.Equal(t, len(proxy.downstreams), 1)
-	_, ok := proxy.downstreams["enabled"]
+	activeConfigs := proxy.GetActiveMCPServerConfigs()
+	assert.Equal(t, len(activeConfigs), 1)
+	_, ok := activeConfigs["enabled"]
 	assert.Assert(t, ok)
 }
 
 func TestNewSingleProxy(t *testing.T) {
 	// Given: a server config
-	cfg := &config.MCPServerConfig{Command: "node"}
+	gatewayConfig := &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{
+			"server": {Command: "node"},
+		},
+	}
 
 	// When: creating a single proxy
-	proxy := NewSingleEndpoint("server", "/mcp/gateway/server", cfg)
+	proxy := NewSingleEndpoint("server", "/mcp/gateway/server", gatewayConfig)
 
 	// Then: proxy is not aggregated and has one downstream
 	assert.Assert(t, !proxy.isAggregatedProxy)
-	assert.Equal(t, len(proxy.downstreams), 1)
-	_, ok := proxy.downstreams["server"]
+	activeConfigs := proxy.GetActiveMCPServerConfigs()
+	assert.Equal(t, len(activeConfigs), 1)
+	_, ok := activeConfigs["server"]
 	assert.Assert(t, ok)
 }

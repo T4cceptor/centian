@@ -26,6 +26,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		host = config.DefaultProxyHost
 	}
 	if host == "0.0.0.0" && globalConfig.AuthEnabled == nil {
+		// TODO: move this into validation
 		return nil, fmt.Errorf("auth must be explicitly set when binding to 0.0.0.0")
 	}
 
@@ -88,19 +89,19 @@ func (c *CentianServer) Setup() error {
 		if err := gateway.initEventProcessor(); err != nil {
 			return err
 		}
-		RegisterEndpoint(gateway.endpoint, gateway, c.Mux, nil)
+		RegisterEndpoint(gateway, c.Mux, nil)
 
-		for serverName, serverConfig := range gatewayConfig.MCPServers {
-			if !serverConfig.IsEnabled() {
+		for serverName := range gateway.GetActiveMCPServerConfigs() {
+			if gatewayConfig.MCPServers[serverName] == nil {
 				continue
 			}
-			singleEndpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-			singleProxy := NewSingleEndpoint(serverName, singleEndpoint, serverConfig)
-			singleProxy.server = c
-			if err := singleProxy.initEventProcessor(); err != nil {
+			singleEndpointRoute := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+			singleEndpoint := NewSingleEndpoint(serverName, singleEndpointRoute, gatewayConfig)
+			singleEndpoint.server = c
+			if err := singleEndpoint.initEventProcessor(); err != nil {
 				return err
 			}
-			RegisterEndpoint(singleEndpoint, singleProxy, c.Mux, nil)
+			RegisterEndpoint(singleEndpoint, c.Mux, nil)
 		}
 	}
 	return nil

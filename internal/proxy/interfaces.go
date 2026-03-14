@@ -16,10 +16,16 @@ type ProcessingControllerInterface interface {
 }
 
 // DownstreamConnectionInterface abstracts downstream MCP server connections for testability.
+//
+// The actual connection lives in DownstreamConnection.
 type DownstreamConnectionInterface interface {
 	CallTool(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error)
 	GetServerName() string
 	IsConnected() bool
+	IsConnecting() bool
+	IsDisconnected() bool
+	IsFailed() bool
+	IsPending() bool
 	Tools() []*mcp.Tool
 	Close() error
 	GetConfig() *config.MCPServerConfig

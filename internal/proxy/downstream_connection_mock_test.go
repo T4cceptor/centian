@@ -84,6 +84,30 @@ func (m *MockDownstreamConnection) IsConnected() bool {
 	return m.Status.IsConnected()
 }
 
+func (m *MockDownstreamConnection) IsConnecting() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsConnecting()
+}
+
+func (m *MockDownstreamConnection) IsDisconnected() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsDisconnected()
+}
+
+func (m *MockDownstreamConnection) IsFailed() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsFailed()
+}
+
+func (m *MockDownstreamConnection) IsPending() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsPending()
+}
+
 func (m *MockDownstreamConnection) Tools() []*mcp.Tool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

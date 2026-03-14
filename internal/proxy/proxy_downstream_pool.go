@@ -12,6 +12,7 @@ import (
 // This file manages reusable downstream connection pools keyed by effective
 // upstream client state.
 
+// buildDownstreamSessionKey creates the reuse key for a downstream session pool.
 func (p *CentianEndpoint) buildDownstreamSessionKey(identityKey string, forwardedHeaders map[string]string, state *DownstreamClientState) string {
 	if state == nil {
 		state = &DownstreamClientState{}
@@ -26,6 +27,7 @@ func (p *CentianEndpoint) buildDownstreamSessionKey(identityKey string, forwarde
 	)
 }
 
+// newDownstreamConnection creates one runtime downstream connection from config.
 func (p *CentianEndpoint) newDownstreamConnection(serverName string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 	if p.connectionFactory != nil {
 		return p.connectionFactory(serverName, cfg)
@@ -33,6 +35,7 @@ func (p *CentianEndpoint) newDownstreamConnection(serverName string, cfg *config
 	return NewDownstreamConnection(serverName, cfg)
 }
 
+// buildDownstreamConnectOptions derives the connect options for one upstream session.
 func (p *CentianEndpoint) buildDownstreamConnectOptions(session *UpstreamSession) *DownstreamConnectOptions {
 	clientState := session.downstreamClientState()
 	if clientState == nil {
@@ -47,44 +50,59 @@ func (p *CentianEndpoint) buildDownstreamConnectOptions(session *UpstreamSession
 	}
 }
 
-// attachUpstreamSessionToPoolLocked attaches the upstream session to a matching downstream pool.
+// bindSessionToPoolLocked wires one upstream session to the pool's shared connection set.
 // Caller must hold p.mu.
-func (p *CentianEndpoint) attachUpstreamSessionToPoolLocked(session *UpstreamSession) (*DownstreamSessionPool, bool) {
+func (p *CentianEndpoint) bindSessionToPoolLocked(session *UpstreamSession, pool *DownstreamSessionPool) {
+	if session == nil || pool == nil {
+		return
+	}
+	pool.lastUsed = time.Now()
+	pool.upstreamSessions[session.id] = session
+	session.downstreamConns = pool.downstreamConns
+}
+
+// getOrCreateSessionPoolLocked returns the matching downstream pool for the session,
+// creating it when needed and starting any missing downstream connections.
+// Caller must hold p.mu.
+func (p *CentianEndpoint) getOrCreateSessionPoolLocked(session *UpstreamSession) (*DownstreamSessionPool, bool) {
 	if session.downstreamSessionKey == "" {
 		return nil, false
 	}
 
 	connectOptions := p.buildDownstreamConnectOptions(session)
 	if existing, ok := p.downstreamPools[session.downstreamSessionKey]; ok {
-		existing.lastUsed = time.Now()
-		existing.upstreamSessions[session.id] = session
-		session.downstreamConns = existing.downstreamConns
-		p.ensureDownstreamConnectionsLocked(existing, connectOptions)
+		p.bindSessionToPoolLocked(session, existing)
+		p.startMissingPoolConnectionsLocked(existing, connectOptions)
 		return existing, true
 	}
 
+	activeServerConfigs := p.GetActiveMCPServerConfigs()
 	pool := &DownstreamSessionPool{
 		identityKey:          session.identityKey,
 		downstreamSessionKey: session.downstreamSessionKey,
-		downstreamConns:      make(map[string]DownstreamConnectionInterface, len(p.downstreams)),
+		downstreamConns:      make(map[string]DownstreamConnectionInterface, len(activeServerConfigs)),
 		upstreamSessions:     map[string]*UpstreamSession{session.id: session},
 		connecting:           make(map[string]bool),
 		lastUsed:             time.Now(),
 	}
 	p.downstreamPools[session.downstreamSessionKey] = pool
-	session.downstreamConns = pool.downstreamConns
-	p.ensureDownstreamConnectionsLocked(pool, connectOptions)
+	p.bindSessionToPoolLocked(session, pool)
+	p.startMissingPoolConnectionsLocked(pool, connectOptions)
 	return pool, false
 }
 
-func (p *CentianEndpoint) ensureDownstreamConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
-	for serverName, template := range p.downstreams {
+// startMissingPoolConnectionsLocked ensures the pool has connection objects for
+// each active downstream server and starts any missing async connect attempts.
+// Caller must hold p.mu.
+func (p *CentianEndpoint) startMissingPoolConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
+	for serverName, serverConfig := range p.GetActiveMCPServerConfigs() {
 		conn, err := pool.GetConnectionByServerName(serverName)
 		if err != nil || conn.GetStatus().IsFailed() {
-			conn = p.newDownstreamConnection(serverName, template.config)
-			pool.downstreamConns[serverName] = conn
+			conn = p.newDownstreamConnection(serverName, serverConfig)
+			pool.SetConnection(serverName, conn)
 		}
-		if pool.connecting[serverName] || conn.IsConnected() {
+		isConnecting, _ := pool.IsConnecting(serverName)
+		if isConnecting || conn.IsConnected() {
 			continue
 		}
 		pool.connecting[serverName] = true
@@ -92,6 +110,7 @@ func (p *CentianEndpoint) ensureDownstreamConnectionsLocked(pool *DownstreamSess
 	}
 }
 
+// waitForFirstUsableDownstream waits briefly for at least one connected downstream with tools.
 func (p *CentianEndpoint) waitForFirstUsableDownstream(pool *DownstreamSessionPool, timeout time.Duration) {
 	if pool == nil {
 		return
@@ -106,6 +125,7 @@ func (p *CentianEndpoint) waitForFirstUsableDownstream(pool *DownstreamSessionPo
 	}
 }
 
+// downstreamPoolHasUsableConnection reports whether the pool has at least one ready downstream.
 func (p *CentianEndpoint) downstreamPoolHasUsableConnection(pool *DownstreamSessionPool) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

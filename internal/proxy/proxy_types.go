@@ -72,6 +72,20 @@ func (p *DownstreamSessionPool) GetConnectionByServerName(serverName string) (Do
 	return conn, nil
 }
 
+// SetConnection sets a downstream connection for the given server name.
+func (p *DownstreamSessionPool) SetConnection(serverName string, conn DownstreamConnectionInterface) {
+	p.downstreamConns[serverName] = conn
+}
+
+// IsConnecting returns true if the connection for the given serverName is currently in state Connecting.
+func (p *DownstreamSessionPool) IsConnecting(serverName string) (bool, error) {
+	conn, ok := p.downstreamConns[serverName]
+	if !ok {
+		return false, fmt.Errorf("no connection to server %q found", serverName)
+	}
+	return conn.GetStatus().IsConnecting(), nil
+}
+
 const initialDownstreamReadyWait = 500 * time.Millisecond
 
 // GetConnectionByServerName returns a downstream connection for the given server name.
@@ -96,10 +110,8 @@ func (s *UpstreamSession) GetAuthHeaders(excludedHeader string) map[string]strin
 // CentianEndpoint manages one proxied MCP endpoint, including upstream sessions,
 // downstream pooling, tool registration, and request routing.
 type CentianEndpoint struct {
-	name     string
+	name     string // gatewayName or serverName - depending on if the endpoint is aggregated or not
 	endpoint string
-
-	downstreams map[string]*DownstreamConnection
 
 	upstreamSessions map[string]*UpstreamSession
 	downstreamPools  map[string]*DownstreamSessionPool
@@ -124,32 +136,46 @@ func NewAggregatedEndpoint(gatewayName, endpoint string, gatewayConfig *config.G
 		name:              gatewayName,
 		endpoint:          endpoint,
 		config:            gatewayConfig,
-		downstreams:       make(map[string]*DownstreamConnection),
 		upstreamSessions:  make(map[string]*UpstreamSession),
 		downstreamPools:   make(map[string]*DownstreamSessionPool),
 		isAggregatedProxy: true,
 	}
-
-	for serverName, serverConfig := range gatewayConfig.MCPServers {
-		if serverConfig.IsEnabled() {
-			proxy.downstreams[serverName] = NewDownstreamConnection(serverName, serverConfig)
-		}
-	}
-
 	return proxy
 }
 
 // NewSingleEndpoint creates an endpoint for a single downstream server.
-func NewSingleEndpoint(serverName, endpoint string, serverConfig *config.MCPServerConfig) *CentianEndpoint {
+func NewSingleEndpoint(serverName, endpoint string, gatewayConfig *config.GatewayConfig) *CentianEndpoint {
 	return &CentianEndpoint{
-		name:     serverName,
-		endpoint: endpoint,
-		downstreams: map[string]*DownstreamConnection{
-			serverName: NewDownstreamConnection(serverName, serverConfig),
-		},
+		name:             serverName,
+		endpoint:         endpoint,
+		config:           gatewayConfig,
 		upstreamSessions: make(map[string]*UpstreamSession),
 		downstreamPools:  make(map[string]*DownstreamSessionPool),
 	}
+}
+
+// GetActiveMCPServerConfigs returns the downstream server configs that this
+// endpoint should actively use at runtime.
+func (p *CentianEndpoint) GetActiveMCPServerConfigs() map[string]*config.MCPServerConfig {
+	activeConfigs := make(map[string]*config.MCPServerConfig)
+	if p == nil || p.config == nil {
+		return activeConfigs
+	}
+
+	if p.isAggregatedProxy {
+		for serverName, serverConfig := range p.config.MCPServers {
+			if serverConfig != nil && serverConfig.IsEnabled() {
+				activeConfigs[serverName] = serverConfig
+			}
+		}
+		return activeConfigs
+	}
+
+	serverConfig, ok := p.config.MCPServers[p.name]
+	if ok && serverConfig != nil && serverConfig.IsEnabled() {
+		activeConfigs[p.name] = serverConfig
+	}
+	return activeConfigs
 }
 
 // sanitizeLogValue strips control characters to prevent log injection.

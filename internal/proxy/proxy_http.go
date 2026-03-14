@@ -314,7 +314,7 @@ func cloneAuthHeaders(headers map[string]string) map[string]string {
 }
 
 // RegisterEndpoint registers a ServerProvider with the HTTP mux.
-func RegisterEndpoint(endpoint string, proxy *CentianEndpoint, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
+func RegisterEndpoint(proxy *CentianEndpoint, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
 	if options == nil {
 		options = &mcp.StreamableHTTPOptions{
 			SessionTimeout: 10 * time.Minute,
@@ -339,6 +339,6 @@ func RegisterEndpoint(endpoint string, proxy *CentianEndpoint, mux *http.ServeMu
 		handler = apiKeyMiddlewareWithHeader(proxy.server.APIKeys, headerName, handler)
 	}
 
-	mux.Handle(endpoint, handler)
-	common.LogInfo("Registered handler at %s", endpoint)
+	mux.Handle(proxy.endpoint, handler)
+	common.LogInfo("Registered handler at %s", proxy.endpoint)
 }

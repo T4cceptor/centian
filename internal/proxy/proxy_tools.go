@@ -147,16 +147,15 @@ func (p *CentianEndpoint) collectDownstreamToolState(
 		summary.connectingCount++
 		return
 	}
-	status := conn.GetStatus()
 	if conn.IsConnected() {
 		summary.connectedCount++
 		return
 	}
-	if status.IsConnecting() || status.IsPending() {
+	if conn.IsConnecting() || conn.IsPending() {
 		summary.connectingCount++
 		return
 	}
-	if status.IsFailed() && conn.GetError() != nil {
+	if conn.IsFailed() && conn.GetError() != nil {
 		summary.connErrors = append(summary.connErrors, fmt.Sprintf("%s: %v", serverName, conn.GetError()))
 	}
 }
@@ -190,7 +189,6 @@ func (p *CentianEndpoint) ProcessCall(callCtx CallContext, direction common.McpE
 	if p.eventProcessor == nil {
 		return nil
 	}
-
 	callCtx.SetDirection(direction)
 	callCtx.SetMessageType(msgType)
 	return p.eventProcessor.Process(callCtx)
@@ -230,24 +228,29 @@ func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamS
 	return callCtx.GetResult(), nil
 }
 
-func (p *CentianEndpoint) forwardSamplingRequest(ctx context.Context, req *mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
+func (p *CentianEndpoint) getSyncedSession(ctx context.Context) (*mcp.ServerSession, error) {
 	session, serverSession, err := p.upstreamSessionFromContext(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if session.rootsDirty {
 		p.syncUpstreamSessionState(ctx, session.id)
+	}
+	return serverSession, nil
+}
+
+func (p *CentianEndpoint) forwardSamplingRequest(ctx context.Context, req *mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
+	serverSession, err := p.getSyncedSession(ctx)
+	if err != nil {
+		return nil, err
 	}
 	return serverSession.CreateMessage(ctx, req.Params)
 }
 
 func (p *CentianEndpoint) forwardElicitationRequest(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-	session, serverSession, err := p.upstreamSessionFromContext(ctx)
+	serverSession, err := p.getSyncedSession(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if session.rootsDirty {
-		p.syncUpstreamSessionState(ctx, session.id)
 	}
 	return serverSession.Elicit(ctx, req.Params)
 }

@@ -13,6 +13,7 @@ import (
 // This file manages upstream session lifecycle, captured client state, and
 // downstream pool reconciliation.
 
+// downstreamPoolUpdate describes the side effects needed after pool reconciliation.
 type downstreamPoolUpdate struct {
 	pool         *DownstreamSessionPool
 	reused       bool
@@ -21,8 +22,8 @@ type downstreamPoolUpdate struct {
 	waitForReady bool
 }
 
-// GetOrCreateServerForRequest returns (or creates) the upstream-facing MCP server for the request.
-func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
+// getSessionID returns the MCP session ID from the request or synthesizes one for new POST sessions.
+func getSessionID(r *http.Request) string {
 	sessionID := ""
 	if r != nil {
 		sessionID = r.Header.Get("Mcp-Session-Id")
@@ -30,6 +31,12 @@ func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Serv
 	if sessionID == "" && r != nil && r.Method == http.MethodPost {
 		sessionID = "csid-" + getNewUUIDV7()
 	}
+	return sessionID
+}
+
+// GetOrCreateServerForRequest returns (or creates) the upstream-facing MCP server for the request.
+func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
+	sessionID := getSessionID(r)
 	if sessionID == "" {
 		return nil
 	}
@@ -65,11 +72,7 @@ func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Serv
 	return session.upstreamServer
 }
 
-// GetServerForRequest is kept as a compatibility wrapper while callers migrate.
-func (p *CentianEndpoint) GetServerForRequest(r *http.Request) *mcp.Server {
-	return p.GetOrCreateServerForRequest(r)
-}
-
+// createUpstreamSession snapshots request-scoped identity, headers, and auth data for one session.
 func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, identityKey string) *UpstreamSession {
 	authData := getAuthData(r.Context())
 	var clientHeaders http.Header
@@ -87,6 +90,7 @@ func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, iden
 	}
 }
 
+// resolveIdentityKey maps a request to the pool identity used for downstream reuse decisions.
 func (p *CentianEndpoint) resolveIdentityKey(r *http.Request) (string, error) {
 	if p.server == nil || p.server.APIKeys == nil {
 		return sharedLocalIdentity, nil
@@ -98,6 +102,7 @@ func (p *CentianEndpoint) resolveIdentityKey(r *http.Request) (string, error) {
 	return identity, nil
 }
 
+// currentUpstreamServerSession finds the live SDK session that corresponds to the stored upstream session.
 func (p *CentianEndpoint) currentUpstreamServerSession(session *UpstreamSession) *mcp.ServerSession {
 	if session == nil || session.upstreamServer == nil {
 		return nil
@@ -114,6 +119,7 @@ func (p *CentianEndpoint) currentUpstreamServerSession(session *UpstreamSession)
 	return nil
 }
 
+// syncUpstreamSessionState captures the latest upstream client state and reconciles the downstream pool.
 func (p *CentianEndpoint) syncUpstreamSessionState(ctx context.Context, sessionID string) {
 	p.mu.RLock()
 	session := p.upstreamSessions[sessionID]
@@ -136,6 +142,7 @@ func (p *CentianEndpoint) syncUpstreamSessionState(ctx context.Context, sessionI
 	p.finalizeDownstreamPoolUpdate(ctx, session, update)
 }
 
+// capturedUpstreamClientState is the upstream-facing client state observed from the SDK session.
 type capturedUpstreamClientState struct {
 	protocolVersion string
 	capabilities    *mcp.ClientCapabilities
@@ -143,6 +150,7 @@ type capturedUpstreamClientState struct {
 	rootsDirty      bool
 }
 
+// readUpstreamClientState reads the current client state from the upstream SDK session.
 func (p *CentianEndpoint) readUpstreamClientState(
 	ctx context.Context,
 	session *UpstreamSession,
@@ -175,11 +183,11 @@ func (p *CentianEndpoint) readUpstreamClientState(
 	return clientState, true
 }
 
+// deriveDownstreamClientState converts captured upstream client state into the mirrored downstream shape.
 func deriveDownstreamClientState(clientState *capturedUpstreamClientState) *DownstreamClientState {
 	if clientState == nil {
 		return &DownstreamClientState{}
 	}
-
 	return buildDownstreamClientState(
 		clientState.protocolVersion,
 		clientState.capabilities,
@@ -187,6 +195,7 @@ func deriveDownstreamClientState(clientState *capturedUpstreamClientState) *Down
 	)
 }
 
+// reconcileUpstreamSessionState updates the stored session state and selects the target downstream pool.
 func (p *CentianEndpoint) reconcileUpstreamSessionState(
 	sessionID string,
 	state *DownstreamClientState,
@@ -204,6 +213,7 @@ func (p *CentianEndpoint) reconcileUpstreamSessionState(
 	return session, update
 }
 
+// fetchUpstreamRoots asks the upstream SDK session for the latest roots snapshot.
 func (p *CentianEndpoint) fetchUpstreamRoots(ctx context.Context, session *UpstreamSession, serverSession *mcp.ServerSession) ([]*mcp.Root, error) {
 	if session == nil || serverSession == nil {
 		return nil, nil
@@ -215,6 +225,22 @@ func (p *CentianEndpoint) fetchUpstreamRoots(ctx context.Context, session *Upstr
 	return normalizeRoots(result.Roots), nil
 }
 
+// syncUpstreamSessionToDownstreamState copies mirrored downstream-facing client state onto the upstream session.
+func (p *CentianEndpoint) syncUpstreamSessionToDownstreamState(session *UpstreamSession, state *DownstreamClientState) {
+	session.protocolVersion = state.ProtocolVersion
+	session.clientCapabilities = state.ClientCapabilities
+	session.capabilitiesFingerprint = state.CapabilitiesFingerprint
+	session.roots = normalizeRoots(state.Roots)
+	session.rootsFingerprint = state.RootsFingerprint
+	session.downstreamSessionKey = p.buildDownstreamSessionKey(
+		session.identityKey,
+		session.GetAuthHeaders(p.excludedClientAuthHeader()),
+		state,
+	)
+}
+
+// applyClientStateLocked stores mirrored client state on the session and plans any required pool transition.
+// Caller must hold p.mu.
 func (p *CentianEndpoint) applyClientStateLocked(
 	session *UpstreamSession,
 	state *DownstreamClientState,
@@ -223,47 +249,55 @@ func (p *CentianEndpoint) applyClientStateLocked(
 	if state == nil {
 		state = &DownstreamClientState{}
 	}
-	previousKey := session.downstreamSessionKey
-	session.protocolVersion = state.ProtocolVersion
-	session.clientCapabilities = state.ClientCapabilities
-	session.capabilitiesFingerprint = state.CapabilitiesFingerprint
-	session.roots = normalizeRoots(state.Roots)
-	session.rootsFingerprint = state.RootsFingerprint
-	session.rootsDirty = rootsDirty
 
-	session.downstreamSessionKey = p.buildDownstreamSessionKey(
-		session.identityKey,
-		session.GetAuthHeaders(p.excludedClientAuthHeader()),
-		state,
-	)
+	// Keep the previous pool key so the transition logic can decide whether this
+	// session stays on its current pool, retargets an exclusive pool, or moves to
+	// a different shared pool.
+	previousKey := session.downstreamSessionKey
+
+	// Persist the newly mirrored client state before making any pool decision.
+	// The downstream session key is derived from this snapshot.
+	p.syncUpstreamSessionToDownstreamState(session, state)
+	session.rootsDirty = rootsDirty
 	if session.downstreamSessionKey == "" {
 		return downstreamPoolUpdate{}
 	}
 
 	if previousKey == "" {
-		pool, reused := p.attachUpstreamSessionToPoolLocked(session)
+		// This session has not been attached to any pool yet, so create or reuse
+		// the first matching pool and wait briefly for an initial usable downstream.
+		pool, reused := p.getOrCreateSessionPoolLocked(session)
 		return downstreamPoolUpdate{pool: pool, reused: reused, waitForReady: !reused}
 	}
 
 	if previousKey == session.downstreamSessionKey {
 		if pool, ok := p.downstreamPools[session.downstreamSessionKey]; ok {
+			// The session still belongs to the same pool. When the pool is dedicated
+			// to this single session, client-state changes can be pushed into the
+			// existing downstream connections instead of reconnecting.
 			return downstreamPoolUpdate{pool: pool, reused: true, syncPool: len(pool.upstreamSessions) == 1 && !rootsDirty}
 		}
-		pool, reused := p.attachUpstreamSessionToPoolLocked(session)
+
+		// The key is unchanged but the pool entry is gone, so rebuild the expected
+		// pool attachment from the current session state.
+		pool, reused := p.getOrCreateSessionPoolLocked(session)
 		return downstreamPoolUpdate{pool: pool, reused: reused, waitForReady: !reused}
 	}
 
 	currentPool := p.downstreamPools[previousKey]
 	if currentPool != nil && len(currentPool.upstreamSessions) == 1 {
 		if existingTarget, ok := p.downstreamPools[session.downstreamSessionKey]; ok {
+			// The session exclusively owns its current pool, but another pool already
+			// exists for the new key. Move the session there and close the old pool.
 			delete(currentPool.upstreamSessions, session.id)
 			delete(p.downstreamPools, previousKey)
-			existingTarget.upstreamSessions[session.id] = session
-			session.downstreamConns = existingTarget.downstreamConns
-			p.ensureDownstreamConnectionsLocked(existingTarget, p.buildDownstreamConnectOptions(session))
+			p.bindSessionToPoolLocked(session, existingTarget)
+			p.startMissingPoolConnectionsLocked(existingTarget, p.buildDownstreamConnectOptions(session))
 			return downstreamPoolUpdate{pool: existingTarget, reused: true, closePool: currentPool}
 		}
 
+		// The session exclusively owns its current pool and no target pool exists, so
+		// retarget the current pool in place instead of replacing all downstreams.
 		delete(p.downstreamPools, previousKey)
 		currentPool.downstreamSessionKey = session.downstreamSessionKey
 		currentPool.lastUsed = time.Now()
@@ -274,6 +308,9 @@ func (p *CentianEndpoint) applyClientStateLocked(
 
 	var closePool *DownstreamSessionPool
 	if currentPool != nil {
+		// Shared pools cannot be retargeted in place because other sessions still
+		// depend on the old key. Detach this session and close the old pool only if
+		// it becomes empty afterwards.
 		delete(currentPool.upstreamSessions, session.id)
 		if len(currentPool.upstreamSessions) == 0 {
 			delete(p.downstreamPools, previousKey)
@@ -281,10 +318,17 @@ func (p *CentianEndpoint) applyClientStateLocked(
 		}
 	}
 
-	pool, reused := p.attachUpstreamSessionToPoolLocked(session)
-	return downstreamPoolUpdate{pool: pool, reused: reused, closePool: closePool, waitForReady: !reused}
+	// Reuse an existing pool for the new key when available, otherwise create one.
+	pool, reused := p.getOrCreateSessionPoolLocked(session)
+	return downstreamPoolUpdate{
+		pool:         pool,
+		reused:       reused,
+		closePool:    closePool,
+		waitForReady: !reused,
+	}
 }
 
+// finalizeDownstreamPoolUpdate executes the pool actions planned during reconciliation outside the mutex.
 func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, session *UpstreamSession, update downstreamPoolUpdate) {
 	if update.closePool != nil {
 		p.closeDownstreamSessionPool(update.closePool)
@@ -301,6 +345,7 @@ func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, sess
 	p.registerAvailableTools(session)
 }
 
+// syncPoolClientState pushes mirrored client state changes into every downstream connection in the pool.
 func (p *CentianEndpoint) syncPoolClientState(ctx context.Context, pool *DownstreamSessionPool, state *DownstreamClientState) {
 	for _, conn := range pool.downstreamConns {
 		if err := conn.SyncClientState(ctx, state); err != nil {
@@ -309,6 +354,7 @@ func (p *CentianEndpoint) syncPoolClientState(ctx context.Context, pool *Downstr
 	}
 }
 
+// markUpstreamSessionRootsDirty records that the cached roots snapshot must be refreshed on the next sync.
 func (p *CentianEndpoint) markUpstreamSessionRootsDirty(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -317,6 +363,7 @@ func (p *CentianEndpoint) markUpstreamSessionRootsDirty(sessionID string) {
 	}
 }
 
+// invalidateDownstreamPool removes and closes one downstream pool by session key.
 func (p *CentianEndpoint) invalidateDownstreamPool(downstreamSessionKey string) {
 	if downstreamSessionKey == "" {
 		return
@@ -358,6 +405,7 @@ func (p *CentianEndpoint) Close() []error {
 	return errs
 }
 
+// closeDownstreamSessionPool closes every live downstream connection owned by the pool.
 func (p *CentianEndpoint) closeDownstreamSessionPool(pool *DownstreamSessionPool) []error {
 	if pool == nil {
 		return nil

@@ -18,6 +18,14 @@ import (
 	"gotest.tools/assert"
 )
 
+func testGatewayConfig(serverNames ...string) *config.GatewayConfig {
+	serverConfigs := make(map[string]*config.MCPServerConfig, len(serverNames))
+	for _, serverName := range serverNames {
+		serverConfigs[serverName] = &config.MCPServerConfig{Command: "node"}
+	}
+	return &config.GatewayConfig{MCPServers: serverConfigs}
+}
+
 func TestWriteUnauthorized(t *testing.T) {
 	// Given: a response recorder
 	recorder := httptest.NewRecorder()
@@ -138,7 +146,7 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 	mux := http.NewServeMux()
 
 	// When: registering handler and calling without auth
-	RegisterEndpoint("/mcp/gateway", proxy, mux, nil)
+	RegisterEndpoint(proxy, mux, nil)
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
 	recorder := httptest.NewRecorder()
 	handler, _ := mux.Handler(request)
@@ -219,11 +227,12 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 	// Given: a proxy with a custom downstream connection factory
 	var created []*MockDownstreamConnection
 	proxy := &CentianEndpoint{
-		name:             "gateway",
-		endpoint:         "/mcp/gateway",
-		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		upstreamSessions: make(map[string]*UpstreamSession),
-		downstreamPools:  make(map[string]*DownstreamConnectionPool),
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{
 				cfg: cfg,
@@ -247,11 +256,11 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
 
 	// When: two different upstream sessions use the same identity
-	server1 := proxy.GetServerForRequest(request1)
+	server1 := proxy.GetOrCreateServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
 	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	request2.Header.Set("Mcp-Session-Id", "session-2")
-	server2 := proxy.GetServerForRequest(request2)
+	server2 := proxy.GetOrCreateServerForRequest(request2)
 	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: only one downstream connection is created and reused
@@ -265,11 +274,12 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 	// Given: a proxy with a custom downstream connection factory
 	var created []*MockDownstreamConnection
 	proxy := &CentianEndpoint{
-		name:             "gateway",
-		endpoint:         "/mcp/gateway",
-		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		upstreamSessions: make(map[string]*UpstreamSession),
-		downstreamPools:  make(map[string]*DownstreamConnectionPool),
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{cfg: cfg, tools: []*mcp.Tool{{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}}}}
 			created = append(created, conn)
@@ -289,9 +299,9 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_2"))
 
 	// When: requests use different auth identities
-	server1 := proxy.GetServerForRequest(request1)
+	server1 := proxy.GetOrCreateServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
-	server2 := proxy.GetServerForRequest(request2)
+	server2 := proxy.GetOrCreateServerForRequest(request2)
 	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
@@ -306,11 +316,12 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	// Given: a proxy without auth and with a custom downstream connection factory
 	var created []*MockDownstreamConnection
 	proxy := &CentianEndpoint{
-		name:             "gateway",
-		endpoint:         "/mcp/gateway",
-		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		upstreamSessions: make(map[string]*UpstreamSession),
-		downstreamPools:  make(map[string]*DownstreamConnectionPool),
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{cfg: cfg, tools: []*mcp.Tool{{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}}}}
 			created = append(created, conn)
@@ -327,9 +338,9 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	request2.Header.Set("Mcp-Session-Id", "session-2")
 
 	// When: two upstream sessions hit the same endpoint with auth disabled
-	server1 := proxy.GetServerForRequest(request1)
+	server1 := proxy.GetOrCreateServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
-	server2 := proxy.GetServerForRequest(request2)
+	server2 := proxy.GetOrCreateServerForRequest(request2)
 	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
@@ -344,11 +355,12 @@ func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 	// Given: a proxy with a downstream connect that does not complete immediately
 	releaseConnect := make(chan struct{})
 	proxy := &CentianEndpoint{
-		name:             "gateway",
-		endpoint:         "/mcp/gateway",
-		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		upstreamSessions: make(map[string]*UpstreamSession),
-		downstreamPools:  make(map[string]*DownstreamConnectionPool),
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			return &MockDownstreamConnection{
 				cfg: cfg,
@@ -371,7 +383,7 @@ func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 
 	// When: requesting a server while downstream connection is still pending
 	go func() {
-		serverResult <- proxy.GetServerForRequest(request)
+		serverResult <- proxy.GetOrCreateServerForRequest(request)
 	}()
 
 	// Then: the upstream server should be returned without waiting for the slow connect
@@ -391,11 +403,12 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 	// Given: a proxy that forwards downstream auth separately from Centian auth
 	var created []*MockDownstreamConnection
 	proxy := &CentianEndpoint{
-		name:             "gateway",
-		endpoint:         "/mcp/gateway",
-		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
-		upstreamSessions: make(map[string]*UpstreamSession),
-		downstreamPools:  make(map[string]*DownstreamConnectionPool),
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(_ string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			conn := &MockDownstreamConnection{
 				cfg: cfg,
@@ -423,9 +436,9 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
 
 	// When: the same Centian identity reconnects with a different downstream credential
-	server1 := proxy.GetServerForRequest(request1)
+	server1 := proxy.GetOrCreateServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
-	server2 := proxy.GetServerForRequest(request2)
+	server2 := proxy.GetOrCreateServerForRequest(request2)
 	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
@@ -445,14 +458,12 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	// Given: an aggregated proxy where one downstream fails the first time
 	createdByServer := make(map[string]int)
 	proxy := &CentianEndpoint{
-		name:     "gateway",
-		endpoint: "/mcp/gateway",
-		downstreams: map[string]*DownstreamConnection{
-			"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"}),
-			"server2": NewDownstreamConnection("server2", &config.MCPServerConfig{Command: "node"}),
-		},
-		upstreamSessions: make(map[string]*UpstreamSession),
-		downstreamPools:  make(map[string]*DownstreamConnectionPool),
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1", "server2"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
 		connectionFactory: func(name string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 			createdByServer[name]++
 			conn := &MockDownstreamConnection{
@@ -484,7 +495,7 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
 
 	// When: the first session creates a partial failure
-	server1 := proxy.GetServerForRequest(request1)
+	server1 := proxy.GetOrCreateServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
 	firstSession := attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	waitForCondition(t, time.Second, func() bool {
@@ -495,11 +506,11 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 			return false
 		}
 		conn, exists := entry.downstreamConns["server2"]
-		return exists && conn.GetStatus() == StatusFailed && !entry.connecting["server2"]
+		return exists && conn.GetStatus().IsFailed() && !entry.connecting["server2"]
 	})
 
 	// And: a later session with the same identity arrives after that failure settled
-	server2 := proxy.GetServerForRequest(request2)
+	server2 := proxy.GetOrCreateServerForRequest(request2)
 	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: the failed downstream should be retried for the later session

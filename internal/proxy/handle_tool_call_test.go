@@ -286,9 +286,12 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy := createTestProxy(t, &ProcessingController{
 		processors: []processor.ProcessorInterface{mockProcessor},
 	})
+	proxy.name = "test-server"
 	proxy.endpoint = "/mcp/gateway-a/test-server"
-	proxy.downstreams = map[string]*DownstreamConnection{
-		"test-server": NewDownstreamConnection("test-server", &config.MCPServerConfig{URL: "http://test"}),
+	proxy.config = &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{
+			"test-server": {URL: "http://test"},
+		},
 	}
 	proxy.upstreamSessions = make(map[string]*UpstreamSession)
 	proxy.downstreamPools = make(map[string]*DownstreamConnectionPool)
@@ -300,7 +303,7 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy.server.Config = &config.GlobalConfig{Version: "1.0.0"}
 
 	handler := apiKeyMiddlewareWithHeader(proxy.server.APIKeys, proxy.server.AuthHeader, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		server := proxy.GetServerForRequest(r)
+		server := proxy.GetOrCreateServerForRequest(r)
 		assert.Assert(t, server != nil)
 		w.WriteHeader(http.StatusOK)
 	}))

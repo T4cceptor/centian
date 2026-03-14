@@ -332,6 +332,34 @@ func (dc *DownstreamConnection) IsConnected() bool {
 	return dc.status.IsConnected()
 }
 
+// IsConnecting returns true if connection is being established and not yet closed.
+func (dc *DownstreamConnection) IsConnecting() bool {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.status.IsConnecting()
+}
+
+// IsDisconnected returns true if connection is closed.
+func (dc *DownstreamConnection) IsDisconnected() bool {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.status.IsDisconnected()
+}
+
+// IsFailed returns true if connection could not be established.
+func (dc *DownstreamConnection) IsFailed() bool {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.status.IsFailed()
+}
+
+// IsPending returns true if connection is currently pending.
+func (dc *DownstreamConnection) IsPending() bool {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.status.IsPending()
+}
+
 // GetConfig returns the server configuration for this connection.
 func (dc *DownstreamConnection) GetConfig() *config.MCPServerConfig {
 	return dc.config
