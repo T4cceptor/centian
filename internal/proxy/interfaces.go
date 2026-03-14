@@ -22,7 +22,8 @@ type DownstreamConnectionInterface interface {
 	GetConfig() *config.MCPServerConfig
 	GetStatus() ConnectionStatus
 	GetError() error
-	Connect(context.Context, map[string]string) error
+	Connect(context.Context, DownstreamConnectOptions) error
+	SyncClientState(context.Context, DownstreamClientState) error
 }
 
 // Compile-time interface compliance checks.

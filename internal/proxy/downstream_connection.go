@@ -33,6 +33,8 @@ type DownstreamConnection struct {
 	tools      []*mcp.Tool
 	mu         sync.RWMutex
 
+	clientState DownstreamClientState
+
 	// Progressive connection tracking
 	status      ConnectionStatus
 	connError   error
@@ -44,21 +46,27 @@ func (dc *DownstreamConnection) GetServerName() string {
 	return dc.serverName
 }
 
-// Connect establishes connection to downstream server
-// authHeaders: additional headers from upstream request (for passthrough auth).
-func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[string]string) error {
+// Connect establishes connection to downstream server.
+func (dc *DownstreamConnection) Connect(ctx context.Context, options DownstreamConnectOptions) error {
 	if dc.IsConnected() {
-		return nil // Already connected
+		return nil
 	}
+
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
+
 	dc.status = StatusConnecting
+	dc.clientState = options.ClientState
 	dc.client = mcp.NewClient(&mcp.Implementation{
 		Name:    dc.serverName,
-		Version: "1.0.0", // TODO: replace with gateway version?
-	}, nil)
+		Version: "1.0.0",
+	}, dc.buildClientOptions(options))
 
-	transport, err := dc.createTransport(authHeaders)
+	if len(dc.clientState.Roots) > 0 {
+		dc.client.AddRoots(dc.clientState.Roots...)
+	}
+
+	transport, err := dc.createTransport(options.ForwardedHeaders)
 	if err != nil {
 		dc.status = StatusFailed
 		dc.connError = err
@@ -73,15 +81,91 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, authHeaders map[str
 	}
 	dc.session = session
 
-	// Discover tools
 	if err := dc.discoverTools(ctx); err != nil {
-		dc.session.Close() //nolint:errcheck // we are already returning an error
+		dc.session.Close() //nolint:errcheck // already returning an error
 		dc.status = StatusFailed
 		dc.connError = err
 		return fmt.Errorf("failed to discover tools: %w", err)
 	}
+
 	dc.status = StatusConnected
+	dc.connError = nil
 	dc.connectedAt = time.Now()
+	return nil
+}
+
+func (dc *DownstreamConnection) buildClientOptions(options DownstreamConnectOptions) *mcp.ClientOptions {
+	clientOptions := &mcp.ClientOptions{
+		Capabilities: normalizeClientCapabilities(options.ClientState.ClientCapabilities),
+	}
+	if options.SamplingHandler != nil {
+		clientOptions.CreateMessageHandler = options.SamplingHandler
+	}
+	if options.ElicitationHandler != nil {
+		clientOptions.ElicitationHandler = options.ElicitationHandler
+	}
+	return clientOptions
+}
+
+// SyncClientState updates mutable downstream client state without reconnecting.
+func (dc *DownstreamConnection) SyncClientState(ctx context.Context, clientState DownstreamClientState) error {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	currentRoots := normalizeRoots(dc.clientState.Roots)
+	if dc.client == nil {
+		dc.clientState = clientState
+		return nil
+	}
+
+	currentByURI := make(map[string]*mcp.Root, len(currentRoots))
+	for _, root := range currentRoots {
+		if root == nil {
+			continue
+		}
+		currentByURI[root.URI] = root
+	}
+
+	nextRoots := normalizeRoots(clientState.Roots)
+	nextByURI := make(map[string]*mcp.Root, len(nextRoots))
+	for _, root := range nextRoots {
+		if root == nil {
+			continue
+		}
+		nextByURI[root.URI] = root
+	}
+
+	removeURIs := make([]string, 0)
+	for uri := range currentByURI {
+		if _, ok := nextByURI[uri]; !ok {
+			removeURIs = append(removeURIs, uri)
+		}
+	}
+	if len(removeURIs) > 0 {
+		dc.client.RemoveRoots(removeURIs...)
+	}
+
+	addRoots := make([]*mcp.Root, 0)
+	for uri, root := range nextByURI {
+		if existing, ok := currentByURI[uri]; ok && existing.Name == root.Name {
+			continue
+		}
+		addRoots = append(addRoots, root)
+	}
+	if len(addRoots) > 0 {
+		dc.client.AddRoots(addRoots...)
+	}
+
+	dc.clientState = clientState
+	dc.clientState.Roots = nextRoots
+	dc.clientState.RootsFingerprint = fingerprintRoots(nextRoots)
+	dc.clientState.CapabilitiesFingerprint = fingerprintClientCapabilities(dc.clientState.ClientCapabilities)
+
+	if dc.session != nil {
+		if err := dc.discoverTools(ctx); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -94,73 +178,58 @@ func NewDownstreamConnection(serverName string, cfg *config.MCPServerConfig) *Do
 	}
 }
 
-// HeaderRoundTripper is used to store.
+// HeaderRoundTripper injects configured headers into outgoing downstream requests.
 type HeaderRoundTripper struct {
 	Base    http.RoundTripper
 	Headers map[string]string
 }
 
-// RoundTrip adds the header from HeaderRoundTripper to the request.
-// This is done so both configured headers as well as headers from the client
-// are included in the request.
+// RoundTrip adds the configured headers to the request.
 func (rt HeaderRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := rt.Base
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	// Clone to avoid mutating the original request.
+
 	cloned := req.Clone(req.Context())
-	for k, v := range rt.Headers {
-		// Use Set to overwrite, or Add to append.
-		cloned.Header.Set(k, v)
+	for key, value := range rt.Headers {
+		cloned.Header.Set(key, value)
 	}
-	// TODO: enable raw request processing
-	resp, err := base.RoundTrip(cloned)
-	// TODO: enable raw response processing
-	return resp, err
+	return base.RoundTrip(cloned)
 }
 
-func (dc *DownstreamConnection) createTransport(authHeaders map[string]string) (mcp.Transport, error) {
-	isHTTPtransport := dc.config.URL != ""
+func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]string) (mcp.Transport, error) {
+	isHTTPTransport := dc.config.URL != ""
 	isStdioTransport := dc.config.Command != ""
-	if isHTTPtransport && isStdioTransport {
+	if isHTTPTransport && isStdioTransport {
 		return nil, fmt.Errorf("both URL or Command configured for server %s", dc.serverName)
 	}
 
-	if isHTTPtransport {
-		// Merge config headers with passed auth headers
+	if isHTTPTransport {
 		allHeaders := make(map[string]string)
-		for k, v := range dc.config.GetSubstitutedHeaders() {
-			allHeaders[k] = v
+		for key, value := range dc.config.GetSubstitutedHeaders() {
+			allHeaders[key] = value
 		}
-		for k, v := range authHeaders {
-			allHeaders[k] = v // Auth headers override config
+		for key, value := range forwardedHeaders {
+			allHeaders[key] = value
 		}
 
-		// HTTP transport
 		httpClient := &http.Client{
-			Transport: HeaderRoundTripper{
-				Headers: allHeaders,
-			},
-			Timeout: 30 * time.Second,
+			Transport: HeaderRoundTripper{Headers: allHeaders},
+			Timeout:   30 * time.Second,
 		}
 
-		// This requires a custom RoundTripper
-		transport := &mcp.StreamableClientTransport{
+		return &mcp.StreamableClientTransport{
 			Endpoint:   dc.config.URL,
 			HTTPClient: httpClient,
-		}
-		return transport, nil
+		}, nil
 	}
 
 	if isStdioTransport {
-		// Stdio transport
-		//nolint:gosec // dc.config.Command comes from user config
-		// this is the responsibility of the user setting up the config.
+		//nolint:gosec // command comes from trusted user config
 		cmd := exec.Command(dc.config.Command, dc.config.Args...)
-		// Add environment variables
-		for k, v := range dc.config.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+		for key, value := range dc.config.Env {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
 		}
 		return &mcp.CommandTransport{Command: cmd}, nil
 	}
@@ -182,15 +251,14 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, a
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
-	if !dc.IsConnected() || dc.session == nil {
+	if dc.status != StatusConnected || dc.session == nil {
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
 
-	result, err := dc.session.CallTool(ctx, &mcp.CallToolParams{
+	return dc.session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: args,
 	})
-	return result, err
 }
 
 // Close terminates the downstream connection.
@@ -203,7 +271,7 @@ func (dc *DownstreamConnection) Close() error {
 			return err
 		}
 	}
-	dc.status = StatusConnected
+	dc.status = StatusDisconnected
 	return nil
 }
 

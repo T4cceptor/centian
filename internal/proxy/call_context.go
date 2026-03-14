@@ -79,6 +79,15 @@ func WithCallContext(ctx context.Context, cc CallContext) context.Context {
 	return context.WithValue(ctx, callContextKey{}, cc)
 }
 
+// CallContextFromContext retrieves the attached CallContext from context.Context.
+func CallContextFromContext(ctx context.Context) (CallContext, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	callCtx, ok := ctx.Value(callContextKey{}).(CallContext)
+	return callCtx, ok
+}
+
 // deepCloneRequest creates an immutable copy of the request for auditing.
 func deepCloneRequest(req *mcp.CallToolRequest) *mcp.CallToolRequest {
 	if req == nil || req.Params == nil {
