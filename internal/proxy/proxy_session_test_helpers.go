@@ -13,7 +13,6 @@ func attachInitializedSessionForTest(
 	proxy *MCPProxy,
 	sessionID string,
 	capabilities *mcp.ClientCapabilities,
-	roots []*mcp.Root,
 ) *UpstreamSession {
 	t.Helper()
 
@@ -23,7 +22,7 @@ func attachInitializedSessionForTest(
 
 	assert.Assert(t, session != nil)
 
-	state := buildDownstreamClientState("2025-06-18", capabilities, roots)
+	state := buildDownstreamClientState("2025-06-18", capabilities, nil)
 
 	proxy.mu.Lock()
 	update := proxy.applyClientStateLocked(session, state, false)

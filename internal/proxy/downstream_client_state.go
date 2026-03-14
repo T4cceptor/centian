@@ -33,8 +33,12 @@ type DownstreamConnectOptions struct {
 	ElicitationHandler DownstreamElicitationHandler
 }
 
-func cloneDownstreamConnectOptions(options DownstreamConnectOptions) DownstreamConnectOptions {
-	return DownstreamConnectOptions{
+func cloneDownstreamConnectOptions(options *DownstreamConnectOptions) *DownstreamConnectOptions {
+	if options == nil {
+		return &DownstreamConnectOptions{}
+	}
+
+	return &DownstreamConnectOptions{
 		ForwardedHeaders: cloneAuthHeaders(options.ForwardedHeaders),
 		ClientState: DownstreamClientState{
 			ProtocolVersion:         options.ClientState.ProtocolVersion,
@@ -53,17 +57,7 @@ func normalizeClientCapabilities(capabilities *mcp.ClientCapabilities) *mcp.Clie
 		return &mcp.ClientCapabilities{}
 	}
 
-	cloned := cloneClientCapabilities(capabilities)
-	if cloned.RootsV2 == nil && (cloned.Roots.ListChanged || cloned.Roots != (mcp.RootCapabilities{})) {
-		cloned.RootsV2 = &mcp.RootCapabilities{ListChanged: cloned.Roots.ListChanged}
-	}
-	if cloned.RootsV2 != nil {
-		cloned.Roots = *cloned.RootsV2
-	}
-	if cloned.Experimental == nil {
-		cloned.Experimental = nil
-	}
-	return cloned
+	return cloneClientCapabilities(capabilities)
 }
 
 func cloneClientCapabilities(capabilities *mcp.ClientCapabilities) *mcp.ClientCapabilities {
@@ -128,16 +122,13 @@ func clientSupportsRoots(capabilities *mcp.ClientCapabilities) bool {
 	if capabilities == nil {
 		return false
 	}
-	if capabilities.RootsV2 != nil {
-		return true
-	}
-	return capabilities.Roots != (mcp.RootCapabilities{})
+	return capabilities.RootsV2 != nil
 }
 
-func buildDownstreamClientState(protocolVersion string, capabilities *mcp.ClientCapabilities, roots []*mcp.Root) DownstreamClientState {
+func buildDownstreamClientState(protocolVersion string, capabilities *mcp.ClientCapabilities, roots []*mcp.Root) *DownstreamClientState {
 	normalizedCapabilities := normalizeClientCapabilities(capabilities)
 	normalizedRoots := normalizeRoots(roots)
-	return DownstreamClientState{
+	return &DownstreamClientState{
 		ProtocolVersion:         protocolVersion,
 		ClientCapabilities:      normalizedCapabilities,
 		Roots:                   normalizedRoots,

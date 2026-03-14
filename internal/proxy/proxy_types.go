@@ -90,7 +90,7 @@ func (s *UpstreamSession) GetConnectionByServerName(serverName string) (Downstre
 	return conn, nil
 }
 
-func (s *UpstreamSession) downstreamClientState() DownstreamClientState {
+func (s *UpstreamSession) downstreamClientState() *DownstreamClientState {
 	return buildDownstreamClientState(s.protocolVersion, s.clientCapabilities, s.roots)
 }
 

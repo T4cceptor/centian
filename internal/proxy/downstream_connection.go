@@ -47,9 +47,12 @@ func (dc *DownstreamConnection) GetServerName() string {
 }
 
 // Connect establishes connection to downstream server.
-func (dc *DownstreamConnection) Connect(ctx context.Context, options DownstreamConnectOptions) error {
+func (dc *DownstreamConnection) Connect(ctx context.Context, options *DownstreamConnectOptions) error {
 	if dc.IsConnected() {
 		return nil
+	}
+	if options == nil {
+		options = &DownstreamConnectOptions{}
 	}
 
 	dc.mu.Lock()
@@ -94,7 +97,7 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, options DownstreamC
 	return nil
 }
 
-func (dc *DownstreamConnection) buildClientOptions(options DownstreamConnectOptions) *mcp.ClientOptions {
+func (dc *DownstreamConnection) buildClientOptions(options *DownstreamConnectOptions) *mcp.ClientOptions {
 	clientOptions := &mcp.ClientOptions{
 		Capabilities: normalizeClientCapabilities(options.ClientState.ClientCapabilities),
 	}
@@ -108,55 +111,35 @@ func (dc *DownstreamConnection) buildClientOptions(options DownstreamConnectOpti
 }
 
 // SyncClientState updates mutable downstream client state without reconnecting.
-func (dc *DownstreamConnection) SyncClientState(ctx context.Context, clientState DownstreamClientState) error {
+func (dc *DownstreamConnection) SyncClientState(ctx context.Context, clientState *DownstreamClientState) error {
+	if clientState == nil {
+		clientState = &DownstreamClientState{}
+	}
+
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 
 	currentRoots := normalizeRoots(dc.clientState.Roots)
 	if dc.client == nil {
-		dc.clientState = clientState
+		dc.clientState = *clientState
 		return nil
 	}
 
-	currentByURI := make(map[string]*mcp.Root, len(currentRoots))
-	for _, root := range currentRoots {
-		if root == nil {
-			continue
-		}
-		currentByURI[root.URI] = root
-	}
-
 	nextRoots := normalizeRoots(clientState.Roots)
-	nextByURI := make(map[string]*mcp.Root, len(nextRoots))
-	for _, root := range nextRoots {
-		if root == nil {
-			continue
-		}
-		nextByURI[root.URI] = root
-	}
+	currentByURI := rootsByURI(currentRoots)
+	nextByURI := rootsByURI(nextRoots)
 
-	removeURIs := make([]string, 0)
-	for uri := range currentByURI {
-		if _, ok := nextByURI[uri]; !ok {
-			removeURIs = append(removeURIs, uri)
-		}
-	}
+	removeURIs := removedRootURIs(currentByURI, nextByURI)
 	if len(removeURIs) > 0 {
 		dc.client.RemoveRoots(removeURIs...)
 	}
 
-	addRoots := make([]*mcp.Root, 0)
-	for uri, root := range nextByURI {
-		if existing, ok := currentByURI[uri]; ok && existing.Name == root.Name {
-			continue
-		}
-		addRoots = append(addRoots, root)
-	}
+	addRoots := addedOrUpdatedRoots(currentByURI, nextByURI)
 	if len(addRoots) > 0 {
 		dc.client.AddRoots(addRoots...)
 	}
 
-	dc.clientState = clientState
+	dc.clientState = *clientState
 	dc.clientState.Roots = nextRoots
 	dc.clientState.RootsFingerprint = fingerprintRoots(nextRoots)
 	dc.clientState.CapabilitiesFingerprint = fingerprintClientCapabilities(dc.clientState.ClientCapabilities)
@@ -167,6 +150,38 @@ func (dc *DownstreamConnection) SyncClientState(ctx context.Context, clientState
 		}
 	}
 	return nil
+}
+
+func rootsByURI(roots []*mcp.Root) map[string]*mcp.Root {
+	byURI := make(map[string]*mcp.Root, len(roots))
+	for _, root := range roots {
+		if root == nil {
+			continue
+		}
+		byURI[root.URI] = root
+	}
+	return byURI
+}
+
+func removedRootURIs(currentByURI, nextByURI map[string]*mcp.Root) []string {
+	removeURIs := make([]string, 0)
+	for uri := range currentByURI {
+		if _, ok := nextByURI[uri]; !ok {
+			removeURIs = append(removeURIs, uri)
+		}
+	}
+	return removeURIs
+}
+
+func addedOrUpdatedRoots(currentByURI, nextByURI map[string]*mcp.Root) []*mcp.Root {
+	addRoots := make([]*mcp.Root, 0)
+	for uri, root := range nextByURI {
+		if existing, ok := currentByURI[uri]; ok && existing.Name == root.Name {
+			continue
+		}
+		addRoots = append(addRoots, root)
+	}
+	return addRoots
 }
 
 // NewDownstreamConnection creates an unconnected downstream wrapper.

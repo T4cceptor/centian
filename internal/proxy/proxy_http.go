@@ -44,6 +44,7 @@ func newBufferedResponseWriter() *bufferedResponseWriter {
 	}
 }
 
+// Header returns the buffered response headers.
 func (w *bufferedResponseWriter) Header() http.Header {
 	return w.headers
 }
@@ -55,10 +56,12 @@ func (w *bufferedResponseWriter) Write(data []byte) (int, error) {
 	return w.body.Write(data)
 }
 
+// WriteHeader stores the status code until the buffered response is flushed.
 func (w *bufferedResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 }
 
+// Flush is a no-op to satisfy http.Flusher when a wrapped handler expects it.
 func (w *bufferedResponseWriter) Flush() {}
 
 func writeBufferedResponse(target http.ResponseWriter, source *bufferedResponseWriter) {
@@ -105,15 +108,11 @@ func (p *MCPProxy) observeMCPRequests(next http.Handler) http.Handler {
 			return
 		}
 		if observation.hasMethod("initialize") {
-			if err := p.syncUpstreamSessionState(r.Context(), sessionID); err != nil {
-				common.LogWarn("MCPProxy[%s]: failed to process initialize for session %s: %v", p.name, sessionID, err)
-			}
+			p.syncUpstreamSessionState(r.Context(), sessionID)
 		}
 		if observation.hasMethod("notifications/roots/list_changed") {
 			p.markUpstreamSessionRootsDirty(sessionID)
-			if err := p.syncUpstreamSessionState(r.Context(), sessionID); err != nil {
-				common.LogDebug("MCPProxy[%s]: deferred roots refresh for session %s: %v", p.name, sessionID, err)
-			}
+			p.syncUpstreamSessionState(r.Context(), sessionID)
 		}
 		if bufferedWriter != nil {
 			writeBufferedResponse(w, bufferedWriter)
@@ -328,7 +327,7 @@ func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, opti
 		options,
 	)
 
-	var handler http.Handler = proxy.observeMCPRequests(baseHandler)
+	handler := proxy.observeMCPRequests(baseHandler)
 	if proxy.server != nil && proxy.server.APIKeys != nil {
 		headerName := proxy.server.AuthHeader
 		if headerName == "" {

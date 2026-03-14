@@ -113,17 +113,17 @@ func (p *MCPProxy) currentUpstreamServerSession(session *UpstreamSession) *mcp.S
 	return nil
 }
 
-func (p *MCPProxy) syncUpstreamSessionState(ctx context.Context, sessionID string) error {
+func (p *MCPProxy) syncUpstreamSessionState(ctx context.Context, sessionID string) {
 	p.mu.RLock()
 	session := p.upstreamSessions[sessionID]
 	p.mu.RUnlock()
 	if session == nil {
-		return nil
+		return
 	}
 
 	serverSession := p.currentUpstreamServerSession(session)
 	if serverSession == nil || serverSession.InitializeParams() == nil {
-		return nil
+		return
 	}
 
 	initializeParams := serverSession.InitializeParams()
@@ -154,10 +154,9 @@ func (p *MCPProxy) syncUpstreamSessionState(ctx context.Context, sessionID strin
 	p.mu.Unlock()
 
 	if session == nil {
-		return nil
+		return
 	}
 	p.finalizeDownstreamPoolUpdate(ctx, session, update)
-	return nil
 }
 
 func (p *MCPProxy) fetchUpstreamRoots(ctx context.Context, session *UpstreamSession, serverSession *mcp.ServerSession) ([]*mcp.Root, error) {
@@ -173,9 +172,12 @@ func (p *MCPProxy) fetchUpstreamRoots(ctx context.Context, session *UpstreamSess
 
 func (p *MCPProxy) applyClientStateLocked(
 	session *UpstreamSession,
-	state DownstreamClientState,
+	state *DownstreamClientState,
 	rootsDirty bool,
 ) downstreamPoolUpdate {
+	if state == nil {
+		state = &DownstreamClientState{}
+	}
 	previousKey := session.downstreamSessionKey
 	session.protocolVersion = state.ProtocolVersion
 	session.clientCapabilities = state.ClientCapabilities
@@ -251,7 +253,7 @@ func (p *MCPProxy) finalizeDownstreamPoolUpdate(ctx context.Context, session *Up
 	p.registerAvailableTools(session)
 }
 
-func (p *MCPProxy) syncPoolClientState(ctx context.Context, pool *DownstreamSessionPool, state DownstreamClientState) {
+func (p *MCPProxy) syncPoolClientState(ctx context.Context, pool *DownstreamSessionPool, state *DownstreamClientState) {
 	for _, conn := range pool.downstreamConns {
 		if err := conn.SyncClientState(ctx, state); err != nil {
 			common.LogWarn("MCPProxy[%s]: failed to sync downstream client state for %s: %v", p.name, conn.GetServerName(), err)

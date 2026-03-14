@@ -195,9 +195,7 @@ func (p *MCPProxy) ProcessCall(callCtx CallContext, direction common.McpEventDir
 
 func (p *MCPProxy) handleToolCall(ctx context.Context, session *UpstreamSession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if session.protocolVersion == "" || session.rootsDirty {
-		if err := p.syncUpstreamSessionState(ctx, session.id); err != nil {
-			common.LogWarn("MCPProxy[%s]: failed to synchronize client state for session %s: %v", p.name, session.id, err)
-		}
+		p.syncUpstreamSessionState(ctx, session.id)
 	}
 
 	callCtx, err := NewToolCallContext(p, session, serverName, req)
@@ -235,9 +233,7 @@ func (p *MCPProxy) forwardSamplingRequest(ctx context.Context, req *mcp.CreateMe
 		return nil, err
 	}
 	if session.rootsDirty {
-		if syncErr := p.syncUpstreamSessionState(ctx, session.id); syncErr != nil {
-			common.LogWarn("MCPProxy[%s]: failed to refresh client state before sampling for session %s: %v", p.name, session.id, syncErr)
-		}
+		p.syncUpstreamSessionState(ctx, session.id)
 	}
 	return serverSession.CreateMessage(ctx, req.Params)
 }
@@ -248,9 +244,7 @@ func (p *MCPProxy) forwardElicitationRequest(ctx context.Context, req *mcp.Elici
 		return nil, err
 	}
 	if session.rootsDirty {
-		if syncErr := p.syncUpstreamSessionState(ctx, session.id); syncErr != nil {
-			common.LogWarn("MCPProxy[%s]: failed to refresh client state before elicitation for session %s: %v", p.name, session.id, syncErr)
-		}
+		p.syncUpstreamSessionState(ctx, session.id)
 	}
 	return serverSession.Elicit(ctx, req.Params)
 }

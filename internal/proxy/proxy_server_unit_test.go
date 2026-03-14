@@ -249,10 +249,10 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 	// When: two different upstream sessions use the same identity
 	server1 := proxy.GetServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
-	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	request2.Header.Set("Mcp-Session-Id", "session-2")
 	server2 := proxy.GetServerForRequest(request2)
-	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: only one downstream connection is created and reused
 	assert.Assert(t, server1 != nil)
@@ -292,8 +292,8 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 	server1 := proxy.GetServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
 	server2 := proxy.GetServerForRequest(request2)
-	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{}, nil)
-	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
+	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: separate pooled downstream entries are created
 	assert.Assert(t, server1 != nil)
@@ -330,8 +330,8 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	server1 := proxy.GetServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
 	server2 := proxy.GetServerForRequest(request2)
-	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{}, nil)
-	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
+	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: they share one pooled downstream entry
 	assert.Assert(t, server1 != nil)
@@ -355,7 +355,7 @@ func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 				tools: []*mcp.Tool{
 					{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
 				},
-				ConnectFunc: func(_ context.Context, _ DownstreamConnectOptions) error {
+				ConnectFunc: func(_ context.Context, _ *DownstreamConnectOptions) error {
 					<-releaseConnect
 					return nil
 				},
@@ -426,8 +426,8 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 	server1 := proxy.GetServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
 	server2 := proxy.GetServerForRequest(request2)
-	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{}, nil)
-	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
+	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: a new downstream pool should be established with the new forwarded auth
 	assert.Assert(t, server1 != nil)
@@ -486,7 +486,7 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	// When: the first session creates a partial failure
 	server1 := proxy.GetServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
-	firstSession := attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{}, nil)
+	firstSession := attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
 	waitForCondition(t, time.Second, func() bool {
 		proxy.mu.RLock()
 		defer proxy.mu.RUnlock()
@@ -500,7 +500,7 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 
 	// And: a later session with the same identity arrives after that failure settled
 	server2 := proxy.GetServerForRequest(request2)
-	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
 
 	// Then: the failed downstream should be retried for the later session
 	assert.Assert(t, server1 != nil)

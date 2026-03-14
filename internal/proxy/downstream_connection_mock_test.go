@@ -16,7 +16,7 @@ type MockDownstreamConnection struct {
 	cfg          *config.MCPServerConfig
 	ConnectCalls int
 	CloseCalls   int
-	ConnectFunc  func(context.Context, DownstreamConnectOptions) error
+	ConnectFunc  func(context.Context, *DownstreamConnectOptions) error
 
 	// Captured call data.
 	CapturedToolName     string
@@ -37,7 +37,7 @@ func (m *MockDownstreamConnection) GetServerName() string {
 	return "mock-server"
 }
 
-func (m *MockDownstreamConnection) Connect(ctx context.Context, options DownstreamConnectOptions) error {
+func (m *MockDownstreamConnection) Connect(ctx context.Context, options *DownstreamConnectOptions) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -104,19 +104,24 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 	return m.cfg
 }
 
-func (m *MockDownstreamConnection) SyncClientState(_ context.Context, state DownstreamClientState) error {
+func (m *MockDownstreamConnection) SyncClientState(_ context.Context, state *DownstreamClientState) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if len(m.CapturedConnects) == 0 {
 		m.CapturedConnects = append(m.CapturedConnects, DownstreamConnectOptions{})
 	}
 	last := m.CapturedConnects[len(m.CapturedConnects)-1]
-	last.ClientState = state
+	if state != nil {
+		last.ClientState = *state
+	}
 	m.CapturedConnects[len(m.CapturedConnects)-1] = last
 	return nil
 }
 
-func cloneConnectOptions(options DownstreamConnectOptions) DownstreamConnectOptions {
+func cloneConnectOptions(options *DownstreamConnectOptions) DownstreamConnectOptions {
+	if options == nil {
+		return DownstreamConnectOptions{}
+	}
 	cloned := DownstreamConnectOptions{
 		ForwardedHeaders:   cloneAuthHeaders(options.ForwardedHeaders),
 		SamplingHandler:    options.SamplingHandler,

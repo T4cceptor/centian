@@ -9,7 +9,10 @@ import (
 	"github.com/T4cceptor/centian/internal/config"
 )
 
-func (p *MCPProxy) buildDownstreamSessionKey(identityKey string, forwardedHeaders map[string]string, state DownstreamClientState) string {
+func (p *MCPProxy) buildDownstreamSessionKey(identityKey string, forwardedHeaders map[string]string, state *DownstreamClientState) string {
+	if state == nil {
+		state = &DownstreamClientState{}
+	}
 	return fmt.Sprintf(
 		"%s|%s|%s|%s|%s",
 		p.endpoint,
@@ -20,11 +23,6 @@ func (p *MCPProxy) buildDownstreamSessionKey(identityKey string, forwardedHeader
 	)
 }
 
-// getDownstreamPoolKey is kept as a compatibility wrapper while callers migrate.
-func (p *MCPProxy) getDownstreamPoolKey(identityKey string, forwardedHeaders map[string]string) string {
-	return p.buildDownstreamSessionKey(identityKey, forwardedHeaders, buildDownstreamClientState("", nil, nil))
-}
-
 func (p *MCPProxy) newDownstreamConnection(serverName string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 	if p.connectionFactory != nil {
 		return p.connectionFactory(serverName, cfg)
@@ -32,10 +30,15 @@ func (p *MCPProxy) newDownstreamConnection(serverName string, cfg *config.MCPSer
 	return NewDownstreamConnection(serverName, cfg)
 }
 
-func (p *MCPProxy) buildDownstreamConnectOptions(session *UpstreamSession) DownstreamConnectOptions {
-	return DownstreamConnectOptions{
+func (p *MCPProxy) buildDownstreamConnectOptions(session *UpstreamSession) *DownstreamConnectOptions {
+	clientState := session.downstreamClientState()
+	if clientState == nil {
+		clientState = &DownstreamClientState{}
+	}
+
+	return &DownstreamConnectOptions{
 		ForwardedHeaders:   cloneAuthHeaders(session.forwardedHeaders),
-		ClientState:        session.downstreamClientState(),
+		ClientState:        *clientState,
 		SamplingHandler:    p.forwardSamplingRequest,
 		ElicitationHandler: p.forwardElicitationRequest,
 	}
@@ -72,7 +75,7 @@ func (p *MCPProxy) attachUpstreamSessionToPoolLocked(session *UpstreamSession) (
 	return pool, false
 }
 
-func (p *MCPProxy) ensureDownstreamConnectionsLocked(pool *DownstreamSessionPool, connectOptions DownstreamConnectOptions) {
+func (p *MCPProxy) ensureDownstreamConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
 	for serverName, template := range p.downstreams {
 		conn, err := pool.GetConnectionByServerName(serverName)
 		if err != nil || conn.GetStatus() == StatusFailed {
@@ -120,7 +123,7 @@ func (p *MCPProxy) downstreamPoolHasUsableConnection(pool *DownstreamSessionPool
 func (p *MCPProxy) connectDownstreamPool(
 	downstreamSessionKey string,
 	conn DownstreamConnectionInterface,
-	connectOptions DownstreamConnectOptions,
+	connectOptions *DownstreamConnectOptions,
 ) {
 	serverName := conn.GetServerName()
 	if err := conn.Connect(context.Background(), connectOptions); err != nil {

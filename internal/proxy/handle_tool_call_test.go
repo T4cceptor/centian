@@ -319,7 +319,7 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy.mu.RUnlock()
 
 	assert.Assert(t, session != nil)
-	attachInitializedSessionForTest(t, proxy, "sess-auth", &mcp.ClientCapabilities{}, nil)
+	attachInitializedSessionForTest(t, proxy, "sess-auth", &mcp.ClientCapabilities{})
 	assert.Assert(t, session.authData != nil)
 	assert.Equal(t, session.authData.AuthHeaderName, "Authorization")
 	assert.Equal(t, session.authData.Gateway, "gateway-a")
