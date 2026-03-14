@@ -9,7 +9,10 @@ import (
 	"github.com/T4cceptor/centian/internal/config"
 )
 
-func (p *MCPProxy) buildDownstreamSessionKey(identityKey string, forwardedHeaders map[string]string, state *DownstreamClientState) string {
+// This file manages reusable downstream connection pools keyed by effective
+// upstream client state.
+
+func (p *CentianEndpoint) buildDownstreamSessionKey(identityKey string, forwardedHeaders map[string]string, state *DownstreamClientState) string {
 	if state == nil {
 		state = &DownstreamClientState{}
 	}
@@ -23,21 +26,21 @@ func (p *MCPProxy) buildDownstreamSessionKey(identityKey string, forwardedHeader
 	)
 }
 
-func (p *MCPProxy) newDownstreamConnection(serverName string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
+func (p *CentianEndpoint) newDownstreamConnection(serverName string, cfg *config.MCPServerConfig) DownstreamConnectionInterface {
 	if p.connectionFactory != nil {
 		return p.connectionFactory(serverName, cfg)
 	}
 	return NewDownstreamConnection(serverName, cfg)
 }
 
-func (p *MCPProxy) buildDownstreamConnectOptions(session *UpstreamSession) *DownstreamConnectOptions {
+func (p *CentianEndpoint) buildDownstreamConnectOptions(session *UpstreamSession) *DownstreamConnectOptions {
 	clientState := session.downstreamClientState()
 	if clientState == nil {
 		clientState = &DownstreamClientState{}
 	}
 
 	return &DownstreamConnectOptions{
-		ForwardedHeaders:   cloneAuthHeaders(session.forwardedHeaders),
+		ForwardedHeaders:   session.GetAuthHeaders(p.excludedClientAuthHeader()),
 		ClientState:        *clientState,
 		SamplingHandler:    p.forwardSamplingRequest,
 		ElicitationHandler: p.forwardElicitationRequest,
@@ -46,7 +49,7 @@ func (p *MCPProxy) buildDownstreamConnectOptions(session *UpstreamSession) *Down
 
 // attachUpstreamSessionToPoolLocked attaches the upstream session to a matching downstream pool.
 // Caller must hold p.mu.
-func (p *MCPProxy) attachUpstreamSessionToPoolLocked(session *UpstreamSession) (*DownstreamSessionPool, bool) {
+func (p *CentianEndpoint) attachUpstreamSessionToPoolLocked(session *UpstreamSession) (*DownstreamSessionPool, bool) {
 	if session.downstreamSessionKey == "" {
 		return nil, false
 	}
@@ -63,7 +66,6 @@ func (p *MCPProxy) attachUpstreamSessionToPoolLocked(session *UpstreamSession) (
 	pool := &DownstreamSessionPool{
 		identityKey:          session.identityKey,
 		downstreamSessionKey: session.downstreamSessionKey,
-		poolKey:              session.downstreamSessionKey,
 		downstreamConns:      make(map[string]DownstreamConnectionInterface, len(p.downstreams)),
 		upstreamSessions:     map[string]*UpstreamSession{session.id: session},
 		connecting:           make(map[string]bool),
@@ -75,10 +77,10 @@ func (p *MCPProxy) attachUpstreamSessionToPoolLocked(session *UpstreamSession) (
 	return pool, false
 }
 
-func (p *MCPProxy) ensureDownstreamConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
+func (p *CentianEndpoint) ensureDownstreamConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
 	for serverName, template := range p.downstreams {
 		conn, err := pool.GetConnectionByServerName(serverName)
-		if err != nil || conn.GetStatus() == StatusFailed {
+		if err != nil || conn.GetStatus().IsFailed() {
 			conn = p.newDownstreamConnection(serverName, template.config)
 			pool.downstreamConns[serverName] = conn
 		}
@@ -90,7 +92,7 @@ func (p *MCPProxy) ensureDownstreamConnectionsLocked(pool *DownstreamSessionPool
 	}
 }
 
-func (p *MCPProxy) waitForFirstUsableDownstream(pool *DownstreamSessionPool, timeout time.Duration) {
+func (p *CentianEndpoint) waitForFirstUsableDownstream(pool *DownstreamSessionPool, timeout time.Duration) {
 	if pool == nil {
 		return
 	}
@@ -104,7 +106,7 @@ func (p *MCPProxy) waitForFirstUsableDownstream(pool *DownstreamSessionPool, tim
 	}
 }
 
-func (p *MCPProxy) downstreamPoolHasUsableConnection(pool *DownstreamSessionPool) bool {
+func (p *CentianEndpoint) downstreamPoolHasUsableConnection(pool *DownstreamSessionPool) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -120,7 +122,7 @@ func (p *MCPProxy) downstreamPoolHasUsableConnection(pool *DownstreamSessionPool
 }
 
 // connectDownstreamPool establishes one downstream connection owned by a reusable pool.
-func (p *MCPProxy) connectDownstreamPool(
+func (p *CentianEndpoint) connectDownstreamPool(
 	downstreamSessionKey string,
 	conn DownstreamConnectionInterface,
 	connectOptions *DownstreamConnectOptions,
@@ -134,7 +136,7 @@ func (p *MCPProxy) connectDownstreamPool(
 			}
 		}
 		p.mu.Unlock()
-		common.LogWarn("MCPProxy[%s]: Failed to connect pooled downstream %s: %v", p.name, serverName, err)
+		common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, serverName, err)
 		return
 	}
 
@@ -153,9 +155,9 @@ func (p *MCPProxy) connectDownstreamPool(
 
 	p.toolRegMu.Lock()
 	for _, session := range sessions {
-		p.refreshAvailableTools(session)
+		p.syncAvailableTools(session)
 	}
 	p.toolRegMu.Unlock()
 
-	common.LogInfo("MCPProxy[%s]: Connected pooled downstream %s with %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
+	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
 }

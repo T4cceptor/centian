@@ -13,26 +13,21 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-/*
-CentianProxy is the main server struct.
+// This file defines the core proxy types shared across the server, endpoint,
+// session, and pooled downstream connection layers.
 
-It holds 4 critical components:
-- mux - used to register URL paths
-- server - used to serve the mux
-- logger - main logger for all events in the proxied endpoints
-- gateways - holds all gateways and proxy endpoints for easy access
-
-Additionally it has a reference to the global config which was loaded to
-initialize this server.
-*/
-type CentianProxy struct {
+// CentianServer owns the HTTP server, global config, auth, logging, and the
+// set of registered proxy endpoints exposed by the running Centian process.
+//
+// CentianServer is the main process for providing routes and delegating endpoint creation.
+type CentianServer struct {
 	Name       string
 	ServerID   string
 	Config     *config.GlobalConfig
 	Mux        *http.ServeMux
 	Server     *http.Server
 	Logger     *logging.Logger
-	Gateways   map[string]*MCPProxy
+	Gateways   map[string]*CentianEndpoint
 	APIKeys    *centauth.APIKeyStore
 	AuthHeader string
 }
@@ -45,8 +40,7 @@ type UpstreamSession struct {
 	downstreamConns map[string]DownstreamConnectionInterface
 	registeredTools map[string]struct{}
 
-	forwardedHeaders     map[string]string
-	authHeaders          map[string]string
+	clientHeaders        http.Header
 	identityKey          string
 	downstreamSessionKey string
 	authData             *AuthData
@@ -63,7 +57,6 @@ type UpstreamSession struct {
 type DownstreamSessionPool struct {
 	identityKey          string
 	downstreamSessionKey string
-	poolKey              string
 	downstreamConns      map[string]DownstreamConnectionInterface
 	upstreamSessions     map[string]*UpstreamSession
 	connecting           map[string]bool
@@ -94,8 +87,15 @@ func (s *UpstreamSession) downstreamClientState() *DownstreamClientState {
 	return buildDownstreamClientState(s.protocolVersion, s.clientCapabilities, s.roots)
 }
 
-// MCPProxy is a unified proxy that handles both aggregated and single-server modes.
-type MCPProxy struct {
+// GetAuthHeaders returns the subset of client headers that should be forwarded
+// to downstream servers as authentication headers.
+func (s *UpstreamSession) GetAuthHeaders(excludedHeader string) map[string]string {
+	return getAuthHeaders(s.clientHeaders, excludedHeader)
+}
+
+// CentianEndpoint manages one proxied MCP endpoint, including upstream sessions,
+// downstream pooling, tool registration, and request routing.
+type CentianEndpoint struct {
 	name     string
 	endpoint string
 
@@ -106,7 +106,7 @@ type MCPProxy struct {
 
 	isAggregatedProxy bool
 
-	server *CentianProxy
+	server *CentianServer
 	config *config.GatewayConfig
 
 	eventProcessor ProcessingControllerInterface
@@ -118,9 +118,9 @@ type MCPProxy struct {
 	connectionFactory func(string, *config.MCPServerConfig) DownstreamConnectionInterface
 }
 
-// NewAggregatedProxy creates a proxy that aggregates multiple downstream servers.
-func NewAggregatedProxy(gatewayName, endpoint string, gatewayConfig *config.GatewayConfig) *MCPProxy {
-	proxy := &MCPProxy{
+// NewAggregatedEndpoint creates an endpoint that aggregates multiple downstream servers.
+func NewAggregatedEndpoint(gatewayName, endpoint string, gatewayConfig *config.GatewayConfig) *CentianEndpoint {
+	proxy := &CentianEndpoint{
 		name:              gatewayName,
 		endpoint:          endpoint,
 		config:            gatewayConfig,
@@ -139,9 +139,9 @@ func NewAggregatedProxy(gatewayName, endpoint string, gatewayConfig *config.Gate
 	return proxy
 }
 
-// NewSingleProxy creates a proxy for a single downstream server.
-func NewSingleProxy(serverName, endpoint string, serverConfig *config.MCPServerConfig) *MCPProxy {
-	return &MCPProxy{
+// NewSingleEndpoint creates an endpoint for a single downstream server.
+func NewSingleEndpoint(serverName, endpoint string, serverConfig *config.MCPServerConfig) *CentianEndpoint {
+	return &CentianEndpoint{
 		name:     serverName,
 		endpoint: endpoint,
 		downstreams: map[string]*DownstreamConnection{
@@ -167,7 +167,7 @@ func sanitizeLogValue(value string) string {
 	return strings.TrimSpace(sanitized)
 }
 
-func deepCloneTool(tool *mcp.Tool) *mcp.Tool {
+func copyToolForRegistration(tool *mcp.Tool) *mcp.Tool {
 	return &mcp.Tool{
 		Name:         tool.Name,
 		Description:  tool.Description,

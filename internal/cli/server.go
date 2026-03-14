@@ -159,7 +159,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	common.LogInfo("Loaded config from: %s", configPath)
 
 	// Create HTTP proxy server.
-	server, err := proxy.NewCentianProxy(globalConfig)
+	server, err := proxy.NewCentianServer(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create centian server: %w", err)
 	}

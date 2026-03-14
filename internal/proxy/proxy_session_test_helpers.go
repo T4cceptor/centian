@@ -10,7 +10,7 @@ import (
 
 func attachInitializedSessionForTest(
 	t *testing.T,
-	proxy *MCPProxy,
+	proxy *CentianEndpoint,
 	sessionID string,
 	capabilities *mcp.ClientCapabilities,
 ) *UpstreamSession {
@@ -32,7 +32,7 @@ func attachInitializedSessionForTest(
 	return session
 }
 
-func findOnlyUpstreamSessionIDForTest(t *testing.T, proxy *MCPProxy) string {
+func findOnlyUpstreamSessionIDForTest(t *testing.T, proxy *CentianEndpoint) string {
 	t.Helper()
 
 	proxy.mu.RLock()

@@ -1,5 +1,8 @@
 package proxy
 
+// This file implements live downstream MCP client connections and applies the
+// mirrored upstream client state to them.
+
 import (
 	"context"
 	"fmt"
@@ -23,6 +26,31 @@ const (
 	StatusFailed       ConnectionStatus = "failed"
 	StatusDisconnected ConnectionStatus = "disconnected"
 )
+
+// IsPending returns true if ConnectionStatus is Pending.
+func (s ConnectionStatus) IsPending() bool {
+	return s == StatusPending
+}
+
+// IsConnecting returns true if ConnectionStatus is Conecting.
+func (s ConnectionStatus) IsConnecting() bool {
+	return s == StatusConnecting
+}
+
+// IsConnected returns true if ConnectionStatus is Connected.
+func (s ConnectionStatus) IsConnected() bool {
+	return s == StatusConnected
+}
+
+// IsFailed returns true if ConnectionStatus is Failed.
+func (s ConnectionStatus) IsFailed() bool {
+	return s == StatusFailed
+}
+
+// IsDisconnected returns true if ConnectionStatus is Disconnected.
+func (s ConnectionStatus) IsDisconnected() bool {
+	return s == StatusDisconnected
+}
 
 // DownstreamConnection represents a connection to a downstream MCP server.
 type DownstreamConnection struct {
@@ -266,7 +294,7 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, a
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
-	if dc.status != StatusConnected || dc.session == nil {
+	if !dc.status.IsConnected() || dc.session == nil {
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
 
@@ -301,7 +329,7 @@ func (dc *DownstreamConnection) Tools() []*mcp.Tool {
 func (dc *DownstreamConnection) IsConnected() bool {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
-	return dc.status == StatusConnected
+	return dc.status.IsConnected()
 }
 
 // GetConfig returns the server configuration for this connection.

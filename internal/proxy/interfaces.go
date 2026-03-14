@@ -7,6 +7,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// This file contains the small interfaces used to isolate endpoint processing
+// and downstream connection behavior for testing.
+
 // ProcessingControllerInterface abstracts event processing for testability.
 type ProcessingControllerInterface interface {
 	Process(event CallContext) error

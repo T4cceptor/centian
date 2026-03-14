@@ -10,6 +10,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// This file manages upstream session lifecycle, captured client state, and
+// downstream pool reconciliation.
+
 type downstreamPoolUpdate struct {
 	pool         *DownstreamSessionPool
 	reused       bool
@@ -19,7 +22,7 @@ type downstreamPoolUpdate struct {
 }
 
 // GetOrCreateServerForRequest returns (or creates) the upstream-facing MCP server for the request.
-func (p *MCPProxy) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
+func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
 	sessionID := ""
 	if r != nil {
 		sessionID = r.Header.Get("Mcp-Session-Id")
@@ -31,11 +34,11 @@ func (p *MCPProxy) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
 		return nil
 	}
 
-	common.LogInfo("MCPProxy[%s]: Getting server for session %s", p.name, sessionID)
+	common.LogInfo("ProxyEndpoint[%s]: getting server for session %s", p.name, sessionID)
 
 	identityKey, err := p.resolveIdentityKey(r)
 	if err != nil {
-		common.LogError("MCPProxy[%s]: Failed to resolve request identity: %v", p.name, err)
+		common.LogError("ProxyEndpoint[%s]: failed to resolve request identity: %v", p.name, err)
 		return nil
 	}
 
@@ -51,7 +54,7 @@ func (p *MCPProxy) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
 	}
 	if session.identityKey != identityKey {
 		common.LogWarn(
-			"MCPProxy[%s]: session identity mismatch for session %s (existing=%s current=%s)",
+			"ProxyEndpoint[%s]: session identity mismatch for session %s (existing=%s current=%s)",
 			p.name,
 			sessionID,
 			session.identityKey,
@@ -63,30 +66,28 @@ func (p *MCPProxy) GetOrCreateServerForRequest(r *http.Request) *mcp.Server {
 }
 
 // GetServerForRequest is kept as a compatibility wrapper while callers migrate.
-func (p *MCPProxy) GetServerForRequest(r *http.Request) *mcp.Server {
+func (p *CentianEndpoint) GetServerForRequest(r *http.Request) *mcp.Server {
 	return p.GetOrCreateServerForRequest(r)
 }
 
-func (p *MCPProxy) createUpstreamSession(id string, r *http.Request, identityKey string) *UpstreamSession {
-	excludedAuthHeader := ""
-	if p.server != nil {
-		excludedAuthHeader = p.server.AuthHeader
-	}
-	forwardedHeaders := getAuthHeaders(r.Header, excludedAuthHeader)
+func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, identityKey string) *UpstreamSession {
 	authData := getAuthData(r.Context())
+	var clientHeaders http.Header
+	if r != nil && r.Header != nil {
+		clientHeaders = r.Header.Clone()
+	}
 	return &UpstreamSession{
-		id:               id,
-		downstreamConns:  make(map[string]DownstreamConnectionInterface),
-		registeredTools:  make(map[string]struct{}),
-		forwardedHeaders: forwardedHeaders,
-		authHeaders:      forwardedHeaders,
-		identityKey:      identityKey,
-		authData:         authData.Clone(),
-		rootsDirty:       true,
+		id:              id,
+		downstreamConns: make(map[string]DownstreamConnectionInterface),
+		registeredTools: make(map[string]struct{}),
+		clientHeaders:   clientHeaders,
+		identityKey:     identityKey,
+		authData:        authData.Clone(),
+		rootsDirty:      true,
 	}
 }
 
-func (p *MCPProxy) resolveIdentityKey(r *http.Request) (string, error) {
+func (p *CentianEndpoint) resolveIdentityKey(r *http.Request) (string, error) {
 	if p.server == nil || p.server.APIKeys == nil {
 		return sharedLocalIdentity, nil
 	}
@@ -97,7 +98,7 @@ func (p *MCPProxy) resolveIdentityKey(r *http.Request) (string, error) {
 	return identity, nil
 }
 
-func (p *MCPProxy) currentUpstreamServerSession(session *UpstreamSession) *mcp.ServerSession {
+func (p *CentianEndpoint) currentUpstreamServerSession(session *UpstreamSession) *mcp.ServerSession {
 	if session == nil || session.upstreamServer == nil {
 		return nil
 	}
@@ -113,7 +114,7 @@ func (p *MCPProxy) currentUpstreamServerSession(session *UpstreamSession) *mcp.S
 	return nil
 }
 
-func (p *MCPProxy) syncUpstreamSessionState(ctx context.Context, sessionID string) {
+func (p *CentianEndpoint) syncUpstreamSessionState(ctx context.Context, sessionID string) {
 	p.mu.RLock()
 	session := p.upstreamSessions[sessionID]
 	p.mu.RUnlock()
@@ -122,44 +123,88 @@ func (p *MCPProxy) syncUpstreamSessionState(ctx context.Context, sessionID strin
 	}
 
 	serverSession := p.currentUpstreamServerSession(session)
-	if serverSession == nil || serverSession.InitializeParams() == nil {
+	upstreamClientState, ok := p.readUpstreamClientState(ctx, session, serverSession)
+	if !ok {
 		return
 	}
 
-	initializeParams := serverSession.InitializeParams()
-	roots := session.roots
-	rootsDirty := session.rootsDirty
-	if clientSupportsRoots(initializeParams.Capabilities) {
-		latestRoots, err := p.fetchUpstreamRoots(ctx, session, serverSession)
-		if err != nil {
-			common.LogDebug("MCPProxy[%s]: failed to refresh roots for session %s: %v", p.name, sessionID, err)
-		} else {
-			roots = latestRoots
-			rootsDirty = false
-		}
-	}
-
-	state := buildDownstreamClientState(
-		initializeParams.ProtocolVersion,
-		initializeParams.Capabilities,
-		roots,
-	)
-
-	var update downstreamPoolUpdate
-	p.mu.Lock()
-	session = p.upstreamSessions[sessionID]
-	if session != nil {
-		update = p.applyClientStateLocked(session, state, rootsDirty)
-	}
-	p.mu.Unlock()
-
+	mirroredClientState := deriveDownstreamClientState(upstreamClientState)
+	session, update := p.reconcileUpstreamSessionState(sessionID, mirroredClientState, upstreamClientState.rootsDirty)
 	if session == nil {
 		return
 	}
 	p.finalizeDownstreamPoolUpdate(ctx, session, update)
 }
 
-func (p *MCPProxy) fetchUpstreamRoots(ctx context.Context, session *UpstreamSession, serverSession *mcp.ServerSession) ([]*mcp.Root, error) {
+type capturedUpstreamClientState struct {
+	protocolVersion string
+	capabilities    *mcp.ClientCapabilities
+	roots           []*mcp.Root
+	rootsDirty      bool
+}
+
+func (p *CentianEndpoint) readUpstreamClientState(
+	ctx context.Context,
+	session *UpstreamSession,
+	serverSession *mcp.ServerSession,
+) (*capturedUpstreamClientState, bool) {
+	if session == nil || serverSession == nil || serverSession.InitializeParams() == nil {
+		return nil, false
+	}
+
+	initializeParams := serverSession.InitializeParams()
+	clientState := &capturedUpstreamClientState{
+		protocolVersion: initializeParams.ProtocolVersion,
+		capabilities:    initializeParams.Capabilities,
+		roots:           session.roots,
+		rootsDirty:      session.rootsDirty,
+	}
+
+	if !clientSupportsRoots(initializeParams.Capabilities) {
+		return clientState, true
+	}
+
+	latestRoots, err := p.fetchUpstreamRoots(ctx, session, serverSession)
+	if err != nil {
+		common.LogDebug("ProxyEndpoint[%s]: failed to refresh roots for session %s: %v", p.name, session.id, err)
+		return clientState, true
+	}
+
+	clientState.roots = latestRoots
+	clientState.rootsDirty = false
+	return clientState, true
+}
+
+func deriveDownstreamClientState(clientState *capturedUpstreamClientState) *DownstreamClientState {
+	if clientState == nil {
+		return &DownstreamClientState{}
+	}
+
+	return buildDownstreamClientState(
+		clientState.protocolVersion,
+		clientState.capabilities,
+		clientState.roots,
+	)
+}
+
+func (p *CentianEndpoint) reconcileUpstreamSessionState(
+	sessionID string,
+	state *DownstreamClientState,
+	rootsDirty bool,
+) (*UpstreamSession, downstreamPoolUpdate) {
+	var update downstreamPoolUpdate
+
+	p.mu.Lock()
+	session := p.upstreamSessions[sessionID]
+	if session != nil {
+		update = p.applyClientStateLocked(session, state, rootsDirty)
+	}
+	p.mu.Unlock()
+
+	return session, update
+}
+
+func (p *CentianEndpoint) fetchUpstreamRoots(ctx context.Context, session *UpstreamSession, serverSession *mcp.ServerSession) ([]*mcp.Root, error) {
 	if session == nil || serverSession == nil {
 		return nil, nil
 	}
@@ -170,7 +215,7 @@ func (p *MCPProxy) fetchUpstreamRoots(ctx context.Context, session *UpstreamSess
 	return normalizeRoots(result.Roots), nil
 }
 
-func (p *MCPProxy) applyClientStateLocked(
+func (p *CentianEndpoint) applyClientStateLocked(
 	session *UpstreamSession,
 	state *DownstreamClientState,
 	rootsDirty bool,
@@ -186,7 +231,11 @@ func (p *MCPProxy) applyClientStateLocked(
 	session.rootsFingerprint = state.RootsFingerprint
 	session.rootsDirty = rootsDirty
 
-	session.downstreamSessionKey = p.buildDownstreamSessionKey(session.identityKey, session.forwardedHeaders, state)
+	session.downstreamSessionKey = p.buildDownstreamSessionKey(
+		session.identityKey,
+		session.GetAuthHeaders(p.excludedClientAuthHeader()),
+		state,
+	)
 	if session.downstreamSessionKey == "" {
 		return downstreamPoolUpdate{}
 	}
@@ -217,7 +266,6 @@ func (p *MCPProxy) applyClientStateLocked(
 
 		delete(p.downstreamPools, previousKey)
 		currentPool.downstreamSessionKey = session.downstreamSessionKey
-		currentPool.poolKey = session.downstreamSessionKey
 		currentPool.lastUsed = time.Now()
 		p.downstreamPools[session.downstreamSessionKey] = currentPool
 		session.downstreamConns = currentPool.downstreamConns
@@ -237,7 +285,7 @@ func (p *MCPProxy) applyClientStateLocked(
 	return downstreamPoolUpdate{pool: pool, reused: reused, closePool: closePool, waitForReady: !reused}
 }
 
-func (p *MCPProxy) finalizeDownstreamPoolUpdate(ctx context.Context, session *UpstreamSession, update downstreamPoolUpdate) {
+func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, session *UpstreamSession, update downstreamPoolUpdate) {
 	if update.closePool != nil {
 		p.closeDownstreamSessionPool(update.closePool)
 	}
@@ -253,15 +301,15 @@ func (p *MCPProxy) finalizeDownstreamPoolUpdate(ctx context.Context, session *Up
 	p.registerAvailableTools(session)
 }
 
-func (p *MCPProxy) syncPoolClientState(ctx context.Context, pool *DownstreamSessionPool, state *DownstreamClientState) {
+func (p *CentianEndpoint) syncPoolClientState(ctx context.Context, pool *DownstreamSessionPool, state *DownstreamClientState) {
 	for _, conn := range pool.downstreamConns {
 		if err := conn.SyncClientState(ctx, state); err != nil {
-			common.LogWarn("MCPProxy[%s]: failed to sync downstream client state for %s: %v", p.name, conn.GetServerName(), err)
+			common.LogWarn("ProxyEndpoint[%s]: failed to sync downstream client state for %s: %v", p.name, conn.GetServerName(), err)
 		}
 	}
 }
 
-func (p *MCPProxy) markUpstreamSessionRootsDirty(sessionID string) {
+func (p *CentianEndpoint) markUpstreamSessionRootsDirty(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if session, ok := p.upstreamSessions[sessionID]; ok {
@@ -269,7 +317,7 @@ func (p *MCPProxy) markUpstreamSessionRootsDirty(sessionID string) {
 	}
 }
 
-func (p *MCPProxy) invalidateDownstreamPool(downstreamSessionKey string) {
+func (p *CentianEndpoint) invalidateDownstreamPool(downstreamSessionKey string) {
 	if downstreamSessionKey == "" {
 		return
 	}
@@ -284,17 +332,17 @@ func (p *MCPProxy) invalidateDownstreamPool(downstreamSessionKey string) {
 	if !ok {
 		return
 	}
-	common.LogWarn("MCPProxy[%s]: Invalidating pooled downstream session %s", p.name, downstreamSessionKey)
+	common.LogWarn("ProxyEndpoint[%s]: invalidating pooled downstream session %s", p.name, downstreamSessionKey)
 	p.closeDownstreamSessionPool(pool)
 }
 
 // invalidatePooledDownstream is kept as a compatibility wrapper while callers migrate.
-func (p *MCPProxy) invalidatePooledDownstream(downstreamSessionKey string) {
+func (p *CentianEndpoint) invalidatePooledDownstream(downstreamSessionKey string) {
 	p.invalidateDownstreamPool(downstreamSessionKey)
 }
 
 // Close terminates all sessions and their downstream connections.
-func (p *MCPProxy) Close() []error {
+func (p *CentianEndpoint) Close() []error {
 	p.mu.Lock()
 	pools := make([]*DownstreamSessionPool, 0, len(p.downstreamPools))
 	for key, pool := range p.downstreamPools {
@@ -310,7 +358,7 @@ func (p *MCPProxy) Close() []error {
 	return errs
 }
 
-func (p *MCPProxy) closeDownstreamSessionPool(pool *DownstreamSessionPool) []error {
+func (p *CentianEndpoint) closeDownstreamSessionPool(pool *DownstreamSessionPool) []error {
 	if pool == nil {
 		return nil
 	}
@@ -324,6 +372,6 @@ func (p *MCPProxy) closeDownstreamSessionPool(pool *DownstreamSessionPool) []err
 }
 
 // closePoolEntryLocked is kept as a compatibility wrapper while callers migrate.
-func (p *MCPProxy) closePoolEntryLocked(pool *DownstreamSessionPool) []error {
+func (p *CentianEndpoint) closePoolEntryLocked(pool *DownstreamSessionPool) []error {
 	return p.closeDownstreamSessionPool(pool)
 }

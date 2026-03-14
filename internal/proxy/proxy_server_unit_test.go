@@ -127,10 +127,10 @@ func TestAPIKeyMiddlewareWithHeader_AttachesIdentityToContext(t *testing.T) {
 func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 	// Given: a proxy with API key auth
 	store := createTestAPIKeyStore(t)
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:     "gateway",
 		endpoint: "/mcp/gateway",
-		server: &CentianProxy{
+		server: &CentianServer{
 			APIKeys:    store,
 			AuthHeader: "Authorization",
 		},
@@ -195,7 +195,7 @@ func TestGetGatewayFromPath(t *testing.T) {
 	assert.Equal(t, getGatewayFromPath("/other/path"), "")
 }
 
-func TestNewCentianProxy_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
+func TestNewCentianServer_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
 	// Given: proxy settings that bind to all interfaces with auth unset
 	globalConfig := &config.GlobalConfig{
 		Name:    "Test Proxy Server",
@@ -208,7 +208,7 @@ func TestNewCentianProxy_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
 	}
 
 	// When: creating the proxy
-	proxy, err := NewCentianProxy(globalConfig)
+	proxy, err := NewCentianServer(globalConfig)
 
 	// Then: an error is returned and no proxy is created
 	assert.ErrorContains(t, err, "auth must be explicitly set when binding to 0.0.0.0")
@@ -218,7 +218,7 @@ func TestNewCentianProxy_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
 func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T) {
 	// Given: a proxy with a custom downstream connection factory
 	var created []*MockDownstreamConnection
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:             "gateway",
 		endpoint:         "/mcp/gateway",
 		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
@@ -234,7 +234,7 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 			created = append(created, conn)
 			return conn
 		},
-		server: &CentianProxy{
+		server: &CentianServer{
 			APIKeys:    createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
@@ -264,7 +264,7 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *testing.T) {
 	// Given: a proxy with a custom downstream connection factory
 	var created []*MockDownstreamConnection
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:             "gateway",
 		endpoint:         "/mcp/gateway",
 		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
@@ -275,7 +275,7 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 			created = append(created, conn)
 			return conn
 		},
-		server: &CentianProxy{
+		server: &CentianServer{
 			APIKeys:    createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
@@ -305,7 +305,7 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 	// Given: a proxy without auth and with a custom downstream connection factory
 	var created []*MockDownstreamConnection
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:             "gateway",
 		endpoint:         "/mcp/gateway",
 		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
@@ -316,7 +316,7 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 			created = append(created, conn)
 			return conn
 		},
-		server: &CentianProxy{
+		server: &CentianServer{
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -343,7 +343,7 @@ func TestGetServerForRequest_UsesSharedPoolWhenAuthDisabled(t *testing.T) {
 func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 	// Given: a proxy with a downstream connect that does not complete immediately
 	releaseConnect := make(chan struct{})
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:             "gateway",
 		endpoint:         "/mcp/gateway",
 		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
@@ -361,7 +361,7 @@ func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 				},
 			}
 		},
-		server: &CentianProxy{
+		server: &CentianServer{
 			Config: &config.GlobalConfig{Version: "1.0.0"},
 		},
 	}
@@ -390,7 +390,7 @@ func TestGetServerForRequest_DoesNotBlockOnSlowDownstreamConnect(t *testing.T) {
 func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing.T) {
 	// Given: a proxy that forwards downstream auth separately from Centian auth
 	var created []*MockDownstreamConnection
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:             "gateway",
 		endpoint:         "/mcp/gateway",
 		downstreams:      map[string]*DownstreamConnection{"server1": NewDownstreamConnection("server1", &config.MCPServerConfig{Command: "node"})},
@@ -406,7 +406,7 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 			created = append(created, conn)
 			return conn
 		},
-		server: &CentianProxy{
+		server: &CentianServer{
 			APIKeys:    createTestAPIKeyStore(t),
 			AuthHeader: "X-Centian-Auth",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
@@ -444,7 +444,7 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing.T) {
 	// Given: an aggregated proxy where one downstream fails the first time
 	createdByServer := make(map[string]int)
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:     "gateway",
 		endpoint: "/mcp/gateway",
 		downstreams: map[string]*DownstreamConnection{
@@ -469,7 +469,7 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 			}
 			return conn
 		},
-		server: &CentianProxy{
+		server: &CentianServer{
 			APIKeys:    createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
@@ -543,11 +543,10 @@ func TestLogRequestForDebugPreservesRequestBody(t *testing.T) {
 
 func TestInvalidatePooledDownstream(t *testing.T) {
 	conn := &MockDownstreamConnection{Status: StatusConnected}
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name: "gateway",
 		downstreamPools: map[string]*DownstreamConnectionPool{
 			"pool-1": {
-				poolKey: "pool-1",
 				downstreamConns: map[string]DownstreamConnectionInterface{
 					"server1": conn,
 				},
@@ -568,7 +567,7 @@ func TestClosePoolEntryLocked(t *testing.T) {
 		closeErr:                 errors.New("close failed"),
 	}
 
-	errs := (&MCPProxy{}).closePoolEntryLocked(&DownstreamConnectionPool{
+	errs := (&CentianEndpoint{}).closePoolEntryLocked(&DownstreamConnectionPool{
 		downstreamConns: map[string]DownstreamConnectionInterface{
 			"ok":   okConn,
 			"fail": failingConn,

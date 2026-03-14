@@ -38,7 +38,7 @@ func TestFingerprintRootsDeterministic(t *testing.T) {
 }
 
 func TestBuildDownstreamSessionKeyIncludesCapabilitiesAndRoots(t *testing.T) {
-	proxy := &MCPProxy{endpoint: "/mcp/gateway"}
+	proxy := &CentianEndpoint{endpoint: "/mcp/gateway"}
 
 	stateA := buildDownstreamClientState("2025-06-18", &mcp.ClientCapabilities{}, nil)
 	stateB := buildDownstreamClientState("2025-06-18", &mcp.ClientCapabilities{

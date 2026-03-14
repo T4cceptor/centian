@@ -81,7 +81,7 @@ func (m *MockDownstreamConnection) CallTool(_ context.Context, toolName string, 
 func (m *MockDownstreamConnection) IsConnected() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.Status == StatusConnected
+	return m.Status.IsConnected()
 }
 
 func (m *MockDownstreamConnection) Tools() []*mcp.Tool {

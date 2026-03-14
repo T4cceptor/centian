@@ -338,7 +338,7 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 		},
 	}
 
-	server, err := proxy.NewCentianProxy(globalConfig)
+	server, err := proxy.NewCentianServer(globalConfig)
 	if err != nil {
 		t.Fatalf("failed to create centian proxy: %v", err)
 	}

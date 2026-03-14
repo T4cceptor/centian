@@ -8,12 +8,12 @@ import (
 	"gotest.tools/assert"
 )
 
-func TestRefreshAvailableToolsRemovesStaleTools(t *testing.T) {
-	proxy := &MCPProxy{
+func TestSyncAvailableToolsRemovesStaleTools(t *testing.T) {
+	proxy := &CentianEndpoint{
 		name:            "gateway",
 		endpoint:        "/mcp/gateway",
 		downstreamPools: make(map[string]*DownstreamSessionPool),
-		server:          &CentianProxy{Config: &config.GlobalConfig{Version: "1.0.0"}},
+		server:          &CentianServer{Config: &config.GlobalConfig{Version: "1.0.0"}},
 	}
 
 	downstream := &MockDownstreamConnection{
@@ -32,11 +32,11 @@ func TestRefreshAvailableToolsRemovesStaleTools(t *testing.T) {
 		downstreamSessionKey: "pool-1",
 	}
 
-	proxy.refreshAvailableTools(session)
+	proxy.syncAvailableTools(session)
 	assert.Equal(t, len(session.registeredTools), 1)
 
 	downstream.tools = nil
-	proxy.refreshAvailableTools(session)
+	proxy.syncAvailableTools(session)
 
 	assert.Equal(t, len(session.registeredTools), 0)
 }

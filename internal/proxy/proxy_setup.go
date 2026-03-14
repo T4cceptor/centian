@@ -12,8 +12,11 @@ import (
 	"github.com/T4cceptor/centian/internal/logging"
 )
 
-// NewCentianProxy takes a GlobalConfig struct and returns a new CentianProxy.
-func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
+// This file creates the Centian HTTP server and registers gateway and
+// single-server proxy endpoints from config.
+
+// NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
+func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
 	if globalConfig == nil || globalConfig.Proxy == nil {
 		return nil, fmt.Errorf("proxy settings are required")
 	}
@@ -57,20 +60,20 @@ func NewCentianProxy(globalConfig *config.GlobalConfig) (*CentianProxy, error) {
 		common.LogInfo("API key auth disabled via config\n")
 	}
 
-	return &CentianProxy{
+	return &CentianServer{
 		Config:     globalConfig,
 		Mux:        mux,
 		Server:     server,
 		Logger:     logger,
 		ServerID:   getServerID(globalConfig.Name),
-		Gateways:   make(map[string]*MCPProxy),
+		Gateways:   make(map[string]*CentianEndpoint),
 		APIKeys:    apiKeyStore,
 		AuthHeader: globalConfig.GetAuthHeader(),
 	}, nil
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints.
-func (c *CentianProxy) Setup() error {
+func (c *CentianServer) Setup() error {
 	for gatewayName, gatewayConfig := range c.Config.Gateways {
 		endpoint, err := getEndpointString(gatewayName, "")
 		if err != nil {
@@ -78,7 +81,7 @@ func (c *CentianProxy) Setup() error {
 			continue
 		}
 
-		gateway := NewAggregatedProxy(gatewayName, endpoint, gatewayConfig)
+		gateway := NewAggregatedEndpoint(gatewayName, endpoint, gatewayConfig)
 		gateway.server = c
 		c.Gateways[gatewayName] = gateway
 
@@ -92,7 +95,7 @@ func (c *CentianProxy) Setup() error {
 				continue
 			}
 			singleEndpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
-			singleProxy := NewSingleProxy(serverName, singleEndpoint, serverConfig)
+			singleProxy := NewSingleEndpoint(serverName, singleEndpoint, serverConfig)
 			singleProxy.server = c
 			if err := singleProxy.initEventProcessor(); err != nil {
 				return err
@@ -103,10 +106,10 @@ func (c *CentianProxy) Setup() error {
 	return nil
 }
 
-// initEventProcessor initializes the event processor for this MCPProxy.
-func (p *MCPProxy) initEventProcessor() error {
+// initEventProcessor initializes the event processor for this ProxyEndpoint.
+func (p *CentianEndpoint) initEventProcessor() error {
 	if p.server == nil {
-		return fmt.Errorf("MCPProxy[%s]: Cannot initialize processor - no server reference", p.name)
+		return fmt.Errorf("ProxyEndpoint[%s]: cannot initialize processor without a server reference", p.name)
 	}
 
 	var allProcessors []*config.ProcessorConfig
@@ -123,7 +126,7 @@ func (p *MCPProxy) initEventProcessor() error {
 	}
 	p.eventProcessor = controller
 	if len(allProcessors) > 0 {
-		common.LogInfo("MCPProxy[%s]: Initialized event processor with %d processors", p.name, len(allProcessors))
+		common.LogInfo("ProxyEndpoint[%s]: initialized event processor with %d processors", p.name, len(allProcessors))
 	}
 	return nil
 }

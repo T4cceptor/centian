@@ -36,7 +36,7 @@ func (m *MockEventProcessor) Process(callCtx CallContext) error {
 	return nil
 }
 
-func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface) *MCPProxy {
+func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface) *CentianEndpoint {
 	t.Helper()
 
 	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
@@ -46,11 +46,11 @@ func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface)
 		_ = logger.Close()
 	})
 
-	return &MCPProxy{
+	return &CentianEndpoint{
 		name:           "test-gateway",
 		endpoint:       "/mcp/test",
 		eventProcessor: eventProcessor,
-		server: &CentianProxy{
+		server: &CentianServer{
 			ServerID: "test-server-id",
 			Logger:   logger,
 		},

@@ -8,8 +8,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// This file registers upstream tool surfaces and routes proxied tool calls to
+// downstream servers.
+
 // newUpstreamServer returns a new upstream-facing MCP server.
-func (p *MCPProxy) newUpstreamServer(sessionID string) *mcp.Server {
+func (p *CentianEndpoint) newUpstreamServer(sessionID string) *mcp.Server {
 	serverName := "centian-proxy-" + p.name
 	if p.isAggregatedProxy {
 		serverName = "centian-gateway-" + p.name
@@ -28,7 +31,7 @@ func (p *MCPProxy) newUpstreamServer(sessionID string) *mcp.Server {
 	})
 }
 
-func (p *MCPProxy) refreshAvailableTools(session *UpstreamSession) {
+func (p *CentianEndpoint) syncAvailableTools(session *UpstreamSession) {
 	if session == nil || session.upstreamServer == nil {
 		return
 	}
@@ -73,7 +76,7 @@ func (p *MCPProxy) refreshAvailableTools(session *UpstreamSession) {
 	}
 }
 
-func (p *MCPProxy) registerAvailableTools(session *UpstreamSession) {
+func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 	if session == nil {
 		return
 	}
@@ -88,7 +91,7 @@ func (p *MCPProxy) registerAvailableTools(session *UpstreamSession) {
 
 	totalDownstreams := len(pool.downstreamConns)
 	if totalDownstreams == 0 {
-		common.LogWarn("MCPProxy[%s]: No downstream servers available for session %s", p.name, session.downstreamSessionKey)
+		common.LogWarn("ProxyEndpoint[%s]: no downstream servers available for session %s", p.name, session.downstreamSessionKey)
 		return
 	}
 
@@ -100,13 +103,13 @@ func (p *MCPProxy) registerAvailableTools(session *UpstreamSession) {
 	p.mu.RUnlock()
 
 	p.toolRegMu.Lock()
-	p.refreshAvailableTools(session)
+	p.syncAvailableTools(session)
 	p.toolRegMu.Unlock()
 
 	switch {
 	case summary.connectedCount > 0:
 		common.LogInfo(
-			"MCPProxy[%s]: Upstream session %s using pooled downstream session %s with %d/%d connected servers",
+			"ProxyEndpoint[%s]: upstream session %s using pooled downstream session %s with %d/%d connected servers",
 			p.name,
 			session.id,
 			session.downstreamSessionKey,
@@ -115,16 +118,16 @@ func (p *MCPProxy) registerAvailableTools(session *UpstreamSession) {
 		)
 	case summary.connectingCount > 0:
 		common.LogInfo(
-			"MCPProxy[%s]: Initializing pooled downstream session %s in background (%d/%d still connecting)",
+			"ProxyEndpoint[%s]: initializing pooled downstream session %s in background (%d/%d still connecting)",
 			p.name,
 			session.downstreamSessionKey,
 			summary.connectingCount,
 			totalDownstreams,
 		)
 	case len(summary.connErrors) > 0:
-		common.LogError("MCPProxy[%s]: All connections failed: %v", p.name, summary.connErrors)
+		common.LogError("ProxyEndpoint[%s]: all connections failed: %v", p.name, summary.connErrors)
 	default:
-		common.LogWarn("MCPProxy[%s]: No pooled downstream connections are connected for %s", p.name, session.downstreamSessionKey)
+		common.LogWarn("ProxyEndpoint[%s]: no pooled downstream connections are connected for %s", p.name, session.downstreamSessionKey)
 	}
 }
 
@@ -134,7 +137,7 @@ type downstreamRegistrationSummary struct {
 	connErrors      []string
 }
 
-func (p *MCPProxy) collectDownstreamToolState(
+func (p *CentianEndpoint) collectDownstreamToolState(
 	pool *DownstreamSessionPool,
 	serverName string,
 	conn DownstreamConnectionInterface,
@@ -149,23 +152,23 @@ func (p *MCPProxy) collectDownstreamToolState(
 		summary.connectedCount++
 		return
 	}
-	if status == StatusConnecting || status == StatusPending {
+	if status.IsConnecting() || status.IsPending() {
 		summary.connectingCount++
 		return
 	}
-	if status == StatusFailed && conn.GetError() != nil {
+	if status.IsFailed() && conn.GetError() != nil {
 		summary.connErrors = append(summary.connErrors, fmt.Sprintf("%s: %v", serverName, conn.GetError()))
 	}
 }
 
 // registerTool adds one downstream tool to one upstream-facing server instance.
-func (p *MCPProxy) registerTool(session *UpstreamSession, serverName string, tool *mcp.Tool) {
+func (p *CentianEndpoint) registerTool(session *UpstreamSession, serverName string, tool *mcp.Tool) {
 	server := session.upstreamServer
 	if session.registeredTools == nil {
 		session.registeredTools = make(map[string]struct{})
 	}
 
-	clonedTool := deepCloneTool(tool)
+	clonedTool := copyToolForRegistration(tool)
 	toolServerName := serverName
 	if p.isAggregatedProxy {
 		clonedTool.Name = fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
@@ -183,7 +186,7 @@ func (p *MCPProxy) registerTool(session *UpstreamSession, serverName string, too
 }
 
 // ProcessCall handles the request phase processing using handlers.
-func (p *MCPProxy) ProcessCall(callCtx CallContext, direction common.McpEventDirection, msgType common.McpMessageType) error {
+func (p *CentianEndpoint) ProcessCall(callCtx CallContext, direction common.McpEventDirection, msgType common.McpMessageType) error {
 	if p.eventProcessor == nil {
 		return nil
 	}
@@ -193,7 +196,7 @@ func (p *MCPProxy) ProcessCall(callCtx CallContext, direction common.McpEventDir
 	return p.eventProcessor.Process(callCtx)
 }
 
-func (p *MCPProxy) handleToolCall(ctx context.Context, session *UpstreamSession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamSession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if session.protocolVersion == "" || session.rootsDirty {
 		p.syncUpstreamSessionState(ctx, session.id)
 	}
@@ -227,7 +230,7 @@ func (p *MCPProxy) handleToolCall(ctx context.Context, session *UpstreamSession,
 	return callCtx.GetResult(), nil
 }
 
-func (p *MCPProxy) forwardSamplingRequest(ctx context.Context, req *mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
+func (p *CentianEndpoint) forwardSamplingRequest(ctx context.Context, req *mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error) {
 	session, serverSession, err := p.upstreamSessionFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -238,7 +241,7 @@ func (p *MCPProxy) forwardSamplingRequest(ctx context.Context, req *mcp.CreateMe
 	return serverSession.CreateMessage(ctx, req.Params)
 }
 
-func (p *MCPProxy) forwardElicitationRequest(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+func (p *CentianEndpoint) forwardElicitationRequest(ctx context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 	session, serverSession, err := p.upstreamSessionFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -249,7 +252,7 @@ func (p *MCPProxy) forwardElicitationRequest(ctx context.Context, req *mcp.Elici
 	return serverSession.Elicit(ctx, req.Params)
 }
 
-func (p *MCPProxy) upstreamSessionFromContext(ctx context.Context) (*UpstreamSession, *mcp.ServerSession, error) {
+func (p *CentianEndpoint) upstreamSessionFromContext(ctx context.Context) (*UpstreamSession, *mcp.ServerSession, error) {
 	callCtx, ok := CallContextFromContext(ctx)
 	if !ok {
 		return nil, nil, fmt.Errorf("missing call context")

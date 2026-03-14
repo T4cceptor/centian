@@ -10,6 +10,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// This file defines the proxy-owned model of upstream client state that is
+// mirrored into downstream connections for pooling and synchronization.
+
 // DownstreamSamplingHandler forwards sampling requests from a downstream session.
 type DownstreamSamplingHandler func(context.Context, *mcp.CreateMessageRequest) (*mcp.CreateMessageResult, error)
 

@@ -18,6 +18,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// This file wraps the MCP HTTP transport to observe requests and run
+// post-handler session-state synchronization.
+
 type observedMCPRequest struct {
 	sessionID string
 	methods   map[string]struct{}
@@ -32,24 +35,24 @@ func (o observedMCPRequest) shouldDelayResponse() bool {
 	return o.hasMethod("initialize") || o.hasMethod("notifications/roots/list_changed")
 }
 
-type bufferedResponseWriter struct {
+type delayedResponseWriter struct {
 	headers    http.Header
 	statusCode int
 	body       bytes.Buffer
 }
 
-func newBufferedResponseWriter() *bufferedResponseWriter {
-	return &bufferedResponseWriter{
+func newDelayedResponseWriter() *delayedResponseWriter {
+	return &delayedResponseWriter{
 		headers: make(http.Header),
 	}
 }
 
 // Header returns the buffered response headers.
-func (w *bufferedResponseWriter) Header() http.Header {
+func (w *delayedResponseWriter) Header() http.Header {
 	return w.headers
 }
 
-func (w *bufferedResponseWriter) Write(data []byte) (int, error) {
+func (w *delayedResponseWriter) Write(data []byte) (int, error) {
 	if w.statusCode == 0 {
 		w.statusCode = http.StatusOK
 	}
@@ -57,14 +60,14 @@ func (w *bufferedResponseWriter) Write(data []byte) (int, error) {
 }
 
 // WriteHeader stores the status code until the buffered response is flushed.
-func (w *bufferedResponseWriter) WriteHeader(statusCode int) {
+func (w *delayedResponseWriter) WriteHeader(statusCode int) {
 	w.statusCode = statusCode
 }
 
 // Flush is a no-op to satisfy http.Flusher when a wrapped handler expects it.
-func (w *bufferedResponseWriter) Flush() {}
+func (w *delayedResponseWriter) Flush() {}
 
-func writeBufferedResponse(target http.ResponseWriter, source *bufferedResponseWriter) {
+func writeDelayedResponse(target http.ResponseWriter, source *delayedResponseWriter) {
 	if target == nil || source == nil {
 		return
 	}
@@ -81,29 +84,29 @@ func writeBufferedResponse(target http.ResponseWriter, source *bufferedResponseW
 	}
 }
 
-func (p *MCPProxy) observeMCPRequests(next http.Handler) http.Handler {
+func (p *CentianEndpoint) observeMCPRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		observation := inspectMCPRequest(r)
 		responseWriter := w
-		var bufferedWriter *bufferedResponseWriter
+		var delayedWriter *delayedResponseWriter
 		if observation.shouldDelayResponse() {
-			bufferedWriter = newBufferedResponseWriter()
-			responseWriter = bufferedWriter
+			delayedWriter = newDelayedResponseWriter()
+			responseWriter = delayedWriter
 		}
 
 		next.ServeHTTP(responseWriter, r)
 
 		sessionID := observation.sessionID
 		if sessionID == "" && observation.hasMethod("initialize") {
-			if bufferedWriter != nil {
-				sessionID = bufferedWriter.Header().Get("Mcp-Session-Id")
+			if delayedWriter != nil {
+				sessionID = delayedWriter.Header().Get("Mcp-Session-Id")
 			} else {
 				sessionID = w.Header().Get("Mcp-Session-Id")
 			}
 		}
 		if sessionID == "" {
-			if bufferedWriter != nil {
-				writeBufferedResponse(w, bufferedWriter)
+			if delayedWriter != nil {
+				writeDelayedResponse(w, delayedWriter)
 			}
 			return
 		}
@@ -114,8 +117,8 @@ func (p *MCPProxy) observeMCPRequests(next http.Handler) http.Handler {
 			p.markUpstreamSessionRootsDirty(sessionID)
 			p.syncUpstreamSessionState(r.Context(), sessionID)
 		}
-		if bufferedWriter != nil {
-			writeBufferedResponse(w, bufferedWriter)
+		if delayedWriter != nil {
+			writeDelayedResponse(w, delayedWriter)
 		}
 	})
 }
@@ -311,7 +314,7 @@ func cloneAuthHeaders(headers map[string]string) map[string]string {
 }
 
 // RegisterEndpoint registers a ServerProvider with the HTTP mux.
-func RegisterEndpoint(endpoint string, proxy *MCPProxy, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
+func RegisterEndpoint(endpoint string, proxy *CentianEndpoint, mux *http.ServeMux, options *mcp.StreamableHTTPOptions) {
 	if options == nil {
 		options = &mcp.StreamableHTTPOptions{
 			SessionTimeout: 10 * time.Minute,
