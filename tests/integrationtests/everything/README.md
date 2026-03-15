@@ -5,7 +5,7 @@ This package contains integration tests for comparing a direct connection to
 Centian.
 
 The main goal is to show where Centian matches MCP behavior and where it
-currently diverges.
+must continue to match MCP behavior.
 
 ## What Is Implemented
 
@@ -14,7 +14,8 @@ The current test package covers three layers:
 1. Baseline connection and tool discovery
 2. Tool and metadata parity checks for deterministic tool calls
 3. Capability probes for logging, resources, roots, sampling, elicitation, and
-   other protocol surfaces that are expected to be weaker in Centian today
+   other protocol surfaces that have historically diverged and now act as
+   regression checks
 
 ## How The Harness Works
 
@@ -114,11 +115,17 @@ These probes currently focus on:
 - `trigger-elicitation-request`
 - `simulate-research-query`
 - `resources/list`
+- `resources/read`
+- `resources/subscribe`
+- `resources/templates/list`
+
+The progress probe also exercises tool-call `_meta` forwarding by attaching a
+progress token to both the direct and proxied paths.
 
 ## Interpreting Failures
 
 Not every failure means the test harness is wrong. The suite is intentionally
-designed to expose current Centian gaps.
+designed to make protocol mismatches obvious and actionable.
 
 Examples of meaningful failures:
 
@@ -129,18 +136,16 @@ Examples of meaningful failures:
   hides
 
 If a failure includes `proxy_divergence` or `unsupported_in_centian`, it should
-generally be treated as a product gap to evaluate, not as a flaky test by
-default.
+generally be treated as a product regression or an uncovered capability gap,
+not as a flaky test by default.
 
 ## Current Supporting Material
 
-- Plan: `tests/integrationtests/everything/PLAN.md`
-- Issue drafts: `tests/integrationtests/everything/ISSUE_DRAFTS.md`
 - Example captured output: `tests/integrationtests/everything/tmp/`
 
 ## Notes
 
 - These tests are intentionally separate from the general integration suite
   because they rely on a real downstream MCP server implementation.
-- The package currently focuses on assessment and gap discovery, not on
-  providing a permanently green conformance suite yet.
+- The package is used both for parity verification and for investigating new
+  MCP capability regressions when they appear.

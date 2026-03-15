@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.0.5 - 2026-03-16
+
+### Major
+- Expanded MCP parity across the proxy by forwarding downstream logging, propagating client capabilities and roots support, and adding downstream resource and resource-template capabilities.
+- Added comprehensive `server-everything` integration coverage for tool parity, protocol capability probes, and metadata-sensitive flows.
+- Added real-world integration coverage for external MCP servers, including filesystem and memory scenarios.
+
+### Minor
+- Added an auth context handler so processors can receive sanitized request authentication context without coupling to transport internals.
+- Improved proxy test coverage around capability propagation, logging, resources, real-world parity, and metadata-preserving tool forwarding.
+- Updated the `everything` integration documentation to reflect the current conformance-oriented test surface.
+
+### Bugfixes
+- Fixed aggregated tool-name normalization so processors and downstream calls keep the correct current and original tool names.
+- Fixed logger synchronization issues that could surface under concurrent proxy activity.
+- Fixed tool-call forwarding to preserve upstream `_meta` on proxied requests instead of rebuilding calls from only tool name and arguments.
+- Fixed stdio downstream environment handling so configured env vars merge with the inherited OS environment instead of replacing it entirely.
+
 ## v0.0.4 - 2026-03-12
 
 ### Major
