@@ -53,6 +53,7 @@ type notificationSnapshot struct {
 	LogCount               int
 	ProgressCount          int
 	ResourceUpdateCount    int
+	ResourceUpdateURIs     []string
 	ToolListChangedCount   int
 	ResourceListChanged    int
 	PromptListChangedCount int
@@ -287,10 +288,19 @@ func (r *notificationRecorder) snapshot() notificationSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	resourceUpdateURIs := make([]string, 0, len(r.resourceUpdates))
+	for _, update := range r.resourceUpdates {
+		if update == nil {
+			continue
+		}
+		resourceUpdateURIs = append(resourceUpdateURIs, update.URI)
+	}
+
 	return notificationSnapshot{
 		LogCount:               len(r.logMessages),
 		ProgressCount:          len(r.progressMessages),
 		ResourceUpdateCount:    len(r.resourceUpdates),
+		ResourceUpdateURIs:     resourceUpdateURIs,
 		ToolListChangedCount:   r.toolListChanged,
 		ResourceListChanged:    r.resourceListChanged,
 		PromptListChangedCount: r.promptListChanged,

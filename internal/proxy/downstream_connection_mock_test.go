@@ -10,15 +10,16 @@ import (
 
 // MockDownstreamConnection is a shared test double for DownstreamConnectionInterface.
 type MockDownstreamConnection struct {
-	mu           sync.RWMutex
-	serverName   string
-	tools        []*mcp.Tool
-	resources    []*mcp.Resource
-	prompts      []*mcp.Prompt
-	cfg          *config.MCPServerConfig
-	ConnectCalls int
-	CloseCalls   int
-	ConnectFunc  func(context.Context, *DownstreamConnectOptions) error
+	mu                sync.RWMutex
+	serverName        string
+	tools             []*mcp.Tool
+	resources         []*mcp.Resource
+	resourceTemplates []*mcp.ResourceTemplate
+	prompts           []*mcp.Prompt
+	cfg               *config.MCPServerConfig
+	ConnectCalls      int
+	CloseCalls        int
+	ConnectFunc       func(context.Context, *DownstreamConnectOptions) error
 
 	// Captured call data.
 	CapturedToolName     string
@@ -28,9 +29,15 @@ type MockDownstreamConnection struct {
 	CapturedLogLevels    []mcp.LoggingLevel
 
 	// Configurable downstream behavior.
-	ResultToReturn *mcp.CallToolResult
-	ErrorToReturn  error
-	Status         ConnectionStatus
+	ResultToReturn                 *mcp.CallToolResult
+	ErrorToReturn                  error
+	ReadResourceResultToReturn     *mcp.ReadResourceResult
+	ReadResourceErrorToReturn      error
+	SubscribeErrorToReturn         error
+	UnsubscribeErrorToReturn       error
+	DiscoverResourcesErrorToReturn error
+	DiscoverTemplatesErrorToReturn error
+	Status                         ConnectionStatus
 }
 
 func (m *MockDownstreamConnection) GetServerName() string {
@@ -143,8 +150,18 @@ func (m *MockDownstreamConnection) Prompts() []*mcp.Prompt {
 	return m.prompts
 }
 
+func (m *MockDownstreamConnection) ResourceTemplates() []*mcp.ResourceTemplate {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.resourceTemplates
+}
+
 func (m *MockDownstreamConnection) DiscoverResources(_ context.Context) error {
-	return nil
+	return m.DiscoverResourcesErrorToReturn
+}
+
+func (m *MockDownstreamConnection) DiscoverResourceTemplates(_ context.Context) error {
+	return m.DiscoverTemplatesErrorToReturn
 }
 
 func (m *MockDownstreamConnection) DiscoverPrompts(_ context.Context) error {
@@ -152,6 +169,9 @@ func (m *MockDownstreamConnection) DiscoverPrompts(_ context.Context) error {
 }
 
 func (m *MockDownstreamConnection) ReadResource(_ context.Context, _ string) (*mcp.ReadResourceResult, error) {
+	if m.ReadResourceResultToReturn != nil || m.ReadResourceErrorToReturn != nil {
+		return m.ReadResourceResultToReturn, m.ReadResourceErrorToReturn
+	}
 	return &mcp.ReadResourceResult{}, nil
 }
 
@@ -164,11 +184,11 @@ func (m *MockDownstreamConnection) Complete(_ context.Context, _ *mcp.CompleteRe
 }
 
 func (m *MockDownstreamConnection) Subscribe(_ context.Context, _ string) error {
-	return nil
+	return m.SubscribeErrorToReturn
 }
 
 func (m *MockDownstreamConnection) Unsubscribe(_ context.Context, _ string) error {
-	return nil
+	return m.UnsubscribeErrorToReturn
 }
 
 func (m *MockDownstreamConnection) SetLoggingLevel(_ context.Context, params *mcp.SetLoggingLevelParams) error {
@@ -199,10 +219,12 @@ func cloneConnectOptions(options *DownstreamConnectOptions) DownstreamConnectOpt
 		return DownstreamConnectOptions{}
 	}
 	cloned := DownstreamConnectOptions{
-		ForwardedHeaders:   cloneAuthHeaders(options.ForwardedHeaders),
-		SamplingHandler:    options.SamplingHandler,
-		ElicitationHandler: options.ElicitationHandler,
-		LoggingHandler:     options.LoggingHandler,
+		ForwardedHeaders:           cloneAuthHeaders(options.ForwardedHeaders),
+		SamplingHandler:            options.SamplingHandler,
+		ElicitationHandler:         options.ElicitationHandler,
+		LoggingHandler:             options.LoggingHandler,
+		ResourceListChangedHandler: options.ResourceListChangedHandler,
+		ResourceUpdatedHandler:     options.ResourceUpdatedHandler,
 	}
 	cloned.ClientState = DownstreamClientState{
 		ProtocolVersion:         options.ClientState.ProtocolVersion,

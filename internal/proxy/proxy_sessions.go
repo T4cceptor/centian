@@ -85,15 +85,16 @@ func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, iden
 		clientHeaders = r.Header.Clone()
 	}
 	return &UpstreamSession{
-		id:                  id,
-		downstreamConns:     make(map[string]DownstreamConnectionInterface),
-		registeredTools:     make(map[string]struct{}),
-		registeredResources: make(map[string]struct{}),
-		registeredPrompts:   make(map[string]struct{}),
-		clientHeaders:       clientHeaders,
-		identityKey:         identityKey,
-		authData:            authData.Clone(),
-		rootsDirty:          true,
+		id:                          id,
+		downstreamConns:             make(map[string]DownstreamConnectionInterface),
+		registeredTools:             make(map[string]struct{}),
+		registeredResources:         make(map[string]struct{}),
+		registeredResourceTemplates: make(map[string]struct{}),
+		registeredPrompts:           make(map[string]struct{}),
+		clientHeaders:               clientHeaders,
+		identityKey:                 identityKey,
+		authData:                    authData.Clone(),
+		rootsDirty:                  true,
 	}
 }
 
@@ -384,6 +385,7 @@ func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, sess
 	}
 	p.registerAvailableTools(session)
 	p.registerAvailableResources(session)
+	p.registerAvailableResourceTemplates(session)
 	p.registerAvailablePrompts(session)
 }
 

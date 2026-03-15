@@ -36,11 +36,12 @@ type CentianServer struct {
 type UpstreamSession struct {
 	id string
 
-	upstreamServer      *mcp.Server
-	downstreamConns     map[string]DownstreamConnectionInterface
-	registeredTools     map[string]struct{}
-	registeredResources map[string]struct{} // keyed by resource URI
-	registeredPrompts   map[string]struct{} // keyed by prompt name
+	upstreamServer              *mcp.Server
+	downstreamConns             map[string]DownstreamConnectionInterface
+	registeredTools             map[string]struct{}
+	registeredResources         map[string]struct{} // keyed by resource URI
+	registeredResourceTemplates map[string]struct{} // keyed by resource URI template
+	registeredPrompts           map[string]struct{} // keyed by prompt name
 
 	clientHeaders        http.Header
 	identityKey          string
@@ -207,5 +208,31 @@ func copyToolForRegistration(tool *mcp.Tool) *mcp.Tool {
 		OutputSchema: tool.OutputSchema,
 		Title:        tool.Title,
 		Icons:        tool.Icons,
+	}
+}
+
+func copyResourceForRegistration(resource *mcp.Resource) *mcp.Resource {
+	return &mcp.Resource{
+		Annotations: resource.Annotations,
+		Description: resource.Description,
+		MIMEType:    resource.MIMEType,
+		Name:        resource.Name,
+		Title:       resource.Title,
+		URI:         resource.URI,
+		Meta:        resource.Meta,
+		Icons:       resource.Icons,
+	}
+}
+
+func copyResourceTemplateForRegistration(resourceTemplate *mcp.ResourceTemplate) *mcp.ResourceTemplate {
+	return &mcp.ResourceTemplate{
+		Annotations: resourceTemplate.Annotations,
+		Description: resourceTemplate.Description,
+		MIMEType:    resourceTemplate.MIMEType,
+		Name:        resourceTemplate.Name,
+		Title:       resourceTemplate.Title,
+		URITemplate: resourceTemplate.URITemplate,
+		Meta:        resourceTemplate.Meta,
+		Icons:       resourceTemplate.Icons,
 	}
 }
