@@ -169,8 +169,8 @@ func (dc *DownstreamConnection) SyncClientState(ctx context.Context, clientState
 
 	dc.clientState = *clientState
 	dc.clientState.Roots = nextRoots
-	dc.clientState.RootsFingerprint = fingerprintRoots(nextRoots)
-	dc.clientState.CapabilitiesFingerprint = fingerprintClientCapabilities(dc.clientState.ClientCapabilities)
+	dc.clientState.RootsFingerprint = fingerprintJSON(nextRoots)
+	dc.clientState.CapabilitiesFingerprint = fingerprintJSON(dc.clientState.ClientCapabilities)
 
 	if dc.session != nil {
 		if err := dc.discoverTools(ctx); err != nil {

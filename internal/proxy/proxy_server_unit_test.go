@@ -565,7 +565,7 @@ func TestInvalidatePooledDownstream(t *testing.T) {
 		},
 	}
 
-	proxy.invalidatePooledDownstream("pool-1")
+	proxy.invalidateDownstreamPool("pool-1")
 
 	assert.Equal(t, conn.CloseCalls, 1)
 	assert.Assert(t, proxy.downstreamPools["pool-1"] == nil)
@@ -578,7 +578,7 @@ func TestClosePoolEntryLocked(t *testing.T) {
 		closeErr:                 errors.New("close failed"),
 	}
 
-	errs := (&CentianEndpoint{}).closePoolEntryLocked(&DownstreamConnectionPool{
+	errs := (&CentianEndpoint{}).closeDownstreamSessionPool(&DownstreamConnectionPool{
 		downstreamConns: map[string]DownstreamConnectionInterface{
 			"ok":   okConn,
 			"fail": failingConn,

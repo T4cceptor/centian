@@ -63,13 +63,18 @@ type DownstreamSessionPool struct {
 	lastUsed             time.Time
 }
 
-// GetConnectionByServerName returns a downstream connection for the given server name.
-func (p *DownstreamSessionPool) GetConnectionByServerName(serverName string) (DownstreamConnectionInterface, error) {
-	conn, ok := p.downstreamConns[serverName]
+// connectionByServerName looks up a connection in a map by server name.
+func connectionByServerName(conns map[string]DownstreamConnectionInterface, serverName string) (DownstreamConnectionInterface, error) {
+	conn, ok := conns[serverName]
 	if !ok {
 		return nil, fmt.Errorf("no connection to server %q found", serverName)
 	}
 	return conn, nil
+}
+
+// GetConnectionByServerName returns a downstream connection for the given server name.
+func (p *DownstreamSessionPool) GetConnectionByServerName(serverName string) (DownstreamConnectionInterface, error) {
+	return connectionByServerName(p.downstreamConns, serverName)
 }
 
 // SetConnection sets a downstream connection for the given server name.
@@ -90,11 +95,7 @@ const initialDownstreamReadyWait = 500 * time.Millisecond
 
 // GetConnectionByServerName returns a downstream connection for the given server name.
 func (s *UpstreamSession) GetConnectionByServerName(serverName string) (DownstreamConnectionInterface, error) {
-	conn, ok := s.downstreamConns[serverName]
-	if !ok {
-		return nil, fmt.Errorf("no connection to server %q found", serverName)
-	}
-	return conn, nil
+	return connectionByServerName(s.downstreamConns, serverName)
 }
 
 func (s *UpstreamSession) downstreamClientState() *DownstreamClientState {
@@ -205,6 +206,3 @@ func copyToolForRegistration(tool *mcp.Tool) *mcp.Tool {
 		Icons:        tool.Icons,
 	}
 }
-
-// DownstreamConnectionPool is kept as a compatibility alias for existing tests/helpers.
-type DownstreamConnectionPool = DownstreamSessionPool

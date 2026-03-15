@@ -10,6 +10,9 @@ import (
 	"gotest.tools/assert"
 )
 
+// DownstreamConnectionPool is a test-only alias kept for readability in existing test setups.
+type DownstreamConnectionPool = DownstreamSessionPool
+
 func TestCreateSession_AuthHeaders(t *testing.T) {
 	// Given: a proxy with a configured auth header
 	proxy := &CentianEndpoint{
