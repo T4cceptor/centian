@@ -24,6 +24,20 @@ func TestFingerprintClientCapabilitiesDeterministic(t *testing.T) {
 	assert.Equal(t, fingerprintClientCapabilities(capabilitiesA), fingerprintClientCapabilities(capabilitiesB))
 }
 
+func TestCloneClientCapabilitiesPreservesRootsV2(t *testing.T) {
+	capabilities := &mcp.ClientCapabilities{
+		RootsV2: &mcp.RootCapabilities{ListChanged: true},
+	}
+
+	cloned := cloneClientCapabilities(capabilities)
+
+	assert.Assert(t, cloned != nil)
+	assert.Assert(t, cloned.RootsV2 != nil)
+	assert.Assert(t, cloned.RootsV2 != capabilities.RootsV2)
+	assert.Equal(t, cloned.RootsV2.ListChanged, true)
+	assert.Equal(t, cloned.Roots.ListChanged, true)
+}
+
 func TestFingerprintRootsDeterministic(t *testing.T) {
 	rootsA := []*mcp.Root{
 		{Name: "b", URI: "file://b"},
