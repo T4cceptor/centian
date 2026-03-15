@@ -303,7 +303,7 @@ func authHeadersFingerprint(forwardedHeaders map[string]string) string {
 
 func cloneAuthHeaders(headers map[string]string) map[string]string {
 	if len(headers) == 0 {
-		return map[string]string{}
+		return nil
 	}
 
 	cloned := make(map[string]string, len(headers))
