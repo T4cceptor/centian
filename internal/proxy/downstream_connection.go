@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -454,18 +455,26 @@ func (dc *DownstreamConnection) SetLoggingLevel(ctx context.Context, params *mcp
 }
 
 // CallTool forwards a tool call to the downstream server.
-func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
 	if !dc.status.IsConnected() || dc.session == nil {
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
+	if req == nil || req.Params == nil {
+		return nil, fmt.Errorf("call tool request params are required")
+	}
 
-	return dc.session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      toolName,
-		Arguments: args,
-	})
+	params := &mcp.CallToolParams{
+		Meta: deepCloneMeta(req.Params.Meta),
+		Name: req.Params.Name,
+	}
+	if req.Params.Arguments != nil {
+		params.Arguments = json.RawMessage(append([]byte(nil), req.Params.Arguments...))
+	}
+
+	return dc.session.CallTool(ctx, params)
 }
 
 // Close terminates the downstream connection.

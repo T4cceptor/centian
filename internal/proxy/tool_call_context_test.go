@@ -72,6 +72,7 @@ func TestBuildRoutingContext(t *testing.T) {
 func TestNewToolCallContext(t *testing.T) {
 	request := &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
+			Meta:      mcp.Meta{"progressToken": "original-progress", "custom": "original"},
 			Name:      "demo_tool",
 			Arguments: json.RawMessage(`{"k":"v"}`),
 		},
@@ -162,7 +163,9 @@ func TestNewToolCallContext(t *testing.T) {
 		// And: original request was deep-cloned.
 		assert.Assert(t, callCtx.GetOriginalRequest() != callCtx.GetRequest())
 		callCtx.GetRequest().Params.Arguments = json.RawMessage(`{"k":"changed"}`)
+		callCtx.GetRequest().Params.Meta["custom"] = "changed"
 		assert.Equal(t, string(callCtx.GetOriginalRequest().Params.Arguments), `{"k":"v"}`)
+		assert.Equal(t, callCtx.GetOriginalRequest().Params.Meta["custom"], "original")
 	})
 
 	t.Run("normalizes aggregated tool names into current request state", func(t *testing.T) {
@@ -244,8 +247,37 @@ func TestNewToolCallContext(t *testing.T) {
 	})
 }
 
+func TestDeepCloneRequestPreservesMeta(t *testing.T) {
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Meta: mcp.Meta{
+				"progressToken": "progress-1",
+				"custom":        "value",
+				"nested": map[string]any{
+					"flag": true,
+				},
+			},
+			Name:      "demo_tool",
+			Arguments: json.RawMessage(`{"k":"v"}`),
+		},
+	}
+
+	cloned := deepCloneRequest(req)
+
+	assert.Assert(t, cloned != nil)
+	assert.DeepEqual(t, cloned.Params.Meta, req.Params.Meta)
+	assert.Assert(t, cloned.Params.Meta != nil)
+
+	req.Params.Meta["custom"] = "changed"
+	req.Params.Meta["nested"].(map[string]any)["flag"] = false
+
+	assert.Equal(t, cloned.Params.Meta["custom"], "value")
+	assert.Equal(t, cloned.Params.Meta["progressToken"], "progress-1")
+	assert.Equal(t, cloned.Params.Meta["nested"].(map[string]any)["flag"], true)
+}
+
 func TestToolCallContextSendRequest(t *testing.T) {
-	makeContext := func(conn DownstreamConnectionInterface, args json.RawMessage) *ToolCallContext {
+	makeContext := func(conn DownstreamConnectionInterface, meta mcp.Meta, args json.RawMessage) *ToolCallContext {
 		return &ToolCallContext{
 			proxy:              &CentianEndpoint{},
 			originalServerName: "orig-srv",
@@ -257,6 +289,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 			routingContext: &common.RoutingContext{ServerName: "srv"},
 			request: &mcp.CallToolRequest{
 				Params: &mcp.CallToolParamsRaw{
+					Meta:      meta,
 					Name:      "tool_name",
 					Arguments: args,
 				},
@@ -287,17 +320,28 @@ func TestToolCallContextSendRequest(t *testing.T) {
 		toolCtx := makeContext(&MockDownstreamConnection{
 			cfg:    &config.MCPServerConfig{Command: "python3"},
 			Status: StatusFailed,
-		}, json.RawMessage(`{}`))
+		}, nil, json.RawMessage(`{}`))
 
 		err := toolCtx.SendRequest(context.Background())
 		assert.Assert(t, err != nil)
 	})
 
-	t.Run("fails on invalid request arguments", func(t *testing.T) {
-		toolCtx := makeContext(&MockDownstreamConnection{
-			cfg:    &config.MCPServerConfig{Command: "python3"},
-			Status: StatusConnected,
-		}, json.RawMessage(`{invalid}`))
+	t.Run("fails when request params are missing", func(t *testing.T) {
+		toolCtx := &ToolCallContext{
+			proxy:              &CentianEndpoint{},
+			originalServerName: "orig-srv",
+			upstreamSession: &UpstreamSession{
+				downstreamConns: map[string]DownstreamConnectionInterface{
+					"srv": &MockDownstreamConnection{
+						cfg:    &config.MCPServerConfig{Command: "python3"},
+						Status: StatusConnected,
+					},
+				},
+			},
+			routingContext: &common.RoutingContext{ServerName: "srv"},
+			request:        &mcp.CallToolRequest{},
+			event:          common.NewMCPRequestEvent("stdio"),
+		}
 
 		err := toolCtx.SendRequest(context.Background())
 		assert.Assert(t, err != nil)
@@ -308,7 +352,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 			cfg:           &config.MCPServerConfig{Command: "python3"},
 			Status:        StatusConnected,
 			ErrorToReturn: errors.New("downstream failed"),
-		}, json.RawMessage(`{"a":1}`))
+		}, nil, json.RawMessage(`{"a":1}`))
 
 		err := toolCtx.SendRequest(context.Background())
 		assert.Assert(t, err != nil)
@@ -322,7 +366,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
 			},
 		}
-		toolCtx := makeContext(conn, json.RawMessage(`{"a":1}`))
+		toolCtx := makeContext(conn, nil, json.RawMessage(`{"a":1}`))
 
 		err := toolCtx.SendRequest(context.Background())
 		assert.NilError(t, err)
@@ -331,6 +375,27 @@ func TestToolCallContextSendRequest(t *testing.T) {
 		assert.Assert(t, toolCtx.HasResult())
 		assert.Assert(t, toolCtx.GetResult() != nil)
 		assert.Assert(t, toolCtx.GetOriginalResult() == toolCtx.GetResult())
+	})
+
+	t.Run("forwards request meta unchanged", func(t *testing.T) {
+		conn := &MockDownstreamConnection{
+			cfg:    &config.MCPServerConfig{Command: "python3"},
+			Status: StatusConnected,
+			ResultToReturn: &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+			},
+		}
+		meta := mcp.Meta{
+			"progressToken": "progress-123",
+			"custom":        "value",
+		}
+		toolCtx := makeContext(conn, meta, json.RawMessage(`{"a":1}`))
+
+		err := toolCtx.SendRequest(context.Background())
+		assert.NilError(t, err)
+		assert.Assert(t, conn.CapturedRequest != nil)
+		assert.DeepEqual(t, conn.CapturedMeta, meta)
+		assert.DeepEqual(t, conn.CapturedRequest.Params.Meta, meta)
 	})
 }
 
