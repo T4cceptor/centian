@@ -135,7 +135,7 @@ func buildDownstreamClientState(protocolVersion string, capabilities *mcp.Client
 		ProtocolVersion:         protocolVersion,
 		ClientCapabilities:      normalizedCapabilities,
 		Roots:                   normalizedRoots,
-		CapabilitiesFingerprint: fingerprintClientCapabilities(normalizedCapabilities),
-		RootsFingerprint:        fingerprintRoots(normalizedRoots),
+		CapabilitiesFingerprint: fingerprintJSON(normalizedCapabilities),
+		RootsFingerprint:        fingerprintJSON(normalizedRoots),
 	}
 }
