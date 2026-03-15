@@ -71,6 +71,12 @@ The integration tests cover several major processor patterns:
 make test-integration
 ```
 
+#### Run Real-World MCP Integration Tests
+
+```bash
+make test-realworld
+```
+
 Or directly with Go:
 
 ```bash
