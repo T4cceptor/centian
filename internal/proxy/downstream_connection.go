@@ -291,6 +291,11 @@ func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
 	return nil
 }
 
+// discoverResources and discoverPrompts are the internal (lock-unsafe) variants of
+// DiscoverResources and DiscoverPrompts. They must only be called by code that already
+// holds dc.mu for writing (e.g. during Connect or SyncClientState).
+// The exported DiscoverResources/DiscoverPrompts are the pool-facing public API that
+// acquire the lock themselves and are safe to call concurrently from outside this struct.
 func (dc *DownstreamConnection) discoverResources(ctx context.Context) error {
 	result, err := dc.session.ListResources(ctx, nil)
 	if err != nil {
