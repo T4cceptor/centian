@@ -55,7 +55,7 @@ func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Serv
 	session, exists := p.upstreamSessions[sessionID]
 	if !exists {
 		session = p.createUpstreamSession(sessionID, r, identityKey)
-		session.upstreamServer = p.newUpstreamServer(sessionID)
+		session.upstreamServer = p.newUpstreamServer(session)
 		p.upstreamSessions[sessionID] = session
 		return session.upstreamServer
 	}
@@ -80,13 +80,15 @@ func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, iden
 		clientHeaders = r.Header.Clone()
 	}
 	return &UpstreamSession{
-		id:              id,
-		downstreamConns: make(map[string]DownstreamConnectionInterface),
-		registeredTools: make(map[string]struct{}),
-		clientHeaders:   clientHeaders,
-		identityKey:     identityKey,
-		authData:        authData.Clone(),
-		rootsDirty:      true,
+		id:                  id,
+		downstreamConns:     make(map[string]DownstreamConnectionInterface),
+		registeredTools:     make(map[string]struct{}),
+		registeredResources: make(map[string]struct{}),
+		registeredPrompts:   make(map[string]struct{}),
+		clientHeaders:       clientHeaders,
+		identityKey:         identityKey,
+		authData:            authData.Clone(),
+		rootsDirty:          true,
 	}
 }
 
@@ -343,6 +345,8 @@ func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, sess
 		p.waitForFirstUsableDownstream(update.pool, initialDownstreamReadyWait)
 	}
 	p.registerAvailableTools(session)
+	p.registerAvailableResources(session)
+	p.registerAvailablePrompts(session)
 }
 
 // syncPoolClientState pushes mirrored client state changes into every downstream connection in the pool.

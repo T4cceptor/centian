@@ -36,9 +36,11 @@ type CentianServer struct {
 type UpstreamSession struct {
 	id string
 
-	upstreamServer  *mcp.Server
-	downstreamConns map[string]DownstreamConnectionInterface
-	registeredTools map[string]struct{}
+	upstreamServer     *mcp.Server
+	downstreamConns    map[string]DownstreamConnectionInterface
+	registeredTools    map[string]struct{}
+	registeredResources map[string]struct{} // keyed by resource URI
+	registeredPrompts   map[string]struct{} // keyed by prompt name
 
 	clientHeaders        http.Header
 	identityKey          string

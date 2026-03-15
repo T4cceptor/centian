@@ -25,12 +25,12 @@ func TestSyncAvailableToolsRemovesStaleTools(t *testing.T) {
 	}
 
 	session := &UpstreamSession{
-		id:                   "session-1",
-		upstreamServer:       proxy.newUpstreamServer("session-1"),
-		registeredTools:      make(map[string]struct{}),
-		downstreamConns:      map[string]DownstreamConnectionInterface{"server-1": downstream},
+		id:              "session-1",
+		registeredTools: make(map[string]struct{}),
+		downstreamConns: map[string]DownstreamConnectionInterface{"server-1": downstream},
 		downstreamSessionKey: "pool-1",
 	}
+	session.upstreamServer = proxy.newUpstreamServer(session)
 
 	proxy.syncAvailableTools(session)
 	assert.Equal(t, len(session.registeredTools), 1)
