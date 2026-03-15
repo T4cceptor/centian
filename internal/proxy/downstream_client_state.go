@@ -36,6 +36,14 @@ type DownstreamConnectOptions struct {
 	ElicitationHandler DownstreamElicitationHandler
 }
 
+type clientCapabilitiesWire struct {
+	Experimental map[string]any               `json:"experimental,omitempty"`
+	Extensions   map[string]any               `json:"extensions,omitempty"`
+	Roots        *mcp.RootCapabilities        `json:"roots,omitempty"`
+	Sampling     *mcp.SamplingCapabilities    `json:"sampling,omitempty"`
+	Elicitation  *mcp.ElicitationCapabilities `json:"elicitation,omitempty"`
+}
+
 func cloneDownstreamConnectOptions(options *DownstreamConnectOptions) *DownstreamConnectOptions {
 	if options == nil {
 		return &DownstreamConnectOptions{}
@@ -68,21 +76,17 @@ func cloneClientCapabilities(capabilities *mcp.ClientCapabilities) *mcp.ClientCa
 		return nil
 	}
 
-	encoded, err := json.Marshal(capabilities)
+	wire := clientCapabilitiesToWire(capabilities)
+	encoded, err := json.Marshal(wire)
 	if err != nil {
 		return &mcp.ClientCapabilities{}
 	}
 
-	var cloned mcp.ClientCapabilities
-	if err := json.Unmarshal(encoded, &cloned); err != nil {
+	var clonedWire clientCapabilitiesWire
+	if err := json.Unmarshal(encoded, &clonedWire); err != nil {
 		return &mcp.ClientCapabilities{}
 	}
-	if capabilities.RootsV2 != nil {
-		rootsV2 := *capabilities.RootsV2
-		cloned.RootsV2 = &rootsV2
-		cloned.Roots.ListChanged = rootsV2.ListChanged
-	}
-	return &cloned
+	return clientCapabilitiesFromWire(&clonedWire)
 }
 
 func normalizeRoots(roots []*mcp.Root) []*mcp.Root {
@@ -109,7 +113,7 @@ func normalizeRoots(roots []*mcp.Root) []*mcp.Root {
 }
 
 func fingerprintClientCapabilities(capabilities *mcp.ClientCapabilities) string {
-	return fingerprintJSON(normalizeClientCapabilities(capabilities))
+	return fingerprintJSON(clientCapabilitiesToWire(normalizeClientCapabilities(capabilities)))
 }
 
 func fingerprintRoots(roots []*mcp.Root) string {
@@ -131,6 +135,34 @@ func clientSupportsRoots(capabilities *mcp.ClientCapabilities) bool {
 		return false
 	}
 	return capabilities.RootsV2 != nil
+}
+
+func clientCapabilitiesToWire(capabilities *mcp.ClientCapabilities) *clientCapabilitiesWire {
+	if capabilities == nil {
+		return &clientCapabilitiesWire{}
+	}
+
+	return &clientCapabilitiesWire{
+		Experimental: capabilities.Experimental,
+		Extensions:   capabilities.Extensions,
+		Roots:        capabilities.RootsV2,
+		Sampling:     capabilities.Sampling,
+		Elicitation:  capabilities.Elicitation,
+	}
+}
+
+func clientCapabilitiesFromWire(wire *clientCapabilitiesWire) *mcp.ClientCapabilities {
+	if wire == nil {
+		return &mcp.ClientCapabilities{}
+	}
+
+	return &mcp.ClientCapabilities{
+		Experimental: wire.Experimental,
+		Extensions:   wire.Extensions,
+		RootsV2:      wire.Roots,
+		Sampling:     wire.Sampling,
+		Elicitation:  wire.Elicitation,
+	}
 }
 
 func buildDownstreamClientState(protocolVersion string, capabilities *mcp.ClientCapabilities, roots []*mcp.Root) *DownstreamClientState {

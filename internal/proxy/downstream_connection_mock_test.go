@@ -145,15 +145,15 @@ func (m *MockDownstreamConnection) DiscoverPrompts(_ context.Context) error {
 }
 
 func (m *MockDownstreamConnection) ReadResource(_ context.Context, _ string) (*mcp.ReadResourceResult, error) {
-	return nil, nil
+	return &mcp.ReadResourceResult{}, nil
 }
 
 func (m *MockDownstreamConnection) GetPrompt(_ context.Context, _ string, _ map[string]string) (*mcp.GetPromptResult, error) {
-	return nil, nil
+	return &mcp.GetPromptResult{}, nil
 }
 
 func (m *MockDownstreamConnection) Complete(_ context.Context, _ *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
-	return nil, nil
+	return &mcp.CompleteResult{}, nil
 }
 
 func (m *MockDownstreamConnection) Subscribe(_ context.Context, _ string) error {

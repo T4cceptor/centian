@@ -106,7 +106,7 @@ func (p *CentianEndpoint) registerAvailableResources(session *UpstreamSession) {
 }
 
 // forwardReadResource reads a resource from the named downstream server.
-func (p *CentianEndpoint) forwardReadResource(ctx context.Context, session *UpstreamSession, serverName string, uri string) (*mcp.ReadResourceResult, error) {
+func (p *CentianEndpoint) forwardReadResource(ctx context.Context, session *UpstreamSession, serverName, uri string) (*mcp.ReadResourceResult, error) {
 	conn, err := session.GetConnectionByServerName(serverName)
 	if err != nil {
 		return nil, fmt.Errorf("resource %q: %w", uri, err)
