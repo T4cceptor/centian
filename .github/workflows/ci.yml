@@ -7,8 +7,8 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
-    name: Test
+  unit-test:
+    name: Unit Tests
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -37,11 +37,11 @@ jobs:
       - name: Install gotestsum
         run: go install gotest.tools/gotestsum@latest
 
-      - name: Run all tests (unit + integration)
-        run: make test-all
+      - name: Run unit tests
+        run: make test
 
       - name: Generate coverage
-        run: go test -coverprofile=coverage.out ./...
+        run: go test -coverprofile=coverage.out ./internal/... ./cmd/...
 
       - name: Generate coverage report
         run: go tool cover -html=coverage.out -o coverage.html
@@ -51,6 +51,79 @@ jobs:
         with:
           file: ./coverage.out
           fail_ci_if_error: false
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.25]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Run integration tests
+        run: make test-integration
+
+  integration-test-extended:
+    name: Extended Integration Tests
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Run all integration tests
+        run: |
+          make test-integration
+          make test-everything
+          make test-realworld
 
   lint:
     name: Lint
