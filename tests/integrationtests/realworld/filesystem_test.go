@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var filesystemManifest = serverManifest{
+var filesystemManifest = &serverManifest{
 	Name:           "filesystem",
 	GatewayID:      "filesystem",
 	ServerID:       "filesystem",

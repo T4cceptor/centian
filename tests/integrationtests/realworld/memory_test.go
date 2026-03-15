@@ -12,7 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var memoryManifest = serverManifest{
+var memoryManifest = &serverManifest{
 	Name:           "memory",
 	GatewayID:      "memory",
 	ServerID:       "memory",

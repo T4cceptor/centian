@@ -1,6 +1,7 @@
 package realworld
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -83,12 +84,12 @@ type connectionPair struct {
 }
 
 type realworldHarness struct {
-	manifest serverManifest
+	manifest *serverManifest
 	fixture  *fixtureBundle
 	proxyURL string
 }
 
-func newRealworldHarness(t *testing.T, manifest serverManifest) *realworldHarness {
+func newRealworldHarness(t *testing.T, manifest *serverManifest) *realworldHarness {
 	t.Helper()
 
 	requireRealworldEnabled(t)
@@ -112,7 +113,7 @@ func requireRealworldEnabled(t *testing.T) {
 	}
 }
 
-func loadServerCommand(t *testing.T, manifest serverManifest, mode serverMode, fixture *fixtureBundle) serverCommand {
+func loadServerCommand(t *testing.T, manifest *serverManifest, mode serverMode, fixture *fixtureBundle) serverCommand {
 	t.Helper()
 
 	command := strings.TrimSpace(os.Getenv(manifest.CommandEnvVar))
@@ -221,7 +222,7 @@ func newClientWithRoots(roots []*mcp.Root) *mcp.Client {
 	return client
 }
 
-func startCentianProxyForRealworld(t *testing.T, manifest serverManifest, downstream serverCommand) string {
+func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downstream serverCommand) string {
 	t.Helper()
 
 	authDisabled := false
@@ -288,7 +289,7 @@ func startCentianProxyForRealworld(t *testing.T, manifest serverManifest, downst
 
 func runServerComparison(
 	t *testing.T,
-	manifest serverManifest,
+	manifest *serverManifest,
 	testName string,
 	testFn func(context.Context, *testing.T, *connectionPair, *fixtureBundle),
 ) {
@@ -308,16 +309,16 @@ func runServerComparison(
 func assertToolCatalogParity(
 	ctx context.Context,
 	t *testing.T,
-	manifest serverManifest,
+	manifest *serverManifest,
 	pair *connectionPair,
 ) {
 	t.Helper()
 
-	directTools, err := waitForTools(ctx, pair.Direct.session, defaultToolsWaitTimeout, 250*time.Millisecond)
+	directTools, err := waitForTools(ctx, pair.Direct.session)
 	if err != nil {
 		t.Fatalf("failed to list direct tools: %v", err)
 	}
-	proxiedTools, err := waitForTools(ctx, pair.Proxied.session, defaultToolsWaitTimeout, 250*time.Millisecond)
+	proxiedTools, err := waitForTools(ctx, pair.Proxied.session)
 	if err != nil {
 		t.Fatalf("failed to list proxied tools: %v", err)
 	}
@@ -362,7 +363,7 @@ func assertToolCatalogParity(
 func assertToolCallParity(
 	ctx context.Context,
 	t *testing.T,
-	manifest serverManifest,
+	manifest *serverManifest,
 	fixture *fixtureBundle,
 	pair *connectionPair,
 	toolName string,
@@ -371,11 +372,11 @@ func assertToolCallParity(
 ) {
 	t.Helper()
 
-	directTools, err := waitForTools(ctx, pair.Direct.session, defaultToolsWaitTimeout, 250*time.Millisecond)
+	directTools, err := waitForTools(ctx, pair.Direct.session)
 	if err != nil {
 		t.Fatalf("failed to list direct tools before calling %q: %v", toolName, err)
 	}
-	proxiedTools, err := waitForTools(ctx, pair.Proxied.session, defaultToolsWaitTimeout, 250*time.Millisecond)
+	proxiedTools, err := waitForTools(ctx, pair.Proxied.session)
 	if err != nil {
 		t.Fatalf("failed to list proxied tools before calling %q: %v", toolName, err)
 	}
@@ -400,7 +401,7 @@ func assertToolCallParity(
 
 func assertCallOutcomeParity(
 	t *testing.T,
-	manifest serverManifest,
+	manifest *serverManifest,
 	fixture *fixtureBundle,
 	directResult *mcp.CallToolResult,
 	directErr error,
@@ -430,7 +431,7 @@ func assertCallOutcomeParity(
 
 func compareNormalizedResults(
 	t *testing.T,
-	manifest serverManifest,
+	manifest *serverManifest,
 	fixture *fixtureBundle,
 	directResult *mcp.CallToolResult,
 	proxiedResult *mcp.CallToolResult,
@@ -444,7 +445,7 @@ func compareNormalizedResults(
 
 func normalizeResultForComparison(
 	t *testing.T,
-	manifest serverManifest,
+	manifest *serverManifest,
 	mode serverMode,
 	fixture *fixtureBundle,
 	value any,
@@ -517,13 +518,8 @@ func mergeEnv(base []string, extra map[string]string) []string {
 	return merged
 }
 
-func waitForTools(
-	ctx context.Context,
-	session *mcp.ClientSession,
-	timeout time.Duration,
-	interval time.Duration,
-) (*mcp.ListToolsResult, error) {
-	deadline := time.Now().Add(timeout)
+func waitForTools(ctx context.Context, session *mcp.ClientSession) (*mcp.ListToolsResult, error) {
+	deadline := time.Now().Add(defaultToolsWaitTimeout)
 	var lastErr error
 
 	for time.Now().Before(deadline) {
@@ -534,7 +530,7 @@ func waitForTools(
 		if err != nil {
 			lastErr = err
 		}
-		time.Sleep(interval)
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	if lastErr != nil {
@@ -606,7 +602,7 @@ func jsonEqual(t *testing.T, a, b any) bool {
 		t.Fatalf("failed to marshal second value: %v", err)
 	}
 
-	return string(aJSON) == string(bJSON)
+	return bytes.Equal(aJSON, bJSON)
 }
 
 func sameErrorMessage(left, right error) bool {

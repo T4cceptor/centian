@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-var fetchManifest = serverManifest{
+var fetchManifest = &serverManifest{
 	Name:           "fetch",
 	GatewayID:      "fetch",
 	ServerID:       "fetch",

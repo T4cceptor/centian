@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var sequentialThinkingManifest = serverManifest{
+var sequentialThinkingManifest = &serverManifest{
 	Name:           "sequentialthinking",
 	GatewayID:      "sequentialthinking",
 	ServerID:       "sequentialthinking",
