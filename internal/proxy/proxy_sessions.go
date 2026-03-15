@@ -383,11 +383,6 @@ func (p *CentianEndpoint) invalidateDownstreamPool(downstreamSessionKey string) 
 	p.closeDownstreamSessionPool(pool)
 }
 
-// invalidatePooledDownstream is kept as a compatibility wrapper while callers migrate.
-func (p *CentianEndpoint) invalidatePooledDownstream(downstreamSessionKey string) {
-	p.invalidateDownstreamPool(downstreamSessionKey)
-}
-
 // Close terminates all sessions and their downstream connections.
 func (p *CentianEndpoint) Close() []error {
 	p.mu.Lock()
@@ -417,9 +412,4 @@ func (p *CentianEndpoint) closeDownstreamSessionPool(pool *DownstreamSessionPool
 		}
 	}
 	return errs
-}
-
-// closePoolEntryLocked is kept as a compatibility wrapper while callers migrate.
-func (p *CentianEndpoint) closePoolEntryLocked(pool *DownstreamSessionPool) []error {
-	return p.closeDownstreamSessionPool(pool)
 }
