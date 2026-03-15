@@ -11,8 +11,10 @@ import (
 // This file registers upstream tool surfaces and routes proxied tool calls to
 // downstream servers.
 
-// newUpstreamServer returns a new upstream-facing MCP server.
-func (p *CentianEndpoint) newUpstreamServer(sessionID string) *mcp.Server {
+// newUpstreamServer returns a new upstream-facing MCP server for the given session.
+// The session is captured by the handler closures so that forwarding functions can
+// look up downstream connections at call time.
+func (p *CentianEndpoint) newUpstreamServer(session *UpstreamSession) *mcp.Server {
 	serverName := "centian-proxy-" + p.name
 	if p.isAggregatedProxy {
 		serverName = "centian-gateway-" + p.name
@@ -22,11 +24,29 @@ func (p *CentianEndpoint) newUpstreamServer(sessionID string) *mcp.Server {
 		Name:    serverName,
 		Version: p.server.Config.Version,
 	}, &mcp.ServerOptions{
+		// HasResources and HasPrompts tell the SDK to advertise these surfaces even
+		// before any individual resources or prompts have been registered (they are
+		// registered dynamically after downstream connections are established).
+		HasResources: true,
+		HasPrompts:   true,
 		Capabilities: &mcp.ServerCapabilities{
-			Tools: &mcp.ToolCapabilities{ListChanged: true},
+			Tools:       &mcp.ToolCapabilities{ListChanged: true},
+			Logging:     &mcp.LoggingCapabilities{},
+			Completions: &mcp.CompletionCapabilities{},
+		},
+		// SubscribeHandler non-nil causes the SDK to add resources.subscribe to capabilities.
+		// Both Subscribe and Unsubscribe must be set or unset together.
+		SubscribeHandler: func(ctx context.Context, req *mcp.SubscribeRequest) error {
+			return p.forwardSubscribe(ctx, session, req)
+		},
+		UnsubscribeHandler: func(ctx context.Context, req *mcp.UnsubscribeRequest) error {
+			return p.forwardUnsubscribe(ctx, session, req)
+		},
+		CompletionHandler: func(ctx context.Context, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
+			return p.forwardCompletion(ctx, session, req)
 		},
 		GetSessionID: func() string {
-			return sessionID
+			return session.id
 		},
 	})
 }

@@ -177,11 +177,21 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	}
 	p.mu.Unlock()
 
+	if err := conn.DiscoverResources(context.Background()); err != nil {
+		common.LogWarn("ProxyEndpoint[%s]: resource discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
+	}
+	if err := conn.DiscoverPrompts(context.Background()); err != nil {
+		common.LogWarn("ProxyEndpoint[%s]: prompt discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
+	}
+
 	p.toolRegMu.Lock()
 	for _, session := range sessions {
 		p.syncAvailableTools(session)
+		p.syncAvailableResources(session)
+		p.syncAvailablePrompts(session)
 	}
 	p.toolRegMu.Unlock()
 
-	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools", p.name, sanitizeLogValue(serverName), len(conn.Tools()))
+	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d prompts",
+		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.Prompts()))
 }

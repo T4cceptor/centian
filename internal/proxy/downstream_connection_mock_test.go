@@ -128,6 +128,42 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 	return m.cfg
 }
 
+func (m *MockDownstreamConnection) Resources() []*mcp.Resource {
+	return nil
+}
+
+func (m *MockDownstreamConnection) Prompts() []*mcp.Prompt {
+	return nil
+}
+
+func (m *MockDownstreamConnection) DiscoverResources(_ context.Context) error {
+	return nil
+}
+
+func (m *MockDownstreamConnection) DiscoverPrompts(_ context.Context) error {
+	return nil
+}
+
+func (m *MockDownstreamConnection) ReadResource(_ context.Context, _ string) (*mcp.ReadResourceResult, error) {
+	return nil, nil
+}
+
+func (m *MockDownstreamConnection) GetPrompt(_ context.Context, _ string, _ map[string]string) (*mcp.GetPromptResult, error) {
+	return nil, nil
+}
+
+func (m *MockDownstreamConnection) Complete(_ context.Context, _ *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
+	return nil, nil
+}
+
+func (m *MockDownstreamConnection) Subscribe(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *MockDownstreamConnection) Unsubscribe(_ context.Context, _ string) error {
+	return nil
+}
+
 func (m *MockDownstreamConnection) SyncClientState(_ context.Context, state *DownstreamClientState) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
