@@ -111,7 +111,11 @@ func (p *CentianEndpoint) forwardReadResource(ctx context.Context, session *Upst
 	if err != nil {
 		return nil, fmt.Errorf("resource %q: %w", uri, err)
 	}
-	return conn.ReadResource(ctx, uri)
+	result, err := conn.ReadResource(ctx, uri)
+	if err != nil {
+		return nil, normalizeForwardedMethodError(mcpMethodReadResource, err)
+	}
+	return result, nil
 }
 
 // forwardSubscribe forwards a resource subscription request to the downstream that owns the URI.
@@ -121,7 +125,7 @@ func (p *CentianEndpoint) forwardSubscribe(ctx context.Context, session *Upstrea
 	if conn == nil {
 		return fmt.Errorf("no downstream connection found for resource URI %q", uri)
 	}
-	return conn.Subscribe(ctx, uri)
+	return normalizeForwardedMethodError(mcpMethodSubscribe, conn.Subscribe(ctx, uri))
 }
 
 // forwardUnsubscribe forwards a resource unsubscription request to the downstream that owns the URI.
@@ -131,7 +135,7 @@ func (p *CentianEndpoint) forwardUnsubscribe(ctx context.Context, session *Upstr
 	if conn == nil {
 		return fmt.Errorf("no downstream connection found for resource URI %q", uri)
 	}
-	return conn.Unsubscribe(ctx, uri)
+	return normalizeForwardedMethodError(mcpMethodUnsubscribe, conn.Unsubscribe(ctx, uri))
 }
 
 // forwardCompletion forwards a completion request to the first connected downstream.
@@ -139,7 +143,11 @@ func (p *CentianEndpoint) forwardUnsubscribe(ctx context.Context, session *Upstr
 func (p *CentianEndpoint) forwardCompletion(ctx context.Context, session *UpstreamSession, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
 	for _, conn := range session.downstreamConns {
 		if conn.IsConnected() {
-			return conn.Complete(ctx, req)
+			result, err := conn.Complete(ctx, req)
+			if err != nil {
+				return nil, normalizeForwardedMethodError(mcpMethodComplete, err)
+			}
+			return result, nil
 		}
 	}
 	return nil, fmt.Errorf("no downstream connection available for completion request")
