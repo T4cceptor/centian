@@ -72,19 +72,18 @@ func subscribeResource(t *testing.T, clientSession *mcp.ClientSession, uri strin
 	assert.NilError(t, clientSession.Subscribe(context.Background(), &mcp.SubscribeParams{URI: uri}))
 }
 
-func waitForSingleResourceUpdate(t *testing.T, recorder *resourceUpdateRecorder) []*mcp.ResourceUpdatedNotificationParams {
+func waitForSingleResourceUpdate(t *testing.T, recorder *resourceUpdateRecorder) {
 	t.Helper()
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		snapshot := recorder.snapshot()
 		if len(snapshot) == 1 {
-			return snapshot
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	snapshot := recorder.snapshot()
 	t.Fatalf("expected 1 resource update, got %d", len(snapshot))
-	return nil
 }
