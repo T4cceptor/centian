@@ -49,7 +49,7 @@ func TestServerStartIntegration(t *testing.T) {
 	}
 
 	// When: starting the Centian proxy server.
-	server, err := proxy.NewCentianProxy(globalConfig)
+	server, err := proxy.NewCentianServer(globalConfig)
 	if err != nil {
 		t.Fatal("Unable to create proxy server:", err)
 	}

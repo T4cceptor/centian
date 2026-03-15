@@ -13,7 +13,7 @@ import (
 // Implements the CallContext interface.
 type ToolCallContext struct {
 	// Infrastructure references
-	proxy           *MCPProxy        // Gateway (has back-ref to server via proxy.server)
+	proxy           *CentianEndpoint // Gateway (has back-ref to server via proxy.server)
 	upstreamSession *UpstreamSession // The upstream client session currently executing the tool call.
 
 	// Original request (immutable - deep cloned for auditing/comparison)
@@ -42,7 +42,7 @@ type ToolCallContext struct {
 // NewToolCallContext creates a new ToolCallContext.
 // Returns CallContext interface to allow implementation swapping.
 func NewToolCallContext(
-	proxy *MCPProxy,
+	proxy *CentianEndpoint,
 	upstreamSession *UpstreamSession,
 	serverName string,
 	req *mcp.CallToolRequest,
@@ -109,7 +109,7 @@ func NewToolCallContext(
 }
 
 // buildRoutingContext creates a RoutingContext from proxy and session info.
-func buildRoutingContext(proxy *MCPProxy, upstreamSession *UpstreamSession, serverName string) *common.RoutingContext {
+func buildRoutingContext(proxy *CentianEndpoint, upstreamSession *UpstreamSession, serverName string) *common.RoutingContext {
 	// ideally we would combine this somehow with MCPevent data struct
 	rc := &common.RoutingContext{
 		Gateway:    proxy.name,

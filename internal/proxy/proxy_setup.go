@@ -1,0 +1,133 @@
+package proxy
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+
+	centauth "github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/logging"
+)
+
+// This file creates the Centian HTTP server and registers gateway and
+// single-server proxy endpoints from config.
+
+// NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
+func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
+	if globalConfig == nil || globalConfig.Proxy == nil {
+		return nil, fmt.Errorf("proxy settings are required")
+	}
+
+	host := globalConfig.Proxy.Host
+	if host == "" {
+		host = config.DefaultProxyHost
+	}
+	if host == "0.0.0.0" && globalConfig.AuthEnabled == nil {
+		// TODO: move this into validation
+		return nil, fmt.Errorf("auth must be explicitly set when binding to 0.0.0.0")
+	}
+
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:         net.JoinHostPort(host, globalConfig.Proxy.Port),
+		Handler:      mux,
+		ReadTimeout:  common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
+		WriteTimeout: common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
+	}
+	logger, err := logging.NewLogger()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create base logger: %w", err)
+	}
+
+	var apiKeyStore *centauth.APIKeyStore
+	if globalConfig.IsAuthEnabled() {
+		loadedStore, err := centauth.LoadDefaultAPIKeys()
+		if err != nil {
+			if errors.Is(err, centauth.ErrAPIKeysNotFound) {
+				return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
+			}
+			return nil, fmt.Errorf("failed to load api keys: %w", err)
+		}
+		apiKeyStore = loadedStore
+		if apiKeyStore.Count() == 0 {
+			common.LogWarn("Auth enabled but no API keys available from %s\n", apiKeyStore.Path())
+		} else {
+			common.LogInfo("Loaded %d API keys from %s\n", apiKeyStore.Count(), apiKeyStore.Path())
+		}
+	} else {
+		common.LogInfo("API key auth disabled via config\n")
+	}
+
+	return &CentianServer{
+		Config:     globalConfig,
+		Mux:        mux,
+		Server:     server,
+		Logger:     logger,
+		ServerID:   getServerID(globalConfig.Name),
+		Gateways:   make(map[string]*CentianEndpoint),
+		APIKeys:    apiKeyStore,
+		AuthHeader: globalConfig.GetAuthHeader(),
+	}, nil
+}
+
+// Setup uses CentianServer.config to create all gateways and endpoints.
+func (c *CentianServer) Setup() error {
+	for gatewayName, gatewayConfig := range c.Config.Gateways {
+		endpoint, err := getEndpointString(gatewayName, "")
+		if err != nil {
+			common.LogError("error creating endpoint for gateway '%s': %s", gatewayName, err.Error())
+			continue
+		}
+
+		gateway := NewAggregatedEndpoint(gatewayName, endpoint, gatewayConfig)
+		gateway.server = c
+		c.Gateways[gatewayName] = gateway
+
+		if err := gateway.initEventProcessor(); err != nil {
+			return err
+		}
+		RegisterEndpoint(gateway, c.Mux, nil)
+
+		for serverName := range gateway.GetActiveMCPServerConfigs() {
+			if gatewayConfig.MCPServers[serverName] == nil {
+				continue
+			}
+			singleEndpointRoute := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+			singleEndpoint := NewSingleEndpoint(serverName, singleEndpointRoute, gatewayConfig)
+			singleEndpoint.server = c
+			if err := singleEndpoint.initEventProcessor(); err != nil {
+				return err
+			}
+			RegisterEndpoint(singleEndpoint, c.Mux, nil)
+		}
+	}
+	return nil
+}
+
+// initEventProcessor initializes the event processor for this ProxyEndpoint.
+func (p *CentianEndpoint) initEventProcessor() error {
+	if p.server == nil {
+		return fmt.Errorf("ProxyEndpoint[%s]: cannot initialize processor without a server reference", p.name)
+	}
+
+	var allProcessors []*config.ProcessorConfig
+	if p.server.Config.Processors != nil {
+		allProcessors = append(allProcessors, p.server.Config.Processors...)
+	}
+	if p.config != nil && p.config.Processors != nil {
+		allProcessors = append(allProcessors, p.config.Processors...)
+	}
+
+	controller, err := NewProcessingController(allProcessors)
+	if err != nil {
+		return err
+	}
+	p.eventProcessor = controller
+	if len(allProcessors) > 0 {
+		common.LogInfo("ProxyEndpoint[%s]: initialized event processor with %d processors", p.name, len(allProcessors))
+	}
+	return nil
+}

@@ -25,7 +25,7 @@ func (l *noopLogHandler) Log(_ CallContext) error {
 
 func TestBuildRoutingContext(t *testing.T) {
 	// Given: a shared proxy and session containers.
-	proxy := &MCPProxy{name: "gateway-a", endpoint: "/mcp/gateway-a"}
+	proxy := &CentianEndpoint{name: "gateway-a", endpoint: "/mcp/gateway-a"}
 
 	t.Run("http transport", func(t *testing.T) {
 		session := &UpstreamSession{
@@ -78,7 +78,7 @@ func TestNewToolCallContext(t *testing.T) {
 	}
 
 	t.Run("fails when proxy server is nil", func(t *testing.T) {
-		proxy := &MCPProxy{name: "gw", endpoint: "/mcp/gw"}
+		proxy := &CentianEndpoint{name: "gw", endpoint: "/mcp/gw"}
 		session := &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
 
 		// When: constructing context without server.
@@ -89,10 +89,10 @@ func TestNewToolCallContext(t *testing.T) {
 	})
 
 	t.Run("fails when logger is nil", func(t *testing.T) {
-		proxy := &MCPProxy{
+		proxy := &CentianEndpoint{
 			name:     "gw",
 			endpoint: "/mcp/gw",
-			server:   &CentianProxy{ServerID: "server-id", Logger: nil},
+			server:   &CentianServer{ServerID: "server-id", Logger: nil},
 		}
 		session := &UpstreamSession{id: "sess-1", downstreamConns: map[string]DownstreamConnectionInterface{}}
 
@@ -111,10 +111,10 @@ func TestNewToolCallContext(t *testing.T) {
 			_ = logger.Close()
 		})
 
-		proxy := &MCPProxy{
+		proxy := &CentianEndpoint{
 			name:     "gw",
 			endpoint: "/mcp/gw",
-			server: &CentianProxy{
+			server: &CentianServer{
 				ServerID: "server-id",
 				Logger:   logger,
 			},
@@ -179,11 +179,11 @@ func TestNewToolCallContext(t *testing.T) {
 				Arguments: json.RawMessage(`{"k":"v"}`),
 			},
 		}
-		proxy := &MCPProxy{
+		proxy := &CentianEndpoint{
 			name:              "gw",
 			endpoint:          "/mcp/gw",
 			isAggregatedProxy: true,
-			server: &CentianProxy{
+			server: &CentianServer{
 				ServerID: "server-id",
 				Logger:   logger,
 			},
@@ -221,11 +221,11 @@ func TestNewToolCallContext(t *testing.T) {
 				Arguments: json.RawMessage(`{"k":"v"}`),
 			},
 		}
-		proxy := &MCPProxy{
+		proxy := &CentianEndpoint{
 			name:              "gw",
 			endpoint:          "/mcp/gw",
 			isAggregatedProxy: true,
-			server: &CentianProxy{
+			server: &CentianServer{
 				ServerID: "server-id",
 				Logger:   logger,
 			},
@@ -247,7 +247,7 @@ func TestNewToolCallContext(t *testing.T) {
 func TestToolCallContextSendRequest(t *testing.T) {
 	makeContext := func(conn DownstreamConnectionInterface, args json.RawMessage) *ToolCallContext {
 		return &ToolCallContext{
-			proxy:              &MCPProxy{},
+			proxy:              &CentianEndpoint{},
 			originalServerName: "orig-srv",
 			upstreamSession: &UpstreamSession{
 				downstreamConns: map[string]DownstreamConnectionInterface{
@@ -267,7 +267,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 
 	t.Run("fails when server is missing", func(t *testing.T) {
 		toolCtx := &ToolCallContext{
-			proxy:              &MCPProxy{},
+			proxy:              &CentianEndpoint{},
 			originalServerName: "orig-srv",
 			upstreamSession: &UpstreamSession{
 				downstreamConns: map[string]DownstreamConnectionInterface{},
@@ -337,7 +337,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 func TestToolCallContextAccessors(t *testing.T) {
 	event := common.NewMCPRequestEvent("stdio")
 	toolCtx := &ToolCallContext{
-		proxy: &MCPProxy{
+		proxy: &CentianEndpoint{
 			name:              "gw",
 			endpoint:          "/mcp/gw",
 			isAggregatedProxy: true,

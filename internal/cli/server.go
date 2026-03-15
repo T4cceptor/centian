@@ -134,7 +134,6 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	// Load configuration.
 	var globalConfig *config.GlobalConfig
 	var err error
-
 	if configPath == "" {
 		configPath, _ = config.GetConfigPath()
 	}
@@ -142,10 +141,14 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
+
+	// Validating config
 	err = config.ValidateConfig(globalConfig, true)
 	if err != nil {
 		return fmt.Errorf("config validation failed for %s: %w", configPath, err)
 	}
+
+	// Initializing internal logger
 	if err := common.InitInternalLogger(common.LoggerOptions{
 		Level:    globalConfig.Proxy.LogLevel,
 		Output:   globalConfig.Proxy.LogOutput,
@@ -159,7 +162,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	common.LogInfo("Loaded config from: %s", configPath)
 
 	// Create HTTP proxy server.
-	server, err := proxy.NewCentianProxy(globalConfig)
+	server, err := proxy.NewCentianServer(globalConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create centian server: %w", err)
 	}

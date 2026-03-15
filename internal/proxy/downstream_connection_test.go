@@ -259,7 +259,7 @@ func TestDownstreamConnectionConnect_EarlyReturn(t *testing.T) {
 	dc.status = StatusConnected
 
 	// When: connecting
-	err := dc.Connect(context.Background(), nil)
+	err := dc.Connect(context.Background(), &DownstreamConnectOptions{})
 
 	// Then: it returns without error
 	assert.NilError(t, err)

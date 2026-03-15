@@ -16,11 +16,12 @@ type MockDownstreamConnection struct {
 	cfg          *config.MCPServerConfig
 	ConnectCalls int
 	CloseCalls   int
-	ConnectFunc  func(context.Context, map[string]string) error
+	ConnectFunc  func(context.Context, *DownstreamConnectOptions) error
 
 	// Captured call data.
 	CapturedToolName     string
 	CapturedArgs         map[string]any
+	CapturedConnects     []DownstreamConnectOptions
 	CapturedConnectAuths []map[string]string
 
 	// Configurable downstream behavior.
@@ -36,18 +37,15 @@ func (m *MockDownstreamConnection) GetServerName() string {
 	return "mock-server"
 }
 
-func (m *MockDownstreamConnection) Connect(ctx context.Context, headers map[string]string) error {
+func (m *MockDownstreamConnection) Connect(ctx context.Context, options *DownstreamConnectOptions) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.ConnectCalls++
-	capturedHeaders := make(map[string]string, len(headers))
-	for key, value := range headers {
-		capturedHeaders[key] = value
-	}
-	m.CapturedConnectAuths = append(m.CapturedConnectAuths, capturedHeaders)
+	m.CapturedConnects = append(m.CapturedConnects, cloneConnectOptions(options))
+	m.CapturedConnectAuths = append(m.CapturedConnectAuths, cloneAuthHeaders(options.ForwardedHeaders))
 	if m.ConnectFunc != nil {
-		if err := m.ConnectFunc(ctx, headers); err != nil {
+		if err := m.ConnectFunc(ctx, options); err != nil {
 			m.Status = StatusFailed
 			return err
 		}
@@ -83,7 +81,31 @@ func (m *MockDownstreamConnection) CallTool(_ context.Context, toolName string, 
 func (m *MockDownstreamConnection) IsConnected() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.Status == StatusConnected
+	return m.Status.IsConnected()
+}
+
+func (m *MockDownstreamConnection) IsConnecting() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsConnecting()
+}
+
+func (m *MockDownstreamConnection) IsDisconnected() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsDisconnected()
+}
+
+func (m *MockDownstreamConnection) IsFailed() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsFailed()
+}
+
+func (m *MockDownstreamConnection) IsPending() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Status.IsPending()
 }
 
 func (m *MockDownstreamConnection) Tools() []*mcp.Tool {
@@ -104,4 +126,37 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cfg
+}
+
+func (m *MockDownstreamConnection) SyncClientState(_ context.Context, state *DownstreamClientState) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.CapturedConnects) == 0 {
+		m.CapturedConnects = append(m.CapturedConnects, DownstreamConnectOptions{})
+	}
+	last := m.CapturedConnects[len(m.CapturedConnects)-1]
+	if state != nil {
+		last.ClientState = *state
+	}
+	m.CapturedConnects[len(m.CapturedConnects)-1] = last
+	return nil
+}
+
+func cloneConnectOptions(options *DownstreamConnectOptions) DownstreamConnectOptions {
+	if options == nil {
+		return DownstreamConnectOptions{}
+	}
+	cloned := DownstreamConnectOptions{
+		ForwardedHeaders:   cloneAuthHeaders(options.ForwardedHeaders),
+		SamplingHandler:    options.SamplingHandler,
+		ElicitationHandler: options.ElicitationHandler,
+	}
+	cloned.ClientState = DownstreamClientState{
+		ProtocolVersion:         options.ClientState.ProtocolVersion,
+		ClientCapabilities:      cloneClientCapabilities(options.ClientState.ClientCapabilities),
+		Roots:                   normalizeRoots(options.ClientState.Roots),
+		CapabilitiesFingerprint: options.ClientState.CapabilitiesFingerprint,
+		RootsFingerprint:        options.ClientState.RootsFingerprint,
+	}
+	return cloned
 }

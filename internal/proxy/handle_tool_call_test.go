@@ -36,7 +36,7 @@ func (m *MockEventProcessor) Process(callCtx CallContext) error {
 	return nil
 }
 
-func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface) *MCPProxy {
+func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface) *CentianEndpoint {
 	t.Helper()
 
 	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
@@ -46,11 +46,11 @@ func createTestProxy(t *testing.T, eventProcessor ProcessingControllerInterface)
 		_ = logger.Close()
 	})
 
-	return &MCPProxy{
+	return &CentianEndpoint{
 		name:           "test-gateway",
 		endpoint:       "/mcp/test",
 		eventProcessor: eventProcessor,
-		server: &CentianProxy{
+		server: &CentianServer{
 			ServerID: "test-server-id",
 			Logger:   logger,
 		},
@@ -286,9 +286,12 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy := createTestProxy(t, &ProcessingController{
 		processors: []processor.ProcessorInterface{mockProcessor},
 	})
+	proxy.name = "test-server"
 	proxy.endpoint = "/mcp/gateway-a/test-server"
-	proxy.downstreams = map[string]*DownstreamConnection{
-		"test-server": NewDownstreamConnection("test-server", &config.MCPServerConfig{URL: "http://test"}),
+	proxy.config = &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{
+			"test-server": {URL: "http://test"},
+		},
 	}
 	proxy.upstreamSessions = make(map[string]*UpstreamSession)
 	proxy.downstreamPools = make(map[string]*DownstreamConnectionPool)
@@ -300,7 +303,7 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy.server.Config = &config.GlobalConfig{Version: "1.0.0"}
 
 	handler := apiKeyMiddlewareWithHeader(proxy.server.APIKeys, proxy.server.AuthHeader, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		server := proxy.GetServerForRequest(r)
+		server := proxy.GetOrCreateServerForRequest(r)
 		assert.Assert(t, server != nil)
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -319,6 +322,7 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy.mu.RUnlock()
 
 	assert.Assert(t, session != nil)
+	attachInitializedSessionForTest(t, proxy, "sess-auth", &mcp.ClientCapabilities{})
 	assert.Assert(t, session.authData != nil)
 	assert.Equal(t, session.authData.AuthHeaderName, "Authorization")
 	assert.Equal(t, session.authData.Gateway, "gateway-a")

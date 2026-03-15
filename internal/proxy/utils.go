@@ -50,6 +50,13 @@ func getAuthHeaders(headers http.Header, excludedHeader string) map[string]strin
 	return authHeaders
 }
 
+func (p *CentianEndpoint) excludedClientAuthHeader() string {
+	if p == nil || p.server == nil {
+		return ""
+	}
+	return p.server.AuthHeader
+}
+
 func redactHeaders(headers http.Header) http.Header {
 	redacted := make(http.Header, len(headers))
 	for key, values := range headers {

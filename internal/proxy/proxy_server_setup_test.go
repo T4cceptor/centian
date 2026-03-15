@@ -8,7 +8,7 @@ import (
 	"gotest.tools/assert"
 )
 
-func TestCentianProxySetup_RegistersHandlers(t *testing.T) {
+func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	// Given: a global config with auth disabled and a gateway
 	authDisabled := false
 	enabled := true
@@ -33,7 +33,7 @@ func TestCentianProxySetup_RegistersHandlers(t *testing.T) {
 	// Ensure logger writes to temp HOME
 	t.Setenv("HOME", t.TempDir())
 
-	proxy, err := NewCentianProxy(globalConfig)
+	proxy, err := NewCentianServer(globalConfig)
 	assert.NilError(t, err)
 
 	// When: setting up the proxy

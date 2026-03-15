@@ -10,12 +10,15 @@ import (
 	"gotest.tools/assert"
 )
 
+// DownstreamConnectionPool is a test-only alias kept for readability in existing test setups.
+type DownstreamConnectionPool = DownstreamSessionPool
+
 func TestCreateSession_AuthHeaders(t *testing.T) {
 	// Given: a proxy with a configured auth header
-	proxy := &MCPProxy{
+	proxy := &CentianEndpoint{
 		name:     "gateway",
 		endpoint: "/mcp/gateway",
-		server:   &CentianProxy{AuthHeader: "Authorization"},
+		server:   &CentianServer{AuthHeader: "Authorization"},
 	}
 	request, err := http.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 	assert.NilError(t, err)
@@ -27,15 +30,16 @@ func TestCreateSession_AuthHeaders(t *testing.T) {
 	session := proxy.createUpstreamSession("session-1", request, sharedLocalIdentity)
 
 	// Then: auth header is excluded and other headers are kept
-	assert.Equal(t, session.authHeaders["X-API-Key"], "keep")
-	assert.Equal(t, session.authHeaders["X-Auth-Token"], "keep-too")
-	_, exists := session.authHeaders["Authorization"]
+	authHeaders := session.GetAuthHeaders(proxy.excludedClientAuthHeader())
+	assert.Equal(t, authHeaders["X-API-Key"], "keep")
+	assert.Equal(t, authHeaders["X-Auth-Token"], "keep-too")
+	_, exists := authHeaders["Authorization"]
 	assert.Assert(t, !exists)
 }
 
 func TestCreateSession_IncludesAuthorizationWhenNotConfigured(t *testing.T) {
 	// Given: a proxy without a configured auth header
-	proxy := &MCPProxy{}
+	proxy := &CentianEndpoint{}
 	request, err := http.NewRequest(http.MethodGet, "http://example.com", http.NoBody)
 	assert.NilError(t, err)
 	request.Header.Set("Authorization", "Bearer token")
@@ -44,10 +48,10 @@ func TestCreateSession_IncludesAuthorizationWhenNotConfigured(t *testing.T) {
 	session := proxy.createUpstreamSession("session-1", request, sharedLocalIdentity)
 
 	// Then: authorization is captured
-	assert.Equal(t, session.authHeaders["Authorization"], "Bearer token")
+	assert.Equal(t, session.GetAuthHeaders(proxy.excludedClientAuthHeader())["Authorization"], "Bearer token")
 }
 
-func TestDeepCloneTool(t *testing.T) {
+func TestCopyToolForRegistration(t *testing.T) {
 	// Given: a tool with metadata
 	tool := &mcp.Tool{
 		Name:        "tool",
@@ -56,7 +60,7 @@ func TestDeepCloneTool(t *testing.T) {
 	}
 
 	// When: cloning the tool
-	clone := deepCloneTool(tool)
+	clone := copyToolForRegistration(tool)
 
 	// Then: cloned tool matches values
 	assert.Assert(t, clone != tool)
@@ -80,25 +84,31 @@ func TestNewAggregatedProxy(t *testing.T) {
 	}
 
 	// When: creating an aggregated proxy
-	proxy := NewAggregatedProxy("gateway", "/mcp/gateway", gatewayConfig)
+	proxy := NewAggregatedEndpoint("gateway", "/mcp/gateway", gatewayConfig)
 
 	// Then: only enabled servers are present
 	assert.Assert(t, proxy.isAggregatedProxy)
-	assert.Equal(t, len(proxy.downstreams), 1)
-	_, ok := proxy.downstreams["enabled"]
+	activeConfigs := proxy.GetActiveMCPServerConfigs()
+	assert.Equal(t, len(activeConfigs), 1)
+	_, ok := activeConfigs["enabled"]
 	assert.Assert(t, ok)
 }
 
 func TestNewSingleProxy(t *testing.T) {
 	// Given: a server config
-	cfg := &config.MCPServerConfig{Command: "node"}
+	gatewayConfig := &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{
+			"server": {Command: "node"},
+		},
+	}
 
 	// When: creating a single proxy
-	proxy := NewSingleProxy("server", "/mcp/gateway/server", cfg)
+	proxy := NewSingleEndpoint("server", "/mcp/gateway/server", gatewayConfig)
 
 	// Then: proxy is not aggregated and has one downstream
 	assert.Assert(t, !proxy.isAggregatedProxy)
-	assert.Equal(t, len(proxy.downstreams), 1)
-	_, ok := proxy.downstreams["server"]
+	activeConfigs := proxy.GetActiveMCPServerConfigs()
+	assert.Equal(t, len(activeConfigs), 1)
+	_, ok := activeConfigs["server"]
 	assert.Assert(t, ok)
 }

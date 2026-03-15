@@ -48,7 +48,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 		},
 	}
 
-	server, err := proxy.NewCentianProxy(globalConfig)
+	server, err := proxy.NewCentianServer(globalConfig)
 	if err != nil {
 		t.Fatal("Unable to create proxy server:", err)
 	}
