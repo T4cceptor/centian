@@ -7,6 +7,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const logLevelInfo mcp.LoggingLevel = "info"
+
 // This file forwards downstream logging notifications to the live upstream
 // sessions attached to the same pooled downstream session.
 
@@ -177,7 +179,7 @@ func loggingLevelRank(level mcp.LoggingLevel) int {
 	switch level {
 	case "debug":
 		return 0
-	case "info":
+	case logLevelInfo:
 		return 1
 	case "notice":
 		return 2
