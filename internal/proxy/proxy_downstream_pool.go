@@ -111,6 +111,10 @@ func (p *CentianEndpoint) startMissingPoolConnectionsLocked(pool *DownstreamSess
 }
 
 // waitForFirstUsableDownstream waits briefly for at least one connected downstream with tools.
+// A short poll loop is used here because downstream connections are established on goroutines
+// that do not signal completion via a channel or condition variable. The timeout is kept small
+// (500ms) so the upstream initialize response is not held up for long. A future improvement
+// would be to signal readiness from connectDownstreamPool directly.
 func (p *CentianEndpoint) waitForFirstUsableDownstream(pool *DownstreamSessionPool, timeout time.Duration) {
 	if pool == nil {
 		return
