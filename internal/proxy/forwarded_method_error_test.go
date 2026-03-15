@@ -32,7 +32,7 @@ func TestNormalizeForwardedMethodError(t *testing.T) {
 
 		got := normalizeForwardedMethodError(mcpMethodCallTool, err)
 
-		assert.Assert(t, got == inner)
+		assert.Assert(t, errors.Is(got, inner))
 	})
 
 	t.Run("unwraps matching non tool method", func(t *testing.T) {
@@ -41,7 +41,7 @@ func TestNormalizeForwardedMethodError(t *testing.T) {
 
 		got := normalizeForwardedMethodError(mcpMethodReadResource, err)
 
-		assert.Assert(t, got == inner)
+		assert.Assert(t, errors.Is(got, inner))
 	})
 
 	t.Run("leaves mismatched method untouched", func(t *testing.T) {
@@ -58,7 +58,7 @@ func TestNormalizeForwardedMethodError(t *testing.T) {
 
 		got := normalizeForwardedMethodError(mcpMethodCallTool, err)
 
-		assert.Assert(t, got == err)
+		assert.Assert(t, errors.Is(got, err))
 	})
 
 	t.Run("falls back to trimming one matching prefix when unwrapping is unavailable", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestToolCallContextSendRequestNormalizesDownstreamMethodWrapper(t *testing.
 
 	err := toolCtx.SendRequest(context.Background())
 
-	assert.Assert(t, err == inner)
+	assert.Assert(t, errors.Is(err, inner))
 }
 
 func TestForwardReadResourceNormalizesDownstreamMethodWrapper(t *testing.T) {
@@ -117,5 +117,5 @@ func TestForwardReadResourceNormalizesDownstreamMethodWrapper(t *testing.T) {
 
 	_, err := proxy.forwardReadResource(context.Background(), session, "srv", "file:///test")
 
-	assert.Assert(t, err == inner)
+	assert.Assert(t, errors.Is(err, inner))
 }

@@ -89,20 +89,20 @@ func connectLoggingClient(
 	}
 }
 
-func waitForLogCount(t *testing.T, recorder *loggingNotificationRecorder, want int) []*mcp.LoggingMessageParams {
+func waitForSingleLog(t *testing.T, recorder *loggingNotificationRecorder) []*mcp.LoggingMessageParams {
 	t.Helper()
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		snapshot := recorder.snapshot()
-		if len(snapshot) == want {
+		if len(snapshot) == 1 {
 			return snapshot
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
 	snapshot := recorder.snapshot()
-	t.Fatalf("expected %d log messages, got %d", want, len(snapshot))
+	t.Fatalf("expected 1 log message, got %d", len(snapshot))
 	return nil
 }
 
@@ -133,7 +133,7 @@ func TestForwardDownstreamLog_SingleSession(t *testing.T) {
 		Data:  "hello",
 	})
 
-	messages := waitForLogCount(t, recorder, 1)
+	messages := waitForSingleLog(t, recorder)
 	assert.Equal(t, messages[0].Data.(string), "hello")
 }
 
@@ -159,8 +159,8 @@ func TestForwardDownstreamLog_BroadcastsToSharedPool(t *testing.T) {
 		Data:  "broadcast",
 	})
 
-	assert.Equal(t, waitForLogCount(t, recorderA, 1)[0].Data.(string), "broadcast")
-	assert.Equal(t, waitForLogCount(t, recorderB, 1)[0].Data.(string), "broadcast")
+	assert.Equal(t, waitForSingleLog(t, recorderA)[0].Data.(string), "broadcast")
+	assert.Equal(t, waitForSingleLog(t, recorderB)[0].Data.(string), "broadcast")
 }
 
 func TestForwardDownstreamLog_SkipsStaleSessions(t *testing.T) {
@@ -183,7 +183,7 @@ func TestForwardDownstreamLog_SkipsStaleSessions(t *testing.T) {
 		Data:  "live-only",
 	})
 
-	messages := waitForLogCount(t, recorder, 1)
+	messages := waitForSingleLog(t, recorder)
 	assert.Equal(t, messages[0].Data.(string), "live-only")
 	assert.Assert(t, proxy.currentUpstreamServerSession(staleSession) == nil)
 }
@@ -210,7 +210,7 @@ func TestForwardDownstreamLog_ContinuesAfterRecipientError(t *testing.T) {
 		Data:  "still-delivered",
 	})
 
-	messages := waitForLogCount(t, recorder, 1)
+	messages := waitForSingleLog(t, recorder)
 	assert.Equal(t, messages[0].Data.(string), "still-delivered")
 }
 
