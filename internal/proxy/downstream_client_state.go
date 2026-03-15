@@ -77,6 +77,11 @@ func cloneClientCapabilities(capabilities *mcp.ClientCapabilities) *mcp.ClientCa
 	if err := json.Unmarshal(encoded, &cloned); err != nil {
 		return &mcp.ClientCapabilities{}
 	}
+	if capabilities.RootsV2 != nil {
+		rootsV2 := *capabilities.RootsV2
+		cloned.RootsV2 = &rootsV2
+		cloned.Roots.ListChanged = rootsV2.ListChanged
+	}
 	return &cloned
 }
 

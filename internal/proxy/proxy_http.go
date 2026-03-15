@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -86,6 +87,14 @@ func writeDelayedResponse(target http.ResponseWriter, source *delayedResponseWri
 
 func (p *CentianEndpoint) observeMCPRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			if sseSessionID := r.Header.Get("Mcp-Session-Id"); sseSessionID != "" {
+				go p.bootstrapUpstreamSessionState(context.Background(), sseSessionID)
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		observation := inspectMCPRequest(r)
 		responseWriter := w
 		var delayedWriter *delayedResponseWriter
