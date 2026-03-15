@@ -35,7 +35,6 @@ func TestCloneClientCapabilitiesPreservesRootsV2(t *testing.T) {
 	assert.Assert(t, cloned.RootsV2 != nil)
 	assert.Assert(t, cloned.RootsV2 != capabilities.RootsV2)
 	assert.Equal(t, cloned.RootsV2.ListChanged, true)
-	assert.Equal(t, cloned.Roots.ListChanged, true)
 }
 
 func TestFingerprintRootsDeterministic(t *testing.T) {

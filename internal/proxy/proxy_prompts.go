@@ -115,7 +115,7 @@ func (p *CentianEndpoint) registerAvailablePrompts(session *UpstreamSession) {
 }
 
 // forwardGetPrompt retrieves a prompt from the named downstream server.
-func (p *CentianEndpoint) forwardGetPrompt(ctx context.Context, session *UpstreamSession, serverName string, downstreamName string, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+func (p *CentianEndpoint) forwardGetPrompt(ctx context.Context, session *UpstreamSession, serverName, downstreamName string, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 	conn, err := session.GetConnectionByServerName(serverName)
 	if err != nil {
 		return nil, fmt.Errorf("prompt %q: %w", downstreamName, err)

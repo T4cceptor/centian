@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -89,7 +88,7 @@ func (p *CentianEndpoint) observeMCPRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			if sseSessionID := r.Header.Get("Mcp-Session-Id"); sseSessionID != "" {
-				go p.bootstrapUpstreamSessionState(context.Background(), sseSessionID)
+				go p.bootstrapUpstreamSessionState(r.Context(), sseSessionID)
 			}
 			next.ServeHTTP(w, r)
 			return

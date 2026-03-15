@@ -285,13 +285,6 @@ func (p *CentianEndpoint) applyClientStateLocked(
 
 	// Persist the newly mirrored client state before making any pool decision.
 	// The downstream session key is derived from this snapshot.
-	if previousKey == "" && rootsDirty && clientSupportsRoots(state.ClientCapabilities) {
-		p.storeMirroredClientState(session, state)
-		session.downstreamSessionKey = ""
-		session.rootsDirty = true
-		return downstreamPoolUpdate{}
-	}
-
 	p.syncUpstreamSessionToDownstreamState(session, state)
 	session.rootsDirty = rootsDirty
 	if session.downstreamSessionKey == "" {
@@ -371,8 +364,7 @@ func (p *CentianEndpoint) sessionNeedsInitialRootsBootstrap(sessionID string) bo
 	if session == nil {
 		return false
 	}
-	return session.downstreamSessionKey == "" &&
-		session.rootsDirty &&
+	return session.rootsDirty &&
 		clientSupportsRoots(session.clientCapabilities)
 }
 
