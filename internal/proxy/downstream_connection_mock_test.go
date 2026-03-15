@@ -13,6 +13,8 @@ type MockDownstreamConnection struct {
 	mu           sync.RWMutex
 	serverName   string
 	tools        []*mcp.Tool
+	resources    []*mcp.Resource
+	prompts      []*mcp.Prompt
 	cfg          *config.MCPServerConfig
 	ConnectCalls int
 	CloseCalls   int
@@ -126,6 +128,46 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.cfg
+}
+
+func (m *MockDownstreamConnection) Resources() []*mcp.Resource {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.resources
+}
+
+func (m *MockDownstreamConnection) Prompts() []*mcp.Prompt {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.prompts
+}
+
+func (m *MockDownstreamConnection) DiscoverResources(_ context.Context) error {
+	return nil
+}
+
+func (m *MockDownstreamConnection) DiscoverPrompts(_ context.Context) error {
+	return nil
+}
+
+func (m *MockDownstreamConnection) ReadResource(_ context.Context, _ string) (*mcp.ReadResourceResult, error) {
+	return &mcp.ReadResourceResult{}, nil
+}
+
+func (m *MockDownstreamConnection) GetPrompt(_ context.Context, _ string, _ map[string]string) (*mcp.GetPromptResult, error) {
+	return &mcp.GetPromptResult{}, nil
+}
+
+func (m *MockDownstreamConnection) Complete(_ context.Context, _ *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
+	return &mcp.CompleteResult{}, nil
+}
+
+func (m *MockDownstreamConnection) Subscribe(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *MockDownstreamConnection) Unsubscribe(_ context.Context, _ string) error {
+	return nil
 }
 
 func (m *MockDownstreamConnection) SyncClientState(_ context.Context, state *DownstreamClientState) error {

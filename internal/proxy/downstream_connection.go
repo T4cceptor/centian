@@ -59,6 +59,8 @@ type DownstreamConnection struct {
 	client     *mcp.Client
 	session    *mcp.ClientSession
 	tools      []*mcp.Tool
+	resources  []*mcp.Resource
+	prompts    []*mcp.Prompt
 	mu         sync.RWMutex
 
 	clientState DownstreamClientState
@@ -287,6 +289,120 @@ func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
 	}
 	dc.tools = result.Tools
 	return nil
+}
+
+// discoverResources and discoverPrompts are the internal (lock-unsafe) variants of
+// DiscoverResources and DiscoverPrompts. They must only be called by code that already
+// holds dc.mu for writing (e.g. during Connect or SyncClientState).
+// The exported DiscoverResources/DiscoverPrompts are the pool-facing public API that
+// acquire the lock themselves and are safe to call concurrently from outside this struct.
+func (dc *DownstreamConnection) discoverResources(ctx context.Context) error {
+	result, err := dc.session.ListResources(ctx, nil)
+	if err != nil {
+		return err
+	}
+	dc.resources = result.Resources
+	return nil
+}
+
+func (dc *DownstreamConnection) discoverPrompts(ctx context.Context) error {
+	result, err := dc.session.ListPrompts(ctx, nil)
+	if err != nil {
+		return err
+	}
+	dc.prompts = result.Prompts
+	return nil
+}
+
+// DiscoverResources fetches and caches the resource list from the downstream server.
+// Safe to call after Connect returns; acquires the write lock for the duration of the RPC.
+func (dc *DownstreamConnection) DiscoverResources(ctx context.Context) error {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	if dc.session == nil {
+		return nil
+	}
+	return dc.discoverResources(ctx)
+}
+
+// DiscoverPrompts fetches and caches the prompt list from the downstream server.
+// Safe to call after Connect returns; acquires the write lock for the duration of the RPC.
+func (dc *DownstreamConnection) DiscoverPrompts(ctx context.Context) error {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	if dc.session == nil {
+		return nil
+	}
+	return dc.discoverPrompts(ctx)
+}
+
+// Resources returns the cached resources discovered on connect (nil if not connected or unsupported).
+func (dc *DownstreamConnection) Resources() []*mcp.Resource {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.resources
+}
+
+// Prompts returns the cached prompts discovered on connect (nil if not connected or unsupported).
+func (dc *DownstreamConnection) Prompts() []*mcp.Prompt {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.prompts
+}
+
+// ReadResource reads a resource by URI from the downstream server.
+func (dc *DownstreamConnection) ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if !dc.status.IsConnected() || dc.session == nil {
+		return nil, fmt.Errorf("not connected to %s", dc.serverName)
+	}
+	return dc.session.ReadResource(ctx, &mcp.ReadResourceParams{URI: uri})
+}
+
+// GetPrompt retrieves a prompt by name from the downstream server.
+func (dc *DownstreamConnection) GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if !dc.status.IsConnected() || dc.session == nil {
+		return nil, fmt.Errorf("not connected to %s", dc.serverName)
+	}
+	return dc.session.GetPrompt(ctx, &mcp.GetPromptParams{Name: name, Arguments: args})
+}
+
+// Complete forwards a completion request to the downstream server.
+func (dc *DownstreamConnection) Complete(ctx context.Context, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if !dc.status.IsConnected() || dc.session == nil {
+		return nil, fmt.Errorf("not connected to %s", dc.serverName)
+	}
+	return dc.session.Complete(ctx, req.Params)
+}
+
+// Subscribe requests resource update notifications for the given URI from the downstream server.
+func (dc *DownstreamConnection) Subscribe(ctx context.Context, uri string) error {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if !dc.status.IsConnected() || dc.session == nil {
+		return fmt.Errorf("not connected to %s", dc.serverName)
+	}
+	return dc.session.Subscribe(ctx, &mcp.SubscribeParams{URI: uri})
+}
+
+// Unsubscribe cancels resource update notifications for the given URI from the downstream server.
+func (dc *DownstreamConnection) Unsubscribe(ctx context.Context, uri string) error {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if !dc.status.IsConnected() || dc.session == nil {
+		return fmt.Errorf("not connected to %s", dc.serverName)
+	}
+	return dc.session.Unsubscribe(ctx, &mcp.UnsubscribeParams{URI: uri})
 }
 
 // CallTool forwards a tool call to the downstream server.

@@ -13,6 +13,11 @@ import (
 // This file manages upstream session lifecycle, captured client state, and
 // downstream pool reconciliation.
 
+const (
+	initialRootsBootstrapTimeout  = 2 * time.Second
+	initialRootsBootstrapInterval = 25 * time.Millisecond
+)
+
 // downstreamPoolUpdate describes the side effects needed after pool reconciliation.
 type downstreamPoolUpdate struct {
 	pool         *DownstreamSessionPool
@@ -55,7 +60,7 @@ func (p *CentianEndpoint) GetOrCreateServerForRequest(r *http.Request) *mcp.Serv
 	session, exists := p.upstreamSessions[sessionID]
 	if !exists {
 		session = p.createUpstreamSession(sessionID, r, identityKey)
-		session.upstreamServer = p.newUpstreamServer(sessionID)
+		session.upstreamServer = p.newUpstreamServer(session)
 		p.upstreamSessions[sessionID] = session
 		return session.upstreamServer
 	}
@@ -80,13 +85,15 @@ func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, iden
 		clientHeaders = r.Header.Clone()
 	}
 	return &UpstreamSession{
-		id:              id,
-		downstreamConns: make(map[string]DownstreamConnectionInterface),
-		registeredTools: make(map[string]struct{}),
-		clientHeaders:   clientHeaders,
-		identityKey:     identityKey,
-		authData:        authData.Clone(),
-		rootsDirty:      true,
+		id:                  id,
+		downstreamConns:     make(map[string]DownstreamConnectionInterface),
+		registeredTools:     make(map[string]struct{}),
+		registeredResources: make(map[string]struct{}),
+		registeredPrompts:   make(map[string]struct{}),
+		clientHeaders:       clientHeaders,
+		identityKey:         identityKey,
+		authData:            authData.Clone(),
+		rootsDirty:          true,
 	}
 }
 
@@ -140,6 +147,23 @@ func (p *CentianEndpoint) syncUpstreamSessionState(ctx context.Context, sessionI
 		return
 	}
 	p.finalizeDownstreamPoolUpdate(ctx, session, update)
+}
+
+// bootstrapUpstreamSessionState retries the initial roots-dependent sync until
+// the first downstream pool can be established or the timeout is hit.
+func (p *CentianEndpoint) bootstrapUpstreamSessionState(ctx context.Context, sessionID string) {
+	deadline := time.Now().Add(initialRootsBootstrapTimeout)
+	for {
+		p.syncUpstreamSessionState(ctx, sessionID)
+		if !p.sessionNeedsInitialRootsBootstrap(sessionID) || time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(initialRootsBootstrapInterval):
+		}
+	}
 }
 
 // capturedUpstreamClientState is the upstream-facing client state observed from the SDK session.
@@ -227,16 +251,20 @@ func (p *CentianEndpoint) fetchUpstreamRoots(ctx context.Context, session *Upstr
 
 // syncUpstreamSessionToDownstreamState copies mirrored downstream-facing client state onto the upstream session.
 func (p *CentianEndpoint) syncUpstreamSessionToDownstreamState(session *UpstreamSession, state *DownstreamClientState) {
-	session.protocolVersion = state.ProtocolVersion
-	session.clientCapabilities = state.ClientCapabilities
-	session.capabilitiesFingerprint = state.CapabilitiesFingerprint
-	session.roots = normalizeRoots(state.Roots)
-	session.rootsFingerprint = state.RootsFingerprint
+	p.storeMirroredClientState(session, state)
 	session.downstreamSessionKey = p.buildDownstreamSessionKey(
 		session.identityKey,
 		session.GetAuthHeaders(p.excludedClientAuthHeader()),
 		state,
 	)
+}
+
+func (p *CentianEndpoint) storeMirroredClientState(session *UpstreamSession, state *DownstreamClientState) {
+	session.protocolVersion = state.ProtocolVersion
+	session.clientCapabilities = state.ClientCapabilities
+	session.capabilitiesFingerprint = state.CapabilitiesFingerprint
+	session.roots = normalizeRoots(state.Roots)
+	session.rootsFingerprint = state.RootsFingerprint
 }
 
 // applyClientStateLocked stores mirrored client state on the session and plans any required pool transition.
@@ -328,6 +356,18 @@ func (p *CentianEndpoint) applyClientStateLocked(
 	}
 }
 
+func (p *CentianEndpoint) sessionNeedsInitialRootsBootstrap(sessionID string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	session := p.upstreamSessions[sessionID]
+	if session == nil {
+		return false
+	}
+	return session.rootsDirty &&
+		clientSupportsRoots(session.clientCapabilities)
+}
+
 // finalizeDownstreamPoolUpdate executes the pool actions planned during reconciliation outside the mutex.
 func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, session *UpstreamSession, update downstreamPoolUpdate) {
 	if update.closePool != nil {
@@ -343,6 +383,8 @@ func (p *CentianEndpoint) finalizeDownstreamPoolUpdate(ctx context.Context, sess
 		p.waitForFirstUsableDownstream(update.pool, initialDownstreamReadyWait)
 	}
 	p.registerAvailableTools(session)
+	p.registerAvailableResources(session)
+	p.registerAvailablePrompts(session)
 }
 
 // syncPoolClientState pushes mirrored client state changes into every downstream connection in the pool.
