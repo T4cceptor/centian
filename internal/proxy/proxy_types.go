@@ -206,6 +206,3 @@ func copyToolForRegistration(tool *mcp.Tool) *mcp.Tool {
 		Icons:        tool.Icons,
 	}
 }
-
-// DownstreamConnectionPool is kept as a compatibility alias for existing tests/helpers.
-type DownstreamConnectionPool = DownstreamSessionPool
