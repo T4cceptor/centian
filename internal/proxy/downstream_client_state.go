@@ -22,6 +22,12 @@ type DownstreamElicitationHandler func(context.Context, *mcp.ElicitRequest) (*mc
 // DownstreamLoggingHandler forwards logging notifications from a downstream session.
 type DownstreamLoggingHandler func(context.Context, *mcp.LoggingMessageRequest)
 
+// DownstreamResourceListChangedHandler forwards resource list change notifications from a downstream session.
+type DownstreamResourceListChangedHandler func(context.Context, *mcp.ResourceListChangedRequest)
+
+// DownstreamResourceUpdatedHandler forwards resource update notifications from a downstream session.
+type DownstreamResourceUpdatedHandler func(context.Context, *mcp.ResourceUpdatedNotificationRequest)
+
 // DownstreamClientState describes the effective upstream client state mirrored downstream.
 type DownstreamClientState struct {
 	ProtocolVersion         string
@@ -33,11 +39,13 @@ type DownstreamClientState struct {
 
 // DownstreamConnectOptions configures downstream client setup.
 type DownstreamConnectOptions struct {
-	ForwardedHeaders   map[string]string
-	ClientState        DownstreamClientState
-	SamplingHandler    DownstreamSamplingHandler
-	ElicitationHandler DownstreamElicitationHandler
-	LoggingHandler     DownstreamLoggingHandler
+	ForwardedHeaders           map[string]string
+	ClientState                DownstreamClientState
+	SamplingHandler            DownstreamSamplingHandler
+	ElicitationHandler         DownstreamElicitationHandler
+	LoggingHandler             DownstreamLoggingHandler
+	ResourceListChangedHandler DownstreamResourceListChangedHandler
+	ResourceUpdatedHandler     DownstreamResourceUpdatedHandler
 }
 
 type clientCapabilitiesWire struct {
@@ -62,9 +70,11 @@ func cloneDownstreamConnectOptions(options *DownstreamConnectOptions) *Downstrea
 			CapabilitiesFingerprint: options.ClientState.CapabilitiesFingerprint,
 			RootsFingerprint:        options.ClientState.RootsFingerprint,
 		},
-		SamplingHandler:    options.SamplingHandler,
-		ElicitationHandler: options.ElicitationHandler,
-		LoggingHandler:     options.LoggingHandler,
+		SamplingHandler:            options.SamplingHandler,
+		ElicitationHandler:         options.ElicitationHandler,
+		LoggingHandler:             options.LoggingHandler,
+		ResourceListChangedHandler: options.ResourceListChangedHandler,
+		ResourceUpdatedHandler:     options.ResourceUpdatedHandler,
 	}
 }
 

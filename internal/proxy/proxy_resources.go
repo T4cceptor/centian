@@ -81,7 +81,7 @@ func (p *CentianEndpoint) registerResource(session *UpstreamSession, serverName 
 	session.registeredResources[resource.URI] = struct{}{}
 
 	uri := resource.URI
-	session.upstreamServer.AddResource(resource, func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	session.upstreamServer.AddResource(copyResourceForRegistration(resource), func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
 		return p.forwardReadResource(ctx, session, serverName, uri)
 	})
 }
@@ -102,6 +102,89 @@ func (p *CentianEndpoint) registerAvailableResources(session *UpstreamSession) {
 
 	p.toolRegMu.Lock()
 	p.syncAvailableResources(session)
+	p.toolRegMu.Unlock()
+}
+
+// syncAvailableResourceTemplates reconciles the upstream server's registered resource templates
+// against the set currently available from connected downstream servers.
+func (p *CentianEndpoint) syncAvailableResourceTemplates(session *UpstreamSession) {
+	if session == nil || session.upstreamServer == nil {
+		return
+	}
+	if session.registeredResourceTemplates == nil {
+		session.registeredResourceTemplates = make(map[string]struct{})
+	}
+
+	type resourceTemplateEntry struct {
+		resourceTemplate *mcp.ResourceTemplate
+		serverName       string
+	}
+	desiredTemplates := make(map[string]resourceTemplateEntry) // keyed by URI template
+	for serverName, conn := range session.downstreamConns {
+		if !conn.IsConnected() {
+			continue
+		}
+		for _, resourceTemplate := range conn.ResourceTemplates() {
+			if resourceTemplate == nil {
+				continue
+			}
+			desiredTemplates[resourceTemplate.URITemplate] = resourceTemplateEntry{
+				resourceTemplate: resourceTemplate,
+				serverName:       serverName,
+			}
+		}
+	}
+
+	staleTemplates := make([]string, 0)
+	for uriTemplate := range session.registeredResourceTemplates {
+		if _, ok := desiredTemplates[uriTemplate]; !ok {
+			staleTemplates = append(staleTemplates, uriTemplate)
+		}
+	}
+	if len(staleTemplates) > 0 {
+		session.upstreamServer.RemoveResourceTemplates(staleTemplates...)
+		for _, uriTemplate := range staleTemplates {
+			delete(session.registeredResourceTemplates, uriTemplate)
+		}
+	}
+
+	for uriTemplate, entry := range desiredTemplates {
+		if _, ok := session.registeredResourceTemplates[uriTemplate]; ok {
+			continue
+		}
+		p.registerResourceTemplate(session, entry.serverName, entry.resourceTemplate)
+	}
+}
+
+func (p *CentianEndpoint) registerResourceTemplate(session *UpstreamSession, serverName string, resourceTemplate *mcp.ResourceTemplate) {
+	if session.registeredResourceTemplates == nil {
+		session.registeredResourceTemplates = make(map[string]struct{})
+	}
+	if _, exists := session.registeredResourceTemplates[resourceTemplate.URITemplate]; exists {
+		return
+	}
+	session.registeredResourceTemplates[resourceTemplate.URITemplate] = struct{}{}
+
+	session.upstreamServer.AddResourceTemplate(copyResourceTemplateForRegistration(resourceTemplate), func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		return p.forwardReadResource(ctx, session, serverName, req.Params.URI)
+	})
+}
+
+func (p *CentianEndpoint) registerAvailableResourceTemplates(session *UpstreamSession) {
+	if session == nil {
+		return
+	}
+
+	p.mu.RLock()
+	pool := p.downstreamPools[session.downstreamSessionKey]
+	p.mu.RUnlock()
+
+	if pool == nil {
+		return
+	}
+
+	p.toolRegMu.Lock()
+	p.syncAvailableResourceTemplates(session)
 	p.toolRegMu.Unlock()
 }
 

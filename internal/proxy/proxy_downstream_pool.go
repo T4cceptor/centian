@@ -154,6 +154,8 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	serverName := conn.GetServerName()
 	connectOptions = cloneDownstreamConnectOptions(connectOptions)
 	connectOptions.LoggingHandler = p.newPoolLoggingHandler(downstreamSessionKey, serverName, conn)
+	connectOptions.ResourceListChangedHandler = p.newPoolResourceListChangedHandler(downstreamSessionKey, serverName, conn)
+	connectOptions.ResourceUpdatedHandler = p.newPoolResourceUpdatedHandler(downstreamSessionKey, serverName, conn)
 	if err := conn.Connect(context.Background(), connectOptions); err != nil {
 		p.mu.Lock()
 		if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
@@ -184,6 +186,9 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	if err := conn.DiscoverResources(context.Background()); err != nil {
 		common.LogWarn("ProxyEndpoint[%s]: resource discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
 	}
+	if err := conn.DiscoverResourceTemplates(context.Background()); err != nil {
+		common.LogWarn("ProxyEndpoint[%s]: resource template discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
+	}
 	if err := conn.DiscoverPrompts(context.Background()); err != nil {
 		common.LogWarn("ProxyEndpoint[%s]: prompt discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
 	}
@@ -192,10 +197,11 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	for _, session := range sessions {
 		p.syncAvailableTools(session)
 		p.syncAvailableResources(session)
+		p.syncAvailableResourceTemplates(session)
 		p.syncAvailablePrompts(session)
 	}
 	p.toolRegMu.Unlock()
 
-	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d prompts",
-		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.Prompts()))
+	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d resource templates, %d prompts",
+		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.ResourceTemplates()), len(conn.Prompts()))
 }

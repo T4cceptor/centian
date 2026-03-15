@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
@@ -121,4 +124,230 @@ func TestSyncAvailableResources_DuplicateURILastServerWins(t *testing.T) {
 		"duplicate URI should be collapsed to a single registration")
 	_, registered := session.registeredResources[sharedURI]
 	assert.Assert(t, registered, "the shared URI must appear in registeredResources")
+}
+
+func TestForwardReadResource_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
+	proxy := &CentianEndpoint{name: "test"}
+	conn := &MockDownstreamConnection{
+		serverName: "server-a",
+		Status:     StatusConnected,
+		resources: []*mcp.Resource{
+			{URI: "file:///other"},
+		},
+	}
+	session := &UpstreamSession{
+		id: "session-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	result, err := proxy.forwardReadResource(context.Background(), session, "server-b", "file:///missing")
+
+	assert.Assert(t, result == nil)
+	assert.ErrorContains(t, err, `resource "file:///missing": no connection to server "server-b" found`)
+}
+
+func TestForwardReadResource_NormalizesDownstreamMethodError(t *testing.T) {
+	conn := &MockDownstreamConnection{
+		serverName:                "server-a",
+		Status:                    StatusConnected,
+		ReadResourceErrorToReturn: errors.New(`calling "resources/read": method not found`),
+	}
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		id: "session-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	result, err := proxy.forwardReadResource(context.Background(), session, "server-a", "file:///resource")
+
+	assert.Assert(t, result == nil)
+	assert.Equal(t, err.Error(), "method not found")
+}
+
+func TestForwardSubscribe_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		id:              "session-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{},
+	}
+
+	err := proxy.forwardSubscribe(context.Background(), session, &mcp.SubscribeRequest{
+		Params: &mcp.SubscribeParams{URI: "file:///missing"},
+	})
+
+	assert.ErrorContains(t, err, `no downstream connection found for resource URI "file:///missing"`)
+}
+
+func TestForwardUnsubscribe_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		id:              "session-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{},
+	}
+
+	err := proxy.forwardUnsubscribe(context.Background(), session, &mcp.UnsubscribeRequest{
+		Params: &mcp.UnsubscribeParams{URI: "file:///missing"},
+	})
+
+	assert.ErrorContains(t, err, `no downstream connection found for resource URI "file:///missing"`)
+}
+
+func TestForwardSubscribe_NormalizesDownstreamMethodError(t *testing.T) {
+	conn := &MockDownstreamConnection{
+		serverName:             "server-a",
+		Status:                 StatusConnected,
+		resources:              []*mcp.Resource{{URI: "file:///resource"}},
+		SubscribeErrorToReturn: errors.New(`calling "resources/subscribe": method not found`),
+	}
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		id: "session-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	err := proxy.forwardSubscribe(context.Background(), session, &mcp.SubscribeRequest{
+		Params: &mcp.SubscribeParams{URI: "file:///resource"},
+	})
+
+	assert.Equal(t, err.Error(), "method not found")
+}
+
+func TestForwardUnsubscribe_NormalizesDownstreamMethodError(t *testing.T) {
+	conn := &MockDownstreamConnection{
+		serverName:               "server-a",
+		Status:                   StatusConnected,
+		resources:                []*mcp.Resource{{URI: "file:///resource"}},
+		UnsubscribeErrorToReturn: errors.New(`calling "resources/unsubscribe": method not found`),
+	}
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		id: "session-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	err := proxy.forwardUnsubscribe(context.Background(), session, &mcp.UnsubscribeRequest{
+		Params: &mcp.UnsubscribeParams{URI: "file:///resource"},
+	})
+
+	assert.Equal(t, err.Error(), "method not found")
+}
+
+func TestSyncAvailableResourceTemplates_RegistersTemplates(t *testing.T) {
+	const templateURI = "file:///items/{id}"
+
+	conn := &MockDownstreamConnection{
+		serverName:        "server-a",
+		Status:            StatusConnected,
+		resourceTemplates: []*mcp.ResourceTemplate{{URITemplate: templateURI, Name: "item-template"}},
+	}
+	proxy := &CentianEndpoint{name: "test"}
+	upstreamServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, &mcp.ServerOptions{
+		HasResources: true,
+	})
+	session := &UpstreamSession{
+		id:                          "session-1",
+		upstreamServer:              upstreamServer,
+		registeredResources:         make(map[string]struct{}),
+		registeredResourceTemplates: make(map[string]struct{}),
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	proxy.syncAvailableResourceTemplates(session)
+
+	_, registered := session.registeredResourceTemplates[templateURI]
+	assert.Assert(t, registered)
+}
+
+func TestRefreshDownstreamResources_SyncsTemplatesAndResources(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+	session.downstreamSessionKey = "pool-1"
+	conn := &MockDownstreamConnection{
+		serverName:        "server-a",
+		Status:            StatusConnected,
+		resources:         []*mcp.Resource{{URI: "file:///resource"}},
+		resourceTemplates: []*mcp.ResourceTemplate{{URITemplate: "file:///resource/{id}", Name: "template"}},
+	}
+	session.downstreamConns = map[string]DownstreamConnectionInterface{"server-a": conn}
+	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+		upstreamSessions: map[string]*UpstreamSession{"session-1": session},
+	}
+
+	proxy.refreshDownstreamResources(context.Background(), "pool-1", "server-a", conn, &mcp.ResourceListChangedRequest{
+		Params: &mcp.ResourceListChangedParams{},
+	})
+
+	_, resourceRegistered := session.registeredResources["file:///resource"]
+	_, templateRegistered := session.registeredResourceTemplates["file:///resource/{id}"]
+	assert.Assert(t, resourceRegistered)
+	assert.Assert(t, templateRegistered)
+}
+
+func TestForwardDownstreamResourceUpdated_BroadcastsToSubscribedSessions(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	sessionA := newLoggingTestSession(proxy, "session-a")
+	sessionB := newLoggingTestSession(proxy, "session-b")
+	recorderA, clientSessionA, cleanupA := connectResourceClient(t, sessionA)
+	defer cleanupA()
+	recorderB, clientSessionB, cleanupB := connectResourceClient(t, sessionB)
+	defer cleanupB()
+
+	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		upstreamSessions: map[string]*UpstreamSession{
+			"session-a": sessionA,
+			"session-b": sessionB,
+		},
+	}
+
+	subscribeResource(t, clientSessionA, "file:///resource")
+	subscribeResource(t, clientSessionB, "file:///resource")
+
+	proxy.forwardDownstreamResourceUpdated(context.Background(), "pool-1", "server-a", nil, &mcp.ResourceUpdatedNotificationParams{
+		URI: "file:///resource",
+	})
+
+	waitForSingleResourceUpdate(t, recorderA)
+	waitForSingleResourceUpdate(t, recorderB)
+}
+
+func TestForwardDownstreamResourceUpdated_StopsAfterUnsubscribe(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+	recorder, clientSession, cleanup := connectResourceClient(t, session)
+	defer cleanup()
+
+	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
+	}
+
+	subscribeResource(t, clientSession, "file:///resource")
+	proxy.forwardDownstreamResourceUpdated(context.Background(), "pool-1", "server-a", nil, &mcp.ResourceUpdatedNotificationParams{
+		URI: "file:///resource",
+	})
+	waitForSingleResourceUpdate(t, recorder)
+
+	assert.NilError(t, clientSession.Unsubscribe(context.Background(), &mcp.UnsubscribeParams{URI: "file:///resource"}))
+	time.Sleep(50 * time.Millisecond)
+	proxy.forwardDownstreamResourceUpdated(context.Background(), "pool-1", "server-a", nil, &mcp.ResourceUpdatedNotificationParams{
+		URI: "file:///resource",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, len(recorder.snapshot()), 1)
 }

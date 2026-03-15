@@ -54,14 +54,15 @@ func (s ConnectionStatus) IsDisconnected() bool {
 
 // DownstreamConnection represents a connection to a downstream MCP server.
 type DownstreamConnection struct {
-	serverName string
-	config     *config.MCPServerConfig
-	client     *mcp.Client
-	session    *mcp.ClientSession
-	tools      []*mcp.Tool
-	resources  []*mcp.Resource
-	prompts    []*mcp.Prompt
-	mu         sync.RWMutex
+	serverName        string
+	config            *config.MCPServerConfig
+	client            *mcp.Client
+	session           *mcp.ClientSession
+	tools             []*mcp.Tool
+	resources         []*mcp.Resource
+	resourceTemplates []*mcp.ResourceTemplate
+	prompts           []*mcp.Prompt
+	mu                sync.RWMutex
 
 	clientState DownstreamClientState
 
@@ -139,6 +140,12 @@ func (dc *DownstreamConnection) buildClientOptions(options *DownstreamConnectOpt
 	}
 	if options.LoggingHandler != nil {
 		clientOptions.LoggingMessageHandler = options.LoggingHandler
+	}
+	if options.ResourceListChangedHandler != nil {
+		clientOptions.ResourceListChangedHandler = options.ResourceListChangedHandler
+	}
+	if options.ResourceUpdatedHandler != nil {
+		clientOptions.ResourceUpdatedHandler = options.ResourceUpdatedHandler
 	}
 	return clientOptions
 }
@@ -308,6 +315,15 @@ func (dc *DownstreamConnection) discoverResources(ctx context.Context) error {
 	return nil
 }
 
+func (dc *DownstreamConnection) discoverResourceTemplates(ctx context.Context) error {
+	result, err := dc.session.ListResourceTemplates(ctx, nil)
+	if err != nil {
+		return err
+	}
+	dc.resourceTemplates = result.ResourceTemplates
+	return nil
+}
+
 func (dc *DownstreamConnection) discoverPrompts(ctx context.Context) error {
 	result, err := dc.session.ListPrompts(ctx, nil)
 	if err != nil {
@@ -328,6 +344,17 @@ func (dc *DownstreamConnection) DiscoverResources(ctx context.Context) error {
 	return dc.discoverResources(ctx)
 }
 
+// DiscoverResourceTemplates fetches and caches the resource template list from the downstream server.
+// Safe to call after Connect returns; acquires the write lock for the duration of the RPC.
+func (dc *DownstreamConnection) DiscoverResourceTemplates(ctx context.Context) error {
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	if dc.session == nil {
+		return nil
+	}
+	return dc.discoverResourceTemplates(ctx)
+}
+
 // DiscoverPrompts fetches and caches the prompt list from the downstream server.
 // Safe to call after Connect returns; acquires the write lock for the duration of the RPC.
 func (dc *DownstreamConnection) DiscoverPrompts(ctx context.Context) error {
@@ -344,6 +371,13 @@ func (dc *DownstreamConnection) Resources() []*mcp.Resource {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 	return dc.resources
+}
+
+// ResourceTemplates returns the cached resource templates discovered on connect (nil if not connected or unsupported).
+func (dc *DownstreamConnection) ResourceTemplates() []*mcp.ResourceTemplate {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+	return dc.resourceTemplates
 }
 
 // Prompts returns the cached prompts discovered on connect (nil if not connected or unsupported).

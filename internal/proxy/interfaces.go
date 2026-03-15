@@ -28,8 +28,10 @@ type DownstreamConnectionInterface interface {
 	IsPending() bool
 	Tools() []*mcp.Tool
 	Resources() []*mcp.Resource
+	ResourceTemplates() []*mcp.ResourceTemplate
 	Prompts() []*mcp.Prompt
 	DiscoverResources(ctx context.Context) error
+	DiscoverResourceTemplates(ctx context.Context) error
 	DiscoverPrompts(ctx context.Context) error
 	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
 	GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error)

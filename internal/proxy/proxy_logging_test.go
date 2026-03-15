@@ -43,11 +43,12 @@ func newLoggingTestProxy() *CentianEndpoint {
 
 func newLoggingTestSession(proxy *CentianEndpoint, sessionID string) *UpstreamSession {
 	session := &UpstreamSession{
-		id:                  sessionID,
-		downstreamConns:     make(map[string]DownstreamConnectionInterface),
-		registeredTools:     make(map[string]struct{}),
-		registeredResources: make(map[string]struct{}),
-		registeredPrompts:   make(map[string]struct{}),
+		id:                          sessionID,
+		downstreamConns:             make(map[string]DownstreamConnectionInterface),
+		registeredTools:             make(map[string]struct{}),
+		registeredResources:         make(map[string]struct{}),
+		registeredResourceTemplates: make(map[string]struct{}),
+		registeredPrompts:           make(map[string]struct{}),
 	}
 	session.upstreamServer = proxy.newUpstreamServer(session)
 	proxy.upstreamSessions[sessionID] = session

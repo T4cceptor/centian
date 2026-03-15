@@ -206,6 +206,32 @@ func TestBuildClientOptions_IncludesLoggingHandler(t *testing.T) {
 	assert.Assert(t, called)
 }
 
+func TestBuildClientOptions_IncludesResourceHandlers(t *testing.T) {
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	listChangedCalled := false
+	resourceUpdatedCalled := false
+
+	options := dc.buildClientOptions(&DownstreamConnectOptions{
+		ResourceListChangedHandler: func(_ context.Context, req *mcp.ResourceListChangedRequest) {
+			listChangedCalled = req != nil
+		},
+		ResourceUpdatedHandler: func(_ context.Context, req *mcp.ResourceUpdatedNotificationRequest) {
+			resourceUpdatedCalled = req != nil && req.Params != nil && req.Params.URI == "file:///resource"
+		},
+	})
+
+	assert.Assert(t, options.ResourceListChangedHandler != nil)
+	assert.Assert(t, options.ResourceUpdatedHandler != nil)
+	options.ResourceListChangedHandler(context.Background(), &mcp.ResourceListChangedRequest{
+		Params: &mcp.ResourceListChangedParams{},
+	})
+	options.ResourceUpdatedHandler(context.Background(), &mcp.ResourceUpdatedNotificationRequest{
+		Params: &mcp.ResourceUpdatedNotificationParams{URI: "file:///resource"},
+	})
+	assert.Assert(t, listChangedCalled)
+	assert.Assert(t, resourceUpdatedCalled)
+}
+
 func TestDownstreamConnection_ForwardsLoggingNotifications(t *testing.T) {
 	ctx := context.Background()
 	server := mcp.NewServer(&mcp.Implementation{Name: "server", Version: "1.0.0"}, nil)
@@ -255,6 +281,27 @@ func TestDownstreamConnectionCallTool_NotConnected(t *testing.T) {
 
 	assert.Assert(t, result == nil)
 	assert.ErrorContains(t, err, "not connected to server")
+}
+
+func TestDownstreamConnectionDiscoverResourceTemplates(t *testing.T) {
+	clientSession, cleanup := connectTestClientSession(t, func(server *mcp.Server) {
+		server.AddResourceTemplate(&mcp.ResourceTemplate{
+			URITemplate: "file:///items/{id}",
+			Name:        "item-template",
+		}, func(context.Context, *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+			return &mcp.ReadResourceResult{}, nil
+		})
+	})
+	defer cleanup()
+
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	dc.session = clientSession
+
+	err := dc.DiscoverResourceTemplates(context.Background())
+
+	assert.NilError(t, err)
+	assert.Equal(t, len(dc.ResourceTemplates()), 1)
+	assert.Equal(t, dc.ResourceTemplates()[0].URITemplate, "file:///items/{id}")
 }
 
 func TestDownstreamConnectionCallTool(t *testing.T) {
