@@ -189,6 +189,65 @@ func TestDownstreamConnectionDiscoverTools(t *testing.T) {
 	assert.Equal(t, dc.tools[0].Name, "ping")
 }
 
+func TestBuildClientOptions_IncludesLoggingHandler(t *testing.T) {
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	called := false
+
+	options := dc.buildClientOptions(&DownstreamConnectOptions{
+		LoggingHandler: func(_ context.Context, req *mcp.LoggingMessageRequest) {
+			called = req != nil && req.Params != nil && req.Params.Level == "info"
+		},
+	})
+
+	assert.Assert(t, options.LoggingMessageHandler != nil)
+	options.LoggingMessageHandler(context.Background(), &mcp.LoggingMessageRequest{
+		Params: &mcp.LoggingMessageParams{Level: "info"},
+	})
+	assert.Assert(t, called)
+}
+
+func TestDownstreamConnection_ForwardsLoggingNotifications(t *testing.T) {
+	ctx := context.Background()
+	server := mcp.NewServer(&mcp.Implementation{Name: "server", Version: "1.0.0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "log", Description: "log"}, func(ctx context.Context, req *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
+		if err := req.Session.Log(ctx, &mcp.LoggingMessageParams{Level: "info", Data: "hello"}); err != nil {
+			return nil, nil, err
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil, nil
+	})
+
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	assert.NilError(t, err)
+	defer func() { _ = serverSession.Close() }()
+
+	received := make(chan *mcp.LoggingMessageParams, 1)
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	dc.client = mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1.0.0"}, dc.buildClientOptions(&DownstreamConnectOptions{
+		LoggingHandler: func(_ context.Context, req *mcp.LoggingMessageRequest) {
+			received <- req.Params
+		},
+	}))
+	clientSession, err := dc.client.Connect(ctx, clientTransport, nil)
+	assert.NilError(t, err)
+	defer func() { _ = clientSession.Close() }()
+	dc.session = clientSession
+	dc.status = StatusConnected
+
+	assert.NilError(t, dc.SetLoggingLevel(ctx, &mcp.SetLoggingLevelParams{Level: "info"}))
+	_, err = dc.CallTool(ctx, "log", map[string]any{})
+	assert.NilError(t, err)
+
+	select {
+	case params := <-received:
+		assert.Equal(t, params.Data.(string), "hello")
+	case <-time.After(time.Second):
+		t.Fatal("expected downstream log notification")
+	}
+}
+
 func TestDownstreamConnectionCallTool_NotConnected(t *testing.T) {
 	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
 

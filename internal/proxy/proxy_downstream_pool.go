@@ -152,6 +152,8 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	connectOptions *DownstreamConnectOptions,
 ) {
 	serverName := conn.GetServerName()
+	connectOptions = cloneDownstreamConnectOptions(connectOptions)
+	connectOptions.LoggingHandler = p.newPoolLoggingHandler(downstreamSessionKey, serverName, conn)
 	if err := conn.Connect(context.Background(), connectOptions); err != nil {
 		p.mu.Lock()
 		if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
@@ -163,6 +165,8 @@ func (p *CentianEndpoint) connectDownstreamPool(
 		common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, serverName, err)
 		return
 	}
+
+	p.syncPoolLoggingLevel(downstreamSessionKey)
 
 	p.mu.Lock()
 	var sessions []*UpstreamSession

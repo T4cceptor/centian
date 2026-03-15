@@ -25,6 +25,7 @@ type MockDownstreamConnection struct {
 	CapturedArgs         map[string]any
 	CapturedConnects     []DownstreamConnectOptions
 	CapturedConnectAuths []map[string]string
+	CapturedLogLevels    []mcp.LoggingLevel
 
 	// Configurable downstream behavior.
 	ResultToReturn *mcp.CallToolResult
@@ -170,6 +171,15 @@ func (m *MockDownstreamConnection) Unsubscribe(_ context.Context, _ string) erro
 	return nil
 }
 
+func (m *MockDownstreamConnection) SetLoggingLevel(_ context.Context, params *mcp.SetLoggingLevelParams) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if params != nil {
+		m.CapturedLogLevels = append(m.CapturedLogLevels, params.Level)
+	}
+	return nil
+}
+
 func (m *MockDownstreamConnection) SyncClientState(_ context.Context, state *DownstreamClientState) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -192,6 +202,7 @@ func cloneConnectOptions(options *DownstreamConnectOptions) DownstreamConnectOpt
 		ForwardedHeaders:   cloneAuthHeaders(options.ForwardedHeaders),
 		SamplingHandler:    options.SamplingHandler,
 		ElicitationHandler: options.ElicitationHandler,
+		LoggingHandler:     options.LoggingHandler,
 	}
 	cloned.ClientState = DownstreamClientState{
 		ProtocolVersion:         options.ClientState.ProtocolVersion,

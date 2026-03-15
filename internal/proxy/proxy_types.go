@@ -50,6 +50,7 @@ type UpstreamSession struct {
 	protocolVersion         string
 	clientCapabilities      *mcp.ClientCapabilities
 	roots                   []*mcp.Root
+	logLevel                mcp.LoggingLevel
 	capabilitiesFingerprint string
 	rootsFingerprint        string
 	rootsDirty              bool

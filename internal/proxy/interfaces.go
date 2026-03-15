@@ -36,6 +36,7 @@ type DownstreamConnectionInterface interface {
 	Complete(ctx context.Context, req *mcp.CompleteRequest) (*mcp.CompleteResult, error)
 	Subscribe(ctx context.Context, uri string) error
 	Unsubscribe(ctx context.Context, uri string) error
+	SetLoggingLevel(ctx context.Context, params *mcp.SetLoggingLevelParams) error
 	Close() error
 	GetConfig() *config.MCPServerConfig
 	GetStatus() ConnectionStatus

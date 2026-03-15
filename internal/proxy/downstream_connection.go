@@ -137,6 +137,9 @@ func (dc *DownstreamConnection) buildClientOptions(options *DownstreamConnectOpt
 	if options.ElicitationHandler != nil {
 		clientOptions.ElicitationHandler = options.ElicitationHandler
 	}
+	if options.LoggingHandler != nil {
+		clientOptions.LoggingMessageHandler = options.LoggingHandler
+	}
 	return clientOptions
 }
 
@@ -403,6 +406,17 @@ func (dc *DownstreamConnection) Unsubscribe(ctx context.Context, uri string) err
 		return fmt.Errorf("not connected to %s", dc.serverName)
 	}
 	return dc.session.Unsubscribe(ctx, &mcp.UnsubscribeParams{URI: uri})
+}
+
+// SetLoggingLevel forwards a logging level request to the downstream server.
+func (dc *DownstreamConnection) SetLoggingLevel(ctx context.Context, params *mcp.SetLoggingLevelParams) error {
+	dc.mu.RLock()
+	defer dc.mu.RUnlock()
+
+	if !dc.status.IsConnected() || dc.session == nil {
+		return fmt.Errorf("not connected to %s", dc.serverName)
+	}
+	return dc.session.SetLoggingLevel(ctx, params)
 }
 
 // CallTool forwards a tool call to the downstream server.
