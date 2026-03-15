@@ -90,6 +90,72 @@ func TestCreateTransport_Stdio(t *testing.T) {
 	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "A=B"))
 }
 
+func TestCreateTransport_StdioMergesConfiguredEnvWithOS(t *testing.T) {
+	// Given: inherited OS env and configured downstream env.
+	t.Setenv("CENTIAN_TEST_INHERITED_ENV", "inherited")
+
+	cfg := &config.MCPServerConfig{
+		Command: "echo",
+		Args:    []string{"hello"},
+		Env: map[string]string{
+			"A": "B",
+		},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+
+	// When: creating the stdio transport.
+	transport, err := dc.createTransport(nil)
+
+	// Then: configured env is present and inherited env is preserved.
+	assert.NilError(t, err)
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	assert.Assert(t, ok)
+	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "A=B"))
+	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "CENTIAN_TEST_INHERITED_ENV=inherited"))
+}
+
+func TestCreateTransport_StdioConfiguredEnvOverridesOS(t *testing.T) {
+	// Given: an OS env var with the same key as configured downstream env.
+	t.Setenv("CENTIAN_TEST_OVERRIDE_ENV", "os-value")
+
+	cfg := &config.MCPServerConfig{
+		Command: "echo",
+		Args:    []string{"hello"},
+		Env: map[string]string{
+			"CENTIAN_TEST_OVERRIDE_ENV": "config-value",
+		},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+
+	// When: creating the stdio transport.
+	transport, err := dc.createTransport(nil)
+
+	// Then: configured env wins over the inherited value.
+	assert.NilError(t, err)
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	assert.Assert(t, ok)
+	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "CENTIAN_TEST_OVERRIDE_ENV=config-value"))
+	assert.Assert(t, !containsEnv(cmdTransport.Command.Env, "CENTIAN_TEST_OVERRIDE_ENV=os-value"))
+}
+
+func TestCreateTransport_StdioWithoutConfiguredEnvInheritsOS(t *testing.T) {
+	// Given: a stdio command with no configured env overrides.
+	cfg := &config.MCPServerConfig{
+		Command: "echo",
+		Args:    []string{"hello"},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+
+	// When: creating the stdio transport.
+	transport, err := dc.createTransport(nil)
+
+	// Then: Go inheritance behavior is preserved by leaving cmd.Env unset.
+	assert.NilError(t, err)
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	assert.Assert(t, ok)
+	assert.Assert(t, cmdTransport.Command.Env == nil)
+}
+
 func TestCreateTransport_InvalidConfigs(t *testing.T) {
 	// Given: a config with both URL and Command
 	cfg := &config.MCPServerConfig{URL: "https://example.com", Command: "echo"}

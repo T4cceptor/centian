@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"time"
 
@@ -284,13 +286,42 @@ func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]stri
 	if isStdioTransport {
 		//nolint:gosec // command comes from trusted user config
 		cmd := exec.Command(dc.config.Command, dc.config.Args...)
-		for key, value := range dc.config.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+		if len(dc.config.Env) > 0 {
+			cmd.Env = mergeEnvironment(os.Environ(), dc.config.Env)
 		}
 		return &mcp.CommandTransport{Command: cmd}, nil
 	}
 
 	return nil, fmt.Errorf("no URL or Command configured for server %s", dc.serverName)
+}
+
+func mergeEnvironment(base []string, overrides map[string]string) []string {
+	values := make(map[string]string, len(base)+len(overrides))
+	for _, entry := range base {
+		key, value, ok := splitEnvironmentEntry(entry)
+		if ok {
+			values[key] = value
+		}
+	}
+	for key, value := range overrides {
+		values[key] = value
+	}
+
+	merged := make([]string, 0, len(values))
+	for key, value := range values {
+		merged = append(merged, fmt.Sprintf("%s=%s", key, value))
+	}
+	slices.Sort(merged)
+	return merged
+}
+
+func splitEnvironmentEntry(entry string) (string, string, bool) {
+	for i := 0; i < len(entry); i++ {
+		if entry[i] == '=' {
+			return entry[:i], entry[i+1:], true
+		}
+	}
+	return "", "", false
 }
 
 func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
