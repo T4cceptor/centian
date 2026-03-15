@@ -88,6 +88,15 @@ func (p *CentianEndpoint) observeMCPRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			if sseSessionID := r.Header.Get("Mcp-Session-Id"); sseSessionID != "" {
+				// bootstrapUpstreamSessionState runs asynchronously to resolve the
+				// initial roots list before the first downstream pool is established.
+				// There is a known window between this goroutine being spawned and
+				// bootstrap completing during which incoming requests are served with
+				// an un-bootstrapped session (no roots, no resources, no prompts).
+				// This is acceptable because the MCP client is expected to retry
+				// after the SSE stream is open; however, callers that depend on
+				// immediate availability of roots-dependent resources should wait for
+				// the bootstrap to complete on the client side.
 				go p.bootstrapUpstreamSessionState(r.Context(), sseSessionID)
 			}
 			next.ServeHTTP(w, r)

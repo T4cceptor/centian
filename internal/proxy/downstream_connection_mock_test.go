@@ -13,6 +13,8 @@ type MockDownstreamConnection struct {
 	mu           sync.RWMutex
 	serverName   string
 	tools        []*mcp.Tool
+	resources    []*mcp.Resource
+	prompts      []*mcp.Prompt
 	cfg          *config.MCPServerConfig
 	ConnectCalls int
 	CloseCalls   int
@@ -129,11 +131,15 @@ func (m *MockDownstreamConnection) GetConfig() *config.MCPServerConfig {
 }
 
 func (m *MockDownstreamConnection) Resources() []*mcp.Resource {
-	return nil
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.resources
 }
 
 func (m *MockDownstreamConnection) Prompts() []*mcp.Prompt {
-	return nil
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.prompts
 }
 
 func (m *MockDownstreamConnection) DiscoverResources(_ context.Context) error {
