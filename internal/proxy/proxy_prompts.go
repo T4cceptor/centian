@@ -120,5 +120,9 @@ func (p *CentianEndpoint) forwardGetPrompt(ctx context.Context, session *Upstrea
 	if err != nil {
 		return nil, fmt.Errorf("prompt %q: %w", downstreamName, err)
 	}
-	return conn.GetPrompt(ctx, downstreamName, req.Params.Arguments)
+	result, err := conn.GetPrompt(ctx, downstreamName, req.Params.Arguments)
+	if err != nil {
+		return nil, normalizeForwardedMethodError(mcpMethodGetPrompt, err)
+	}
+	return result, nil
 }

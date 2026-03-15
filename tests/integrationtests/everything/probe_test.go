@@ -176,13 +176,13 @@ func evaluateLoggingProbe(ctx context.Context, t *testing.T, pair *connectionPai
 	directSnapshot := pair.Direct.recorder.snapshot()
 	proxiedSnapshot := pair.Proxied.recorder.snapshot()
 
-	if directSnapshot.LogCount == proxiedSnapshot.LogCount && jsonEqual(t, directResult, proxiedResult) {
+	if directSnapshot.LogCount > 0 && proxiedSnapshot.LogCount > 0 && jsonEqual(t, directResult, proxiedResult) {
 		return phase3Outcome{
 			Name:           toolName,
 			Classification: classificationMatch,
-			Summary:        fmt.Sprintf("both paths produced %d log notifications", directSnapshot.LogCount),
-			DirectDetails:  prettyJSON(t, directSnapshot),
-			ProxiedDetails: prettyJSON(t, proxiedSnapshot),
+			Summary:        fmt.Sprintf("both paths produced log notifications (direct=%d proxied=%d)", directSnapshot.LogCount, proxiedSnapshot.LogCount),
+			DirectDetails:  renderLoggingOutcome(t, directResult, directSnapshot),
+			ProxiedDetails: renderLoggingOutcome(t, proxiedResult, proxiedSnapshot),
 		}
 	}
 
@@ -191,8 +191,8 @@ func evaluateLoggingProbe(ctx context.Context, t *testing.T, pair *connectionPai
 			Name:           toolName,
 			Classification: classificationProxyDivergence,
 			Summary:        "direct path received log notifications but proxied path did not",
-			DirectDetails:  prettyJSON(t, directSnapshot),
-			ProxiedDetails: prettyJSON(t, proxiedSnapshot),
+			DirectDetails:  renderLoggingOutcome(t, directResult, directSnapshot),
+			ProxiedDetails: renderLoggingOutcome(t, proxiedResult, proxiedSnapshot),
 		}
 	}
 
@@ -200,8 +200,8 @@ func evaluateLoggingProbe(ctx context.Context, t *testing.T, pair *connectionPai
 		Name:           toolName,
 		Classification: classificationProxyDivergence,
 		Summary:        "logging probe produced different direct/proxied outcomes",
-		DirectDetails:  fmt.Sprintf("result:\n%s\nnotifications:\n%s", prettyJSON(t, directResult), prettyJSON(t, directSnapshot)),
-		ProxiedDetails: fmt.Sprintf("result:\n%s\nnotifications:\n%s", prettyJSON(t, proxiedResult), prettyJSON(t, proxiedSnapshot)),
+		DirectDetails:  renderLoggingOutcome(t, directResult, directSnapshot),
+		ProxiedDetails: renderLoggingOutcome(t, proxiedResult, proxiedSnapshot),
 	}
 }
 
@@ -340,6 +340,12 @@ func renderOperationOutcome(t *testing.T, result any, err error) string {
 		return err.Error()
 	}
 	return prettyJSON(t, result)
+}
+
+func renderLoggingOutcome(t *testing.T, result *mcp.CallToolResult, snapshot notificationSnapshot) string {
+	t.Helper()
+
+	return fmt.Sprintf("result:\n%s\nLogCount: %d", prettyJSON(t, result), snapshot.LogCount)
 }
 
 func sameErrorMessage(left, right error) bool {

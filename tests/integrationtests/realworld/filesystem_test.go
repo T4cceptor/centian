@@ -32,6 +32,7 @@ var filesystemManifest = &serverManifest{
 		"read_text_file",
 		"search_files",
 		"write_file",
+		"read_file",
 	},
 	BuildFixture: buildFilesystemFixture,
 	Normalize:    normalizeFilesystemResult,

@@ -24,6 +24,7 @@ import (
 type observedMCPRequest struct {
 	sessionID string
 	methods   map[string]struct{}
+	logLevel  mcp.LoggingLevel
 }
 
 func (o observedMCPRequest) hasMethod(method string) bool {
@@ -134,6 +135,9 @@ func (p *CentianEndpoint) observeMCPRequests(next http.Handler) http.Handler {
 			p.markUpstreamSessionRootsDirty(sessionID)
 			p.syncUpstreamSessionState(r.Context(), sessionID)
 		}
+		if observation.logLevel != "" {
+			p.syncUpstreamLoggingLevel(sessionID, observation.logLevel)
+		}
 		if delayedWriter != nil {
 			writeDelayedResponse(w, delayedWriter)
 		}
@@ -154,6 +158,7 @@ func inspectMCPRequest(r *http.Request) observedMCPRequest {
 	return observedMCPRequest{
 		sessionID: r.Header.Get("Mcp-Session-Id"),
 		methods:   methods,
+		logLevel:  extractLoggingLevel(body),
 	}
 }
 
@@ -181,6 +186,43 @@ func extractMCPMethods(body []byte) map[string]struct{} {
 		methods[single.Method] = struct{}{}
 	}
 	return methods
+}
+
+func extractLoggingLevel(body []byte) mcp.LoggingLevel {
+	type rpcEnvelope struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	type setLevelParams struct {
+		Level mcp.LoggingLevel `json:"level"`
+	}
+
+	extract := func(items []rpcEnvelope) mcp.LoggingLevel {
+		var level mcp.LoggingLevel
+		for _, item := range items {
+			if item.Method != "logging/setLevel" {
+				continue
+			}
+			var params setLevelParams
+			if err := json.Unmarshal(item.Params, &params); err == nil && params.Level != "" {
+				level = params.Level
+			}
+		}
+		return level
+	}
+
+	var batch []rpcEnvelope
+	if err := json.Unmarshal(body, &batch); err == nil {
+		if level := extract(batch); level != "" {
+			return level
+		}
+	}
+
+	var single rpcEnvelope
+	if err := json.Unmarshal(body, &single); err == nil {
+		return extract([]rpcEnvelope{single})
+	}
+	return ""
 }
 
 func cloneRequestBody(r *http.Request) []byte {

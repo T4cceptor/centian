@@ -160,7 +160,7 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Note: per-request headers require CallTool signature change (Phase 3)
 	result, err := conn.CallTool(ctx, c.GetToolName(), args)
 	if err != nil {
-		return err
+		return normalizeForwardedMethodError(mcpMethodCallTool, err)
 	}
 	c.SetResult(result)
 	return nil

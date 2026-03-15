@@ -19,6 +19,9 @@ type DownstreamSamplingHandler func(context.Context, *mcp.CreateMessageRequest) 
 // DownstreamElicitationHandler forwards elicitation requests from a downstream session.
 type DownstreamElicitationHandler func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)
 
+// DownstreamLoggingHandler forwards logging notifications from a downstream session.
+type DownstreamLoggingHandler func(context.Context, *mcp.LoggingMessageRequest)
+
 // DownstreamClientState describes the effective upstream client state mirrored downstream.
 type DownstreamClientState struct {
 	ProtocolVersion         string
@@ -34,6 +37,7 @@ type DownstreamConnectOptions struct {
 	ClientState        DownstreamClientState
 	SamplingHandler    DownstreamSamplingHandler
 	ElicitationHandler DownstreamElicitationHandler
+	LoggingHandler     DownstreamLoggingHandler
 }
 
 type clientCapabilitiesWire struct {
@@ -60,6 +64,7 @@ func cloneDownstreamConnectOptions(options *DownstreamConnectOptions) *Downstrea
 		},
 		SamplingHandler:    options.SamplingHandler,
 		ElicitationHandler: options.ElicitationHandler,
+		LoggingHandler:     options.LoggingHandler,
 	}
 }
 

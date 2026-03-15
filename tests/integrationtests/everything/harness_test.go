@@ -25,6 +25,7 @@ const (
 	everythingServerCmdEnv      = "CENTIAN_EVERYTHING_SERVER_CMD"
 	everythingServerArgsEnv     = "CENTIAN_EVERYTHING_SERVER_ARGS"
 	defaultSessionTimeout       = 30 * time.Second
+	defaultDirectTerminateWait  = 250 * time.Millisecond
 	defaultToolsWaitTimeout     = 20 * time.Second
 	defaultEverythingServerCmd  = "npx"
 	defaultEverythingServerArgs = "-y @modelcontextprotocol/server-everything"
@@ -113,7 +114,10 @@ func (h *everythingHarness) connectDirect(t *testing.T) *instrumentedSession {
 	return connectInstrumentedSession(
 		t,
 		"direct",
-		&mcp.CommandTransport{Command: command},
+		&mcp.CommandTransport{
+			Command:           command,
+			TerminateDuration: defaultDirectTerminateWait,
+		},
 	)
 }
 
@@ -156,6 +160,9 @@ func connectInstrumentedSession(
 	}
 	t.Cleanup(func() {
 		if closeErr := session.Close(); closeErr != nil {
+			if mode == "direct" && isExpectedDirectCloseError(closeErr) {
+				return
+			}
 			t.Fatalf("failed to close %s session: %v", mode, closeErr)
 		}
 	})
@@ -166,6 +173,11 @@ func connectInstrumentedSession(
 		session:  session,
 		recorder: recorder,
 	}
+}
+
+func isExpectedDirectCloseError(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr)
 }
 
 func newInstrumentedClient(recorder *notificationRecorder) *mcp.Client {
