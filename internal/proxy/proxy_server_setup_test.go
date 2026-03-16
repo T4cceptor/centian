@@ -8,6 +8,20 @@ import (
 	"gotest.tools/assert"
 )
 
+// testEchoProcessorConfig returns a minimal valid processor config for use in tests.
+// The processor is never executed during setup, so the command only needs to be creatable.
+func testEchoProcessorConfig(name string) *config.ProcessorConfig {
+	return &config.ProcessorConfig{
+		Name:    name,
+		Type:    "cli",
+		Enabled: true,
+		Timeout: 10,
+		Config: map[string]interface{}{
+			"command": "echo",
+		},
+	}
+}
+
 func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	// Given: a global config with auth disabled and a gateway
 	authDisabled := false
@@ -56,4 +70,117 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	disabledReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/disabled", http.NoBody)
 	_, disabledPattern := proxy.Mux.Handler(disabledReq)
 	assert.Equal(t, disabledPattern, "")
+}
+
+func TestInitEventProcessor_GatewayProcessorsAppliedToAggregatedEndpoint(t *testing.T) {
+	// Given: a server and a gateway config with one gateway-level processor
+	t.Setenv("HOME", t.TempDir())
+	server := &CentianServer{
+		Config: &config.GlobalConfig{},
+	}
+	gatewayConfig := &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{"server1": {Command: "node"}},
+		Processors: []*config.ProcessorConfig{testEchoProcessorConfig("gateway-proc")},
+	}
+	endpoint := NewAggregatedEndpoint("gateway", "/mcp/gateway", gatewayConfig)
+	endpoint.server = server
+
+	// When: the event processor is initialized
+	err := endpoint.initEventProcessor()
+
+	// Then: the aggregated endpoint has the gateway processor
+	assert.NilError(t, err)
+	pc := endpoint.eventProcessor.(*ProcessingController)
+	assert.Equal(t, 1, len(pc.processors))
+}
+
+func TestInitEventProcessor_GatewayProcessorsAppliedToSingleServerEndpoint(t *testing.T) {
+	// Given: a server and a gateway config with one gateway-level processor
+	t.Setenv("HOME", t.TempDir())
+	server := &CentianServer{
+		Config: &config.GlobalConfig{},
+	}
+	gatewayConfig := &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{"server1": {Command: "node"}},
+		Processors: []*config.ProcessorConfig{testEchoProcessorConfig("gateway-proc")},
+	}
+	endpoint := NewSingleEndpoint("server1", "/mcp/gateway/server1", gatewayConfig)
+	endpoint.server = server
+
+	// When: the event processor is initialized
+	err := endpoint.initEventProcessor()
+
+	// Then: the single-server endpoint also has the gateway processor
+	assert.NilError(t, err)
+	pc := endpoint.eventProcessor.(*ProcessingController)
+	assert.Equal(t, 1, len(pc.processors))
+}
+
+func TestInitEventProcessor_GlobalProcessorsBeforeGatewayProcessors(t *testing.T) {
+	// Given: a server with global processors and a gateway with its own processors
+	t.Setenv("HOME", t.TempDir())
+	server := &CentianServer{
+		Config: &config.GlobalConfig{
+			Processors: []*config.ProcessorConfig{testEchoProcessorConfig("global-proc")},
+		},
+	}
+	gatewayConfig := &config.GatewayConfig{
+		MCPServers: map[string]*config.MCPServerConfig{"server1": {Command: "node"}},
+		Processors: []*config.ProcessorConfig{testEchoProcessorConfig("gateway-proc")},
+	}
+	endpoint := NewSingleEndpoint("server1", "/mcp/gateway/server1", gatewayConfig)
+	endpoint.server = server
+
+	// When: the event processor is initialized
+	err := endpoint.initEventProcessor()
+
+	// Then: processors are ordered global-first, then gateway
+	assert.NilError(t, err)
+	pc := endpoint.eventProcessor.(*ProcessingController)
+	assert.Equal(t, 2, len(pc.processors))
+	assert.Equal(t, "global-proc", pc.processors[0].GetConfig().Name)
+	assert.Equal(t, "gateway-proc", pc.processors[1].GetConfig().Name)
+}
+
+func TestSetup_ProcessorsInitializedForBothEndpointTypes(t *testing.T) {
+	// Given: a global config with gateway-level processors on one of its gateways
+	t.Setenv("HOME", t.TempDir())
+	authDisabled := false
+	enabled := true
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9001",
+			Timeout: 10,
+		},
+		Gateways: map[string]*config.GatewayConfig{
+			"gateway": {
+				MCPServers: map[string]*config.MCPServerConfig{
+					"server1": {Command: "node", Enabled: &enabled},
+				},
+				Processors: []*config.ProcessorConfig{testEchoProcessorConfig("gateway-proc")},
+			},
+		},
+	}
+
+	centianServer, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+
+	// When: setting up the proxy
+	err = centianServer.Setup()
+	assert.NilError(t, err)
+
+	// Then: the aggregated gateway endpoint has gateway processors initialized
+	aggregatedEndpoint := centianServer.Gateways["gateway"]
+	assert.Assert(t, aggregatedEndpoint != nil)
+	aggregatedPC := aggregatedEndpoint.eventProcessor.(*ProcessingController)
+	assert.Equal(t, 1, len(aggregatedPC.processors))
+
+	// Then: the single-server endpoint also has the gateway processors initialized
+	singleReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/server1", http.NoBody)
+	singleHandler, singlePattern := centianServer.Mux.Handler(singleReq)
+	assert.Assert(t, singleHandler != nil)
+	assert.Equal(t, "/mcp/gateway/server1", singlePattern)
 }
