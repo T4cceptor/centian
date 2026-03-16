@@ -318,4 +318,93 @@ func TestHandleProcessorAdd(t *testing.T) {
 			t.Error("expected processor 'second' to exist")
 		}
 	})
+
+	t.Run("Given: webhook processor flags, When: adding webhook processor, Then: webhook config is saved", func(t *testing.T) {
+		cleanup := setupTestHome(t)
+		defer cleanup()
+
+		app := &urfavecli.Command{
+			Name:     "centian",
+			Commands: []*urfavecli.Command{ProcessorCommand},
+		}
+		err := app.Run(context.Background(), []string{
+			"centian", "processor", "add",
+			"--type", "webhook",
+			"--url", "https://example.com/processors/audit",
+			"--header", "Authorization=Bearer ${TOKEN}",
+			"--header", "X-Trace=trace-1",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			t.Fatalf("failed to load config: %v", err)
+		}
+		if !cfg.HasProcessor("audit") {
+			t.Fatal("expected processor 'audit' to exist in config")
+		}
+		proc := cfg.Processors[0]
+		if proc.Type != "webhook" {
+			t.Errorf("expected type 'webhook', got %q", proc.Type)
+		}
+		if proc.Config["url"] != "https://example.com/processors/audit" {
+			t.Errorf("expected webhook url to be saved, got %v", proc.Config["url"])
+		}
+		headers, ok := proc.Config["headers"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected headers object, got %T", proc.Config["headers"])
+		}
+		if headers["Authorization"] != "Bearer ${TOKEN}" {
+			t.Errorf("expected Authorization header to persist, got %v", headers["Authorization"])
+		}
+		if headers["X-Trace"] != "trace-1" {
+			t.Errorf("expected X-Trace header to persist, got %v", headers["X-Trace"])
+		}
+	})
+
+	t.Run("Given: webhook processor without url, When: adding, Then: returns error", func(t *testing.T) {
+		cleanup := setupTestHome(t)
+		defer cleanup()
+
+		app := &urfavecli.Command{
+			Name:     "centian",
+			Commands: []*urfavecli.Command{ProcessorCommand},
+		}
+		err := app.Run(context.Background(), []string{
+			"centian", "processor", "add",
+			"--type", "webhook",
+		})
+
+		if err == nil {
+			t.Fatal("expected error for missing webhook url")
+		}
+		if !strings.Contains(err.Error(), "--url is required") {
+			t.Errorf("expected missing url error, got: %v", err)
+		}
+	})
+
+	t.Run("Given: webhook processor with path, When: adding, Then: returns error", func(t *testing.T) {
+		cleanup := setupTestHome(t)
+		defer cleanup()
+
+		app := &urfavecli.Command{
+			Name:     "centian",
+			Commands: []*urfavecli.Command{ProcessorCommand},
+		}
+		err := app.Run(context.Background(), []string{
+			"centian", "processor", "add",
+			"--type", "webhook",
+			"--path", "./script.py",
+			"--url", "https://example.com/processors/audit",
+		})
+
+		if err == nil {
+			t.Fatal("expected error for webhook path")
+		}
+		if !strings.Contains(err.Error(), "--path is not supported") {
+			t.Errorf("expected webhook path error, got: %v", err)
+		}
+	})
 }

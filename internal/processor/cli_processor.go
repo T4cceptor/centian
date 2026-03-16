@@ -4,7 +4,6 @@ package processor
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // CLIProcessor performs a CLI execution.
@@ -98,13 +96,9 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 		common.LogWarn("[PROCESSOR:CLI] '%s': stderr output: %s", e.config.Name, stderr.String())
 	}
 
-	var output DataContext
-	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
-		errorMsg := fmt.Sprintf("processor '%s' returned invalid JSON: %v", e.config.Name, err)
-		if stdout.Len() > 0 {
-			errorMsg = fmt.Sprintf("%s\nstdout: %s", errorMsg, stdout.String())
-		}
-		return nil, fmt.Errorf("%s", errorMsg)
+	output, err := decodeProcessorJSONOutput(e.config.Name, stdout.Bytes())
+	if err != nil {
+		return nil, err
 	}
 
 	// Warn when the processor was given a payload but returned none — this usually
@@ -115,67 +109,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 			"request/result modifications will be skipped. Ensure the processor output includes a \"payload\" field.", e.config.Name)
 	}
 
-	// TODO -> create a map from output
-	return &output, nil
-}
-
-type processorInputDTO struct {
-	Version string              `json:"version,omitempty"`
-	Event   *common.MCPEvent    `json:"event,omitempty"`
-	Payload *payloadPartDTO     `json:"payload,omitempty"`
-	Routing *RoutingPart        `json:"routing,omitempty"`
-	Auth    *common.AuthContext `json:"auth,omitempty"`
-}
-
-type payloadPartDTO struct {
-	Request         *callToolRequestDTO `json:"request,omitempty"`
-	OriginalRequest *callToolRequestDTO `json:"original_request,omitempty"`
-	Result          *mcp.CallToolResult `json:"result,omitempty"`
-	OriginalResult  *mcp.CallToolResult `json:"original_result,omitempty"`
-}
-
-type callToolRequestDTO struct {
-	Params *mcp.CallToolParamsRaw `json:"Params,omitempty"`
-}
-
-func marshalProcessorInput(input *DataContext) ([]byte, error) {
-	if input == nil {
-		return json.Marshal(&processorInputDTO{})
-	}
-
-	dto := &processorInputDTO{
-		Version: input.Version,
-		Event:   input.Event,
-		Routing: input.Routing,
-		Auth:    input.Auth,
-	}
-
-	if input.Payload != nil {
-		dto.Payload = &payloadPartDTO{
-			Request:         cloneRequestForDTO(input.Payload.Request),
-			OriginalRequest: cloneRequestForDTO(input.Payload.OriginalRequest),
-			Result:          input.Payload.Result,
-			OriginalResult:  input.Payload.OriginalResult,
-		}
-	}
-
-	return json.Marshal(dto)
-}
-
-func cloneRequestForDTO(req *mcp.CallToolRequest) *callToolRequestDTO {
-	if req == nil || req.Params == nil {
-		return nil
-	}
-
-	argsCopy := make(json.RawMessage, len(req.Params.Arguments))
-	copy(argsCopy, req.Params.Arguments)
-
-	params := &mcp.CallToolParamsRaw{
-		Name:      req.Params.Name,
-		Arguments: argsCopy,
-		Meta:      req.Params.Meta,
-	}
-	return &callToolRequestDTO{Params: params}
+	return output, nil
 }
 
 // extractCommandAndArgs extracts command and arguments from processor config.

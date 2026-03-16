@@ -85,13 +85,19 @@ func (ep *ProcessingController) Process(callCtx CallContext) error {
 		output, err := processor.Process(input)
 		if err != nil {
 			common.LogError("processor '%s' failed: %v", processorConfig.Name, err)
-			return err
+			if processorConfig.Required {
+				return err
+			}
+			continue
 		}
 
 		// 3. Apply results back via handlers
 		if err := ApplyResult(processorConfig, output, callCtx); err != nil {
 			common.LogError("processor '%s' failed to apply output: %v", processorConfig.Name, err)
-			return err // TODO: double check if this makes sense!
+			if processorConfig.Required {
+				return err // TODO: double check if this makes sense!
+			}
+			continue
 		}
 		// Note: callCtx might be modified here, the modified version
 		// then is also provided to the next processor

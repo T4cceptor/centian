@@ -19,6 +19,8 @@ type ProcessorType string
 const (
 	// CLIProcessor represents the type of a CLI-based processor -> "cli".
 	CLIProcessor ProcessorType = "cli"
+	// WebhookProcessor represents the type of a webhook-based processor -> "webhook".
+	WebhookProcessor ProcessorType = "webhook"
 )
 
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
@@ -571,8 +573,10 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 	}
 
 	// Validate type.
-	if ProcessorType(processor.Type) != CLIProcessor {
-		return fmt.Errorf("processor '%s': unsupported type '%s' (v1 only supports 'cli')", processor.Name, processor.Type)
+	switch ProcessorType(processor.Type) {
+	case CLIProcessor, WebhookProcessor:
+	default:
+		return fmt.Errorf("processor '%s': unsupported type '%s' (supported: 'cli', 'webhook')", processor.Name, processor.Type)
 	}
 
 	// Set default timeout if not specified.
@@ -644,6 +648,28 @@ func InferProcessorNameFromPath(path string) string {
 	return strings.ToLower(name)
 }
 
+// InferProcessorNameFromWebhookURL extracts a processor name from a webhook URL.
+// Prefers the last path segment and falls back to hostname when no path segment exists.
+func InferProcessorNameFromWebhookURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed == nil {
+		return "webhook-processor"
+	}
+
+	path := strings.Trim(parsed.Path, "/")
+	if path != "" {
+		if base := filepath.Base(path); base != "." && base != "/" && base != "" {
+			return strings.ToLower(base)
+		}
+	}
+
+	if host := parsed.Hostname(); host != "" {
+		return strings.ToLower(host)
+	}
+
+	return "webhook-processor"
+}
+
 // InferCommandFromPath determines the runtime command and args for a CLI processor
 // based on the file extension of the script path.
 func InferCommandFromPath(path string) (command string, args []string, err error) {
@@ -682,6 +708,61 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 				return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)
 			}
 		}
+	case WebhookProcessor:
+		urlValue, ok := processor.Config["url"]
+		if !ok {
+			return fmt.Errorf("processor '%s': config.url is required for webhook type", processor.Name)
+		}
+		urlString, ok := urlValue.(string)
+		if !ok {
+			return fmt.Errorf("processor '%s': config.url must be a string", processor.Name)
+		}
+		parsedURL, err := url.Parse(urlString)
+		if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+			return fmt.Errorf("processor '%s': config.url must be a valid http/https URL", processor.Name)
+		}
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			return fmt.Errorf("processor '%s': config.url must use http or https", processor.Name)
+		}
+
+		if headersValue, exists := processor.Config["headers"]; exists {
+			if _, err := ProcessorConfigStringMap(headersValue); err != nil {
+				return fmt.Errorf("processor '%s': config.headers must be an object with string values", processor.Name)
+			}
+		}
+
+		for key := range processor.Config {
+			switch key {
+			case "url", "headers":
+			default:
+				return fmt.Errorf("processor '%s': config.%s is unsupported for webhook type", processor.Name, key)
+			}
+		}
 	}
 	return nil
+}
+
+// ProcessorConfigStringMap converts a config value into a string map.
+// Accepts both map[string]string and map[string]interface{} with string values.
+func ProcessorConfigStringMap(value interface{}) (map[string]string, error) {
+	switch typed := value.(type) {
+	case map[string]string:
+		result := make(map[string]string, len(typed))
+		for key, item := range typed {
+			result[key] = item
+		}
+		return result, nil
+	case map[string]interface{}:
+		result := make(map[string]string, len(typed))
+		for key, item := range typed {
+			strValue, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("value for %q must be a string", key)
+			}
+			result[key] = strValue
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("value must be an object")
+	}
 }
