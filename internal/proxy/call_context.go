@@ -99,8 +99,35 @@ func deepCloneRequest(req *mcp.CallToolRequest) *mcp.CallToolRequest {
 
 	return &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
+			Meta:      deepCloneMeta(req.Params.Meta),
 			Name:      req.Params.Name,
 			Arguments: argsCopy,
 		},
 	}
+}
+
+func deepCloneMeta(meta mcp.Meta) mcp.Meta {
+	if meta == nil {
+		return nil
+	}
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		cloned := make(mcp.Meta, len(meta))
+		for key, value := range meta {
+			cloned[key] = value
+		}
+		return cloned
+	}
+
+	var cloned mcp.Meta
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		fallback := make(mcp.Meta, len(meta))
+		for key, value := range meta {
+			fallback[key] = value
+		}
+		return fallback
+	}
+
+	return cloned
 }

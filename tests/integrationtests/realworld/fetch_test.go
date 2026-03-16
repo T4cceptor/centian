@@ -16,9 +16,11 @@ var fetchManifest = &serverManifest{
 	CommandEnvVar:  "CENTIAN_FETCH_SERVER_CMD",
 	ArgsEnvVar:     "CENTIAN_FETCH_SERVER_ARGS",
 	DefaultCommand: "uvx",
-	DefaultArgs:    []string{"mcp-server-fetch"},
-	ExpectedTools:  []string{"fetch"},
-	BuildFixture:   buildFetchFixture,
+	// Keep uvx quiet so first-run package resolution does not emit non-MCP
+	// stdout that can corrupt stdio protocol startup in CI.
+	DefaultArgs:   []string{"--quiet", "--no-progress", "mcp-server-fetch"},
+	ExpectedTools: []string{"fetch"},
+	BuildFixture:  buildFetchFixture,
 }
 
 func TestFetchToolCatalogParity(t *testing.T) {

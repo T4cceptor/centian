@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +88,72 @@ func TestCreateTransport_Stdio(t *testing.T) {
 	assert.Assert(t, ok)
 	assert.Assert(t, strings.HasPrefix(filepath.Base(cmdTransport.Command.Path), "echo"))
 	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "A=B"))
+}
+
+func TestCreateTransport_StdioMergesConfiguredEnvWithOS(t *testing.T) {
+	// Given: inherited OS env and configured downstream env.
+	t.Setenv("CENTIAN_TEST_INHERITED_ENV", "inherited")
+
+	cfg := &config.MCPServerConfig{
+		Command: "echo",
+		Args:    []string{"hello"},
+		Env: map[string]string{
+			"A": "B",
+		},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+
+	// When: creating the stdio transport.
+	transport, err := dc.createTransport(nil)
+
+	// Then: configured env is present and inherited env is preserved.
+	assert.NilError(t, err)
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	assert.Assert(t, ok)
+	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "A=B"))
+	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "CENTIAN_TEST_INHERITED_ENV=inherited"))
+}
+
+func TestCreateTransport_StdioConfiguredEnvOverridesOS(t *testing.T) {
+	// Given: an OS env var with the same key as configured downstream env.
+	t.Setenv("CENTIAN_TEST_OVERRIDE_ENV", "os-value")
+
+	cfg := &config.MCPServerConfig{
+		Command: "echo",
+		Args:    []string{"hello"},
+		Env: map[string]string{
+			"CENTIAN_TEST_OVERRIDE_ENV": "config-value",
+		},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+
+	// When: creating the stdio transport.
+	transport, err := dc.createTransport(nil)
+
+	// Then: configured env wins over the inherited value.
+	assert.NilError(t, err)
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	assert.Assert(t, ok)
+	assert.Assert(t, containsEnv(cmdTransport.Command.Env, "CENTIAN_TEST_OVERRIDE_ENV=config-value"))
+	assert.Assert(t, !containsEnv(cmdTransport.Command.Env, "CENTIAN_TEST_OVERRIDE_ENV=os-value"))
+}
+
+func TestCreateTransport_StdioWithoutConfiguredEnvInheritsOS(t *testing.T) {
+	// Given: a stdio command with no configured env overrides.
+	cfg := &config.MCPServerConfig{
+		Command: "echo",
+		Args:    []string{"hello"},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+
+	// When: creating the stdio transport.
+	transport, err := dc.createTransport(nil)
+
+	// Then: Go inheritance behavior is preserved by leaving cmd.Env unset.
+	assert.NilError(t, err)
+	cmdTransport, ok := transport.(*mcp.CommandTransport)
+	assert.Assert(t, ok)
+	assert.Assert(t, cmdTransport.Command.Env == nil)
 }
 
 func TestCreateTransport_InvalidConfigs(t *testing.T) {
@@ -263,7 +330,12 @@ func TestDownstreamConnection_ForwardsLoggingNotifications(t *testing.T) {
 	dc.status = StatusConnected
 
 	assert.NilError(t, dc.SetLoggingLevel(ctx, &mcp.SetLoggingLevelParams{Level: "info"}))
-	_, err = dc.CallTool(ctx, "log", map[string]any{})
+	_, err = dc.CallTool(ctx, &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "log",
+			Arguments: json.RawMessage(`{}`),
+		},
+	})
 	assert.NilError(t, err)
 
 	select {
@@ -277,7 +349,12 @@ func TestDownstreamConnection_ForwardsLoggingNotifications(t *testing.T) {
 func TestDownstreamConnectionCallTool_NotConnected(t *testing.T) {
 	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
 
-	result, err := dc.CallTool(context.Background(), "ping", map[string]any{"k": "v"})
+	result, err := dc.CallTool(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "ping",
+			Arguments: json.RawMessage(`{"k":"v"}`),
+		},
+	})
 
 	assert.Assert(t, result == nil)
 	assert.ErrorContains(t, err, "not connected to server")
@@ -318,11 +395,64 @@ func TestDownstreamConnectionCallTool(t *testing.T) {
 	dc.session = clientSession
 	dc.status = StatusConnected
 
-	result, err := dc.CallTool(context.Background(), "ping", map[string]any{"message": "pong"})
+	result, err := dc.CallTool(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      "ping",
+			Arguments: json.RawMessage(`{"message":"pong"}`),
+		},
+	})
 
 	assert.NilError(t, err)
 	assert.Assert(t, result != nil)
 	assert.Equal(t, result.Content[0].(*mcp.TextContent).Text, "pong")
+}
+
+func TestDownstreamConnectionCallTool_PreservesMeta(t *testing.T) {
+	var capturedMeta mcp.Meta
+
+	clientSession, cleanup := connectTestClientSession(t, func(server *mcp.Server) {
+		mcp.AddTool(server, &mcp.Tool{Name: "ping", Description: "ping"}, func(_ context.Context, req *mcp.CallToolRequest, _ map[string]any) (*mcp.CallToolResult, any, error) {
+			if req != nil && req.Params != nil {
+				capturedMeta = deepCloneMeta(req.Params.Meta)
+			}
+			return &mcp.CallToolResult{
+				StructuredContent: map[string]any{
+					"meta": req.Params.Meta,
+				},
+			}, nil, nil
+		})
+	})
+	defer cleanup()
+
+	dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+	dc.session = clientSession
+	dc.status = StatusConnected
+
+	req := &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Meta: mcp.Meta{
+				"progressToken": "progress-1",
+				"custom":        "value",
+			},
+			Name:      "ping",
+			Arguments: json.RawMessage(`{"message":"pong"}`),
+		},
+	}
+
+	result, err := dc.CallTool(context.Background(), req)
+
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.DeepEqual(t, capturedMeta, req.Params.Meta)
+
+	structured, ok := result.StructuredContent.(map[string]any)
+	assert.Assert(t, ok)
+	meta, ok := structured["meta"].(map[string]any)
+	assert.Assert(t, ok)
+	assert.DeepEqual(t, meta, map[string]any{
+		"progressToken": "progress-1",
+		"custom":        "value",
+	})
 }
 
 func containsEnv(env []string, entry string) bool {

@@ -5,9 +5,12 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"time"
 
@@ -283,13 +286,42 @@ func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]stri
 	if isStdioTransport {
 		//nolint:gosec // command comes from trusted user config
 		cmd := exec.Command(dc.config.Command, dc.config.Args...)
-		for key, value := range dc.config.Env {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+		if len(dc.config.Env) > 0 {
+			cmd.Env = mergeEnvironment(os.Environ(), dc.config.Env)
 		}
 		return &mcp.CommandTransport{Command: cmd}, nil
 	}
 
 	return nil, fmt.Errorf("no URL or Command configured for server %s", dc.serverName)
+}
+
+func mergeEnvironment(base []string, overrides map[string]string) []string {
+	values := make(map[string]string, len(base)+len(overrides))
+	for _, entry := range base {
+		key, value, ok := splitEnvironmentEntry(entry)
+		if ok {
+			values[key] = value
+		}
+	}
+	for key, value := range overrides {
+		values[key] = value
+	}
+
+	merged := make([]string, 0, len(values))
+	for key, value := range values {
+		merged = append(merged, fmt.Sprintf("%s=%s", key, value))
+	}
+	slices.Sort(merged)
+	return merged
+}
+
+func splitEnvironmentEntry(entry string) (string, string, bool) {
+	for i := 0; i < len(entry); i++ {
+		if entry[i] == '=' {
+			return entry[:i], entry[i+1:], true
+		}
+	}
+	return "", "", false
 }
 
 func (dc *DownstreamConnection) discoverTools(ctx context.Context) error {
@@ -454,18 +486,26 @@ func (dc *DownstreamConnection) SetLoggingLevel(ctx context.Context, params *mcp
 }
 
 // CallTool forwards a tool call to the downstream server.
-func (dc *DownstreamConnection) CallTool(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
 	if !dc.status.IsConnected() || dc.session == nil {
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
+	if req == nil || req.Params == nil {
+		return nil, fmt.Errorf("call tool request params are required")
+	}
 
-	return dc.session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      toolName,
-		Arguments: args,
-	})
+	params := &mcp.CallToolParams{
+		Meta: deepCloneMeta(req.Params.Meta),
+		Name: req.Params.Name,
+	}
+	if req.Params.Arguments != nil {
+		params.Arguments = json.RawMessage(append([]byte(nil), req.Params.Arguments...))
+	}
+
+	return dc.session.CallTool(ctx, params)
 }
 
 // Close terminates the downstream connection.

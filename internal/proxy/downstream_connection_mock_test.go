@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 
 	"github.com/T4cceptor/centian/internal/config"
@@ -24,6 +25,8 @@ type MockDownstreamConnection struct {
 	// Captured call data.
 	CapturedToolName     string
 	CapturedArgs         map[string]any
+	CapturedMeta         mcp.Meta
+	CapturedRequest      *mcp.CallToolRequest
 	CapturedConnects     []DownstreamConnectOptions
 	CapturedConnectAuths []map[string]string
 	CapturedLogLevels    []mcp.LoggingLevel
@@ -80,11 +83,27 @@ func (m *MockDownstreamConnection) GetError() error {
 	return m.ErrorToReturn
 }
 
-func (m *MockDownstreamConnection) CallTool(_ context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+func (m *MockDownstreamConnection) CallTool(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.CapturedToolName = toolName
-	m.CapturedArgs = args
+
+	m.CapturedRequest = deepCloneRequest(req)
+	if req != nil && req.Params != nil {
+		m.CapturedToolName = req.Params.Name
+		m.CapturedMeta = deepCloneMeta(req.Params.Meta)
+
+		var args map[string]any
+		if err := json.Unmarshal(req.Params.Arguments, &args); err == nil {
+			m.CapturedArgs = args
+		} else {
+			m.CapturedArgs = nil
+		}
+	} else {
+		m.CapturedToolName = ""
+		m.CapturedMeta = nil
+		m.CapturedArgs = nil
+	}
+
 	return m.ResultToReturn, m.ErrorToReturn
 }
 

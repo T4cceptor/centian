@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -150,15 +149,13 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 			serverName, c.originalServerName)
 	}
 
-	// Parse arguments from current request
-	var args map[string]any
-	if err := json.Unmarshal(c.request.Params.Arguments, &args); err != nil {
-		return fmt.Errorf("failed to parse arguments: %w", err)
+	if c.request == nil || c.request.Params == nil {
+		return fmt.Errorf("tool call request params are required")
 	}
 
-	// Make the call with current request data
-	// Note: per-request headers require CallTool signature change (Phase 3)
-	result, err := conn.CallTool(ctx, c.GetToolName(), args)
+	// Forward the current request object so downstream receives the full tool
+	// call shape, including request metadata.
+	result, err := conn.CallTool(ctx, c.GetRequest())
 	if err != nil {
 		return normalizeForwardedMethodError(mcpMethodCallTool, err)
 	}

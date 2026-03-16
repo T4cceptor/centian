@@ -19,7 +19,7 @@ type ProcessingControllerInterface interface {
 //
 // The actual connection lives in DownstreamConnection.
 type DownstreamConnectionInterface interface {
-	CallTool(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error)
+	CallTool(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error)
 	GetServerName() string
 	IsConnected() bool
 	IsConnecting() bool
