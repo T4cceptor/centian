@@ -44,7 +44,7 @@ func (e *CLIProcessor) GetConfig() *config.ProcessorConfig {
 // Note: the Processors responsibility is to execute a specific action, its NOT to serialize back the
 // result into the correct data format - this is done in the handler.
 func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
-	command, args, err := extractCommandAndArgs(e.config)
+	settings, err := config.ParseCLIProcessorSettings(e.config)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 
 	// Create command with context for timeout.
 	// #nosec G204 -- intentional execution of trusted user-configured processor command.
-	cmd := exec.CommandContext(ctx, command, args...)
+	cmd := exec.CommandContext(ctx, settings.Command, settings.Args...)
 	cmd.Dir = e.WorkingDir
 
 	// Marshal input to JSON for stdin.
@@ -74,7 +74,7 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 	cmd.Stderr = &stderr
 
 	// Execute the command.
-	common.LogDebug("[PROCESSOR:CLI] '%s': executing command: %s", e.config.Name, command)
+	common.LogDebug("[PROCESSOR:CLI] '%s': executing command: %s", e.config.Name, settings.Command)
 	err = cmd.Run()
 
 	// Handle timeout.
@@ -110,34 +110,4 @@ func (e *CLIProcessor) Process(input *DataContext) (*DataContext, error) {
 	}
 
 	return output, nil
-}
-
-// extractCommandAndArgs extracts command and arguments from processor config.
-func extractCommandAndArgs(processorConfig *config.ProcessorConfig) (string, []string, error) {
-	// Extract command from config.
-	// TODO: we could provide dedicated structs for the different processors as config
-	// if we were using interfaces this would likely make things easier here
-	command, ok := processorConfig.Config["command"].(string)
-	if !ok {
-		return "", nil, fmt.Errorf("processor '%s': config.command must be a string", processorConfig.Name)
-	}
-
-	// Extract args (optional).
-	var args []string
-	if argsInterface, exists := processorConfig.Config["args"]; exists {
-		argsArray, ok := argsInterface.([]interface{})
-		if !ok {
-			return "", nil, fmt.Errorf("processor '%s': config.args must be an array", processorConfig.Name)
-		}
-		// Convert []interface{} to []string.
-		for _, arg := range argsArray {
-			argStr, ok := arg.(string)
-			if !ok {
-				return "", nil, fmt.Errorf("processor '%s': config.args must contain only strings", processorConfig.Name)
-			}
-			args = append(args, argStr)
-		}
-	}
-
-	return command, args, nil
 }

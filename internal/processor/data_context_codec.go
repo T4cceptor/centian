@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/T4cceptor/centian/internal/common"
-	"github.com/T4cceptor/centian/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -77,17 +76,12 @@ func cloneRequestForDTO(req *mcp.CallToolRequest) *callToolRequestDTO {
 	return &callToolRequestDTO{Params: params}
 }
 
-func expandProcessorHeaderConfig(raw interface{}) (map[string]string, error) {
-	headers, err := config.ProcessorConfigStringMap(raw)
-	if err != nil {
-		return nil, err
-	}
-
+func expandProcessorHeaders(headers map[string]string) map[string]string {
 	expanded := make(map[string]string, len(headers))
 	for key, value := range headers {
 		expanded[key] = os.Expand(value, os.Getenv)
 	}
-	return expanded, nil
+	return expanded
 }
 
 func decodeProcessorJSONOutput(processorName string, stdout []byte) (*DataContext, error) {

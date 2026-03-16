@@ -601,16 +601,21 @@ func TestProcess_WebhookProcessorMutatesRequestAndResult(t *testing.T) {
 		firstContent := content[0].(map[string]any)
 		assert.Equal(t, "before", firstContent["text"])
 
-		assert.NilError(t, json.NewEncoder(w).Encode(&processor.DataContext{
-			Payload: &processor.PayloadPart{
-				Request: &mcp.CallToolRequest{
-					Params: &mcp.CallToolParamsRaw{
-						Name:      "webhook-tool",
-						Arguments: json.RawMessage(`{"step":"webhook"}`),
+		assert.NilError(t, json.NewEncoder(w).Encode(map[string]any{
+			"payload": map[string]any{
+				"request": map[string]any{
+					"Params": map[string]any{
+						"name":      "webhook-tool",
+						"arguments": json.RawMessage(`{"step":"webhook"}`),
 					},
 				},
-				Result: &mcp.CallToolResult{
-					Content: []mcp.Content{&mcp.TextContent{Text: "after"}},
+				"result": map[string]any{
+					"content": []map[string]any{
+						{
+							"type": "text",
+							"text": "after",
+						},
+					},
 				},
 			},
 		}))

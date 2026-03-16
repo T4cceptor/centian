@@ -69,12 +69,12 @@ func TestWebhookProcessorProcess(t *testing.T) {
 			assert.DeepEqual(t, params["_meta"], map[string]any{"progressToken": "token-1"})
 
 			w.Header().Set("Content-Type", "application/json")
-			assert.NilError(t, json.NewEncoder(w).Encode(&DataContext{
-				Payload: &PayloadPart{
-					Request: &mcp.CallToolRequest{
-						Params: &mcp.CallToolParamsRaw{
-							Name:      "tool-b",
-							Arguments: json.RawMessage(`{"b":2}`),
+			assert.NilError(t, json.NewEncoder(w).Encode(map[string]any{
+				"payload": map[string]any{
+					"request": map[string]any{
+						"Params": map[string]any{
+							"name":      "tool-b",
+							"arguments": json.RawMessage(`{"b":2}`),
 						},
 					},
 				},

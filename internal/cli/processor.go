@@ -86,19 +86,7 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 	processorType := cmd.String("type")
 	urlValue := cmd.String("url")
 	headerValues := cmd.StringSlice("header")
-
-	// Infer name from filename if not provided.
-	name := cmd.String("name")
-	if name == "" {
-		switch processorType {
-		case string(config.CLIProcessor):
-			name = config.InferProcessorNameFromPath(path)
-		case string(config.WebhookProcessor):
-			name = config.InferProcessorNameFromWebhookURL(urlValue)
-		default:
-			name = config.InferProcessorNameFromPath(path)
-		}
-	}
+	name := inferProcessorAddName(cmd.String("name"), processorType, path, urlValue)
 
 	// Handle duplicate name.
 	if cfg.HasProcessor(name) {
@@ -117,67 +105,9 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	enabled := true
-	processorConfig := &config.ProcessorConfig{
-		Name:    name,
-		Type:    processorType,
-		Enabled: enabled,
-		Timeout: 15,
-	}
-	var summary string
-
-	switch processorType {
-	case string(config.CLIProcessor):
-		if path == "" {
-			return fmt.Errorf("--path is required for cli processors")
-		}
-		if urlValue != "" {
-			return fmt.Errorf("--url is only supported for webhook processors")
-		}
-		if len(headerValues) > 0 {
-			return fmt.Errorf("--header is only supported for webhook processors")
-		}
-
-		command, args, err := config.InferCommandFromPath(path)
-		if err != nil {
-			return err
-		}
-
-		configArgs := make([]interface{}, len(args))
-		for i, a := range args {
-			configArgs[i] = a
-		}
-		processorConfig.Config = map[string]interface{}{
-			"command": command,
-			"args":    configArgs,
-		}
-		summary = fmt.Sprintf("command: %s %s", command, strings.Join(args, " "))
-	case string(config.WebhookProcessor):
-		if path != "" {
-			return fmt.Errorf("--path is not supported for webhook processors")
-		}
-		if urlValue == "" {
-			return fmt.Errorf("--url is required for webhook processors")
-		}
-
-		headers, err := parseProcessorHeaderFlags(headerValues)
-		if err != nil {
-			return err
-		}
-		headerConfig := make(map[string]interface{}, len(headers))
-		for key, value := range headers {
-			headerConfig[key] = value
-		}
-
-		processorConfig.Config = map[string]interface{}{
-			"url": urlValue,
-		}
-		if len(headerConfig) > 0 {
-			processorConfig.Config["headers"] = headerConfig
-		}
-		summary = fmt.Sprintf("webhook: %s", urlValue)
-	default:
-		return fmt.Errorf("unsupported processor type '%s'", processorType)
+	processorConfig, summary, err := buildProcessorAddConfig(name, processorType, path, urlValue, headerValues)
+	if err != nil {
+		return err
 	}
 
 	// Add or replace.
@@ -193,6 +123,108 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 
 	fmt.Printf("✅ Added processor '%s' (%s)\n", name, summary)
 	return nil
+}
+
+func inferProcessorAddName(explicitName, processorType, path, urlValue string) string {
+	if explicitName != "" {
+		return explicitName
+	}
+
+	switch processorType {
+	case string(config.CLIProcessor):
+		return config.InferProcessorNameFromPath(path)
+	case string(config.WebhookProcessor):
+		return config.InferProcessorNameFromWebhookURL(urlValue)
+	default:
+		return config.InferProcessorNameFromPath(path)
+	}
+}
+
+func buildProcessorAddConfig(
+	name string,
+	processorType string,
+	path string,
+	urlValue string,
+	headerValues []string,
+) (*config.ProcessorConfig, string, error) {
+	processorConfig := &config.ProcessorConfig{
+		Name:    name,
+		Type:    processorType,
+		Enabled: true,
+		Timeout: 15,
+	}
+
+	switch processorType {
+	case string(config.CLIProcessor):
+		return buildCLIProcessorAddConfig(processorConfig, path, urlValue, headerValues)
+	case string(config.WebhookProcessor):
+		return buildWebhookProcessorAddConfig(processorConfig, path, urlValue, headerValues)
+	default:
+		return nil, "", fmt.Errorf("unsupported processor type '%s'", processorType)
+	}
+}
+
+func buildCLIProcessorAddConfig(
+	processorConfig *config.ProcessorConfig,
+	path string,
+	urlValue string,
+	headerValues []string,
+) (*config.ProcessorConfig, string, error) {
+	if path == "" {
+		return nil, "", fmt.Errorf("--path is required for cli processors")
+	}
+	if urlValue != "" {
+		return nil, "", fmt.Errorf("--url is only supported for webhook processors")
+	}
+	if len(headerValues) > 0 {
+		return nil, "", fmt.Errorf("--header is only supported for webhook processors")
+	}
+
+	command, args, err := config.InferCommandFromPath(path)
+	if err != nil {
+		return nil, "", err
+	}
+
+	configArgs := make([]interface{}, len(args))
+	for i, a := range args {
+		configArgs[i] = a
+	}
+	processorConfig.Config = map[string]interface{}{
+		"command": command,
+		"args":    configArgs,
+	}
+	return processorConfig, fmt.Sprintf("command: %s %s", command, strings.Join(args, " ")), nil
+}
+
+func buildWebhookProcessorAddConfig(
+	processorConfig *config.ProcessorConfig,
+	path string,
+	urlValue string,
+	headerValues []string,
+) (*config.ProcessorConfig, string, error) {
+	if path != "" {
+		return nil, "", fmt.Errorf("--path is not supported for webhook processors")
+	}
+	if urlValue == "" {
+		return nil, "", fmt.Errorf("--url is required for webhook processors")
+	}
+
+	headers, err := parseProcessorHeaderFlags(headerValues)
+	if err != nil {
+		return nil, "", err
+	}
+	headerConfig := make(map[string]interface{}, len(headers))
+	for key, value := range headers {
+		headerConfig[key] = value
+	}
+
+	processorConfig.Config = map[string]interface{}{
+		"url": urlValue,
+	}
+	if len(headerConfig) > 0 {
+		processorConfig.Config["headers"] = headerConfig
+	}
+	return processorConfig, fmt.Sprintf("webhook: %s", urlValue), nil
 }
 
 func parseProcessorHeaderFlags(values []string) (map[string]string, error) {

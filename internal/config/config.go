@@ -21,6 +21,8 @@ const (
 	CLIProcessor ProcessorType = "cli"
 	// WebhookProcessor represents the type of a webhook-based processor -> "webhook".
 	WebhookProcessor ProcessorType = "webhook"
+	httpScheme       string        = "http"
+	httpsScheme      string        = "https"
 )
 
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
@@ -235,6 +237,30 @@ type ProcessorConfig struct {
 	// processing without causing the whole processor chain to fail.
 	// If set to true, a failure will cause subsequent processors NOT to run.
 	Required bool `json:"required"`
+}
+
+// CLIProcessorSettings contains parsed runtime settings for a CLI processor.
+type CLIProcessorSettings struct {
+	Command string
+	Args    []string
+}
+
+// WebhookProcessorSettings contains parsed runtime settings for a webhook processor.
+type WebhookProcessorSettings struct {
+	URL     string
+	Headers map[string]string
+}
+
+var allowedProcessorParts = map[string]bool{
+	"payload": true,
+	"meta":    true,
+	"routing": true,
+	"auth":    true,
+}
+
+var allowedWebhookConfigKeys = map[string]bool{
+	"url":     true,
+	"headers": true,
 }
 
 // GetParts returns the configured parts, defaulting to ["payload"] if not specified.
@@ -468,7 +494,7 @@ func isValidHTTPURL(urlStr string) bool {
 		return false
 	}
 	// Must have http or https scheme and a host.
-	return (parsedURL.Scheme == "http" || parsedURL.Scheme == "https") && parsedURL.Host != ""
+	return (parsedURL.Scheme == httpScheme || parsedURL.Scheme == httpsScheme) && parsedURL.Host != ""
 }
 
 // validateGateway validates a gateway configuration.
@@ -598,14 +624,8 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 }
 
 func validateProcessorParts(processor *ProcessorConfig) error {
-	allowedParts := map[string]bool{
-		"payload": true,
-		"meta":    true,
-		"routing": true,
-		"auth":    true,
-	}
 	for _, part := range processor.GetParts() {
-		if !allowedParts[part] {
+		if !allowedProcessorParts[part] {
 			return fmt.Errorf("processor '%s': unsupported part '%s' (allowed: payload, meta, routing, auth)", processor.Name, part)
 		}
 	}
@@ -693,53 +713,94 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 	//nolint:gocritic // switch used for future extensibility with additional processor types
 	switch ProcessorType(processor.Type) {
 	case CLIProcessor:
-		// CLI processors require command field in config.
-		command, ok := processor.Config["command"]
-		if !ok {
-			return fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
-		}
-		if _, ok := command.(string); !ok {
-			return fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
-		}
-
-		// Args is optional but must be array if present.
-		if args, exists := processor.Config["args"]; exists {
-			if _, ok := args.([]interface{}); !ok {
-				return fmt.Errorf("processor '%s': config.args must be an array", processor.Name)
-			}
-		}
+		_, err := ParseCLIProcessorSettings(processor)
+		return err
 	case WebhookProcessor:
-		urlValue, ok := processor.Config["url"]
-		if !ok {
-			return fmt.Errorf("processor '%s': config.url is required for webhook type", processor.Name)
-		}
-		urlString, ok := urlValue.(string)
-		if !ok {
-			return fmt.Errorf("processor '%s': config.url must be a string", processor.Name)
-		}
-		parsedURL, err := url.Parse(urlString)
-		if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
-			return fmt.Errorf("processor '%s': config.url must be a valid http/https URL", processor.Name)
-		}
-		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-			return fmt.Errorf("processor '%s': config.url must use http or https", processor.Name)
-		}
-
-		if headersValue, exists := processor.Config["headers"]; exists {
-			if _, err := ProcessorConfigStringMap(headersValue); err != nil {
-				return fmt.Errorf("processor '%s': config.headers must be an object with string values", processor.Name)
-			}
-		}
-
-		for key := range processor.Config {
-			switch key {
-			case "url", "headers":
-			default:
-				return fmt.Errorf("processor '%s': config.%s is unsupported for webhook type", processor.Name, key)
-			}
-		}
+		_, err := ParseWebhookProcessorSettings(processor)
+		return err
 	}
 	return nil
+}
+
+// ParseCLIProcessorSettings validates and extracts CLI processor settings.
+func ParseCLIProcessorSettings(processor *ProcessorConfig) (*CLIProcessorSettings, error) {
+	command, ok := processor.Config["command"]
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.command is required for cli type", processor.Name)
+	}
+	commandValue, ok := command.(string)
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.command must be a string", processor.Name)
+	}
+
+	args, err := processorConfigStringSlice(processor.Name, processor.Config["args"])
+	if err != nil {
+		return nil, err
+	}
+
+	return &CLIProcessorSettings{
+		Command: commandValue,
+		Args:    args,
+	}, nil
+}
+
+// ParseWebhookProcessorSettings validates and extracts webhook processor settings.
+func ParseWebhookProcessorSettings(processor *ProcessorConfig) (*WebhookProcessorSettings, error) {
+	urlValue, ok := processor.Config["url"]
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.url is required for webhook type", processor.Name)
+	}
+	urlString, ok := urlValue.(string)
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.url must be a string", processor.Name)
+	}
+	parsedURL, err := url.Parse(urlString)
+	if err != nil || parsedURL == nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return nil, fmt.Errorf("processor '%s': config.url must be a valid http/https URL", processor.Name)
+	}
+	if parsedURL.Scheme != httpScheme && parsedURL.Scheme != httpsScheme {
+		return nil, fmt.Errorf("processor '%s': config.url must use http or https", processor.Name)
+	}
+
+	headers := make(map[string]string)
+	if headersValue, exists := processor.Config["headers"]; exists {
+		headers, err = ProcessorConfigStringMap(headersValue)
+		if err != nil {
+			return nil, fmt.Errorf("processor '%s': config.headers must be an object with string values", processor.Name)
+		}
+	}
+
+	for key := range processor.Config {
+		if !allowedWebhookConfigKeys[key] {
+			return nil, fmt.Errorf("processor '%s': config.%s is unsupported for webhook type", processor.Name, key)
+		}
+	}
+
+	return &WebhookProcessorSettings{
+		URL:     urlString,
+		Headers: headers,
+	}, nil
+}
+
+func processorConfigStringSlice(processorName string, value interface{}) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	argsArray, ok := value.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.args must be an array", processorName)
+	}
+
+	args := make([]string, 0, len(argsArray))
+	for _, arg := range argsArray {
+		argStr, ok := arg.(string)
+		if !ok {
+			return nil, fmt.Errorf("processor '%s': config.args must contain only strings", processorName)
+		}
+		args = append(args, argStr)
+	}
+	return args, nil
 }
 
 // ProcessorConfigStringMap converts a config value into a string map.
