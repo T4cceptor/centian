@@ -43,18 +43,6 @@ type serverCommand struct {
 	Env     map[string]string
 }
 
-type warmupCommand struct {
-	Command           string
-	Args              []string
-	IncludeRuntimeEnv bool
-	Timeout           time.Duration
-}
-
-type bootstrapConfig struct {
-	Warmup             *warmupCommand
-	RetryDirectStartup bool
-}
-
 type modeFixture struct {
 	RootDir       string
 	Roots         []*mcp.Root
@@ -82,7 +70,6 @@ type serverManifest struct {
 	ExpectedTools  []string
 	BuildFixture   func(*testing.T) *fixtureBundle
 	Normalize      resultNormalizer
-	Bootstrap      *bootstrapConfig
 }
 
 type instrumentedSession struct {
@@ -97,12 +84,9 @@ type connectionPair struct {
 }
 
 type realworldHarness struct {
-	manifest       *serverManifest
-	fixture        *fixtureBundle
-	directCommand  serverCommand
-	proxiedCommand serverCommand
-	proxyURL       string
-	warmupRan      bool
+	manifest *serverManifest
+	fixture  *fixtureBundle
+	proxyURL string
 }
 
 func newRealworldHarness(t *testing.T, manifest *serverManifest) *realworldHarness {
@@ -111,26 +95,13 @@ func newRealworldHarness(t *testing.T, manifest *serverManifest) *realworldHarne
 	requireRealworldEnabled(t)
 
 	fixture := manifest.BuildFixture(t)
-	directCommand := loadServerCommand(t, manifest, modeDirect, fixture)
 	proxiedCommand := loadServerCommand(t, manifest, modeProxied, fixture)
-
-	warmupRan := false
-	if err := runManifestWarmup(t, manifest, directCommand); err != nil {
-		t.Fatalf("failed to warm up %s server bootstrap: %v", manifest.Name, err)
-	}
-	if manifest.Bootstrap != nil && manifest.Bootstrap.Warmup != nil {
-		warmupRan = true
-	}
-
 	proxyURL := startCentianProxyForRealworld(t, manifest, proxiedCommand)
 
 	return &realworldHarness{
-		manifest:       manifest,
-		fixture:        fixture,
-		directCommand:  directCommand,
-		proxiedCommand: proxiedCommand,
-		proxyURL:       proxyURL,
-		warmupRan:      warmupRan,
+		manifest: manifest,
+		fixture:  fixture,
+		proxyURL: proxyURL,
 	}
 }
 
@@ -179,45 +150,22 @@ func (h *realworldHarness) connectPair(t *testing.T) *connectionPair {
 func (h *realworldHarness) connectDirect(t *testing.T) *instrumentedSession {
 	t.Helper()
 
-	session, state, err := connectWithBootstrapRetry(
-		func() (*instrumentedSession, string, error) {
-			return connectDirectSession(t, h.directCommand, fixtureForMode(h.fixture, modeDirect).Roots)
-		},
-		func(session *instrumentedSession) {
-			if session == nil || session.session == nil {
-				return
-			}
-			_ = session.session.Close()
-		},
-		func(session *instrumentedSession) error {
-			return probeSessionReady(session)
-		},
-		func() error {
-			return runManifestWarmup(t, h.manifest, h.directCommand)
-		},
-		h.manifest.Bootstrap != nil && h.manifest.Bootstrap.RetryDirectStartup,
-	)
-	if err != nil {
-		t.Fatalf(
-			"failed to connect %s session: %v\ncommand: %q\nargs: %v\nwarmup ran: %t\nretry attempt: %t\nstderr: %s",
-			modeDirect,
-			err,
-			h.directCommand.Command,
-			h.directCommand.Args,
-			h.warmupRan || state.RetryWarmupRan,
-			state.Retried,
-			state.Stderr,
-		)
-	}
+	command := loadServerCommand(t, h.manifest, modeDirect, h.fixture)
+	cmd := exec.Command(command.Command, command.Args...)
+	cmd.Env = mergeEnv(os.Environ(), command.Env)
 
-	registerSessionCleanup(t, session)
-	return session
+	return connectInstrumentedSession(
+		t,
+		modeDirect,
+		fixtureForMode(h.fixture, modeDirect).Roots,
+		&mcp.CommandTransport{Command: cmd},
+	)
 }
 
 func (h *realworldHarness) connectViaCentian(t *testing.T) *instrumentedSession {
 	t.Helper()
 
-	session, err := connectInstrumentedSession(
+	return connectInstrumentedSession(
 		t,
 		modeProxied,
 		fixtureForMode(h.fixture, modeProxied).Roots,
@@ -226,11 +174,6 @@ func (h *realworldHarness) connectViaCentian(t *testing.T) *instrumentedSession 
 			HTTPClient: &http.Client{Timeout: defaultSessionTimeout},
 		},
 	)
-	if err != nil {
-		t.Fatalf("failed to connect %s session: %v", modeProxied, err)
-	}
-	registerSessionCleanup(t, session)
-	return session
 }
 
 func connectInstrumentedSession(
@@ -238,7 +181,7 @@ func connectInstrumentedSession(
 	mode serverMode,
 	roots []*mcp.Root,
 	transport mcp.Transport,
-) (*instrumentedSession, error) {
+) *instrumentedSession {
 	t.Helper()
 
 	client := newClientWithRoots(roots)
@@ -247,194 +190,19 @@ func connectInstrumentedSession(
 
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, err
+		t.Fatalf("failed to connect %s session: %v", mode, err)
 	}
+	t.Cleanup(func() {
+		if closeErr := session.Close(); closeErr != nil {
+			t.Fatalf("failed to close %s session: %v", mode, closeErr)
+		}
+	})
 
 	return &instrumentedSession{
 		mode:    mode,
 		client:  client,
 		session: session,
-	}, nil
-}
-
-type bootstrapRetryState struct {
-	Retried        bool
-	RetryWarmupRan bool
-	Stderr         string
-}
-
-func connectDirectSession(t *testing.T, command serverCommand, roots []*mcp.Root) (*instrumentedSession, string, error) {
-	t.Helper()
-
-	cmd := exec.Command(command.Command, command.Args...)
-	cmd.Env = mergeEnv(os.Environ(), command.Env)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	session, err := connectInstrumentedSession(
-		t,
-		modeDirect,
-		roots,
-		&mcp.CommandTransport{Command: cmd},
-	)
-	return session, strings.TrimSpace(stderr.String()), err
-}
-
-func registerSessionCleanup(t *testing.T, session *instrumentedSession) {
-	t.Helper()
-
-	t.Cleanup(func() {
-		if closeErr := session.session.Close(); closeErr != nil {
-			t.Fatalf("failed to close %s session: %v", session.mode, closeErr)
-		}
-	})
-}
-
-func probeSessionReady(session *instrumentedSession) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultToolsWaitTimeout)
-	defer cancel()
-
-	toolsResult, err := waitForTools(ctx, session.session)
-	if err != nil {
-		return err
 	}
-	if len(toolsResult.Tools) == 0 {
-		return errors.New("no tools discovered before readiness probe timeout")
-	}
-	return nil
-}
-
-func connectWithBootstrapRetry(
-	connect func() (*instrumentedSession, string, error),
-	closeSession func(*instrumentedSession),
-	verify func(*instrumentedSession) error,
-	runWarmup func() error,
-	retryEnabled bool,
-) (*instrumentedSession, bootstrapRetryState, error) {
-	session, stderr, err := connect()
-	state := bootstrapRetryState{Stderr: stderr}
-	if err == nil && verify != nil {
-		err = verify(session)
-	}
-	if err == nil {
-		return session, state, nil
-	}
-
-	if session != nil {
-		closeSession(session)
-	}
-	if !retryEnabled || !isRetryableBootstrapError(err) {
-		return nil, state, err
-	}
-
-	state.Retried = true
-	if runWarmup != nil {
-		if warmupErr := runWarmup(); warmupErr != nil {
-			state.RetryWarmupRan = true
-			return nil, state, fmt.Errorf("retry warmup failed: %w", warmupErr)
-		}
-		state.RetryWarmupRan = true
-	}
-
-	session, retryStderr, err := connect()
-	if retryStderr != "" {
-		state.Stderr = retryStderr
-	}
-	if err == nil && verify != nil {
-		err = verify(session)
-	}
-	if err != nil {
-		if session != nil {
-			closeSession(session)
-		}
-		return nil, state, err
-	}
-
-	return session, state, nil
-}
-
-func isRetryableBootstrapError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	message := err.Error()
-	return strings.Contains(message, "looking for beginning of value") ||
-		strings.Contains(message, "unexpected EOF") ||
-		strings.Contains(message, "broken pipe") ||
-		strings.Contains(message, "connection reset by peer") ||
-		strings.Contains(message, "exit status")
-}
-
-func runManifestWarmup(t *testing.T, manifest *serverManifest, runtime serverCommand) error {
-	t.Helper()
-
-	command, timeout, ok := resolveWarmupCommand(manifest, runtime)
-	if !ok {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, command.Command, command.Args...)
-	cmd.Env = mergeEnv(os.Environ(), command.Env)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf(
-			"command=%q args=%v stdout=%q stderr=%q: %w",
-			command.Command,
-			command.Args,
-			strings.TrimSpace(stdout.String()),
-			strings.TrimSpace(stderr.String()),
-			err,
-		)
-	}
-
-	return nil
-}
-
-func resolveWarmupCommand(manifest *serverManifest, runtime serverCommand) (serverCommand, time.Duration, bool) {
-	if manifest.Bootstrap == nil || manifest.Bootstrap.Warmup == nil {
-		return serverCommand{}, 0, false
-	}
-
-	warmup := manifest.Bootstrap.Warmup
-	command := serverCommand{
-		Command: runtime.Command,
-		Args:    append([]string(nil), warmup.Args...),
-	}
-	if warmup.Command != "" {
-		command.Command = warmup.Command
-	}
-	if warmup.IncludeRuntimeEnv {
-		command.Env = mapsClone(runtime.Env)
-	}
-
-	timeout := warmup.Timeout
-	if timeout <= 0 {
-		timeout = 15 * time.Second
-	}
-
-	return command, timeout, true
-}
-
-func mapsClone(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-
-	cloned := make(map[string]string, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 func newClientWithRoots(roots []*mcp.Root) *mcp.Client {
@@ -968,179 +736,4 @@ func replaceStrings(value any, replacements map[string]string) any {
 	default:
 		return typed
 	}
-}
-
-func TestResolveWarmupCommandUsesRuntimeEnvByDefault(t *testing.T) {
-	manifest := &serverManifest{
-		Bootstrap: &bootstrapConfig{
-			Warmup: &warmupCommand{
-				Args:              []string{"tool", "--help"},
-				IncludeRuntimeEnv: true,
-				Timeout:           3 * time.Second,
-			},
-		},
-	}
-	runtime := serverCommand{
-		Command: "uvx",
-		Args:    []string{"mcp-server-fetch"},
-		Env:     map[string]string{"FETCH_TOKEN": "secret"},
-	}
-
-	command, timeout, ok := resolveWarmupCommand(manifest, runtime)
-
-	if !ok {
-		t.Fatalf("expected warmup command to resolve")
-	}
-	if command.Command != "uvx" {
-		t.Fatalf("expected runtime command to be reused, got %q", command.Command)
-	}
-	if !slices.Equal(command.Args, []string{"tool", "--help"}) {
-		t.Fatalf("unexpected warmup args: %v", command.Args)
-	}
-	if timeout != 3*time.Second {
-		t.Fatalf("unexpected warmup timeout: %v", timeout)
-	}
-	if !mapsEqual(command.Env, runtime.Env) {
-		t.Fatalf("expected runtime env to be forwarded, got %v", command.Env)
-	}
-	command.Env["FETCH_TOKEN"] = "changed"
-	if runtime.Env["FETCH_TOKEN"] != "secret" {
-		t.Fatalf("expected warmup env map to be cloned")
-	}
-}
-
-func TestResolveWarmupCommandSkippedWithoutConfig(t *testing.T) {
-	command, timeout, ok := resolveWarmupCommand(&serverManifest{}, serverCommand{Command: "uvx"})
-	if ok {
-		t.Fatalf("expected warmup to be skipped, got command=%+v timeout=%v", command, timeout)
-	}
-}
-
-func TestConnectWithBootstrapRetryDoesNotRetryWhenDisabled(t *testing.T) {
-	connectCalls := 0
-	warmupCalls := 0
-
-	_, state, err := connectWithBootstrapRetry(
-		func() (*instrumentedSession, string, error) {
-			connectCalls++
-			return nil, "stderr", errors.New("invalid character 'a' looking for beginning of value")
-		},
-		func(*instrumentedSession) {},
-		nil,
-		func() error {
-			warmupCalls++
-			return nil
-		},
-		false,
-	)
-
-	if err == nil {
-		t.Fatalf("expected bootstrap failure")
-	}
-	if connectCalls != 1 {
-		t.Fatalf("expected one connect attempt, got %d", connectCalls)
-	}
-	if warmupCalls != 0 {
-		t.Fatalf("expected no retry warmup, got %d", warmupCalls)
-	}
-	if state.Retried {
-		t.Fatalf("expected retry to remain disabled")
-	}
-}
-
-func TestConnectWithBootstrapRetryRetriesOnceAfterWarmup(t *testing.T) {
-	connectCalls := 0
-	warmupCalls := 0
-	closeCalls := 0
-
-	_, state, err := connectWithBootstrapRetry(
-		func() (*instrumentedSession, string, error) {
-			connectCalls++
-			if connectCalls == 1 {
-				return nil, "first stderr", errors.New("invalid character 'a' looking for beginning of value")
-			}
-			return &instrumentedSession{mode: modeDirect}, "second stderr", nil
-		},
-		func(*instrumentedSession) {
-			closeCalls++
-		},
-		func(*instrumentedSession) error { return nil },
-		func() error {
-			warmupCalls++
-			return nil
-		},
-		true,
-	)
-
-	if err != nil {
-		t.Fatalf("expected retry to recover, got %v", err)
-	}
-	if connectCalls != 2 {
-		t.Fatalf("expected two connect attempts, got %d", connectCalls)
-	}
-	if warmupCalls != 1 {
-		t.Fatalf("expected one retry warmup, got %d", warmupCalls)
-	}
-	if closeCalls != 0 {
-		t.Fatalf("expected no session close on connect failure, got %d", closeCalls)
-	}
-	if !state.Retried || !state.RetryWarmupRan {
-		t.Fatalf("expected retry state to record warmup and retry, got %+v", state)
-	}
-	if state.Stderr != "second stderr" {
-		t.Fatalf("expected final stderr to be retained, got %q", state.Stderr)
-	}
-}
-
-func TestConnectWithBootstrapRetryDoesNotRetryNonBootstrapErrors(t *testing.T) {
-	connectCalls := 0
-	warmupCalls := 0
-	closeCalls := 0
-
-	_, state, err := connectWithBootstrapRetry(
-		func() (*instrumentedSession, string, error) {
-			connectCalls++
-			return &instrumentedSession{mode: modeDirect}, "stderr", nil
-		},
-		func(*instrumentedSession) {
-			closeCalls++
-		},
-		func(*instrumentedSession) error {
-			return errors.New("tool schema mismatch")
-		},
-		func() error {
-			warmupCalls++
-			return nil
-		},
-		true,
-	)
-
-	if err == nil {
-		t.Fatalf("expected verification failure")
-	}
-	if connectCalls != 1 {
-		t.Fatalf("expected one connect attempt, got %d", connectCalls)
-	}
-	if closeCalls != 1 {
-		t.Fatalf("expected failed verified session to be closed once, got %d", closeCalls)
-	}
-	if warmupCalls != 0 {
-		t.Fatalf("expected no retry warmup for non-bootstrap error, got %d", warmupCalls)
-	}
-	if state.Retried {
-		t.Fatalf("expected no retry for non-bootstrap error")
-	}
-}
-
-func mapsEqual(left, right map[string]string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-
-	for key, leftValue := range left {
-		if right[key] != leftValue {
-			return false
-		}
-	}
-	return true
 }

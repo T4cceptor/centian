@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 var fetchManifest = &serverManifest{
@@ -22,14 +21,6 @@ var fetchManifest = &serverManifest{
 	DefaultArgs:   []string{"--quiet", "--no-progress", "mcp-server-fetch"},
 	ExpectedTools: []string{"fetch"},
 	BuildFixture:  buildFetchFixture,
-	Bootstrap: &bootstrapConfig{
-		Warmup: &warmupCommand{
-			Args:              []string{"--quiet", "--no-progress", "mcp-server-fetch", "--help"},
-			IncludeRuntimeEnv: true,
-			Timeout:           15 * time.Second,
-		},
-		RetryDirectStartup: true,
-	},
 }
 
 func TestFetchToolCatalogParity(t *testing.T) {
