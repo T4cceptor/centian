@@ -189,7 +189,9 @@ func (h *realworldHarness) connectDirect(t *testing.T) *instrumentedSession {
 			}
 			_ = session.session.Close()
 		},
-		probeSessionReady,
+		func(session *instrumentedSession) error {
+			return probeSessionReady(session)
+		},
 		func() error {
 			return runManifestWarmup(t, h.manifest, h.directCommand)
 		},
