@@ -10,6 +10,18 @@ import (
 	"gotest.tools/assert"
 )
 
+type completionForwardConn struct {
+	*MockDownstreamConnection
+	result      *mcp.CompleteResult
+	err         error
+	capturedReq *mcp.CompleteRequest
+}
+
+func (c *completionForwardConn) Complete(_ context.Context, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
+	c.capturedReq = req
+	return c.result, c.err
+}
+
 // TestFindConnectionForResourceURI_DuplicateURIAcrossServers verifies the documented
 // "first match wins" behaviour when the same resource URI is advertised by more than
 // one downstream server.
@@ -238,6 +250,74 @@ func TestForwardUnsubscribe_NormalizesDownstreamMethodError(t *testing.T) {
 	})
 
 	assert.Equal(t, err.Error(), "method not found")
+}
+
+func TestForwardCompletionUsesConnectedDownstream(t *testing.T) {
+	conn := &completionForwardConn{
+		MockDownstreamConnection: &MockDownstreamConnection{
+			serverName: "server-a",
+			Status:     StatusConnected,
+		},
+		result: &mcp.CompleteResult{
+			Completion: mcp.CompletionResultDetails{Values: []string{"one", "two"}},
+		},
+	}
+	proxy := &CentianEndpoint{name: "test"}
+	req := &mcp.CompleteRequest{
+		Params: &mcp.CompleteParams{
+			Argument: mcp.CompleteParamsArgument{Name: "path", Value: "sr"},
+		},
+	}
+	session := &UpstreamSession{
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	result, err := proxy.forwardCompletion(context.Background(), session, req)
+
+	assert.NilError(t, err)
+	assert.DeepEqual(t, result.Completion.Values, []string{"one", "two"})
+	assert.Assert(t, conn.capturedReq == req)
+}
+
+func TestForwardCompletionNormalizesDownstreamMethodError(t *testing.T) {
+	conn := &completionForwardConn{
+		MockDownstreamConnection: &MockDownstreamConnection{
+			serverName: "server-a",
+			Status:     StatusConnected,
+		},
+		err: errors.New(`calling "completion/complete": method not found`),
+	}
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": conn,
+		},
+	}
+
+	result, err := proxy.forwardCompletion(context.Background(), session, &mcp.CompleteRequest{
+		Params: &mcp.CompleteParams{},
+	})
+
+	assert.Assert(t, result == nil)
+	assert.Equal(t, err.Error(), "method not found")
+}
+
+func TestForwardCompletionReturnsErrorWithoutConnectedDownstream(t *testing.T) {
+	proxy := &CentianEndpoint{name: "test"}
+	session := &UpstreamSession{
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": &MockDownstreamConnection{serverName: "server-a", Status: StatusFailed},
+		},
+	}
+
+	result, err := proxy.forwardCompletion(context.Background(), session, &mcp.CompleteRequest{
+		Params: &mcp.CompleteParams{},
+	})
+
+	assert.Assert(t, result == nil)
+	assert.ErrorContains(t, err, "no downstream connection available")
 }
 
 func TestSyncAvailableResourceTemplates_RegistersTemplates(t *testing.T) {
