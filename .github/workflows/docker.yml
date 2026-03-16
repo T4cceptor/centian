@@ -51,8 +51,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           tags: |
-            t4cceptor/centian:${{ steps.version.outputs.version }}-alpine
-            t4cceptor/centian:latest-alpine
+            t4ce/centian:${{ steps.version.outputs.version }}-alpine
+            t4ce/centian:latest-alpine
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -66,8 +66,8 @@ jobs:
           build-args: |
             VERSION=${{ steps.version.outputs.version }}
           tags: |
-            t4cceptor/centian:${{ steps.version.outputs.version }}
-            t4cceptor/centian:latest
+            t4ce/centian:${{ steps.version.outputs.version }}
+            t4ce/centian:latest
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
