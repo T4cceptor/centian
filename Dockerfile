@@ -23,7 +23,7 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /build/centian /usr/local/bin/centian
 
-ENTRYPOINT ["centian"]
+ENTRYPOINT ["centian", "start"]
 
 
 # Stage 3: Full image — Python + Node.js included for stdio MCP servers
@@ -46,4 +46,4 @@ RUN pip install --no-cache-dir -r /tmp/demo-requirements.txt \
 
 COPY demo/src/ /opt/centian/processors/
 
-ENTRYPOINT ["centian"]
+ENTRYPOINT ["centian", "start"]
