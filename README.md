@@ -75,7 +75,7 @@ Example:
 ```
 
 5) **Done!** - you can now log and process all MCP requests proxied by centian.
-    - (Optional): to process requests and responses by downstream MCPs, add a new processor via `centian processor new` and follow the instructions.
+    - (Optional): to process requests and responses by downstream MCPs, add a processor via `centian processor add` or scaffold a CLI processor via `centian processor new`.
 
 
 ## Demo
@@ -225,13 +225,25 @@ This applies to both stateful and stateless upstream MCP traffic. Even if the up
 
 ## Processors
 
-Processors let you enforce policies or transform MCP traffic (request/response). You can scaffold a processor with:
+Processors let you enforce policies or transform MCP traffic (request/response). Centian supports two processor runtimes:
+
+- `cli`: Centian runs a local executable and exchanges JSON over `stdin`/`stdout`
+- `webhook`: Centian sends the same reduced `DataContext` JSON to a remote HTTP endpoint via synchronous `POST`
+
+You can scaffold a CLI processor with:
 
 ```bash
 centian processor new
 ```
 
-The scaffold can optionally add the processor to your config automatically.
+You can also register existing processors directly:
+
+```bash
+centian processor add --path ./processors/audit.py
+centian processor add --type webhook --url https://example.com/processors/audit --header "Authorization=Bearer ${TOKEN}"
+```
+
+CLI and webhook processors use the same `DataContext` contract and can coexist in the same chain.
 
 ## Logging
 

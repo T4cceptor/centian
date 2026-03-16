@@ -28,7 +28,7 @@ func TestNewCLIProcessorAndGetConfig(t *testing.T) {
 	assert.Assert(t, p.GetConfig() == cfg)
 }
 
-func TestExtractCommandAndArgs(t *testing.T) {
+func TestParseCLIProcessorSettings(t *testing.T) {
 	t.Run("success with args", func(t *testing.T) {
 		cfg := &config.ProcessorConfig{
 			Name: "demo",
@@ -38,10 +38,10 @@ func TestExtractCommandAndArgs(t *testing.T) {
 			},
 		}
 
-		command, args, err := extractCommandAndArgs(cfg)
+		settings, err := config.ParseCLIProcessorSettings(cfg)
 		assert.NilError(t, err)
-		assert.Equal(t, command, "python3")
-		assert.DeepEqual(t, args, []string{"script.py", "--flag"})
+		assert.Equal(t, settings.Command, "python3")
+		assert.DeepEqual(t, settings.Args, []string{"script.py", "--flag"})
 	})
 
 	t.Run("success without args", func(t *testing.T) {
@@ -52,10 +52,10 @@ func TestExtractCommandAndArgs(t *testing.T) {
 			},
 		}
 
-		command, args, err := extractCommandAndArgs(cfg)
+		settings, err := config.ParseCLIProcessorSettings(cfg)
 		assert.NilError(t, err)
-		assert.Equal(t, command, "cat")
-		assert.Equal(t, len(args), 0)
+		assert.Equal(t, settings.Command, "cat")
+		assert.Equal(t, len(settings.Args), 0)
 	})
 
 	t.Run("invalid command type", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestExtractCommandAndArgs(t *testing.T) {
 			},
 		}
 
-		_, _, err := extractCommandAndArgs(cfg)
+		_, err := config.ParseCLIProcessorSettings(cfg)
 		assert.Assert(t, err != nil)
 	})
 
@@ -79,7 +79,7 @@ func TestExtractCommandAndArgs(t *testing.T) {
 			},
 		}
 
-		_, _, err := extractCommandAndArgs(cfg)
+		_, err := config.ParseCLIProcessorSettings(cfg)
 		assert.Assert(t, err != nil)
 	})
 
@@ -92,7 +92,7 @@ func TestExtractCommandAndArgs(t *testing.T) {
 			},
 		}
 
-		_, _, err := extractCommandAndArgs(cfg)
+		_, err := config.ParseCLIProcessorSettings(cfg)
 		assert.Assert(t, err != nil)
 	})
 }

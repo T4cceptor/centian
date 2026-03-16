@@ -1,9 +1,9 @@
-# CLI Processor Development Guide
+# Processor Development Guide
 
 **Version:** 1.0
-**Last Updated:** 2025-12-27
+**Last Updated:** 2026-03-16
 
-A comprehensive guide to developing custom processors for Centian.
+A guide to developing custom processors for Centian.
 
 ---
 
@@ -33,12 +33,15 @@ A comprehensive guide to developing custom processors for Centian.
 Before you start, ensure you have:
 
 1. **Centian installed** - Download from [releases](https://github.com/T4cceptor/centian/releases) or build from source
-2. **Language runtime available in PATH**:
+2. **Choose a processor runtime**:
+   - **CLI processor** - local executable/script invoked by Centian
+   - **Webhook processor** - remote HTTP endpoint that accepts JSON `POST` requests
+3. **Language runtime available in PATH** (CLI processors only):
    - **Python 3.x** (recommended) - `python3 --version`
    - **Node.js** (for JavaScript/TypeScript) - `node --version`
    - **Bash with `jq`** (for shell scripts) - `jq --version`
-3. **Text editor** - Any editor (VS Code, vim, nano, etc.)
-4. **Command line access** - Terminal or shell
+4. **Text editor** - Any editor (VS Code, vim, nano, etc.)
+5. **Command line access** - Terminal or shell
 
 **Optional but recommended:**
 - `jq` - JSON validation and formatting tool
@@ -47,30 +50,45 @@ Before you start, ensure you have:
 ### Steps
 Quick-start to get a processor running in minutes:
 
-1. Generate a scaffold:
+1. Choose a runtime:
+   - **CLI**: generate a scaffold
    ```bash
-   ./scripts/create-processor.sh
+   centian processor new
    ```
-2. Modify the scaffolding and implement your processor logic.
-3. Wire it into config (`~/.centian/config.json`):
+   - **Webhook**: implement an HTTP handler that accepts and returns `DataContext` JSON.
+2. Implement your processor logic.
+3. Register it in config (`~/.centian/config.json`) or via `centian processor add`:
    ```json
    {
      "processors": [
        {
-         "name": "my_processor",
-         "type": "cli",
-         "command": "python3",
-         "args": ["/Users/you/centian/processors/my_processor.py"],
-         "enabled": true
+          "name": "my_processor",
+          "type": "cli",
+         "enabled": true,
+         "config": {
+           "command": "python3",
+           "args": ["/Users/you/centian/processors/my_processor.py"]
+         }
+       },
+       {
+         "name": "audit-webhook",
+         "type": "webhook",
+         "enabled": true,
+         "config": {
+           "url": "https://example.com/processors/audit",
+           "headers": {
+             "Authorization": "Bearer ${TOKEN}"
+           }
+         }
        }
      ]
    }
    ```
-4. Test the processor standalone with a sample input and verify JSON output:
+4. Test the processor with a sample `DataContext` and verify JSON output:
    ```bash
-   echo '{"type":"request","payload":{"method":"tools/call","params":{"name":"ping"}}}' | ./my_processor.py | jq
+   echo '{"version":"1.0","payload":{"request":{"Params":{"name":"ping","arguments":{"hello":"world"}}}}}' | ./my_processor.py | jq
    ```
-5. Ensure it returns status 200 to continue, or 40x/50x to reject.
+5. Ensure it returns valid JSON. Processors modify the current context by returning an updated `DataContext`.
 
 ## What is a Processor?
 
@@ -91,28 +109,35 @@ MCP Client → Centian Proxy → [Processor 1] → [Processor 2] → MCP Server
 ```
 
 - Processors execute sequentially in the order defined in your configuration (see `~/.centian/config.json`).
-- Processors receive the message type (request/response), payload, timestamp, and other metadata (see below for more details)
-- Each processor can:
-  - **Allow**: Return status 200 to continue to the next processor
-  - **Reject**: Return status 40x/50x to stop the chain and return an error
-  - **Modify**: Change the payload before passing it along
-- Status codes are derived from HTTP request status codes:
-  - 200 = success
-  - 40x for "expected" errors that are returned to the MCP client/AI agent
-  - 50x for "unexpected" errors
-- Processors can indicate an internal issue by using a none 0 exit code
+- Processors receive a reduced `DataContext` JSON document built from the configured parts (`payload`, `meta`, `routing`, `auth`).
+- A processor modifies the current call by returning an updated `DataContext`.
+- If a processor execution fails:
+  - required processors stop the chain
+  - non-required processors are skipped and later processors still run
 
 ### Communication Model
 
-Processors are **external executables** that Centian runs as child processes:
+Centian supports two processor transports that share the same JSON contract:
 
-- **Input**: JSON via stdin (standard input)
-- **Output**: JSON via stdout (standard output)
-- **Errors**: stderr is currently ignored (use for debugging) - Note: this might change in a future version!
-- **Exit Code**: Indicates processor health
-  - `0` = Processor executed successfully (check JSON status for decision)
-  - `≠ 0` = Processor crashed (treated as 50x error)
-  - Remember: Exit code indicates HEALTH, JSON status indicates DECISION. A processor can successfully execute (exit 0) but still reject a request (status 403). The exit code tells Centian whether the processor ran correctly, while the status code tells Centian what to do with the request.
+- **CLI processors**
+  - Input: JSON via `stdin`
+  - Output: JSON via `stdout`
+  - Errors: `stderr` is ignored by Centian and can be used for debugging
+  - Exit code: non-zero means processor execution failed
+- **Webhook processors**
+  - Transport: synchronous HTTP `POST`
+  - Request body: JSON `DataContext`
+  - Response body: JSON `DataContext`
+  - Non-2xx responses, invalid JSON, transport failures, and timeouts are treated as processor execution failures
+
+Webhook processor v1 constraints:
+
+- synchronous request/response only
+- `POST` only
+- one HTTP request per invocation
+- no retries or backoff
+- no streaming or callback workflows
+- `http` and `https` are allowed, but `https` is recommended outside local development
 
 ---
 
@@ -157,29 +182,46 @@ For interpreted languages (Python, JavaScript):
 
 ## Input Structure
 
-Your processor receives a JSON object via stdin with this structure:
+Processors receive a JSON object with this structure. CLI processors read it from `stdin`; webhook processors receive it as the HTTP request body.
 
 ```json
 {
-  "type": "request",
-  "timestamp": "2025-12-14T10:30:00Z",
-  "connection": {
-    "server_name": "memory",
-    "transport": "stdio",
-    "session_id": "abc123"
+  "version": "1.0",
+  "event": {
+    "timestamp": "2025-12-14T10:30:00Z",
+    "direction": "request"
   },
   "payload": {
-    "method": "tools/call",
-    "params": {
-      "name": "query",
-      "arguments": {
-        "query": "SELECT * FROM users"
+    "request": {
+      "Params": {
+        "name": "query",
+        "arguments": {
+          "query": "SELECT * FROM users"
+        },
+        "_meta": {
+          "progressToken": "abc123"
+        }
+      }
+    },
+    "original_request": {
+      "Params": {
+        "name": "query",
+        "arguments": {
+          "query": "SELECT * FROM users"
+        }
       }
     }
   },
-  "metadata": {
-    "processor_chain": ["processor1", "processor2"],
-    "original_payload": {...}
+  "routing": {
+    "server_name": "memory",
+    "tool_name": "query",
+    "original_server_name": "memory",
+    "original_tool_name": "query"
+  },
+  "auth": {
+    "authenticated": true,
+    "principal_type": "api_key",
+    "gateway": "default"
   }
 }
 ```
@@ -188,127 +230,99 @@ Your processor receives a JSON object via stdin with this structure:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Either `"request"` (client→server) or `"response"` (server→client) |
-| `timestamp` | string | ISO 8601 timestamp of when the message was received |
-| `connection.server_name` | string | Name of the MCP server from config |
-| `connection.transport` | string | Transport method (`"stdio"`, `"http"`, etc.) |
-| `connection.session_id` | string | Unique session identifier |
-| `payload` | object | The actual MCP message (structure varies by method) |
-| `metadata.processor_chain` | array | List of processors that have already processed this message |
-| `metadata.original_payload` | object | The original unmodified payload (before any processors) |
+| `version` | string | Processor DTO version |
+| `event` | object | MCP event metadata when the `meta` part is enabled |
+| `payload.request` | object | Current `tools/call` request payload when the `payload` part is enabled |
+| `payload.original_request` | object | Original upstream request snapshot |
+| `payload.result` | object | Current downstream tool result if one exists |
+| `payload.original_result` | object | Original downstream result snapshot |
+| `routing` | object | Current and original server/tool routing data |
+| `auth` | object | Read-only auth context |
+
+Notes:
+
+- Only configured parts are present.
+- For `tools/call`, request parameters are serialized under `payload.request.Params`.
+- Processors should return the full structures they want Centian to apply. Partial request patching is not supported by the default payload handler.
 
 ---
 
 ## Output Structure
 
-Your processor must output a JSON object to stdout with this structure:
+Processors must return a JSON object with the same `DataContext` shape. CLI processors write it to `stdout`; webhook processors return it as the HTTP response body.
 
 ```json
 {
-  "status": 200,
   "payload": {
-    "method": "tools/call",
-    "params": {...}
-  },
-  "error": null,
-  "metadata": {
-    "processor_name": "my_processor",
-    "modifications": ["sanitized SQL query"]
+    "request": {
+      "Params": {
+        "name": "query",
+        "arguments": {
+          "query": "SELECT id FROM users"
+        }
+      }
+    },
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "sanitized"
+        }
+      ]
+    }
   }
 }
 ```
 
 ### Field Descriptions
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `status` | number | ✅ Yes | HTTP-style status code (200, 403, 500, etc.) |
-| `payload` | object | ✅ Yes | Modified or original payload |
-| `error` | string\|null | ✅ Yes | Error message if status is 40x/50x, otherwise null |
-| `metadata.processor_name` | string | ⚠️ Recommended | Your processor's name for logging |
-| `metadata.modifications` | array | ⚠️ Recommended | List of changes made (for debugging) |
+| Field | Required | Description |
+|-------|----------|-------------|
+| `payload` | No | Updated request/result data to apply |
+| `event` | No | Updated event metadata to apply |
+| `routing` | No | Updated routing data to apply |
+| `auth` | No | Ignored by Centian today; auth is read-only |
 
 ---
 
 ## Status Codes
 
-Use HTTP-style status codes to control flow:
+The current processor contract does not use a top-level `status` field.
 
-### 200 - Success (Continue)
+- Successful processors return a valid `DataContext` JSON document.
+- Processor execution failure is signaled by runtime or transport failure.
+- To block or reshape a tool call, return an updated MCP request or result payload.
 
-**Meaning**: Everything is OK, continue to next processor or forward to MCP server
+### CLI Failure Signals
 
-**Use When:**
-- Request passes validation
-- Payload has been successfully modified
-- No issues detected
+- non-zero exit code
+- invalid JSON on `stdout`
 
-**Example:**
+### Webhook Failure Signals
+
+- non-2xx HTTP response
+- invalid JSON response body
+- timeout or transport error
+
+### Required vs Non-Required
+
+- Required processor failure stops the chain.
+- Non-required processor failure is logged and later processors continue.
+
+### Example
+
 ```json
 {
-  "status": 200,
-  "payload": {...},
-  "error": null
-}
-```
-
-### 40x - Client Error (Reject)
-
-**Meaning**: Request violated a policy or failed validation - stop the chain and return error to client
-
-**Common Codes:**
-- `400` - Bad Request (malformed data)
-- `401` - Unauthorized (authentication required)
-- `403` - Forbidden (policy violation)
-- `429` - Too Many Requests (rate limiting)
-
-**Use When:**
-- Security policy violated
-- Validation failed
-- Rate limit exceeded
-- Prohibited operation attempted
-
-**Example:**
-```json
-{
-  "status": 403,
   "payload": {
-    "error": {
-      "code": -32001,
-      "message": "Delete operations are not allowed",
-      "data": {"policy": "no_deletions"}
+    "result": {
+      "isError": true,
+      "content": [
+        {
+          "type": "text",
+          "text": "Blocked by security policy"
+        }
+      ]
     }
-  },
-  "error": "Delete operations are not allowed",
-  "metadata": {
-    "processor_name": "security_policy"
-  }
-}
-```
-
-### 50x - Server Error (Internal Failure)
-
-**Meaning**: Processor encountered an internal error - stop the chain and return error to client
-
-**Common Codes:**
-- `500` - Internal Server Error (unexpected failure)
-- `503` - Service Unavailable (dependency down)
-- `504` - Gateway Timeout (external call timeout)
-
-**Use When:**
-- Processor logic fails unexpectedly
-- External dependency unavailable
-- Unable to parse input
-- Configuration error
-
-**Example:**
-```json
-{
-  "status": 500,
-  "payload": {},
-  "error": "Failed to connect to validation service",
-  "metadata": {
-    "processor_name": "external_validator"
   }
 }
 ```
@@ -546,9 +560,24 @@ Edit `~/.centian/config.json`:
     {
       "name": "security_policy",
       "type": "cli",
-      "command": "python3",
-      "args": ["/Users/yourname/centian/processors/my_processor.py"],
-      "enabled": true
+      "enabled": true,
+      "parts": ["payload", "meta"],
+      "config": {
+        "command": "python3",
+        "args": ["/Users/yourname/centian/processors/my_processor.py"]
+      }
+    },
+    {
+      "name": "audit_webhook",
+      "type": "webhook",
+      "enabled": true,
+      "parts": ["payload", "routing"],
+      "config": {
+        "url": "https://example.com/processors/audit",
+        "headers": {
+          "Authorization": "Bearer ${TOKEN}"
+        }
+      }
     }
   ]
 }
@@ -559,10 +588,35 @@ Edit `~/.centian/config.json`:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | ✅ Yes | Unique processor identifier |
-| `type` | string | ✅ Yes | Always `"cli"` for v1 |
-| `command` | string | ✅ Yes | Executable to run (`python3`, `node`, etc.) |
-| `args` | array | ✅ Yes | Arguments including script path |
+| `type` | string | ✅ Yes | `"cli"` or `"webhook"` |
 | `enabled` | boolean | ✅ Yes | Whether to execute this processor |
+| `parts` | array | No | Context parts to provide; defaults to `["payload","meta"]` |
+| `timeout` | number | No | Timeout in seconds; defaults to `15` |
+| `config.command` | string | CLI only | Executable to run (`python3`, `node`, etc.) |
+| `config.args` | array | CLI only | Arguments including script path |
+| `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST` |
+| `config.headers` | object | Webhook only | Optional string headers; supports `${VAR}` and `$VAR` env substitution |
+
+### CLI Registration
+
+```bash
+centian processor add --path ./processors/security.py
+```
+
+### Webhook Registration
+
+```bash
+centian processor add --type webhook --url https://example.com/processors/audit \
+  --header "Authorization=Bearer ${TOKEN}" \
+  --header "X-Trace=trace-1"
+```
+
+### Webhook Constraints
+
+- synchronous `POST` only
+- JSON in, JSON out
+- no retries
+- no streaming or async callbacks
 
 ### Multiple Processors
 
@@ -574,23 +628,28 @@ Processors execute in order:
     {
       "name": "logger",
       "type": "cli",
-      "command": "python3",
-      "args": ["~/centian/processors/logger.py"],
-      "enabled": true
+      "enabled": true,
+      "config": {
+        "command": "python3",
+        "args": ["~/centian/processors/logger.py"]
+      }
     },
     {
       "name": "security_check",
-      "type": "cli",
-      "command": "python3",
-      "args": ["~/centian/processors/security.py"],
-      "enabled": true
+      "type": "webhook",
+      "enabled": true,
+      "config": {
+        "url": "https://example.com/processors/security"
+      }
     },
     {
       "name": "sanitizer",
       "type": "cli",
-      "command": "node",
-      "args": ["~/centian/processors/sanitizer.js"],
-      "enabled": true
+      "enabled": true,
+      "config": {
+        "command": "node",
+        "args": ["~/centian/processors/sanitizer.js"]
+      }
     }
   ]
 }
@@ -598,12 +657,11 @@ Processors execute in order:
 
 **Execution Flow:**
 1. Request arrives at Centian
-2. `logger` processes (status 200 → continue)
-3. `security_check` processes (status 200 → continue)
-4. `sanitizer` processes (status 200 → continue)
-5. Request forwarded to MCP server
-6. Response received
-7. Same chain executes in reverse for response
+2. `logger` receives the current `DataContext` and can modify it
+3. `security_check` receives the updated context next
+4. `sanitizer` receives the latest context after that
+5. Updated context is forwarded to the MCP server
+6. Response is attached to the same context and later processors can modify it
 
 ---
 

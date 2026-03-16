@@ -57,6 +57,39 @@ func TestInferProcessorNameFromPath(t *testing.T) {
 	}
 }
 
+func TestInferProcessorNameFromWebhookURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawURL   string
+		expected string
+	}{
+		{
+			name:     "Given: URL with path, When: inferring webhook name, Then: use last path segment",
+			rawURL:   "https://example.com/processors/audit",
+			expected: "audit",
+		},
+		{
+			name:     "Given: URL without path, When: inferring webhook name, Then: use hostname",
+			rawURL:   "https://hooks.example.com",
+			expected: "hooks.example.com",
+		},
+		{
+			name:     "Given: invalid URL, When: inferring webhook name, Then: use fallback",
+			rawURL:   "::bad-url::",
+			expected: "webhook-processor",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := InferProcessorNameFromWebhookURL(tt.rawURL)
+			if result != tt.expected {
+				t.Errorf("InferProcessorNameFromWebhookURL(%q) = %q, want %q", tt.rawURL, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestInferCommandFromPath(t *testing.T) {
 	tests := []struct {
 		name        string

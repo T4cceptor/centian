@@ -101,3 +101,16 @@ func TestApplyClientStateLockedConnectsWithResolvedRoots(t *testing.T) {
 
 	t.Fatal("expected downstream connect with resolved roots")
 }
+
+func TestMarkUpstreamSessionRootsDirty(t *testing.T) {
+	proxy := &CentianEndpoint{
+		upstreamSessions: map[string]*UpstreamSession{
+			"session-1": {id: "session-1", rootsDirty: false},
+		},
+	}
+
+	proxy.markUpstreamSessionRootsDirty("session-1")
+	proxy.markUpstreamSessionRootsDirty("missing")
+
+	assert.Assert(t, proxy.upstreamSessions["session-1"].rootsDirty)
+}

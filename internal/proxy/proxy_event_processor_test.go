@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/auth"
@@ -423,7 +424,7 @@ func TestProcess_ExecutesProcessorsInOrder(t *testing.T) {
 	assert.Assert(t, callCtx.HasResult())
 }
 
-func TestProcess_ProcessorErrorStopsPipeline(t *testing.T) {
+func TestProcess_RequiredProcessorErrorStopsPipeline(t *testing.T) {
 	callCtx := newMockCallContext()
 	callCtx.SetLogHandler(&mockLogHandler{})
 	callCtx.SetHandler("payload", &mockHandler{
@@ -434,7 +435,7 @@ func TestProcess_ProcessorErrorStopsPipeline(t *testing.T) {
 
 	expectedErr := errors.New("processor failed")
 	p1 := &mockProcessor{
-		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}},
+		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}, Required: true},
 		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
 			return nil, expectedErr
 		},
@@ -453,7 +454,52 @@ func TestProcess_ProcessorErrorStopsPipeline(t *testing.T) {
 	assert.Equal(t, 0, p2.callCount)
 }
 
-func TestProcess_ApplyErrorStopsPipeline(t *testing.T) {
+func TestProcess_NonRequiredProcessorErrorContinuesPipeline(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+	callCtx.SetHandler("payload", &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{Request: callCtx.GetRequest()}
+		},
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			if output.Payload != nil && output.Payload.Result != nil {
+				callCtx.SetResult(output.Payload.Result)
+			}
+			return nil
+		},
+	})
+
+	p1 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return nil, errors.New("processor failed")
+		},
+	}
+	p2 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p2", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return &processor.DataContext{
+				Payload: &processor.PayloadPart{
+					Result: &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: "continued"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{p1, p2},
+	}
+
+	err := ep.Process(callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, p1.callCount)
+	assert.Equal(t, 1, p2.callCount)
+	assert.Assert(t, callCtx.HasResult())
+}
+
+func TestProcess_RequiredApplyErrorStopsPipeline(t *testing.T) {
 	callCtx := newMockCallContext()
 	callCtx.SetLogHandler(&mockLogHandler{})
 	callCtx.SetHandler("payload", &mockHandler{
@@ -466,7 +512,7 @@ func TestProcess_ApplyErrorStopsPipeline(t *testing.T) {
 	})
 
 	p1 := &mockProcessor{
-		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}},
+		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}, Required: true},
 		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
 			return &processor.DataContext{Payload: &processor.PayloadPart{}}, nil
 		},
@@ -478,4 +524,206 @@ func TestProcess_ApplyErrorStopsPipeline(t *testing.T) {
 
 	err := ep.Process(callCtx)
 	assert.Assert(t, err != nil)
+}
+
+func TestProcess_NonRequiredApplyErrorContinuesPipeline(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+
+	applyFailures := 0
+	callCtx.SetHandler("payload", &mockHandler{
+		getFn: func(callCtx CallContext, input *processor.DataContext) {
+			input.Payload = &processor.PayloadPart{Request: callCtx.GetRequest()}
+		},
+		applyFn: func(callCtx CallContext, output *processor.DataContext) error {
+			applyFailures++
+			if applyFailures == 1 {
+				return errors.New("apply failed")
+			}
+			if output.Payload != nil && output.Payload.Result != nil {
+				callCtx.SetResult(output.Payload.Result)
+			}
+			return nil
+		},
+	})
+
+	p1 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p1", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return &processor.DataContext{Payload: &processor.PayloadPart{}}, nil
+		},
+	}
+	p2 := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "p2", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return &processor.DataContext{
+				Payload: &processor.PayloadPart{
+					Result: &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: "apply-continued"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{p1, p2},
+	}
+
+	err := ep.Process(callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, p1.callCount)
+	assert.Equal(t, 1, p2.callCount)
+	assert.Assert(t, callCtx.HasResult())
+}
+
+func TestProcess_WebhookProcessorMutatesRequestAndResult(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetResult(&mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: "before"}},
+	})
+	callCtx.SetLogHandler(&mockLogHandler{})
+	callCtx.SetHandler("payload", &DefaultPayloadHandler{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var input map[string]any
+		assert.NilError(t, json.NewDecoder(r.Body).Decode(&input))
+		payload := input["payload"].(map[string]any)
+		request := payload["request"].(map[string]any)
+		params := request["Params"].(map[string]any)
+		assert.Equal(t, "test-tool", params["name"])
+
+		result := payload["result"].(map[string]any)
+		content := result["content"].([]any)
+		firstContent := content[0].(map[string]any)
+		assert.Equal(t, "before", firstContent["text"])
+
+		assert.NilError(t, json.NewEncoder(w).Encode(map[string]any{
+			"payload": map[string]any{
+				"request": map[string]any{
+					"Params": map[string]any{
+						"name":      "webhook-tool",
+						"arguments": json.RawMessage(`{"step":"webhook"}`),
+					},
+				},
+				"result": map[string]any{
+					"content": []map[string]any{
+						{
+							"type": "text",
+							"text": "after",
+						},
+					},
+				},
+			},
+		}))
+	}))
+	defer server.Close()
+
+	ep, err := NewProcessingController([]*config.ProcessorConfig{
+		{
+			Name:    "webhook-request-response",
+			Type:    string(config.WebhookProcessor),
+			Enabled: true,
+			Parts:   []string{"payload"},
+			Timeout: 5,
+			Config: map[string]interface{}{
+				"url": server.URL,
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	err = ep.Process(callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, "webhook-tool", callCtx.GetRequest().Params.Name)
+	assert.Equal(t, `{"step":"webhook"}`, string(callCtx.GetRequest().Params.Arguments))
+	assert.Assert(t, callCtx.HasResult())
+
+	text, ok := callCtx.GetResult().Content[0].(*mcp.TextContent)
+	assert.Assert(t, ok)
+	assert.Equal(t, "after", text.Text)
+}
+
+func TestProcess_WebhookFailureNonRequiredContinues(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+	callCtx.SetHandler("payload", &DefaultPayloadHandler{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	webhookProcessor, err := processor.NewWebhookProcessor(&config.ProcessorConfig{
+		Name:    "webhook-optional",
+		Type:    string(config.WebhookProcessor),
+		Enabled: true,
+		Parts:   []string{"payload"},
+		Timeout: 5,
+		Config: map[string]interface{}{
+			"url": server.URL,
+		},
+	})
+	assert.NilError(t, err)
+
+	fallbackProcessor := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "fallback", Parts: []string{"payload"}},
+		processFn: func(input *processor.DataContext) (*processor.DataContext, error) {
+			return &processor.DataContext{
+				Payload: &processor.PayloadPart{
+					Result: &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: "fallback"}},
+					},
+				},
+			}, nil
+		},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{webhookProcessor, fallbackProcessor},
+	}
+
+	err = ep.Process(callCtx)
+	assert.NilError(t, err)
+	assert.Equal(t, 1, fallbackProcessor.callCount)
+	assert.Assert(t, callCtx.HasResult())
+}
+
+func TestProcess_WebhookFailureRequiredStopsPipeline(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetLogHandler(&mockLogHandler{})
+	callCtx.SetHandler("payload", &DefaultPayloadHandler{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	webhookProcessor, err := processor.NewWebhookProcessor(&config.ProcessorConfig{
+		Name:     "webhook-required",
+		Type:     string(config.WebhookProcessor),
+		Enabled:  true,
+		Required: true,
+		Parts:    []string{"payload"},
+		Timeout:  5,
+		Config: map[string]interface{}{
+			"url": server.URL,
+		},
+	})
+	assert.NilError(t, err)
+
+	fallbackProcessor := &mockProcessor{
+		cfg: &config.ProcessorConfig{Name: "fallback", Parts: []string{"payload"}},
+	}
+
+	ep := &ProcessingController{
+		processors: []processor.ProcessorInterface{webhookProcessor, fallbackProcessor},
+	}
+
+	err = ep.Process(callCtx)
+	assert.Assert(t, err != nil)
+	assert.Equal(t, 0, fallbackProcessor.callCount)
 }

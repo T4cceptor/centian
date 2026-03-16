@@ -97,6 +97,28 @@ func TestProcessorValidation(t *testing.T) {
 			errorMsg:  "unsupported type 'http'",
 		},
 		{
+			name: "valid webhook processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "webhook-processor",
+						Type:    "webhook",
+						Enabled: true,
+						Timeout: 20,
+						Config: map[string]interface{}{
+							"url": "https://example.com/processor",
+							"headers": map[string]interface{}{
+								"Authorization": "Bearer ${TOKEN}",
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
 			name: "duplicate processor names",
 			config: &GlobalConfig{
 				Version:  "1.0.0",
@@ -219,6 +241,104 @@ func TestProcessorValidation(t *testing.T) {
 			errorMsg:  "config.args must be an array",
 		},
 		{
+			name: "webhook processor missing url",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "no-url",
+						Type:    "webhook",
+						Enabled: true,
+						Config:  map[string]interface{}{},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.url is required",
+		},
+		{
+			name: "webhook processor url not string",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "bad-url",
+						Type:    "webhook",
+						Enabled: true,
+						Config: map[string]interface{}{
+							"url": 123,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.url must be a string",
+		},
+		{
+			name: "webhook processor invalid headers shape",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "bad-headers",
+						Type:    "webhook",
+						Enabled: true,
+						Config: map[string]interface{}{
+							"url":     "http://example.com/processor",
+							"headers": "not-an-object",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.headers must be an object with string values",
+		},
+		{
+			name: "webhook processor rejects unsupported method field",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "bad-method",
+						Type:    "webhook",
+						Enabled: true,
+						Config: map[string]interface{}{
+							"url":    "http://example.com/processor",
+							"method": "POST",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.method is unsupported",
+		},
+		{
+			name: "webhook processor rejects retry config",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "bad-retry",
+						Type:    "webhook",
+						Enabled: true,
+						Config: map[string]interface{}{
+							"url": "http://example.com/processor",
+							"retry": map[string]interface{}{
+								"max_attempts": 3,
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.retry is unsupported",
+		},
+		{
 			name: "empty processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",
@@ -323,6 +443,18 @@ func TestProcessorConfigPersistence(t *testing.T) {
 				"args":    []interface{}{"-c", "echo 'logging'"},
 			},
 		},
+		{
+			Name:    "webhook-audit",
+			Type:    "webhook",
+			Enabled: true,
+			Timeout: 25,
+			Config: map[string]interface{}{
+				"url": "https://example.com/audit",
+				"headers": map[string]interface{}{
+					"Authorization": "Bearer ${TOKEN}",
+				},
+			},
+		},
 	}
 
 	// Save config.
@@ -338,8 +470,8 @@ func TestProcessorConfigPersistence(t *testing.T) {
 	}
 
 	// Verify processors were persisted.
-	if len(loadedConfig.Processors) != 2 {
-		t.Fatalf("Expected 2 processors, got %d", len(loadedConfig.Processors))
+	if len(loadedConfig.Processors) != 3 {
+		t.Fatalf("Expected 3 processors, got %d", len(loadedConfig.Processors))
 	}
 
 	// Verify first processor.
@@ -370,6 +502,17 @@ func TestProcessorConfigPersistence(t *testing.T) {
 	}
 	if p2.Enabled {
 		t.Error("Processor 2 should be disabled")
+	}
+
+	p3 := loadedConfig.Processors[2]
+	if p3.Name != "webhook-audit" {
+		t.Errorf("Processor 3 name: expected 'webhook-audit', got '%s'", p3.Name)
+	}
+	if p3.Type != "webhook" {
+		t.Errorf("Processor 3 type: expected 'webhook', got '%s'", p3.Type)
+	}
+	if p3.Timeout != 25 {
+		t.Errorf("Processor 3 timeout: expected 25, got %d", p3.Timeout)
 	}
 }
 

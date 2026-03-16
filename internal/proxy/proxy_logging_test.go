@@ -281,3 +281,35 @@ func TestProxyHTTP_SetLoggingLevelPropagatesToDownstreamPool(t *testing.T) {
 		return len(mockConn.CapturedLogLevels) == 1 && mockConn.CapturedLogLevels[0] == "info"
 	})
 }
+
+func TestNewPoolLoggingHandlerForwardsNotifications(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+	recorder, cleanup := connectLoggingClient(t, session)
+	defer cleanup()
+
+	conn := &MockDownstreamConnection{serverName: "server-1", Status: StatusConnected}
+	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-1": conn,
+		},
+		upstreamSessions: map[string]*UpstreamSession{"session-1": session},
+	}
+
+	handler := proxy.newPoolLoggingHandler("pool-1", "server-1", conn)
+	handler(context.Background(), nil)
+	handler(context.Background(), &mcp.LoggingMessageRequest{
+		Params: &mcp.LoggingMessageParams{Level: "info", Data: "via-handler"},
+	})
+
+	messages := waitForSingleLog(t, recorder)
+	assert.Equal(t, messages[0].Data.(string), "via-handler")
+}
+
+func TestLoggingLevelRankOrdersKnownAndUnknownLevels(t *testing.T) {
+	assert.Assert(t, loggingLevelRank("debug") < loggingLevelRank(logLevelInfo))
+	assert.Assert(t, loggingLevelRank(logLevelInfo) < loggingLevelRank("warning"))
+	assert.Assert(t, loggingLevelRank("warning") < loggingLevelRank("emergency"))
+	assert.Equal(t, loggingLevelRank("custom"), 100)
+}

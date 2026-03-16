@@ -25,25 +25,25 @@ type ProcessorInterface interface {
 
 var (
 	_ ProcessorInterface = (*CLIProcessor)(nil)
+	_ ProcessorInterface = (*WebhookProcessor)(nil)
 )
 
 // ErrProcessorDisabled indicates processor creation was requested for a disabled processor config.
 var ErrProcessorDisabled = errors.New("processor is disabled")
 
-// NewProcessor creates a new processor using the provided ProcessorConfig
-//
-// Currently, it only supports "cli" processors and returns an error if Type != "cli".
+// NewProcessor creates a new processor using the provided ProcessorConfig.
 func NewProcessor(processorConfig *config.ProcessorConfig) (ProcessorInterface, error) {
 	// Validate processor is enabled.
 	if !processorConfig.Enabled {
 		return nil, ErrProcessorDisabled
 	}
 
-	// Only CLI processors supported in v1.
-	// TODO: once the list of processors expands we might want to refactor this into a
-	// map[string]func or some other more suitable structure
-	if processorConfig.Type == "cli" {
+	switch processorConfig.Type {
+	case string(config.CLIProcessor):
 		processor, err := NewCLIProcessor(processorConfig)
+		return processor, err
+	case string(config.WebhookProcessor):
+		processor, err := NewWebhookProcessor(processorConfig)
 		return processor, err
 	}
 	return nil, fmt.Errorf("unsupported processor type '%s'", processorConfig.Type)

@@ -73,6 +73,14 @@ func ApplyResult(processorConfig *config.ProcessorConfig, result *processor.Data
 	return nil
 }
 
+func handleProcessorFailure(processorConfig *config.ProcessorConfig, phase string, err error) error {
+	common.LogError("processor '%s' failed during %s: %v", processorConfig.Name, phase, err)
+	if processorConfig.Required {
+		return err
+	}
+	return nil
+}
+
 // Process runs all processors on the CallContext using handlers to build input and apply results.
 func (ep *ProcessingController) Process(callCtx CallContext) error {
 	// Process through each processor
@@ -84,14 +92,18 @@ func (ep *ProcessingController) Process(callCtx CallContext) error {
 		// 2. Execute processor
 		output, err := processor.Process(input)
 		if err != nil {
-			common.LogError("processor '%s' failed: %v", processorConfig.Name, err)
-			return err
+			if err := handleProcessorFailure(processorConfig, "execution", err); err != nil {
+				return err
+			}
+			continue
 		}
 
 		// 3. Apply results back via handlers
 		if err := ApplyResult(processorConfig, output, callCtx); err != nil {
-			common.LogError("processor '%s' failed to apply output: %v", processorConfig.Name, err)
-			return err // TODO: double check if this makes sense!
+			if err := handleProcessorFailure(processorConfig, "apply", err); err != nil {
+				return err
+			}
+			continue
 		}
 		// Note: callCtx might be modified here, the modified version
 		// then is also provided to the next processor
