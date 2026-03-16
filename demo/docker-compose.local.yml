@@ -1,0 +1,11 @@
+# Local development override — builds Centian from source instead of pulling from Docker Hub.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+# The Makefile's `demo-up-local` target handles this automatically.
+services:
+  centian-demo:
+    image: centian-demo-local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: full

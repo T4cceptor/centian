@@ -27,16 +27,12 @@ services:
       retries: 20
 
   centian-demo:
-    build:
-      context: ..
-      dockerfile: demo/Dockerfile
+    image: t4cceptor/centian:latest
     restart: unless-stopped
-    working_dir: /workspace
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      PYTHONPATH: /workspace/demo/src
       OTEL_SERVICE_NAME: centian-demo
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
@@ -47,8 +43,8 @@ services:
     ports:
       - "127.0.0.1:${CENTIAN_HOST_PORT:-8576}:8080"
     volumes:
-      - ..:/workspace:ro
-    command: ["--config-path", "/workspace/demo/configs/demo_config.json"]
+      - ./configs:/etc/centian/configs:ro
+    command: ["--config-path", "/etc/centian/configs/demo_config.json"]
 
 volumes:
   centian_demo_postgres_data:

@@ -37,7 +37,7 @@
           "config": {
             "command": "python3",
             "args": [
-              "/workspace/demo/src/otel_span_logger.py"
+              "/opt/centian/processors/otel_span_logger.py"
             ]
           }
         }
@@ -70,7 +70,7 @@
           "config": {
             "command": "python3",
             "args": [
-              "/workspace/demo/src/response_redactor.py"
+              "/opt/centian/processors/response_redactor.py"
             ]
           }
         }
