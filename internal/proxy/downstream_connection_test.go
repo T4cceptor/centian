@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,23 +12,29 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
 
 func TestHeaderRoundTripperRoundTrip(t *testing.T) {
-	// Given: a test server and header round tripper
+	// Given: a round tripper with a capturing base
 	received := make(chan http.Header, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received <- r.Header
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		received <- req.Header.Clone()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       http.NoBody,
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})
 
 	rt := HeaderRoundTripper{
+		Base:    base,
 		Headers: map[string]string{"X-Test": "value"},
 	}
-	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL, http.NoBody)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
 	assert.NilError(t, err)
 
 	// When: performing the round trip
@@ -42,6 +47,12 @@ func TestHeaderRoundTripperRoundTrip(t *testing.T) {
 
 	headers := <-received
 	assert.Equal(t, headers.Get("X-Test"), "value")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestCreateTransport_HTTP(t *testing.T) {
@@ -68,6 +79,46 @@ func TestCreateTransport_HTTP(t *testing.T) {
 	assert.Assert(t, ok)
 	assert.Equal(t, roundTripper.Headers["Authorization"], "Bearer auth")
 	assert.Equal(t, roundTripper.Headers["X-Extra"], "1")
+}
+
+func TestCreateTransport_HTTPOAuthSkipsForwardedAuthHeaders(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	manager, err := centoauth.NewManager("http://127.0.0.1:8080", nil, nil)
+	assert.NilError(t, err)
+
+	cfg := &config.MCPServerConfig{
+		URL: "https://example.com/mcp",
+		OAuth: &config.OAuthConfig{
+			Enabled:          true,
+			ClientID:         "client-id",
+			ClientSecret:     "client-secret",
+			ClientAuthMethod: "client_secret_post",
+			Resource:         "https://example.com/mcp",
+			Issuer:           "https://issuer.example",
+		},
+		Headers: map[string]string{
+			"X-Config": "set",
+		},
+	}
+	dc := NewDownstreamConnection("server", cfg)
+	dc.oauthManager = manager
+	dc.connectOptions = &DownstreamConnectOptions{
+		IdentityKey: "user-1",
+		GatewayName: "gateway",
+	}
+
+	transport, err := dc.createTransport(map[string]string{"Authorization": "Bearer upstream"})
+	assert.NilError(t, err)
+
+	streamable, ok := transport.(*mcp.StreamableClientTransport)
+	assert.Assert(t, ok)
+
+	oauthTransport, ok := streamable.HTTPClient.Transport.(*centoauth.Transport)
+	assert.Assert(t, ok)
+	assert.Equal(t, oauthTransport.Headers["X-Config"], "set")
+	_, exists := oauthTransport.Headers["Authorization"]
+	assert.Assert(t, !exists)
 }
 
 func TestCreateTransport_Stdio(t *testing.T) {

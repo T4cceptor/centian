@@ -10,6 +10,7 @@ import (
 	centauth "github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -28,8 +29,10 @@ type CentianServer struct {
 	Server     *http.Server
 	Logger     *logging.Logger
 	Gateways   map[string]*CentianEndpoint
+	Endpoints  []*CentianEndpoint
 	APIKeys    *centauth.APIKeyStore
 	AuthHeader string
+	OAuth      *centoauth.Manager
 }
 
 // UpstreamSession represents one MCP client session talking to this proxy endpoint.

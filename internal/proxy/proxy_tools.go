@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/T4cceptor/centian/internal/common"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -125,6 +126,7 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 	p.toolRegMu.Lock()
 	p.syncAvailableTools(session)
 	p.toolRegMu.Unlock()
+	p.notifySessionOAuthRequirements(session, pool)
 
 	switch {
 	case summary.connectedCount > 0:
@@ -148,6 +150,37 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 		common.LogError("ProxyEndpoint[%s]: all connections failed: %v", p.name, summary.connErrors)
 	default:
 		common.LogWarn("ProxyEndpoint[%s]: no pooled downstream connections are connected for %s", p.name, session.downstreamSessionKey)
+	}
+}
+
+func (p *CentianEndpoint) notifySessionOAuthRequirements(session *UpstreamSession, pool *DownstreamSessionPool) {
+	if session == nil || pool == nil {
+		return
+	}
+	serverSession := p.currentUpstreamServerSession(session)
+	if serverSession == nil {
+		return
+	}
+
+	for _, conn := range pool.downstreamConns {
+		if conn == nil || !conn.GetStatus().IsAuthRequired() {
+			continue
+		}
+		authErr, ok := centoauth.IsAuthorizationRequired(conn.GetError())
+		if !ok || authErr.Binding.PrincipalID != session.identityKey {
+			continue
+		}
+		if err := serverSession.Log(context.Background(), &mcp.LoggingMessageParams{
+			Level: logLevelInfo,
+			Data: fmt.Sprintf(
+				"OAuth required for downstream %s/%s. Open %s",
+				authErr.Binding.Gateway,
+				authErr.Binding.Server,
+				authErr.AuthURL,
+			),
+		}); err != nil {
+			common.LogWarn("ProxyEndpoint[%s]: failed to log downstream oauth requirement for session %s: %v", p.name, session.id, err)
+		}
 	}
 }
 

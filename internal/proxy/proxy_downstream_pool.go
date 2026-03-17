@@ -7,6 +7,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 )
 
 // This file manages reusable downstream connection pools keyed by effective
@@ -32,7 +33,11 @@ func (p *CentianEndpoint) newDownstreamConnection(serverName string, cfg *config
 	if p.connectionFactory != nil {
 		return p.connectionFactory(serverName, cfg)
 	}
-	return NewDownstreamConnection(serverName, cfg)
+	conn := NewDownstreamConnection(serverName, cfg)
+	if p.server != nil {
+		conn.oauthManager = p.server.OAuth
+	}
+	return conn
 }
 
 // buildDownstreamConnectOptions derives the connect options for one upstream session.
@@ -45,6 +50,8 @@ func (p *CentianEndpoint) buildDownstreamConnectOptions(session *UpstreamSession
 	return &DownstreamConnectOptions{
 		ForwardedHeaders:   session.GetAuthHeaders(p.excludedClientAuthHeader()),
 		ClientState:        *clientState,
+		IdentityKey:        session.identityKey,
+		GatewayName:        getGatewayFromPath(p.endpoint),
 		SamplingHandler:    p.forwardSamplingRequest,
 		ElicitationHandler: p.forwardElicitationRequest,
 	}
@@ -97,7 +104,7 @@ func (p *CentianEndpoint) getOrCreateSessionPoolLocked(session *UpstreamSession)
 func (p *CentianEndpoint) startMissingPoolConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
 	for serverName, serverConfig := range p.GetActiveMCPServerConfigs() {
 		conn, err := pool.GetConnectionByServerName(serverName)
-		if err != nil || conn.GetStatus().IsFailed() {
+		if err != nil || conn.GetStatus().IsFailed() || conn.GetStatus().IsAuthRequired() || conn.GetStatus().IsRefreshFailed() {
 			conn = p.newDownstreamConnection(serverName, serverConfig)
 			pool.SetConnection(serverName, conn)
 		}
@@ -164,6 +171,16 @@ func (p *CentianEndpoint) connectDownstreamPool(
 			}
 		}
 		p.mu.Unlock()
+		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+			common.LogInfo(
+				"ProxyEndpoint[%s]: downstream %s requires OAuth authorization for %s via %s",
+				p.name,
+				serverName,
+				authErr.Binding.PrincipalID,
+				authErr.AuthURL,
+			)
+			return
+		}
 		common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, serverName, err)
 		return
 	}
