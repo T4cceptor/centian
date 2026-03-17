@@ -50,12 +50,14 @@ type pendingStore struct {
 	mu      sync.Mutex
 	byID    map[string]*PendingAuthorization
 	byState map[string]string
+	byKey   map[string]string
 }
 
 func newPendingStore() *pendingStore {
 	return &pendingStore{
 		byID:    make(map[string]*PendingAuthorization),
 		byState: make(map[string]string),
+		byKey:   make(map[string]string),
 	}
 }
 
@@ -63,8 +65,13 @@ func (s *pendingStore) put(pending *PendingAuthorization) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
+	key := pending.Binding.storageKey()
+	if existingID := s.byKey[key]; existingID != "" && existingID != pending.ID {
+		s.deleteLocked(existingID)
+	}
 	s.byID[pending.ID] = pending
 	s.byState[pending.State] = pending.ID
+	s.byKey[key] = pending.ID
 }
 
 func (s *pendingStore) getByID(id string) *PendingAuthorization {
@@ -102,12 +109,20 @@ func (s *pendingStore) gcLocked() {
 	now := time.Now()
 	for id, pending := range s.byID {
 		if pending == nil || now.After(pending.ExpiresAt) {
-			if pending != nil {
-				delete(s.byState, pending.State)
-			}
-			delete(s.byID, id)
+			s.deleteLocked(id)
 		}
 	}
+}
+
+func (s *pendingStore) deleteLocked(id string) {
+	pending := s.byID[id]
+	if pending != nil {
+		delete(s.byState, pending.State)
+		if s.byKey[pending.Binding.storageKey()] == id {
+			delete(s.byKey, pending.Binding.storageKey())
+		}
+	}
+	delete(s.byID, id)
 }
 
 // AuthorizationRequiredError reports that a downstream HTTP request must be authorized in the browser first.

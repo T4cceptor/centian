@@ -102,6 +102,7 @@ func (p *CentianEndpoint) handleOAuthAuthorized(binding centoauth.Binding) {
 	p.mu.Lock()
 	type reconnectRequest struct {
 		downstreamSessionKey string
+		oldConn              DownstreamConnectionInterface
 		conn                 DownstreamConnectionInterface
 		options              *DownstreamConnectOptions
 	}
@@ -137,14 +138,24 @@ func (p *CentianEndpoint) handleOAuthAuthorized(binding centoauth.Binding) {
 		pool.connecting[binding.Server] = true
 		reconnects = append(reconnects, reconnectRequest{
 			downstreamSessionKey: downstreamSessionKey,
+			oldConn:              conn,
 			conn:                 newConn,
 			options:              cloneDownstreamConnectOptions(p.buildDownstreamConnectOptions(session)),
 		})
-		_ = conn
 	}
 	p.mu.Unlock()
 
 	for _, reconnect := range reconnects {
+		if reconnect.oldConn != nil {
+			if err := reconnect.oldConn.Close(); err != nil {
+				common.LogWarn(
+					"ProxyEndpoint[%s]: failed to close replaced downstream %s: %v",
+					p.name,
+					reconnect.oldConn.GetServerName(),
+					err,
+				)
+			}
+		}
 		go p.connectDownstreamPool(reconnect.downstreamSessionKey, reconnect.conn, reconnect.options)
 	}
 }
