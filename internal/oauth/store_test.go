@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/oauth2"
 	"gotest.tools/assert"
 )
 
@@ -55,4 +56,39 @@ func TestEncryptedTokenStoreRoundTrip(t *testing.T) {
 	loaded, err = store.load(binding)
 	assert.Assert(t, errors.Is(err, errTokenNotFound))
 	assert.Assert(t, loaded == nil)
+}
+
+func TestStoredTokenHelpers(t *testing.T) {
+	expiry := time.Now().UTC().Add(time.Hour).Round(time.Second)
+	stored := &StoredToken{
+		AccessToken:           "access-token",
+		TokenType:             "Bearer",
+		RefreshToken:          "refresh-token",
+		Expiry:                expiry,
+		Resource:              "https://resource.example/mcp",
+		Scopes:                []string{"tool:echo"},
+		Issuer:                "https://issuer.example",
+		AuthorizationEndpoint: "https://issuer.example/authorize",
+		TokenEndpoint:         "https://issuer.example/token",
+		ClientAuthMethod:      "client_secret_post",
+	}
+
+	oauthToken := stored.oauthToken()
+	assert.Assert(t, oauthToken != nil)
+	assert.Equal(t, oauthToken.AccessToken, "access-token")
+	assert.Equal(t, oauthToken.TokenType, "Bearer")
+	assert.Equal(t, oauthToken.RefreshToken, "refresh-token")
+	assert.DeepEqual(t, oauthToken.Expiry, expiry)
+	assert.Assert(t, (*StoredToken)(nil).oauthToken() == nil)
+
+	token := tokenFromOAuth(&oauth2.Token{
+		AccessToken: "new-access",
+		TokenType:   "Bearer",
+		Expiry:      expiry,
+	}, stored)
+	assert.Equal(t, token.AccessToken, "new-access")
+	assert.Equal(t, token.RefreshToken, "refresh-token")
+	assert.Equal(t, token.Resource, stored.Resource)
+	assert.DeepEqual(t, token.Scopes, stored.Scopes)
+	assert.Assert(t, tokenFromOAuth(nil, stored) == nil)
 }
