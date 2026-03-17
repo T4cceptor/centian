@@ -13,6 +13,16 @@ import (
 	"golang.org/x/oauth2"
 )
 
+var errTokenRefreshNotAvailable = errors.New("oauth token refresh not available")
+
+const (
+	// AuthorizationReasonRequired marks errors that need an initial browser login.
+	AuthorizationReasonRequired = "authorization required"
+	// AuthorizationReasonRefreshFailed marks errors caused by a failed token refresh.
+	AuthorizationReasonRefreshFailed = "refresh failed"
+)
+
+// Transport wraps a downstream HTTP transport with OAuth token loading, refresh, and authorization flow handling.
 type Transport struct {
 	Base          http.RoundTripper
 	Manager       *Manager
@@ -22,89 +32,95 @@ type Transport struct {
 	Headers       map[string]string
 }
 
+// RoundTrip adds downstream OAuth headers, retries after refresh, and surfaces interactive authorization requirements.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	base := t.Base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-
 	bodyBytes, err := cloneRequestBody(req)
 	if err != nil {
 		return nil, err
 	}
-
-	send := func() (*http.Response, error) {
-		outgoing := req.Clone(req.Context())
-		if bodyBytes != nil {
-			outgoing.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			outgoing.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-			}
-			outgoing.ContentLength = int64(len(bodyBytes))
-		}
-		for key, value := range t.Headers {
-			outgoing.Header.Set(key, value)
-		}
-		token, loadErr := t.Manager.LoadToken(t.Binding)
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		if token != nil {
-			oauthToken := token.OAuthToken()
-			if oauthToken != nil && oauthToken.Valid() && oauthToken.AccessToken != "" {
-				outgoing.Header.Set("Authorization", "Bearer "+oauthToken.AccessToken)
-			} else if oauthToken != nil && token.RefreshToken != "" && token.TokenEndpoint != "" {
-				refreshed, refreshErr := refreshStoredToken(req.Context(), t.Manager, t.Binding, t.Config, token, ResolvedMetadata{
-					Resource:              token.Resource,
-					Scopes:                token.Scopes,
-					Issuer:                token.Issuer,
-					AuthorizationEndpoint: token.AuthorizationEndpoint,
-					TokenEndpoint:         token.TokenEndpoint,
-					ClientAuthMethod:      token.ClientAuthMethod,
-				})
-				if refreshErr == nil && refreshed != nil && refreshed.AccessToken != "" {
-					outgoing.Header.Set("Authorization", "Bearer "+refreshed.AccessToken)
-				}
-			}
-		}
-		return base.RoundTrip(outgoing)
-	}
-
-	resp, err := send()
+	resp, err := t.send(req, bodyBytes, t.baseRoundTripper())
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
+	if !isAuthorizationResponse(resp.StatusCode) {
 		return resp, nil
 	}
+	return t.handleAuthorizationChallenge(req, bodyBytes, resp)
+}
 
+func (t *Transport) baseRoundTripper() http.RoundTripper {
+	if t.Base != nil {
+		return t.Base
+	}
+	return http.DefaultTransport
+}
+
+func (t *Transport) send(req *http.Request, bodyBytes []byte, base http.RoundTripper) (*http.Response, error) {
+	outgoing := cloneOutgoingRequest(req, bodyBytes)
+	for key, value := range t.Headers {
+		outgoing.Header.Set(key, value)
+	}
+	if authHeader, err := t.authorizationHeader(req.Context()); err != nil {
+		return nil, err
+	} else if authHeader != "" {
+		outgoing.Header.Set("Authorization", authHeader)
+	}
+	return base.RoundTrip(outgoing)
+}
+
+func (t *Transport) authorizationHeader(ctx context.Context) (string, error) {
+	token, err := t.Manager.LoadToken(t.Binding)
+	switch {
+	case err == nil:
+	case errors.Is(err, errTokenNotFound):
+		return "", nil
+	default:
+		return "", err
+	}
+	if token == nil {
+		return "", nil
+	}
+
+	oauthToken := token.oauthToken()
+	if oauthToken != nil && oauthToken.Valid() && oauthToken.AccessToken != "" {
+		return "Bearer " + oauthToken.AccessToken, nil
+	}
+
+	refreshed, err := refreshStoredToken(ctx, t.Manager, t.Binding, t.Config, token, resolvedMetadataFromToken(token))
+	if err == nil && refreshed != nil && refreshed.AccessToken != "" {
+		return "Bearer " + refreshed.AccessToken, nil
+	}
+	return "", nil
+}
+
+func (t *Transport) handleAuthorizationChallenge(req *http.Request, bodyBytes []byte, resp *http.Response) (*http.Response, error) {
 	resolved, err := resolveMetadata(req.Context(), t.Manager.httpClient, req.URL.String(), resp.Header, t.Config)
 	if err != nil {
-		resp.Body.Close()
+		closeBody(resp.Body)
 		return nil, err
 	}
 
-	refreshed, refreshErr := refreshStoredToken(req.Context(), t.Manager, t.Binding, t.Config, nil, resolved)
+	refreshed, refreshErr := refreshStoredToken(req.Context(), t.Manager, t.Binding, t.Config, nil, &resolved)
 	if refreshErr == nil && refreshed != nil && refreshed.AccessToken != "" {
-		resp.Body.Close()
-		return send()
+		closeBody(resp.Body)
+		return t.send(req, bodyBytes, t.baseRoundTripper())
 	}
 
-	resp.Body.Close()
+	closeBody(resp.Body)
 	verifier := oauth2.GenerateVerifier()
 	pending, err := t.Manager.CreatePending(
 		t.Binding,
 		strings.TrimSpace(t.Config.ClientID),
 		strings.TrimSpace(t.Config.ClientSecret),
-		resolved,
+		&resolved,
 		verifier,
 	)
 	if err != nil {
 		return nil, err
 	}
-	reason := "authorization required"
-	if refreshErr != nil {
-		reason = "refresh failed"
+	reason := AuthorizationReasonRequired
+	if refreshErr != nil && !errors.Is(refreshErr, errTokenRefreshNotAvailable) {
+		reason = AuthorizationReasonRefreshFailed
 	}
 	return nil, &AuthorizationRequiredError{
 		Binding:   t.Binding,
@@ -115,6 +131,19 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 }
 
+func cloneOutgoingRequest(req *http.Request, bodyBytes []byte) *http.Request {
+	outgoing := req.Clone(req.Context())
+	if bodyBytes == nil {
+		return outgoing
+	}
+	outgoing.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	outgoing.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+	}
+	outgoing.ContentLength = int64(len(bodyBytes))
+	return outgoing
+}
+
 func cloneRequestBody(req *http.Request) ([]byte, error) {
 	if req == nil || req.Body == nil || req.Body == http.NoBody {
 		return nil, nil
@@ -122,7 +151,7 @@ func cloneRequestBody(req *http.Request) ([]byte, error) {
 	if req.GetBody != nil {
 		body, err := req.GetBody()
 		if err == nil {
-			defer body.Close()
+			defer closeBody(body)
 			return io.ReadAll(body)
 		}
 	}
@@ -131,7 +160,7 @@ func cloneRequestBody(req *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Body.Close() //nolint:errcheck
+	closeBody(req.Body)
 	req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	req.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(bodyBytes)), nil
@@ -145,31 +174,40 @@ func refreshStoredToken(
 	binding Binding,
 	cfg *config.OAuthConfig,
 	stored *StoredToken,
-	resolved ResolvedMetadata,
+	resolved *ResolvedMetadata,
 ) (*oauth2.Token, error) {
 	if manager == nil || cfg == nil {
-		return nil, nil
+		return nil, errTokenRefreshNotAvailable
 	}
 	if stored == nil {
 		var err error
 		stored, err = manager.LoadToken(binding)
 		if err != nil {
+			if errors.Is(err, errTokenNotFound) {
+				return nil, errTokenRefreshNotAvailable
+			}
 			return nil, err
 		}
 	}
 	if stored == nil || stored.RefreshToken == "" {
-		return nil, nil
+		return nil, errTokenRefreshNotAvailable
 	}
 
-	tokenEndpoint := resolved.TokenEndpoint
+	tokenEndpoint := ""
+	if resolved != nil {
+		tokenEndpoint = resolved.TokenEndpoint
+	}
 	if tokenEndpoint == "" {
 		tokenEndpoint = stored.TokenEndpoint
 	}
 	if tokenEndpoint == "" {
-		return nil, nil
+		return nil, errTokenRefreshNotAvailable
 	}
 
-	authMethod := resolved.ClientAuthMethod
+	authMethod := ""
+	if resolved != nil {
+		authMethod = resolved.ClientAuthMethod
+	}
 	if authMethod == "" {
 		authMethod = stored.ClientAuthMethod
 	}
@@ -191,18 +229,14 @@ func refreshStoredToken(
 		return nil, err
 	}
 	record := tokenFromOAuth(refreshed, &StoredToken{
-		Resource:              nonEmpty(resolved.Resource, stored.Resource),
-		Scopes:                nonEmptyStrings(resolved.Scopes, stored.Scopes),
-		Issuer:                nonEmpty(resolved.Issuer, stored.Issuer),
-		AuthorizationEndpoint: nonEmpty(resolved.AuthorizationEndpoint, stored.AuthorizationEndpoint),
+		Resource:              nonEmpty(metadataField(resolved, func(value *ResolvedMetadata) string { return value.Resource }), stored.Resource),
+		Scopes:                nonEmptyStrings(metadataSliceField(resolved, func(value *ResolvedMetadata) []string { return value.Scopes }), stored.Scopes),
+		Issuer:                nonEmpty(metadataField(resolved, func(value *ResolvedMetadata) string { return value.Issuer }), stored.Issuer),
+		AuthorizationEndpoint: nonEmpty(metadataField(resolved, func(value *ResolvedMetadata) string { return value.AuthorizationEndpoint }), stored.AuthorizationEndpoint),
 		TokenEndpoint:         tokenEndpoint,
 		ClientAuthMethod:      nonEmpty(authMethod, stored.ClientAuthMethod),
 	})
-	return refreshed, manager.SaveAndReturnToken(binding, record)
-}
-
-func (m *Manager) SaveAndReturnToken(binding Binding, token *StoredToken) error {
-	return m.SaveToken(binding, token)
+	return refreshed, manager.SaveToken(binding, record)
 }
 
 func nonEmpty(primary, fallback string) string {
@@ -219,6 +253,45 @@ func nonEmptyStrings(primary, fallback []string) []string {
 	return append([]string(nil), fallback...)
 }
 
+func metadataField(resolved *ResolvedMetadata, get func(*ResolvedMetadata) string) string {
+	if resolved == nil {
+		return ""
+	}
+	return get(resolved)
+}
+
+func metadataSliceField(resolved *ResolvedMetadata, get func(*ResolvedMetadata) []string) []string {
+	if resolved == nil {
+		return nil
+	}
+	return get(resolved)
+}
+
+func resolvedMetadataFromToken(token *StoredToken) *ResolvedMetadata {
+	if token == nil {
+		return nil
+	}
+	return &ResolvedMetadata{
+		Resource:              token.Resource,
+		Scopes:                append([]string(nil), token.Scopes...),
+		Issuer:                token.Issuer,
+		AuthorizationEndpoint: token.AuthorizationEndpoint,
+		TokenEndpoint:         token.TokenEndpoint,
+		ClientAuthMethod:      token.ClientAuthMethod,
+	}
+}
+
+func closeBody(body io.Closer) {
+	if body != nil {
+		_ = body.Close()
+	}
+}
+
+func isAuthorizationResponse(statusCode int) bool {
+	return statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden
+}
+
+// IsAuthorizationRequired unwraps errors returned when a downstream request must be authorized in the browser.
 func IsAuthorizationRequired(err error) (*AuthorizationRequiredError, bool) {
 	var authErr *AuthorizationRequiredError
 	if errors.As(err, &authErr) {

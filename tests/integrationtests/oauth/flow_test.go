@@ -38,11 +38,11 @@ func TestOAuthDiscoveryAuthFlowReSyncsTools(t *testing.T) {
 		t.Fatalf("set logging level: %v", err)
 	}
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		return recorder.hasLogSubstring("OAuth required for downstream oauth-gateway/protected.")
 	})
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		tools, err := session.ListTools(ctx, nil)
 		return err == nil && hasTool(tools.Tools, "centian.auth_status") && hasTool(tools.Tools, "centian.login.protected")
 	})
@@ -55,17 +55,17 @@ func TestOAuthDiscoveryAuthFlowReSyncsTools(t *testing.T) {
 	if authURL == "" {
 		t.Fatalf("login tool did not return startUrl: %#v", loginResult)
 	}
-	if _, err := http.Get(authURL); err != nil {
+	if err := visitURL(authURL); err != nil {
 		t.Fatalf("visit auth url: %v", err)
 	}
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		return recorder.hasLogSubstring("OAuth complete for downstream protected.")
 	})
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		return recorder.toolListChangedCount() > 0
 	})
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		tools, err := session.ListTools(ctx, nil)
 		return err == nil && hasTool(tools.Tools, "echo") && !hasTool(tools.Tools, "centian.login.protected")
 	})
@@ -106,7 +106,7 @@ func TestOAuthExpiredTokenRefreshesDuringReconnect(t *testing.T) {
 	}
 	defer session.Close()
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		tools, err := session.ListTools(ctx, nil)
 		return err == nil && hasTool(tools.Tools, "centian.login.protected")
 	})
@@ -118,11 +118,11 @@ func TestOAuthExpiredTokenRefreshesDuringReconnect(t *testing.T) {
 	if authURL == "" {
 		t.Fatalf("login tool did not return startUrl: %#v", loginResult)
 	}
-	if _, err := http.Get(authURL); err != nil {
+	if err := visitURL(authURL); err != nil {
 		t.Fatalf("visit auth url: %v", err)
 	}
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		tools, err := session.ListTools(ctx, nil)
 		return err == nil && hasTool(tools.Tools, "echo") && !hasTool(tools.Tools, "centian.login.protected")
 	})
@@ -156,7 +156,7 @@ func TestOAuthLoginToolUsesURLElicitation(t *testing.T) {
 	}
 	defer session.Close()
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		tools, err := session.ListTools(ctx, nil)
 		return err == nil && hasTool(tools.Tools, "centian.login.protected")
 	})
@@ -169,27 +169,38 @@ func TestOAuthLoginToolUsesURLElicitation(t *testing.T) {
 	if promptedURL == "" || promptedURL != startURL {
 		t.Fatalf("expected elicitation url %q, got %q", startURL, promptedURL)
 	}
-	if _, err := http.Get(startURL); err != nil {
+	if err := visitURL(startURL); err != nil {
 		t.Fatalf("visit auth url: %v", err)
 	}
 
-	waitUntil(t, integrationTimeout, func() bool {
+	waitUntil(t, func() bool {
 		tools, err := session.ListTools(ctx, nil)
 		return err == nil && hasTool(tools.Tools, "echo")
 	})
 }
 
-func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
+func waitUntil(t *testing.T, fn func() bool) {
 	t.Helper()
 
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(integrationTimeout)
 	for time.Now().Before(deadline) {
 		if fn() {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("condition not satisfied within %s", timeout)
+	t.Fatalf("condition not satisfied within %s", integrationTimeout)
+}
+
+func visitURL(rawURL string) error {
+	resp, err := http.Get(rawURL) //nolint:noctx // Integration tests use the default test client for a one-shot browser simulation.
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	return nil
 }
 
 func hasTool(tools []*mcp.Tool, name string) bool {

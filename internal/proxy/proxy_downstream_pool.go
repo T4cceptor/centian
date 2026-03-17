@@ -159,44 +159,82 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	connectOptions *DownstreamConnectOptions,
 ) {
 	serverName := conn.GetServerName()
-	connectOptions = cloneDownstreamConnectOptions(connectOptions)
-	connectOptions.LoggingHandler = p.newPoolLoggingHandler(downstreamSessionKey, serverName, conn)
-	connectOptions.ResourceListChangedHandler = p.newPoolResourceListChangedHandler(downstreamSessionKey, serverName, conn)
-	connectOptions.ResourceUpdatedHandler = p.newPoolResourceUpdatedHandler(downstreamSessionKey, serverName, conn)
-	if err := conn.Connect(context.Background(), connectOptions); err != nil {
-		var sessions []*UpstreamSession
-		p.mu.Lock()
-		if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
-			if current, exists := pool.downstreamConns[serverName]; exists && current == conn {
-				delete(pool.connecting, serverName)
-				for _, session := range pool.upstreamSessions {
-					sessions = append(sessions, session)
-				}
-			}
-		}
-		p.mu.Unlock()
-		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
-			p.toolRegMu.Lock()
-			for _, session := range sessions {
-				p.syncAvailableTools(session)
-			}
-			p.toolRegMu.Unlock()
-			common.LogInfo(
-				"ProxyEndpoint[%s]: downstream %s requires OAuth authorization for %s via %s",
-				p.name,
-				serverName,
-				authErr.Binding.PrincipalID,
-				authErr.AuthURL,
-			)
-			return
-		}
-		common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, serverName, err)
+	options := p.poolConnectOptions(downstreamSessionKey, serverName, conn, connectOptions)
+	if err := conn.Connect(context.Background(), options); err != nil {
+		p.handlePoolConnectError(downstreamSessionKey, serverName, conn, err)
 		return
 	}
 
 	p.syncPoolLoggingLevel(downstreamSessionKey)
+	sessions, oauthEnabled := p.markPoolConnectionReady(downstreamSessionKey, serverName, conn)
+	p.discoverDownstreamArtifacts(serverName, conn)
+	p.syncPoolSessions(serverName, sessions, oauthEnabled)
+	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d resource templates, %d prompts",
+		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.ResourceTemplates()), len(conn.Prompts()))
+}
 
+func (p *CentianEndpoint) poolConnectOptions(
+	downstreamSessionKey, serverName string,
+	conn DownstreamConnectionInterface,
+	connectOptions *DownstreamConnectOptions,
+) *DownstreamConnectOptions {
+	options := cloneDownstreamConnectOptions(connectOptions)
+	options.LoggingHandler = p.newPoolLoggingHandler(downstreamSessionKey, serverName, conn)
+	options.ResourceListChangedHandler = p.newPoolResourceListChangedHandler(downstreamSessionKey, serverName, conn)
+	options.ResourceUpdatedHandler = p.newPoolResourceUpdatedHandler(downstreamSessionKey, serverName, conn)
+	return options
+}
+
+func (p *CentianEndpoint) handlePoolConnectError(
+	downstreamSessionKey, serverName string,
+	conn DownstreamConnectionInterface,
+	err error,
+) {
+	sessions := p.releasePoolConnection(downstreamSessionKey, serverName, conn)
+	if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+		p.toolRegMu.Lock()
+		for _, session := range sessions {
+			p.syncAvailableTools(session)
+		}
+		p.toolRegMu.Unlock()
+		common.LogInfo(
+			"ProxyEndpoint[%s]: downstream %s requires OAuth authorization for %s via %s",
+			p.name,
+			serverName,
+			authErr.Binding.PrincipalID,
+			authErr.AuthURL,
+		)
+		return
+	}
+	common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, serverName, err)
+}
+
+func (p *CentianEndpoint) releasePoolConnection(
+	downstreamSessionKey, serverName string,
+	conn DownstreamConnectionInterface,
+) []*UpstreamSession {
+	var sessions []*UpstreamSession
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
+		if current, exists := pool.downstreamConns[serverName]; exists && current == conn {
+			delete(pool.connecting, serverName)
+			for _, session := range pool.upstreamSessions {
+				sessions = append(sessions, session)
+			}
+		}
+	}
+	return sessions
+}
+
+func (p *CentianEndpoint) markPoolConnectionReady(
+	downstreamSessionKey, serverName string,
+	conn DownstreamConnectionInterface,
+) ([]*UpstreamSession, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	var sessions []*UpstreamSession
 	oauthEnabled := false
 	if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
@@ -211,8 +249,10 @@ func (p *CentianEndpoint) connectDownstreamPool(
 			}
 		}
 	}
-	p.mu.Unlock()
+	return sessions, oauthEnabled
+}
 
+func (p *CentianEndpoint) discoverDownstreamArtifacts(serverName string, conn DownstreamConnectionInterface) {
 	if err := conn.DiscoverResources(context.Background()); err != nil {
 		common.LogWarn("ProxyEndpoint[%s]: resource discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
 	}
@@ -222,7 +262,9 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	if err := conn.DiscoverPrompts(context.Background()); err != nil {
 		common.LogWarn("ProxyEndpoint[%s]: prompt discovery failed for %s: %v", p.name, sanitizeLogValue(serverName), err)
 	}
+}
 
+func (p *CentianEndpoint) syncPoolSessions(serverName string, sessions []*UpstreamSession, oauthEnabled bool) {
 	p.toolRegMu.Lock()
 	toolNamesBySession := make(map[*UpstreamSession][]string, len(sessions))
 	for _, session := range sessions {
@@ -236,12 +278,10 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	}
 	p.toolRegMu.Unlock()
 
-	if oauthEnabled {
-		for _, session := range sessions {
-			p.notifyOAuthAuthorized(session, serverName, toolNamesBySession[session])
-		}
+	if !oauthEnabled {
+		return
 	}
-
-	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d resource templates, %d prompts",
-		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.ResourceTemplates()), len(conn.Prompts()))
+	for _, session := range sessions {
+		p.notifyOAuthAuthorized(session, serverName, toolNamesBySession[session])
+	}
 }

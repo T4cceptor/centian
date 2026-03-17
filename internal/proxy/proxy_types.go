@@ -73,6 +73,11 @@ type DownstreamSessionPool struct {
 	lastUsed             time.Time
 }
 
+type notificationJob struct {
+	id     string
+	cancel context.CancelFunc
+}
+
 // connectionByServerName looks up a connection in a map by server name.
 func connectionByServerName(conns map[string]DownstreamConnectionInterface, serverName string) (DownstreamConnectionInterface, error) {
 	conn, ok := conns[serverName]
@@ -138,7 +143,7 @@ type CentianEndpoint struct {
 
 	toolRegMu sync.Mutex
 
-	notificationJobs map[string]context.CancelFunc
+	notificationJobs map[string]notificationJob
 
 	connectionFactory func(string, *config.MCPServerConfig) DownstreamConnectionInterface
 }
@@ -151,7 +156,7 @@ func NewAggregatedEndpoint(gatewayName, endpoint string, gatewayConfig *config.G
 		config:            gatewayConfig,
 		upstreamSessions:  make(map[string]*UpstreamSession),
 		downstreamPools:   make(map[string]*DownstreamSessionPool),
-		notificationJobs:  make(map[string]context.CancelFunc),
+		notificationJobs:  make(map[string]notificationJob),
 		isAggregatedProxy: true,
 	}
 	return proxy
@@ -165,7 +170,7 @@ func NewSingleEndpoint(serverName, endpoint string, gatewayConfig *config.Gatewa
 		config:           gatewayConfig,
 		upstreamSessions: make(map[string]*UpstreamSession),
 		downstreamPools:  make(map[string]*DownstreamSessionPool),
-		notificationJobs: make(map[string]context.CancelFunc),
+		notificationJobs: make(map[string]notificationJob),
 	}
 }
 

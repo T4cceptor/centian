@@ -52,6 +52,14 @@ func isProxyToolName(name string) bool {
 	return strings.HasPrefix(name, proxyToolNamespace)
 }
 
+func (p *CentianEndpoint) testToolsEnabled() bool {
+	return p != nil &&
+		p.server != nil &&
+		p.server.Config != nil &&
+		p.server.Config.Proxy != nil &&
+		p.server.Config.Proxy.EnableTestTools
+}
+
 func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, server *mcp.Server) {
 	if session == nil || server == nil {
 		return
@@ -73,6 +81,9 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 			})
 			session.registeredStaticTools[authStatusToolName] = struct{}{}
 		}
+	}
+	if !p.testToolsEnabled() {
+		return
 	}
 	if _, exists := session.registeredStaticTools[testNotificationsTool]; exists {
 		return
@@ -204,6 +215,23 @@ func (p *CentianEndpoint) authStateForServer(
 	conn DownstreamConnectionInterface,
 	pending *centoauth.PendingAuthorization,
 ) authToolState {
+	state := p.baseAuthToolState(serverName, conn, pending)
+	if connectedAuthToolState(&state, conn) {
+		return state
+	}
+	applyPendingAuthToolState(&state, pending)
+	applyConnectionAuthToolState(&state, conn)
+	if state.State == authStateUnavailable {
+		state.Message = fmt.Sprintf("Downstream %s is currently unavailable.", serverName)
+	}
+	return state
+}
+
+func (p *CentianEndpoint) baseAuthToolState(
+	serverName string,
+	conn DownstreamConnectionInterface,
+	pending *centoauth.PendingAuthorization,
+) authToolState {
 	state := authToolState{
 		Server: serverName,
 		State:  authStateUnavailable,
@@ -211,40 +239,53 @@ func (p *CentianEndpoint) authStateForServer(
 	if pending != nil {
 		state.StartURL = p.server.OAuth.StartURL(pending.ID)
 		state.StatusURL = p.server.OAuth.StatusURL(pending.ID)
-		if pending.LastError != "" {
-			state.LastError = pending.LastError
-		}
+		state.LastError = pending.LastError
 	}
 	if conn != nil && conn.GetError() != nil && state.LastError == "" {
 		state.LastError = conn.GetError().Error()
 	}
-
-	switch {
-	case conn != nil && conn.GetStatus().IsConnected():
-		state.State = authStateConnected
-		state.Message = fmt.Sprintf("Downstream %s is connected.", serverName)
-		return state
-	case pending != nil && (pending.Status == centoauth.PendingStatusInProgress || pending.Status == centoauth.PendingStatusCompleted):
-		state.State = authStateInProgress
-		state.LoginTool = loginToolName(serverName)
-		state.Message = fmt.Sprintf("Login for downstream %s is in progress.", serverName)
-	case conn != nil && conn.GetStatus().IsRefreshFailed():
-		state.State = authStateRefreshFailed
-		state.LoginTool = loginToolName(serverName)
-		state.Message = fmt.Sprintf("Downstream %s needs login again because token refresh failed.", serverName)
-	case conn != nil && conn.GetStatus().IsAuthRequired():
-		state.State = authStateRequired
-		state.LoginTool = loginToolName(serverName)
-		state.Message = fmt.Sprintf("Downstream %s requires login before its tools can be used.", serverName)
-	case pending != nil && pending.Status == centoauth.PendingStatusReady:
-		state.State = authStateRequired
-		state.LoginTool = loginToolName(serverName)
-		state.Message = fmt.Sprintf("Downstream %s requires login before its tools can be used.", serverName)
-	default:
-		state.State = authStateUnavailable
-		state.Message = fmt.Sprintf("Downstream %s is currently unavailable.", serverName)
-	}
 	return state
+}
+
+func connectedAuthToolState(state *authToolState, conn DownstreamConnectionInterface) bool {
+	if state == nil || conn == nil || !conn.GetStatus().IsConnected() {
+		return false
+	}
+	state.State = authStateConnected
+	state.Message = fmt.Sprintf("Downstream %s is connected.", state.Server)
+	return true
+}
+
+func applyPendingAuthToolState(state *authToolState, pending *centoauth.PendingAuthorization) {
+	if state == nil || pending == nil {
+		return
+	}
+	switch pending.Status {
+	case centoauth.PendingStatusInProgress, centoauth.PendingStatusCompleted:
+		state.State = authStateInProgress
+		state.LoginTool = loginToolName(state.Server)
+		state.Message = fmt.Sprintf("Login for downstream %s is in progress.", state.Server)
+	case centoauth.PendingStatusReady:
+		state.State = authStateRequired
+		state.LoginTool = loginToolName(state.Server)
+		state.Message = fmt.Sprintf("Downstream %s requires login before its tools can be used.", state.Server)
+	}
+}
+
+func applyConnectionAuthToolState(state *authToolState, conn DownstreamConnectionInterface) {
+	if state == nil || conn == nil || state.State != authStateUnavailable {
+		return
+	}
+	switch {
+	case conn.GetStatus().IsRefreshFailed():
+		state.State = authStateRefreshFailed
+		state.LoginTool = loginToolName(state.Server)
+		state.Message = fmt.Sprintf("Downstream %s needs login again because token refresh failed.", state.Server)
+	case conn.GetStatus().IsAuthRequired():
+		state.State = authStateRequired
+		state.LoginTool = loginToolName(state.Server)
+		state.Message = fmt.Sprintf("Downstream %s requires login before its tools can be used.", state.Server)
+	}
 }
 
 func (p *CentianEndpoint) handleAuthStatusTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -314,7 +355,7 @@ func (p *CentianEndpoint) ensurePendingAuthFlow(session *UpstreamSession, server
 				binding,
 				pending.ClientID,
 				pending.ClientSecret,
-				pending.Metadata,
+				&pending.Metadata,
 			)
 			return refreshed, err
 		}
@@ -409,7 +450,7 @@ type testNotificationArgs struct {
 }
 
 func (p *CentianEndpoint) handleTestNotificationsTool(
-	ctx context.Context,
+	_ context.Context,
 	session *UpstreamSession,
 	req *mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
@@ -441,7 +482,7 @@ func (p *CentianEndpoint) handleTestNotificationsTool(
 	if sessionKey == "" {
 		sessionKey = session.id
 	}
-	p.startTestNotifications(sessionKey, session, serverSession, time.Duration(args.IntervalSeconds*float64(time.Second)), args.Count)
+	p.startTestNotifications(sessionKey, session, time.Duration(args.IntervalSeconds*float64(time.Second)), args.Count)
 
 	message := fmt.Sprintf("Started %d test notifications every %.2f seconds for this session.", args.Count, args.IntervalSeconds)
 	return &mcp.CallToolResult{
@@ -459,44 +500,73 @@ func (p *CentianEndpoint) handleTestNotificationsTool(
 func (p *CentianEndpoint) startTestNotifications(
 	sessionKey string,
 	session *UpstreamSession,
-	serverSession *mcp.ServerSession,
 	interval time.Duration,
 	count int,
 ) {
-	if p == nil || session == nil || serverSession == nil {
+	if p == nil || session == nil {
 		return
 	}
 
+	runCtx, job := p.swapNotificationJob(sessionKey)
+	go p.runNotificationJob(runCtx, sessionKey, session, interval, count, job.id, job.cancel)
+}
+
+func (p *CentianEndpoint) swapNotificationJob(sessionKey string) (context.Context, notificationJob) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.notificationJobs == nil {
-		p.notificationJobs = make(map[string]context.CancelFunc)
+		p.notificationJobs = make(map[string]notificationJob)
 	}
-	if cancel := p.notificationJobs[sessionKey]; cancel != nil {
-		cancel()
+	if job, ok := p.notificationJobs[sessionKey]; ok && job.cancel != nil {
+		job.cancel()
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
-	p.notificationJobs[sessionKey] = cancel
-	p.mu.Unlock()
 
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+	jobID := fmt.Sprintf("%d", time.Now().UnixNano())
+	runCtx, cancel := context.WithCancel(context.Background()) //nolint:gosec // The cancel func is stored in the active job map and is called on replacement or goroutine exit.
+	job := notificationJob{id: jobID, cancel: cancel}
+	p.notificationJobs[sessionKey] = job
+	return runCtx, job
+}
 
-		for i := 1; i <= count; i++ {
-			select {
-			case <-runCtx.Done():
+func (p *CentianEndpoint) runNotificationJob(
+	runCtx context.Context,
+	sessionKey string,
+	session *UpstreamSession,
+	interval time.Duration,
+	count int,
+	jobID string,
+	cancel context.CancelFunc,
+) {
+	defer cancel()
+	defer p.clearNotificationJob(sessionKey, jobID)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for i := 1; i <= count; i++ {
+		select {
+		case <-runCtx.Done():
+			return
+		case <-ticker.C:
+			if err := p.logUpstreamSession(runCtx, session, &mcp.LoggingMessageParams{
+				Level: logLevelInfo,
+				Data:  fmt.Sprintf("centian test notification %d/%d", i, count),
+			}); err != nil {
+				common.LogWarn("ProxyEndpoint[%s]: failed to emit test notification for session %s: %v", p.name, sanitizeLogValue(sessionKey), err)
 				return
-			case <-ticker.C:
-				if err := p.logUpstreamSession(runCtx, session, &mcp.LoggingMessageParams{
-					Level: logLevelInfo,
-					Data:  fmt.Sprintf("centian test notification %d/%d", i, count),
-				}); err != nil {
-					common.LogWarn("ProxyEndpoint[%s]: failed to emit test notification for session %s: %v", p.name, sanitizeLogValue(sessionKey), err)
-					return
-				}
 			}
 		}
-	}()
+	}
+}
+
+func (p *CentianEndpoint) clearNotificationJob(sessionKey, jobID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if current, ok := p.notificationJobs[sessionKey]; ok && current.id == jobID {
+		delete(p.notificationJobs, sessionKey)
+	}
 }
 
 func (p *CentianEndpoint) handleDownstreamToolAuthorizationRequired(

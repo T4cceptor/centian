@@ -336,7 +336,7 @@ func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]stri
 func (dc *DownstreamConnection) recordConnectError(err error) {
 	dc.connError = err
 	if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
-		if authErr.Reason == "refresh failed" {
+		if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
 			dc.status = StatusRefreshFailed
 		} else {
 			dc.status = StatusAuthRequired
@@ -567,7 +567,7 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolR
 	if err != nil {
 		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
 			dc.mu.Lock()
-			if authErr.Reason == "refresh failed" {
+			if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
 				dc.status = StatusRefreshFailed
 			} else {
 				dc.status = StatusAuthRequired

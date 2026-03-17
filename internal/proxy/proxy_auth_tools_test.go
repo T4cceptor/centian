@@ -15,7 +15,7 @@ import (
 	"gotest.tools/assert"
 )
 
-func newOAuthToolTestProxy(t *testing.T) (*CentianEndpoint, *UpstreamSession, centoauth.Binding) {
+func newOAuthToolTestProxy(t *testing.T, enableTestTools bool) (*CentianEndpoint, *UpstreamSession, centoauth.Binding) {
 	t.Helper()
 
 	t.Setenv("HOME", t.TempDir())
@@ -31,7 +31,10 @@ func newOAuthToolTestProxy(t *testing.T) (*CentianEndpoint, *UpstreamSession, ce
 		name:     "protected",
 		endpoint: "/mcp/gateway/protected",
 		server: &CentianServer{
-			Config: &config.GlobalConfig{Version: "1.0.0"},
+			Config: &config.GlobalConfig{
+				Version: "1.0.0",
+				Proxy:   &config.ProxySettings{EnableTestTools: enableTestTools},
+			},
 			Logger: logger,
 			OAuth:  manager,
 		},
@@ -112,7 +115,16 @@ func listToolNames(t *testing.T, clientSession *mcp.ClientSession) []string {
 }
 
 func TestNewUpstreamServerRegistersAuthStatusTool(t *testing.T) {
-	_, session, _ := newOAuthToolTestProxy(t)
+	_, session, _ := newOAuthToolTestProxy(t, false)
+
+	clientSession, cleanup := connectAuthToolClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName})
+}
+
+func TestNewUpstreamServerRegistersTestNotificationsToolWhenEnabled(t *testing.T) {
+	_, session, _ := newOAuthToolTestProxy(t, true)
 
 	clientSession, cleanup := connectAuthToolClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -121,8 +133,8 @@ func TestNewUpstreamServerRegistersAuthStatusTool(t *testing.T) {
 }
 
 func TestSyncAvailableToolsAddsAndRemovesLoginTool(t *testing.T) {
-	proxy, session, binding := newOAuthToolTestProxy(t)
-	_, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", centoauth.ResolvedMetadata{
+	proxy, session, binding := newOAuthToolTestProxy(t, false)
+	_, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", &centoauth.ResolvedMetadata{
 		Resource:              "http://127.0.0.1:9000/mcp",
 		Scopes:                []string{"tool:echo"},
 		Issuer:                "http://127.0.0.1:9000",
@@ -149,16 +161,16 @@ func TestSyncAvailableToolsAddsAndRemovesLoginTool(t *testing.T) {
 	defer cleanup()
 
 	proxy.syncAvailableTools(session)
-	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, loginToolName("protected"), testNotificationsTool})
+	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, loginToolName("protected")})
 
 	conn.Status = StatusConnected
 	conn.tools = []*mcp.Tool{{Name: "echo", Description: "echo", InputSchema: map[string]any{"type": "object"}}}
 	proxy.syncAvailableTools(session)
-	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, testNotificationsTool, "echo"})
+	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, "echo"})
 }
 
 func TestSyncAvailableToolsSkipsReservedDownstreamToolNames(t *testing.T) {
-	proxy, session, _ := newOAuthToolTestProxy(t)
+	proxy, session, _ := newOAuthToolTestProxy(t, false)
 	conn := &MockDownstreamConnection{
 		serverName: "protected",
 		Status:     StatusConnected,
@@ -173,12 +185,12 @@ func TestSyncAvailableToolsSkipsReservedDownstreamToolNames(t *testing.T) {
 	defer cleanup()
 
 	proxy.syncAvailableTools(session)
-	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, testNotificationsTool, "echo"})
+	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, "echo"})
 }
 
 func TestLoginToolUsesURLElicitationWhenSupported(t *testing.T) {
-	proxy, session, binding := newOAuthToolTestProxy(t)
-	pending, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", centoauth.ResolvedMetadata{
+	proxy, session, binding := newOAuthToolTestProxy(t, false)
+	pending, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", &centoauth.ResolvedMetadata{
 		Resource:              "http://127.0.0.1:9000/mcp",
 		Scopes:                []string{"tool:echo"},
 		Issuer:                "http://127.0.0.1:9000",
@@ -218,8 +230,8 @@ func TestLoginToolUsesURLElicitationWhenSupported(t *testing.T) {
 }
 
 func TestHandleToolCallAuthorizationRequiredAddsLoginTool(t *testing.T) {
-	proxy, session, binding := newOAuthToolTestProxy(t)
-	pending, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", centoauth.ResolvedMetadata{
+	proxy, session, binding := newOAuthToolTestProxy(t, false)
+	pending, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", &centoauth.ResolvedMetadata{
 		Resource:              "http://127.0.0.1:9000/mcp",
 		Scopes:                []string{"tool:echo"},
 		Issuer:                "http://127.0.0.1:9000",
@@ -241,7 +253,7 @@ func TestHandleToolCallAuthorizationRequiredAddsLoginTool(t *testing.T) {
 			AuthURL:   proxy.server.OAuth.StartURL(pending.ID),
 			StatusURL: proxy.server.OAuth.StatusURL(pending.ID),
 			PendingID: pending.ID,
-			Reason:    "authorization required",
+			Reason:    centoauth.AuthorizationReasonRequired,
 		},
 	}
 	session.downstreamConns["protected"] = conn
@@ -282,7 +294,7 @@ func containsToolName(names []string, target string) bool {
 }
 
 func TestTestNotificationsToolEmitsLogs(t *testing.T) {
-	_, session, _ := newOAuthToolTestProxy(t)
+	_, session, _ := newOAuthToolTestProxy(t, true)
 
 	var (
 		mu       sync.Mutex
@@ -330,7 +342,7 @@ func TestTestNotificationsToolEmitsLogs(t *testing.T) {
 }
 
 func TestNotifyOAuthAuthorizedIncludesCurrentToolNames(t *testing.T) {
-	proxy, session, _ := newOAuthToolTestProxy(t)
+	proxy, session, _ := newOAuthToolTestProxy(t, false)
 	session.downstreamConns["protected"] = &MockDownstreamConnection{
 		serverName: "protected",
 		Status:     StatusConnected,
@@ -350,6 +362,5 @@ func TestNotifyOAuthAuthorizedIncludesCurrentToolNames(t *testing.T) {
 	assert.Assert(t, ok)
 	assert.Assert(t, strings.Contains(data, "OAuth complete for downstream protected."))
 	assert.Assert(t, strings.Contains(data, authStatusToolName))
-	assert.Assert(t, strings.Contains(data, testNotificationsTool))
 	assert.Assert(t, strings.Contains(data, "echo"))
 }

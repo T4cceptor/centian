@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -11,10 +12,10 @@ import (
 func TestDefaultMasterKeyManagerCreatesKeyWithSecurePermissions(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	manager, err := NewDefaultMasterKeyManager()
+	manager, err := newDefaultMasterKeyManager()
 	assert.NilError(t, err)
 
-	key, err := manager.LoadOrCreate()
+	key, err := manager.loadOrCreate()
 	assert.NilError(t, err)
 	assert.Equal(t, len(key), 32)
 
@@ -26,9 +27,9 @@ func TestDefaultMasterKeyManagerCreatesKeyWithSecurePermissions(t *testing.T) {
 func TestEncryptedTokenStoreRoundTrip(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	manager, err := NewDefaultMasterKeyManager()
+	manager, err := newDefaultMasterKeyManager()
 	assert.NilError(t, err)
-	store, err := NewDefaultEncryptedTokenStore(manager)
+	store, err := newDefaultEncryptedTokenStore(manager)
 	assert.NilError(t, err)
 
 	binding := Binding{PrincipalID: "user-1", Gateway: "gw", Server: "srv"}
@@ -44,14 +45,14 @@ func TestEncryptedTokenStoreRoundTrip(t *testing.T) {
 		ClientAuthMethod:      "client_secret_post",
 	}
 
-	assert.NilError(t, store.Save(binding, token))
+	assert.NilError(t, store.save(binding, token))
 
-	loaded, err := store.Load(binding)
+	loaded, err := store.load(binding)
 	assert.NilError(t, err)
 	assert.DeepEqual(t, loaded, token)
 
-	assert.NilError(t, store.Delete(binding))
-	loaded, err = store.Load(binding)
-	assert.NilError(t, err)
+	assert.NilError(t, store.delete(binding))
+	loaded, err = store.load(binding)
+	assert.Assert(t, errors.Is(err, errTokenNotFound))
 	assert.Assert(t, loaded == nil)
 }

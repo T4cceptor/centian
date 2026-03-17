@@ -161,13 +161,14 @@ type OAuthConfig struct {
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Host      string            `json:"host,omitempty"`      // Bind address for the proxy
-	Port      string            `json:"port,omitempty"`      // HTTP proxy port (if enabled)
-	LogLevel  string            `json:"logLevel,omitempty"`  // debug, info, warn, error
-	LogOutput string            `json:"logOutput,omitempty"` // file, console, both
-	LogFile   string            `json:"logFile,omitempty"`   // Log file path for internal logger
-	Timeout   int               `json:"timeout,omitempty"`   // Request timeout in seconds
-	Web       *ProxyWebSettings `json:"web,omitempty"`       // Public web settings for hosted OAuth flows
+	Host            string            `json:"host,omitempty"`            // Bind address for the proxy
+	Port            string            `json:"port,omitempty"`            // HTTP proxy port (if enabled)
+	LogLevel        string            `json:"logLevel,omitempty"`        // debug, info, warn, error
+	LogOutput       string            `json:"logOutput,omitempty"`       // file, console, both
+	LogFile         string            `json:"logFile,omitempty"`         // Log file path for internal logger
+	Timeout         int               `json:"timeout,omitempty"`         // Request timeout in seconds
+	EnableTestTools bool              `json:"enableTestTools,omitempty"` // Register Centian-owned debug/test tools.
+	Web             *ProxyWebSettings `json:"web,omitempty"`             // Public web settings for hosted OAuth flows
 }
 
 // ProxyWebSettings contains public-facing web settings required for browser-based flows.
@@ -617,12 +618,29 @@ func validateOAuthConfig(name string, server *MCPServerConfig) error {
 	if server == nil || !server.OAuthEnabled() {
 		return nil
 	}
-
-	if server.URL == "" || server.Command != "" {
-		return fmt.Errorf("server '%s': downstream OAuth is only supported for HTTP MCP servers", name)
+	if err := validateOAuthTransport(name, server); err != nil {
+		return err
 	}
 
 	oauthConfig := server.OAuth
+	normalizeOAuthConfig(oauthConfig)
+	if err := validateOAuthRequiredFields(name, oauthConfig); err != nil {
+		return err
+	}
+	if err := validateOAuthClientAuthMethod(name, oauthConfig.ClientAuthMethod); err != nil {
+		return err
+	}
+	return validateOAuthEndpoints(name, oauthConfig)
+}
+
+func validateOAuthTransport(name string, server *MCPServerConfig) error {
+	if server.URL == "" || server.Command != "" {
+		return fmt.Errorf("server '%s': downstream OAuth is only supported for HTTP MCP servers", name)
+	}
+	return nil
+}
+
+func normalizeOAuthConfig(oauthConfig *OAuthConfig) {
 	oauthConfig.ClientID = strings.TrimSpace(oauthConfig.ClientID)
 	oauthConfig.ClientSecret = strings.TrimSpace(oauthConfig.ClientSecret)
 	oauthConfig.ClientAuthMethod = strings.ToLower(strings.TrimSpace(oauthConfig.ClientAuthMethod))
@@ -630,39 +648,58 @@ func validateOAuthConfig(name string, server *MCPServerConfig) error {
 	oauthConfig.Issuer = strings.TrimSpace(oauthConfig.Issuer)
 	oauthConfig.AuthorizationEndpoint = strings.TrimSpace(oauthConfig.AuthorizationEndpoint)
 	oauthConfig.TokenEndpoint = strings.TrimSpace(oauthConfig.TokenEndpoint)
+}
 
-	if oauthConfig.ClientID == "" {
+func validateOAuthRequiredFields(name string, oauthConfig *OAuthConfig) error {
+	switch {
+	case oauthConfig.ClientID == "":
 		return fmt.Errorf("server '%s': oauth.clientId is required when oauth is enabled", name)
-	}
-	if oauthConfig.ClientSecret == "" {
+	case oauthConfig.ClientSecret == "":
 		return fmt.Errorf("server '%s': oauth.clientSecret is required when oauth is enabled", name)
-	}
-	if oauthConfig.Resource == "" {
+	case oauthConfig.Resource == "":
 		return fmt.Errorf("server '%s': oauth.resource is required when oauth is enabled", name)
+	default:
+		return nil
 	}
+}
 
-	switch oauthConfig.ClientAuthMethod {
+func validateOAuthClientAuthMethod(name, method string) error {
+	switch method {
 	case "", "client_secret_basic", "client_secret_post":
+		return nil
 	default:
 		return fmt.Errorf("server '%s': oauth.clientAuthMethod must be client_secret_basic or client_secret_post", name)
 	}
+}
 
+func validateOAuthEndpoints(name string, oauthConfig *OAuthConfig) error {
+	if err := validateOAuthIssuer(name, oauthConfig); err != nil {
+		return err
+	}
+	if err := validateOptionalOAuthURL(name, "oauth.authorizationEndpoint", oauthConfig.AuthorizationEndpoint); err != nil {
+		return err
+	}
+	return validateOptionalOAuthURL(name, "oauth.tokenEndpoint", oauthConfig.TokenEndpoint)
+}
+
+func validateOAuthIssuer(name string, oauthConfig *OAuthConfig) error {
 	if oauthConfig.Issuer == "" {
 		if !isValidHTTPURL(oauthConfig.AuthorizationEndpoint) || !isValidHTTPURL(oauthConfig.TokenEndpoint) {
 			return fmt.Errorf("server '%s': oauth.issuer or both oauth.authorizationEndpoint and oauth.tokenEndpoint are required", name)
 		}
-	} else if !isValidHTTPURL(oauthConfig.Issuer) {
+		return nil
+	}
+	if !isValidHTTPURL(oauthConfig.Issuer) {
 		return fmt.Errorf("server '%s': oauth.issuer must be a valid http:// or https:// URL", name)
 	}
-
-	if oauthConfig.AuthorizationEndpoint != "" && !isValidHTTPURL(oauthConfig.AuthorizationEndpoint) {
-		return fmt.Errorf("server '%s': oauth.authorizationEndpoint must be a valid http:// or https:// URL", name)
-	}
-	if oauthConfig.TokenEndpoint != "" && !isValidHTTPURL(oauthConfig.TokenEndpoint) {
-		return fmt.Errorf("server '%s': oauth.tokenEndpoint must be a valid http:// or https:// URL", name)
-	}
-
 	return nil
+}
+
+func validateOptionalOAuthURL(name, fieldName, value string) error {
+	if value == "" || isValidHTTPURL(value) {
+		return nil
+	}
+	return fmt.Errorf("server '%s': %s must be a valid http:// or https:// URL", name, fieldName)
 }
 
 // HasOAuthServers reports whether any configured downstream server enables OAuth.

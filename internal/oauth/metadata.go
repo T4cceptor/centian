@@ -18,18 +18,18 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type Challenge struct {
+type challenge struct {
 	Scheme string
 	Params map[string]string
 }
 
-type ProtectedResourceMetadata struct {
+type protectedResourceMetadata struct {
 	Resource             string   `json:"resource"`
 	AuthorizationServers []string `json:"authorization_servers,omitempty"`
 	ScopesSupported      []string `json:"scopes_supported,omitempty"`
 }
 
-type AuthorizationServerMetadata struct {
+type authorizationServerMetadata struct {
 	Issuer                            string   `json:"issuer"`
 	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
 	TokenEndpoint                     string   `json:"token_endpoint"`
@@ -37,6 +37,7 @@ type AuthorizationServerMetadata struct {
 	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported,omitempty"`
 }
 
+// ResolvedMetadata is the downstream OAuth metadata required to authorize and refresh tokens.
 type ResolvedMetadata struct {
 	Resource              string
 	Scopes                []string
@@ -47,68 +48,98 @@ type ResolvedMetadata struct {
 }
 
 func resolveMetadata(ctx context.Context, httpClient *http.Client, reqURL string, header http.Header, oauthConfig *config.OAuthConfig) (ResolvedMetadata, error) {
-	resolved := ResolvedMetadata{
+	resolved := newResolvedMetadata(oauthConfig)
+	challenges, err := parseWWWAuthenticate(header[http.CanonicalHeaderKey("WWW-Authenticate")])
+	if err != nil {
+		return ResolvedMetadata{}, err
+	}
+	applyChallengeScopes(&resolved, challenges)
+	applyConfiguredEndpoints(&resolved, oauthConfig)
+	if hasResolvedEndpoints(&resolved) {
+		return resolved, nil
+	}
+	if err := resolveIssuerMetadata(ctx, httpClient, &resolved); err != nil {
+		return ResolvedMetadata{}, err
+	}
+	if hasResolvedEndpoints(&resolved) {
+		return resolved, nil
+	}
+	prm, err := fetchProtectedResourceMetadata(ctx, httpClient, reqURL, header)
+	if err != nil {
+		return ResolvedMetadata{}, err
+	}
+	mergeProtectedResourceMetadata(&resolved, prm)
+	if resolved.Issuer == "" {
+		return ResolvedMetadata{}, fmt.Errorf("unable to determine oauth issuer for downstream")
+	}
+	if err := resolveIssuerMetadata(ctx, httpClient, &resolved); err != nil {
+		return ResolvedMetadata{}, err
+	}
+	return resolved, nil
+}
+
+func newResolvedMetadata(oauthConfig *config.OAuthConfig) ResolvedMetadata {
+	return ResolvedMetadata{
 		Resource:         strings.TrimSpace(oauthConfig.Resource),
 		Scopes:           append([]string(nil), oauthConfig.Scopes...),
 		Issuer:           strings.TrimSpace(oauthConfig.Issuer),
 		ClientAuthMethod: strings.TrimSpace(oauthConfig.ClientAuthMethod),
 	}
+}
 
-	challenges, err := parseWWWAuthenticate(header[http.CanonicalHeaderKey("WWW-Authenticate")])
-	if err != nil {
-		return ResolvedMetadata{}, err
+func applyChallengeScopes(resolved *ResolvedMetadata, challenges []challenge) {
+	if resolved == nil {
+		return
 	}
 	if scopes := scopesFromChallenges(challenges); len(scopes) > 0 {
 		resolved.Scopes = scopes
 	}
+}
 
+func applyConfiguredEndpoints(resolved *ResolvedMetadata, oauthConfig *config.OAuthConfig) {
+	if resolved == nil || oauthConfig == nil {
+		return
+	}
 	if endpoint := strings.TrimSpace(oauthConfig.AuthorizationEndpoint); endpoint != "" {
 		resolved.AuthorizationEndpoint = endpoint
 	}
 	if endpoint := strings.TrimSpace(oauthConfig.TokenEndpoint); endpoint != "" {
 		resolved.TokenEndpoint = endpoint
 	}
-	if resolved.AuthorizationEndpoint != "" && resolved.TokenEndpoint != "" {
-		return resolved, nil
-	}
-
-	if resolved.Issuer != "" {
-		meta, err := fetchAuthorizationServerMetadata(ctx, httpClient, resolved.Issuer)
-		if err != nil {
-			return ResolvedMetadata{}, err
-		}
-		mergeAuthorizationServerMetadata(&resolved, meta)
-		return resolved, nil
-	}
-
-	prm, err := fetchProtectedResourceMetadata(ctx, httpClient, reqURL, header)
-	if err != nil {
-		return ResolvedMetadata{}, err
-	}
-	if prm != nil {
-		if resolved.Resource == "" {
-			resolved.Resource = prm.Resource
-		}
-		if len(resolved.Scopes) == 0 && len(prm.ScopesSupported) > 0 {
-			resolved.Scopes = append([]string(nil), prm.ScopesSupported...)
-		}
-		if resolved.Issuer == "" && len(prm.AuthorizationServers) > 0 {
-			resolved.Issuer = prm.AuthorizationServers[0]
-		}
-	}
-	if resolved.Issuer == "" {
-		return ResolvedMetadata{}, fmt.Errorf("unable to determine oauth issuer for downstream")
-	}
-
-	meta, err := fetchAuthorizationServerMetadata(ctx, httpClient, resolved.Issuer)
-	if err != nil {
-		return ResolvedMetadata{}, err
-	}
-	mergeAuthorizationServerMetadata(&resolved, meta)
-	return resolved, nil
 }
 
-func mergeAuthorizationServerMetadata(dst *ResolvedMetadata, src *AuthorizationServerMetadata) {
+func hasResolvedEndpoints(resolved *ResolvedMetadata) bool {
+	return resolved != nil && resolved.AuthorizationEndpoint != "" && resolved.TokenEndpoint != ""
+}
+
+func resolveIssuerMetadata(ctx context.Context, httpClient *http.Client, resolved *ResolvedMetadata) error {
+	if resolved == nil || resolved.Issuer == "" {
+		return nil
+	}
+	meta, err := fetchAuthorizationServerMetadata(ctx, httpClient, resolved.Issuer)
+	if err != nil {
+		return err
+	}
+	mergeAuthorizationServerMetadata(resolved, meta)
+	return nil
+}
+
+func mergeProtectedResourceMetadata(dst *ResolvedMetadata, src *protectedResourceMetadata) {
+	if dst == nil || src == nil {
+		return
+	}
+	if dst.Resource == "" {
+		dst.Resource = src.Resource
+	}
+	if len(dst.Scopes) == 0 && len(src.ScopesSupported) > 0 {
+		dst.Scopes = append([]string(nil), src.ScopesSupported...)
+	}
+	if dst.Issuer == "" && len(src.AuthorizationServers) > 0 {
+		dst.Issuer = src.AuthorizationServers[0]
+	}
+}
+
+func mergeAuthorizationServerMetadata(dst *ResolvedMetadata, src *authorizationServerMetadata) {
 	if dst == nil || src == nil {
 		return
 	}
@@ -136,7 +167,7 @@ func mergeAuthorizationServerMetadata(dst *ResolvedMetadata, src *AuthorizationS
 	}
 }
 
-func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client, resourceURL string, header http.Header) (*ProtectedResourceMetadata, error) {
+func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client, resourceURL string, header http.Header) (*protectedResourceMetadata, error) {
 	metadataURL := metadataURLFromChallenges(header[http.CanonicalHeaderKey("WWW-Authenticate")])
 	if metadataURL == "" {
 		metadataURL = defaultProtectedResourceMetadataURL(resourceURL)
@@ -144,14 +175,14 @@ func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client
 	if err := checkHTTPSOrLoopback(metadataURL); err != nil {
 		return nil, err
 	}
-	meta, err := fetchJSON[ProtectedResourceMetadata](ctx, httpClient, metadataURL)
+	meta, err := fetchJSON[protectedResourceMetadata](ctx, httpClient, metadataURL)
 	if err != nil {
 		return nil, err
 	}
 	return meta, nil
 }
 
-func fetchAuthorizationServerMetadata(ctx context.Context, httpClient *http.Client, issuer string) (*AuthorizationServerMetadata, error) {
+func fetchAuthorizationServerMetadata(ctx context.Context, httpClient *http.Client, issuer string) (*authorizationServerMetadata, error) {
 	metadataURL, err := defaultAuthorizationServerMetadataURL(issuer)
 	if err != nil {
 		return nil, err
@@ -159,7 +190,7 @@ func fetchAuthorizationServerMetadata(ctx context.Context, httpClient *http.Clie
 	if err := checkHTTPSOrLoopback(metadataURL); err != nil {
 		return nil, err
 	}
-	meta, err := fetchJSON[AuthorizationServerMetadata](ctx, httpClient, metadataURL)
+	meta, err := fetchJSON[authorizationServerMetadata](ctx, httpClient, metadataURL)
 	if err != nil {
 		return nil, err
 	}
@@ -183,15 +214,15 @@ func fetchAuthorizationServerMetadata(ctx context.Context, httpClient *http.Clie
 }
 
 func fetchJSON[T any](ctx context.Context, httpClient *http.Client, endpoint string) (*T, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody) //nolint:gosec // endpoint is validated by checkHTTPSOrLoopback before fetchJSON is called.
 	if err != nil {
 		return nil, err
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := httpClient.Do(req) //nolint:gosec // endpoint is validated by checkHTTPSOrLoopback before issuing the request.
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, endpoint)
 	}
@@ -242,7 +273,7 @@ func metadataURLFromChallenges(headers []string) string {
 	return ""
 }
 
-func scopesFromChallenges(challenges []Challenge) []string {
+func scopesFromChallenges(challenges []challenge) []string {
 	for _, challenge := range challenges {
 		if scope := challenge.Params["scope"]; scope != "" {
 			return strings.Fields(scope)
@@ -251,13 +282,10 @@ func scopesFromChallenges(challenges []Challenge) []string {
 	return nil
 }
 
-func parseWWWAuthenticate(headers []string) ([]Challenge, error) {
-	var challenges []Challenge
+func parseWWWAuthenticate(headers []string) ([]challenge, error) {
+	var challenges []challenge
 	for _, header := range headers {
-		parts, err := splitChallenges(header)
-		if err != nil {
-			return nil, err
-		}
+		parts := splitChallenges(header)
 		for _, part := range parts {
 			part = strings.TrimSpace(part)
 			if part == "" {
@@ -273,7 +301,7 @@ func parseWWWAuthenticate(headers []string) ([]Challenge, error) {
 	return challenges, nil
 }
 
-func splitChallenges(header string) ([]string, error) {
+func splitChallenges(header string) []string {
 	var result []string
 	inQuotes := false
 	start := 0
@@ -298,24 +326,24 @@ func splitChallenges(header string) ([]string, error) {
 		}
 	}
 	result = append(result, header[start:])
-	return result, nil
+	return result
 }
 
-func parseSingleChallenge(raw string) (Challenge, error) {
+func parseSingleChallenge(raw string) (challenge, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return Challenge{}, fmt.Errorf("empty challenge")
+		return challenge{}, fmt.Errorf("empty challenge")
 	}
 	scheme, paramsText, found := strings.Cut(raw, " ")
-	challenge := Challenge{Scheme: strings.ToLower(scheme), Params: map[string]string{}}
+	parsed := challenge{Scheme: strings.ToLower(scheme), Params: map[string]string{}}
 	if !found {
-		return challenge, nil
+		return parsed, nil
 	}
 	paramsText = strings.TrimSpace(paramsText)
 	for paramsText != "" {
 		keyEnd := strings.Index(paramsText, "=")
 		if keyEnd <= 0 {
-			return Challenge{}, fmt.Errorf("malformed auth param %q", paramsText)
+			return challenge{}, fmt.Errorf("malformed auth param %q", paramsText)
 		}
 		key := strings.ToLower(strings.TrimSpace(paramsText[:keyEnd]))
 		paramsText = strings.TrimSpace(paramsText[keyEnd+1:])
@@ -336,7 +364,7 @@ func parseSingleChallenge(raw string) (Challenge, error) {
 				builder.WriteByte(paramsText[i])
 			}
 			if i >= len(paramsText) {
-				return Challenge{}, fmt.Errorf("unterminated quoted auth param")
+				return challenge{}, fmt.Errorf("unterminated quoted auth param")
 			}
 			value = builder.String()
 			paramsText = strings.TrimSpace(paramsText[i+1:])
@@ -351,14 +379,14 @@ func parseSingleChallenge(raw string) (Challenge, error) {
 			}
 		}
 		if value == "" {
-			return Challenge{}, fmt.Errorf("empty auth param value for %q", key)
+			return challenge{}, fmt.Errorf("empty auth param value for %q", key)
 		}
-		challenge.Params[key] = value
+		parsed.Params[key] = value
 		if strings.HasPrefix(paramsText, ",") {
 			paramsText = strings.TrimSpace(paramsText[1:])
 		}
 	}
-	return challenge, nil
+	return parsed, nil
 }
 
 func checkHTTPSOrLoopback(raw string) error {

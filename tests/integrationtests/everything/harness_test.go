@@ -344,9 +344,10 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
 		Proxy: &config.ProxySettings{
-			Host:    "127.0.0.1",
-			Port:    port,
-			Timeout: int(defaultSessionTimeout.Seconds()),
+			Host:            "127.0.0.1",
+			Port:            port,
+			Timeout:         int(defaultSessionTimeout.Seconds()),
+			EnableTestTools: false,
 		},
 		Gateways: map[string]*config.GatewayConfig{
 			"everything": {

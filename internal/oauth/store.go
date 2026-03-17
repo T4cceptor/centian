@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,9 +20,12 @@ import (
 
 const (
 	defaultMasterKeyFile = "oauth_master_key"
-	defaultTokenFile     = "oauth_tokens.json"
+	defaultTokenFile     = "oauth_tokens.json" //nolint:gosec // Encrypted token store filename, not a credential.
 )
 
+var errTokenNotFound = errors.New("oauth token not found")
+
+// Binding identifies one persisted downstream OAuth token.
 type Binding struct {
 	PrincipalID string
 	Gateway     string
@@ -32,6 +36,7 @@ func (b Binding) storageKey() string {
 	return fmt.Sprintf("%s|%s|%s", b.PrincipalID, b.Gateway, b.Server)
 }
 
+// StoredToken is the serialized OAuth token record persisted for one binding.
 type StoredToken struct {
 	AccessToken           string    `json:"accessToken"`
 	TokenType             string    `json:"tokenType,omitempty"`
@@ -45,7 +50,7 @@ type StoredToken struct {
 	ClientAuthMethod      string    `json:"clientAuthMethod,omitempty"`
 }
 
-func (s *StoredToken) OAuthToken() *oauth2.Token {
+func (s *StoredToken) oauthToken() *oauth2.Token {
 	if s == nil {
 		return nil
 	}
@@ -91,11 +96,11 @@ type encryptedTokenEnvelope struct {
 	UpdatedAt  string `json:"updatedAt,omitempty"`
 }
 
-type MasterKeyManager struct {
+type masterKeyManager struct {
 	path string
 }
 
-func DefaultMasterKeyPath() (string, error) {
+func defaultMasterKeyPath() (string, error) {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
 		return "", err
@@ -103,19 +108,20 @@ func DefaultMasterKeyPath() (string, error) {
 	return filepath.Join(configDir, defaultMasterKeyFile), nil
 }
 
-func NewDefaultMasterKeyManager() (*MasterKeyManager, error) {
-	path, err := DefaultMasterKeyPath()
+func newDefaultMasterKeyManager() (*masterKeyManager, error) {
+	path, err := defaultMasterKeyPath()
 	if err != nil {
 		return nil, err
 	}
-	return &MasterKeyManager{path: path}, nil
+	return &masterKeyManager{path: path}, nil
 }
 
-func (m *MasterKeyManager) LoadOrCreate() ([]byte, error) {
-	if err := os.MkdirAll(filepath.Dir(m.path), 0o750); err != nil {
+func (m *masterKeyManager) loadOrCreate() ([]byte, error) {
+	path := filepath.Clean(m.path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create oauth key directory: %w", err)
 	}
-	data, err := os.ReadFile(filepath.Clean(m.path))
+	data, err := os.ReadFile(path)
 	if err == nil {
 		decoded, decErr := base64.RawStdEncoding.DecodeString(string(data))
 		if decErr != nil {
@@ -135,19 +141,19 @@ func (m *MasterKeyManager) LoadOrCreate() ([]byte, error) {
 		return nil, fmt.Errorf("generate oauth master key: %w", err)
 	}
 	encoded := base64.RawStdEncoding.EncodeToString(key)
-	if err := os.WriteFile(m.path, []byte(encoded), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(encoded), 0o600); err != nil {
 		return nil, fmt.Errorf("write oauth master key: %w", err)
 	}
 	return key, nil
 }
 
-type EncryptedTokenStore struct {
+type encryptedTokenStore struct {
 	path string
 	key  []byte
 	mu   sync.Mutex
 }
 
-func DefaultTokenStorePath() (string, error) {
+func defaultTokenStorePath() (string, error) {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
 		return "", err
@@ -155,22 +161,22 @@ func DefaultTokenStorePath() (string, error) {
 	return filepath.Join(configDir, defaultTokenFile), nil
 }
 
-func NewDefaultEncryptedTokenStore(keyManager *MasterKeyManager) (*EncryptedTokenStore, error) {
+func newDefaultEncryptedTokenStore(keyManager *masterKeyManager) (*encryptedTokenStore, error) {
 	if keyManager == nil {
 		return nil, fmt.Errorf("master key manager is required")
 	}
-	key, err := keyManager.LoadOrCreate()
+	key, err := keyManager.loadOrCreate()
 	if err != nil {
 		return nil, err
 	}
-	path, err := DefaultTokenStorePath()
+	path, err := defaultTokenStorePath()
 	if err != nil {
 		return nil, err
 	}
-	return &EncryptedTokenStore{path: path, key: key}, nil
+	return &encryptedTokenStore{path: path, key: key}, nil
 }
 
-func (s *EncryptedTokenStore) Load(binding Binding) (*StoredToken, error) {
+func (s *encryptedTokenStore) load(binding Binding) (*StoredToken, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -180,12 +186,12 @@ func (s *EncryptedTokenStore) Load(binding Binding) (*StoredToken, error) {
 	}
 	entry, ok := file.Tokens[binding.storageKey()]
 	if !ok {
-		return nil, nil
+		return nil, errTokenNotFound
 	}
 	return s.decrypt(entry)
 }
 
-func (s *EncryptedTokenStore) Save(binding Binding, token *StoredToken) error {
+func (s *encryptedTokenStore) save(binding Binding, token *StoredToken) error {
 	if token == nil {
 		return fmt.Errorf("token is required")
 	}
@@ -205,7 +211,7 @@ func (s *EncryptedTokenStore) Save(binding Binding, token *StoredToken) error {
 	return s.writeFile(file)
 }
 
-func (s *EncryptedTokenStore) Delete(binding Binding) error {
+func (s *encryptedTokenStore) delete(binding Binding) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -217,7 +223,7 @@ func (s *EncryptedTokenStore) Delete(binding Binding) error {
 	return s.writeFile(file)
 }
 
-func (s *EncryptedTokenStore) readFile() (*encryptedTokenFile, error) {
+func (s *encryptedTokenStore) readFile() (*encryptedTokenFile, error) {
 	data, err := os.ReadFile(filepath.Clean(s.path))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -235,21 +241,22 @@ func (s *EncryptedTokenStore) readFile() (*encryptedTokenFile, error) {
 	return &file, nil
 }
 
-func (s *EncryptedTokenStore) writeFile(file *encryptedTokenFile) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
+func (s *encryptedTokenStore) writeFile(file *encryptedTokenFile) error {
+	path := filepath.Clean(s.path)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { //nolint:gosec // Store path comes from the local config directory and is cleaned before use.
 		return fmt.Errorf("create oauth token directory: %w", err)
 	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal oauth token file: %w", err)
 	}
-	if err := os.WriteFile(s.path, data, 0o600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil { //nolint:gosec // Store path comes from the local config directory and is cleaned before use.
 		return fmt.Errorf("write oauth token file: %w", err)
 	}
 	return nil
 }
 
-func (s *EncryptedTokenStore) encrypt(token *StoredToken) (encryptedTokenEnvelope, error) {
+func (s *encryptedTokenStore) encrypt(token *StoredToken) (encryptedTokenEnvelope, error) {
 	block, err := aes.NewCipher(s.key)
 	if err != nil {
 		return encryptedTokenEnvelope{}, fmt.Errorf("create oauth cipher: %w", err)
@@ -262,7 +269,7 @@ func (s *EncryptedTokenStore) encrypt(token *StoredToken) (encryptedTokenEnvelop
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return encryptedTokenEnvelope{}, fmt.Errorf("generate oauth nonce: %w", err)
 	}
-	plaintext, err := json.Marshal(token)
+	plaintext, err := json.Marshal(token) //nolint:gosec // The token JSON is encrypted immediately and never written in plaintext.
 	if err != nil {
 		return encryptedTokenEnvelope{}, fmt.Errorf("marshal oauth token: %w", err)
 	}
@@ -274,7 +281,7 @@ func (s *EncryptedTokenStore) encrypt(token *StoredToken) (encryptedTokenEnvelop
 	}, nil
 }
 
-func (s *EncryptedTokenStore) decrypt(entry encryptedTokenEnvelope) (*StoredToken, error) {
+func (s *encryptedTokenStore) decrypt(entry encryptedTokenEnvelope) (*StoredToken, error) {
 	block, err := aes.NewCipher(s.key)
 	if err != nil {
 		return nil, fmt.Errorf("create oauth cipher: %w", err)

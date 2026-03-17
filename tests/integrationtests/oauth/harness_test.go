@@ -354,17 +354,6 @@ func (r *oauthClientRecorder) incrementToolListChanged() {
 	r.toolListChanged++
 }
 
-func (r *oauthClientRecorder) authURL() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, entry := range r.logs {
-		if idx := strings.Index(entry, "http://"); idx >= 0 {
-			return strings.TrimSpace(entry[idx:])
-		}
-	}
-	return ""
-}
-
 func (r *oauthClientRecorder) toolListChangedCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

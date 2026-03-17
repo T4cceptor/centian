@@ -15,15 +15,21 @@ import (
 
 const defaultPendingTTL = 15 * time.Minute
 
+// PendingStatus describes the current state of a browser-based downstream OAuth flow.
 type PendingStatus string
 
 const (
-	PendingStatusReady      PendingStatus = "ready"
+	// PendingStatusReady means the flow has been created but the browser step has not started yet.
+	PendingStatusReady PendingStatus = "ready"
+	// PendingStatusInProgress means the user has started the browser flow but it is not complete yet.
 	PendingStatusInProgress PendingStatus = "in_progress"
-	PendingStatusCompleted  PendingStatus = "completed"
-	PendingStatusFailed     PendingStatus = "failed"
+	// PendingStatusCompleted means the flow completed and the token has been saved.
+	PendingStatusCompleted PendingStatus = "completed"
+	// PendingStatusFailed means the flow failed and LastError contains the reason.
+	PendingStatusFailed PendingStatus = "failed"
 )
 
+// PendingAuthorization tracks one downstream OAuth flow waiting on browser interaction.
 type PendingAuthorization struct {
 	ID           string
 	State        string
@@ -53,7 +59,7 @@ func newPendingStore() *pendingStore {
 	}
 }
 
-func (s *pendingStore) Put(pending *PendingAuthorization) {
+func (s *pendingStore) put(pending *PendingAuthorization) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
@@ -61,14 +67,14 @@ func (s *pendingStore) Put(pending *PendingAuthorization) {
 	s.byState[pending.State] = pending.ID
 }
 
-func (s *pendingStore) GetByID(id string) *PendingAuthorization {
+func (s *pendingStore) getByID(id string) *PendingAuthorization {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
 	return s.byID[id]
 }
 
-func (s *pendingStore) GetByState(state string) *PendingAuthorization {
+func (s *pendingStore) getByState(state string) *PendingAuthorization {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
@@ -79,7 +85,7 @@ func (s *pendingStore) GetByState(state string) *PendingAuthorization {
 	return s.byID[id]
 }
 
-func (s *pendingStore) List() []*PendingAuthorization {
+func (s *pendingStore) list() []*PendingAuthorization {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.gcLocked()
@@ -104,6 +110,7 @@ func (s *pendingStore) gcLocked() {
 	}
 }
 
+// AuthorizationRequiredError reports that a downstream HTTP request must be authorized in the browser first.
 type AuthorizationRequiredError struct {
 	Binding   Binding
 	AuthURL   string
@@ -121,9 +128,10 @@ func (e *AuthorizationRequiredError) Error() string {
 	)
 }
 
+// Manager owns downstream OAuth token storage and pending browser-based authorization flows.
 type Manager struct {
 	publicBaseURL string
-	tokenStore    *EncryptedTokenStore
+	tokenStore    *encryptedTokenStore
 	pending       *pendingStore
 	httpClient    *http.Client
 	onAuthorized  func(Binding)
@@ -131,12 +139,13 @@ type Manager struct {
 	now           func() time.Time
 }
 
+// NewManager creates the downstream OAuth manager used by proxy endpoints.
 func NewManager(publicBaseURL string, onAuthorized func(Binding), onRequired func(Binding, string)) (*Manager, error) {
-	keyManager, err := NewDefaultMasterKeyManager()
+	keyManager, err := newDefaultMasterKeyManager()
 	if err != nil {
 		return nil, err
 	}
-	tokenStore, err := NewDefaultEncryptedTokenStore(keyManager)
+	tokenStore, err := newDefaultEncryptedTokenStore(keyManager)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +160,7 @@ func NewManager(publicBaseURL string, onAuthorized func(Binding), onRequired fun
 	}, nil
 }
 
+// NewTransport wraps one downstream HTTP transport with OAuth token management.
 func (m *Manager) NewTransport(
 	base http.RoundTripper,
 	binding Binding,
@@ -168,19 +178,26 @@ func (m *Manager) NewTransport(
 	}
 }
 
+// LoadToken loads the persisted downstream token for the provided binding.
 func (m *Manager) LoadToken(binding Binding) (*StoredToken, error) {
-	return m.tokenStore.Load(binding)
+	return m.tokenStore.load(binding)
 }
 
+// SaveToken persists the downstream token for the provided binding.
 func (m *Manager) SaveToken(binding Binding, token *StoredToken) error {
-	return m.tokenStore.Save(binding, token)
+	return m.tokenStore.save(binding, token)
 }
 
+// DeleteToken removes the persisted downstream token for the provided binding.
 func (m *Manager) DeleteToken(binding Binding) error {
-	return m.tokenStore.Delete(binding)
+	return m.tokenStore.delete(binding)
 }
 
-func (m *Manager) CreatePending(binding Binding, clientID, clientSecret string, metadata ResolvedMetadata, verifier string) (*PendingAuthorization, error) {
+// CreatePending allocates a new browser-based authorization flow for a downstream server.
+func (m *Manager) CreatePending(binding Binding, clientID, clientSecret string, metadata *ResolvedMetadata, verifier string) (*PendingAuthorization, error) {
+	if metadata == nil {
+		return nil, fmt.Errorf("oauth metadata is required")
+	}
 	id, err := randomToken(16)
 	if err != nil {
 		return nil, err
@@ -214,25 +231,26 @@ func (m *Manager) CreatePending(binding Binding, clientID, clientSecret string, 
 		Binding:      binding,
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		Metadata:     metadata,
+		Metadata:     *metadata,
 		CodeVerifier: verifier,
 		RedirectURL:  redirectURL,
 		AuthURL:      authURL,
 		CreatedAt:    m.now().UTC(),
 		ExpiresAt:    m.now().UTC().Add(defaultPendingTTL),
 	}
-	m.pending.Put(pending)
+	m.pending.put(pending)
 	if m.onRequired != nil {
 		m.onRequired(binding, m.StartURL(id))
 	}
 	return pending, nil
 }
 
+// PendingForBinding returns the active pending authorization flow for a downstream binding, if any.
 func (m *Manager) PendingForBinding(binding Binding) *PendingAuthorization {
 	if m == nil {
 		return nil
 	}
-	for _, pending := range m.pending.List() {
+	for _, pending := range m.pending.list() {
 		if pending == nil {
 			continue
 		}
@@ -243,7 +261,8 @@ func (m *Manager) PendingForBinding(binding Binding) *PendingAuthorization {
 	return nil
 }
 
-func (m *Manager) EnsurePending(binding Binding, clientID, clientSecret string, metadata ResolvedMetadata) (*PendingAuthorization, bool, error) {
+// EnsurePending reuses an active flow when possible or creates a new one.
+func (m *Manager) EnsurePending(binding Binding, clientID, clientSecret string, metadata *ResolvedMetadata) (*PendingAuthorization, bool, error) {
 	if pending := m.PendingForBinding(binding); pending != nil {
 		switch pending.Status {
 		case PendingStatusReady, PendingStatusInProgress:
@@ -259,18 +278,21 @@ func (m *Manager) EnsurePending(binding Binding, clientID, clientSecret string, 
 	return pending, false, nil
 }
 
+// StartURL returns the browser entrypoint for a pending downstream authorization flow.
 func (m *Manager) StartURL(id string) string {
 	values := url.Values{}
 	values.Set("id", id)
 	return m.publicBaseURL + "/oauth/start?" + values.Encode()
 }
 
+// StatusURL returns the status page for a pending downstream authorization flow.
 func (m *Manager) StatusURL(id string) string {
 	values := url.Values{}
 	values.Set("id", id)
 	return m.publicBaseURL + "/oauth/status?" + values.Encode()
 }
 
+// RegisterRoutes registers the HTTP handlers needed to complete downstream OAuth flows.
 func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 	if mux == nil {
 		return
@@ -281,7 +303,7 @@ func (m *Manager) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (m *Manager) handleStart(w http.ResponseWriter, r *http.Request) {
-	pending := m.pending.GetByID(r.URL.Query().Get("id"))
+	pending := m.pending.getByID(r.URL.Query().Get("id"))
 	if pending == nil {
 		http.Error(w, "OAuth flow not found or expired", http.StatusNotFound)
 		return
@@ -294,7 +316,7 @@ func (m *Manager) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("id") == "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = fmt.Fprint(w, "<html><body><h1>Pending Downstream OAuth Flows</h1><ul>")
-		for _, pending := range m.pending.List() {
+		for _, pending := range m.pending.list() {
 			_, _ = fmt.Fprintf(
 				w,
 				`<li>%s/%s [%s] <a href="%s">start</a> <a href="%s">status</a></li>`,
@@ -309,7 +331,7 @@ func (m *Manager) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pending := m.pending.GetByID(r.URL.Query().Get("id"))
+	pending := m.pending.getByID(r.URL.Query().Get("id"))
 	if pending == nil {
 		http.Error(w, "OAuth flow not found or expired", http.StatusNotFound)
 		return
@@ -326,7 +348,7 @@ func (m *Manager) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) handleCallback(w http.ResponseWriter, r *http.Request) {
-	pending := m.pending.GetByState(r.URL.Query().Get("state"))
+	pending := m.pending.getByState(r.URL.Query().Get("state"))
 	if pending == nil {
 		http.Error(w, "OAuth flow not found or expired", http.StatusNotFound)
 		return
@@ -395,7 +417,7 @@ func (m *Manager) handleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func trimTrailingSlash(value string) string {
-	for len(value) > 0 && value[len(value)-1] == '/' {
+	for value != "" && value[len(value)-1] == '/' {
 		value = value[:len(value)-1]
 	}
 	return value

@@ -105,7 +105,7 @@ func (m *MockDownstreamConnection) CallTool(_ context.Context, req *mcp.CallTool
 		m.CapturedArgs = nil
 	}
 	if authErr, ok := centoauth.IsAuthorizationRequired(m.ErrorToReturn); ok {
-		if authErr.Reason == "refresh failed" {
+		if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
 			m.Status = StatusRefreshFailed
 		} else {
 			m.Status = StatusAuthRequired
