@@ -105,9 +105,11 @@ func (s *pendingStore) gcLocked() {
 }
 
 type AuthorizationRequiredError struct {
-	Binding Binding
-	AuthURL string
-	Reason  string
+	Binding   Binding
+	AuthURL   string
+	StatusURL string
+	PendingID string
+	Reason    string
 }
 
 func (e *AuthorizationRequiredError) Error() string {
@@ -224,6 +226,37 @@ func (m *Manager) CreatePending(binding Binding, clientID, clientSecret string, 
 		m.onRequired(binding, m.StartURL(id))
 	}
 	return pending, nil
+}
+
+func (m *Manager) PendingForBinding(binding Binding) *PendingAuthorization {
+	if m == nil {
+		return nil
+	}
+	for _, pending := range m.pending.List() {
+		if pending == nil {
+			continue
+		}
+		if pending.Binding == binding {
+			return pending
+		}
+	}
+	return nil
+}
+
+func (m *Manager) EnsurePending(binding Binding, clientID, clientSecret string, metadata ResolvedMetadata) (*PendingAuthorization, bool, error) {
+	if pending := m.PendingForBinding(binding); pending != nil {
+		switch pending.Status {
+		case PendingStatusReady, PendingStatusInProgress:
+			return pending, true, nil
+		}
+	}
+
+	verifier := oauth2.GenerateVerifier()
+	pending, err := m.CreatePending(binding, clientID, clientSecret, metadata, verifier)
+	if err != nil {
+		return nil, false, err
+	}
+	return pending, false, nil
 }
 
 func (m *Manager) StartURL(id string) string {

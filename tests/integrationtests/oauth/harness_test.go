@@ -337,6 +337,17 @@ func (r *oauthClientRecorder) addLog(message string) {
 	r.logs = append(r.logs, message)
 }
 
+func (r *oauthClientRecorder) hasLogSubstring(substr string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entry := range r.logs {
+		if strings.Contains(entry, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *oauthClientRecorder) incrementToolListChanged() {
 	r.mu.Lock()
 	defer r.mu.Unlock()

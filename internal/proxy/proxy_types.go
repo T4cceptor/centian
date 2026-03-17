@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,6 +43,7 @@ type UpstreamSession struct {
 	upstreamServer              *mcp.Server
 	downstreamConns             map[string]DownstreamConnectionInterface
 	registeredTools             map[string]struct{}
+	registeredStaticTools       map[string]struct{}
 	registeredResources         map[string]struct{} // keyed by resource URI
 	registeredResourceTemplates map[string]struct{} // keyed by resource URI template
 	registeredPrompts           map[string]struct{} // keyed by prompt name
@@ -58,6 +60,7 @@ type UpstreamSession struct {
 	capabilitiesFingerprint string
 	rootsFingerprint        string
 	rootsDirty              bool
+	pendingLogs             []*mcp.LoggingMessageParams
 }
 
 // DownstreamSessionPool owns the reusable downstream connection set for one downstream session key.
@@ -135,6 +138,8 @@ type CentianEndpoint struct {
 
 	toolRegMu sync.Mutex
 
+	notificationJobs map[string]context.CancelFunc
+
 	connectionFactory func(string, *config.MCPServerConfig) DownstreamConnectionInterface
 }
 
@@ -146,6 +151,7 @@ func NewAggregatedEndpoint(gatewayName, endpoint string, gatewayConfig *config.G
 		config:            gatewayConfig,
 		upstreamSessions:  make(map[string]*UpstreamSession),
 		downstreamPools:   make(map[string]*DownstreamSessionPool),
+		notificationJobs:  make(map[string]context.CancelFunc),
 		isAggregatedProxy: true,
 	}
 	return proxy
@@ -159,6 +165,7 @@ func NewSingleEndpoint(serverName, endpoint string, gatewayConfig *config.Gatewa
 		config:           gatewayConfig,
 		upstreamSessions: make(map[string]*UpstreamSession),
 		downstreamPools:  make(map[string]*DownstreamSessionPool),
+		notificationJobs: make(map[string]context.CancelFunc),
 	}
 }
 

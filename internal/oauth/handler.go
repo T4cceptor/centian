@@ -107,9 +107,11 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		reason = "refresh failed"
 	}
 	return nil, &AuthorizationRequiredError{
-		Binding: t.Binding,
-		AuthURL: t.Manager.StartURL(pending.ID),
-		Reason:  reason,
+		Binding:   t.Binding,
+		AuthURL:   t.Manager.StartURL(pending.ID),
+		StatusURL: t.Manager.StatusURL(pending.ID),
+		PendingID: pending.ID,
+		Reason:    reason,
 	}
 }
 

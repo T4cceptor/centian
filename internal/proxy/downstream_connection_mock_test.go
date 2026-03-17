@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/T4cceptor/centian/internal/config"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -102,6 +103,13 @@ func (m *MockDownstreamConnection) CallTool(_ context.Context, req *mcp.CallTool
 		m.CapturedToolName = ""
 		m.CapturedMeta = nil
 		m.CapturedArgs = nil
+	}
+	if authErr, ok := centoauth.IsAuthorizationRequired(m.ErrorToReturn); ok {
+		if authErr.Reason == "refresh failed" {
+			m.Status = StatusRefreshFailed
+		} else {
+			m.Status = StatusAuthRequired
+		}
 	}
 
 	return m.ResultToReturn, m.ErrorToReturn

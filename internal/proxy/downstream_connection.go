@@ -336,7 +336,11 @@ func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]stri
 func (dc *DownstreamConnection) recordConnectError(err error) {
 	dc.connError = err
 	if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
-		dc.status = StatusAuthRequired
+		if authErr.Reason == "refresh failed" {
+			dc.status = StatusRefreshFailed
+		} else {
+			dc.status = StatusAuthRequired
+		}
 		dc.connError = authErr
 		return
 	}
@@ -536,11 +540,11 @@ func (dc *DownstreamConnection) SetLoggingLevel(ctx context.Context, params *mcp
 // CallTool forwards a tool call to the downstream server.
 func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dc.mu.RLock()
-	if (!dc.status.IsConnected() && !dc.status.IsAuthRequired()) || dc.session == nil {
+	if (!dc.status.IsConnected() && !dc.status.IsAuthRequired() && !dc.status.IsRefreshFailed()) || dc.session == nil {
 		dc.mu.RUnlock()
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
-	if dc.status.IsAuthRequired() && dc.connError != nil {
+	if (dc.status.IsAuthRequired() || dc.status.IsRefreshFailed()) && dc.connError != nil {
 		err := dc.connError
 		dc.mu.RUnlock()
 		return nil, err
@@ -563,7 +567,11 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolR
 	if err != nil {
 		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
 			dc.mu.Lock()
-			dc.status = StatusAuthRequired
+			if authErr.Reason == "refresh failed" {
+				dc.status = StatusRefreshFailed
+			} else {
+				dc.status = StatusAuthRequired
+			}
 			dc.connError = authErr
 			dc.mu.Unlock()
 		}

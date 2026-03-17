@@ -164,14 +164,23 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	connectOptions.ResourceListChangedHandler = p.newPoolResourceListChangedHandler(downstreamSessionKey, serverName, conn)
 	connectOptions.ResourceUpdatedHandler = p.newPoolResourceUpdatedHandler(downstreamSessionKey, serverName, conn)
 	if err := conn.Connect(context.Background(), connectOptions); err != nil {
+		var sessions []*UpstreamSession
 		p.mu.Lock()
 		if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
 			if current, exists := pool.downstreamConns[serverName]; exists && current == conn {
 				delete(pool.connecting, serverName)
+				for _, session := range pool.upstreamSessions {
+					sessions = append(sessions, session)
+				}
 			}
 		}
 		p.mu.Unlock()
 		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+			p.toolRegMu.Lock()
+			for _, session := range sessions {
+				p.syncAvailableTools(session)
+			}
+			p.toolRegMu.Unlock()
 			common.LogInfo(
 				"ProxyEndpoint[%s]: downstream %s requires OAuth authorization for %s via %s",
 				p.name,
@@ -189,12 +198,16 @@ func (p *CentianEndpoint) connectDownstreamPool(
 
 	p.mu.Lock()
 	var sessions []*UpstreamSession
+	oauthEnabled := false
 	if pool, ok := p.downstreamPools[downstreamSessionKey]; ok {
 		if current, exists := pool.downstreamConns[serverName]; exists && current == conn {
 			delete(pool.connecting, serverName)
 			pool.lastUsed = time.Now()
 			for _, session := range pool.upstreamSessions {
 				sessions = append(sessions, session)
+			}
+			if serverConfig := p.GetActiveMCPServerConfigs()[serverName]; serverConfig != nil {
+				oauthEnabled = serverConfig.OAuthEnabled()
 			}
 		}
 	}
@@ -211,13 +224,23 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	}
 
 	p.toolRegMu.Lock()
+	toolNamesBySession := make(map[*UpstreamSession][]string, len(sessions))
 	for _, session := range sessions {
 		p.syncAvailableTools(session)
 		p.syncAvailableResources(session)
 		p.syncAvailableResourceTemplates(session)
 		p.syncAvailablePrompts(session)
+		if oauthEnabled {
+			toolNamesBySession[session] = p.currentUpstreamToolNames(session)
+		}
 	}
 	p.toolRegMu.Unlock()
+
+	if oauthEnabled {
+		for _, session := range sessions {
+			p.notifyOAuthAuthorized(session, serverName, toolNamesBySession[session])
+		}
+	}
 
 	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d resource templates, %d prompts",
 		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.ResourceTemplates()), len(conn.Prompts()))

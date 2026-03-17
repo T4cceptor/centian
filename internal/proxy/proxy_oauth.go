@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
@@ -42,9 +43,10 @@ func (p *CentianEndpoint) notifyOAuthRequired(binding centoauth.Binding, authURL
 		return
 	}
 	message := fmt.Sprintf(
-		"OAuth required for downstream %s/%s. Open %s",
+		"OAuth required for downstream %s/%s. Use %s or open %s",
 		binding.Gateway,
 		binding.Server,
+		loginToolName(binding.Server),
 		authURL,
 	)
 
@@ -58,16 +60,34 @@ func (p *CentianEndpoint) notifyOAuthRequired(binding centoauth.Binding, authURL
 	p.mu.RUnlock()
 
 	for _, session := range sessions {
-		serverSession := p.currentUpstreamServerSession(session)
-		if serverSession == nil {
-			continue
-		}
-		if err := serverSession.Log(context.Background(), &mcp.LoggingMessageParams{
+		if err := p.logUpstreamSession(context.Background(), session, &mcp.LoggingMessageParams{
 			Level: logLevelInfo,
 			Data:  message,
 		}); err != nil {
 			common.LogWarn("ProxyEndpoint[%s]: failed to notify OAuth requirement for session %s: %v", p.name, session.id, err)
 		}
+	}
+}
+
+func (p *CentianEndpoint) notifyOAuthAuthorized(session *UpstreamSession, serverName string, toolNames []string) {
+	if p == nil || session == nil {
+		return
+	}
+
+	toolList := strings.Join(toolNames, ", ")
+	if toolList == "" {
+		toolList = "(none)"
+	}
+
+	if err := p.logUpstreamSession(context.Background(), session, &mcp.LoggingMessageParams{
+		Level: logLevelInfo,
+		Data: fmt.Sprintf(
+			"OAuth complete for downstream %s. Upstream tools now: %s",
+			serverName,
+			toolList,
+		),
+	}); err != nil {
+		common.LogWarn("ProxyEndpoint[%s]: failed to notify OAuth success for session %s: %v", p.name, session.id, err)
 	}
 }
 

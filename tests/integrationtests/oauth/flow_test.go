@@ -2,10 +2,7 @@ package oauth
 
 import (
 	"context"
-	"io"
 	"net/http"
-	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -37,23 +34,40 @@ func TestOAuthDiscoveryAuthFlowReSyncsTools(t *testing.T) {
 	}
 	defer session.Close()
 
+	if err := session.SetLoggingLevel(ctx, &mcp.SetLoggingLevelParams{Level: "info"}); err != nil {
+		t.Fatalf("set logging level: %v", err)
+	}
+
 	waitUntil(t, integrationTimeout, func() bool {
-		return recorder.authURL() != "" || fetchPendingStartURL(t, harness) != ""
+		return recorder.hasLogSubstring("OAuth required for downstream oauth-gateway/protected.")
 	})
-	authURL := recorder.authURL()
+
+	waitUntil(t, integrationTimeout, func() bool {
+		tools, err := session.ListTools(ctx, nil)
+		return err == nil && hasTool(tools.Tools, "centian.auth_status") && hasTool(tools.Tools, "centian.login.protected")
+	})
+
+	loginResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "centian.login.protected"})
+	if err != nil {
+		t.Fatalf("call login tool: %v", err)
+	}
+	authURL := structuredString(loginResult, "startUrl")
 	if authURL == "" {
-		authURL = fetchPendingStartURL(t, harness)
+		t.Fatalf("login tool did not return startUrl: %#v", loginResult)
 	}
 	if _, err := http.Get(authURL); err != nil {
 		t.Fatalf("visit auth url: %v", err)
 	}
 
 	waitUntil(t, integrationTimeout, func() bool {
+		return recorder.hasLogSubstring("OAuth complete for downstream protected.")
+	})
+	waitUntil(t, integrationTimeout, func() bool {
 		return recorder.toolListChangedCount() > 0
 	})
 	waitUntil(t, integrationTimeout, func() bool {
 		tools, err := session.ListTools(ctx, nil)
-		return err == nil && len(tools.Tools) == 1
+		return err == nil && hasTool(tools.Tools, "echo") && !hasTool(tools.Tools, "centian.login.protected")
 	})
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "echo", Arguments: map[string]any{"text": "hello"}})
@@ -93,11 +107,16 @@ func TestOAuthExpiredTokenRefreshesDuringReconnect(t *testing.T) {
 	defer session.Close()
 
 	waitUntil(t, integrationTimeout, func() bool {
-		return recorder.authURL() != "" || fetchPendingStartURL(t, harness) != ""
+		tools, err := session.ListTools(ctx, nil)
+		return err == nil && hasTool(tools.Tools, "centian.login.protected")
 	})
-	authURL := recorder.authURL()
+	loginResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "centian.login.protected"})
+	if err != nil {
+		t.Fatalf("call login tool: %v", err)
+	}
+	authURL := structuredString(loginResult, "startUrl")
 	if authURL == "" {
-		authURL = fetchPendingStartURL(t, harness)
+		t.Fatalf("login tool did not return startUrl: %#v", loginResult)
 	}
 	if _, err := http.Get(authURL); err != nil {
 		t.Fatalf("visit auth url: %v", err)
@@ -105,11 +124,59 @@ func TestOAuthExpiredTokenRefreshesDuringReconnect(t *testing.T) {
 
 	waitUntil(t, integrationTimeout, func() bool {
 		tools, err := session.ListTools(ctx, nil)
-		return err == nil && len(tools.Tools) == 1
+		return err == nil && hasTool(tools.Tools, "echo") && !hasTool(tools.Tools, "centian.login.protected")
 	})
 	if harness.authServer.RefreshCount() == 0 {
 		t.Fatalf("expected token refresh during reconnect")
 	}
+}
+
+func TestOAuthLoginToolUsesURLElicitation(t *testing.T) {
+	harness := newOAuthHarness(t, false)
+
+	var promptedURL string
+	client := mcp.NewClient(&mcp.Implementation{Name: "oauth-elicit-client", Version: "1.0.0"}, &mcp.ClientOptions{
+		Capabilities: &mcp.ClientCapabilities{
+			Elicitation: &mcp.ElicitationCapabilities{URL: &mcp.URLElicitationCapabilities{}},
+		},
+		ElicitationHandler: func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+			promptedURL = req.Params.URL
+			return &mcp.ElicitResult{Action: "accept"}, nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), integrationTimeout)
+	defer cancel()
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint:   harness.proxyURL,
+		HTTPClient: &http.Client{Timeout: integrationTimeout},
+	}, nil)
+	if err != nil {
+		t.Fatalf("connect proxy: %v", err)
+	}
+	defer session.Close()
+
+	waitUntil(t, integrationTimeout, func() bool {
+		tools, err := session.ListTools(ctx, nil)
+		return err == nil && hasTool(tools.Tools, "centian.login.protected")
+	})
+
+	loginResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "centian.login.protected"})
+	if err != nil {
+		t.Fatalf("call login tool: %v", err)
+	}
+	startURL := structuredString(loginResult, "startUrl")
+	if promptedURL == "" || promptedURL != startURL {
+		t.Fatalf("expected elicitation url %q, got %q", startURL, promptedURL)
+	}
+	if _, err := http.Get(startURL); err != nil {
+		t.Fatalf("visit auth url: %v", err)
+	}
+
+	waitUntil(t, integrationTimeout, func() bool {
+		tools, err := session.ListTools(ctx, nil)
+		return err == nil && hasTool(tools.Tools, "echo")
+	})
 }
 
 func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
@@ -125,21 +192,23 @@ func waitUntil(t *testing.T, timeout time.Duration, fn func() bool) {
 	t.Fatalf("condition not satisfied within %s", timeout)
 }
 
-func fetchPendingStartURL(t *testing.T, harness *oauthHarness) string {
-	t.Helper()
+func hasTool(tools []*mcp.Tool, name string) bool {
+	for _, tool := range tools {
+		if tool != nil && tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
 
-	resp, err := http.Get(strings.TrimSuffix(harness.proxyURL, "/mcp/oauth-gateway/protected") + "/oauth/status")
-	if err != nil {
+func structuredString(result *mcp.CallToolResult, key string) string {
+	if result == nil {
 		return ""
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	data, ok := result.StructuredContent.(map[string]any)
+	if !ok {
 		return ""
 	}
-	matches := regexp.MustCompile(`href="(http://[^"]+/oauth/start\?id=[^"]+)"`).FindStringSubmatch(string(body))
-	if len(matches) < 2 {
-		return ""
-	}
-	return matches[1]
+	value, _ := data[key].(string)
+	return value
 }
