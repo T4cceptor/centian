@@ -359,17 +359,6 @@ Reference configuration showing HTTP proxy setup with real-world patterns:
 - Proper header configuration
 - Descriptive metadata
 
-### Discovery Test Configs
-
-#### `vscode_mcp.json`, `claude_desktop_config.json`
-Test configurations for MCP server discovery from IDE settings.
-
-#### `duplicate_test_config*.json`
-Configurations used to test duplicate server detection during discovery.
-
-#### `current_project_mcp.json`
-Project-specific MCP configuration for testing.
-
 ### Usage
 
 #### Running Integration Tests

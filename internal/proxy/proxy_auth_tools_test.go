@@ -132,6 +132,41 @@ func TestNewUpstreamServerRegistersTestNotificationsToolWhenEnabled(t *testing.T
 	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, testNotificationsTool})
 }
 
+func TestHandleAuthStatusTool(t *testing.T) {
+	proxy, session, binding := newOAuthToolTestProxy(t, false)
+	pending, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", &centoauth.ResolvedMetadata{
+		Resource:              "http://127.0.0.1:9000/mcp",
+		Scopes:                []string{"tool:echo"},
+		Issuer:                "http://127.0.0.1:9000",
+		AuthorizationEndpoint: "http://127.0.0.1:9000/authorize",
+		TokenEndpoint:         "http://127.0.0.1:9000/token",
+		ClientAuthMethod:      "client_secret_post",
+	}, "verifier")
+	assert.NilError(t, err)
+
+	result, err := proxy.handleAuthStatusTool(context.Background(), session, nil)
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Equal(t, len(result.Content), 1)
+
+	text, ok := result.Content[0].(*mcp.TextContent)
+	assert.Assert(t, ok)
+	assert.Equal(t, text.Text, "protected: auth_required via "+loginToolName("protected"))
+
+	structured, ok := result.StructuredContent.(map[string]any)
+	assert.Assert(t, ok)
+	servers, ok := structured["servers"].([]map[string]any)
+	assert.Assert(t, ok)
+	assert.Equal(t, len(servers), 1)
+	assert.Equal(t, servers[0]["server"], "protected")
+	assert.Equal(t, servers[0]["state"], authStateRequired)
+	assert.Assert(t, strings.Contains(servers[0]["message"].(string), "requires login"))
+	assert.Equal(t, servers[0]["loginTool"], loginToolName("protected"))
+	assert.Equal(t, servers[0]["startUrl"], proxy.server.OAuth.StartURL(pending.ID))
+	assert.Equal(t, servers[0]["statusUrl"], proxy.server.OAuth.StatusURL(pending.ID))
+	assert.Equal(t, servers[0]["lastError"], "")
+}
+
 func TestSyncAvailableToolsAddsAndRemovesLoginTool(t *testing.T) {
 	proxy, session, binding := newOAuthToolTestProxy(t, false)
 	_, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", &centoauth.ResolvedMetadata{

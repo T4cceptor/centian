@@ -10,6 +10,7 @@
 
 # Code coverage profiles
 *.out
+*.cover
 *.coverprofile
 coverage.html
 coverage.xml

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"gotest.tools/assert"
 )
 
 // TestIsURLCompliant tests URL-safe name validation.
@@ -695,4 +696,329 @@ func TestValidateConfig_RequiresPublicBaseURLForOAuth(t *testing.T) {
 	if err := ValidateConfig(cfg, false); err != nil {
 		t.Fatalf("expected valid oauth config, got %v", err)
 	}
+}
+
+func TestValidateOAuthTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		server    *MCPServerConfig
+		wantError string
+	}{
+		{
+			name:      "rejects stdio server",
+			server:    &MCPServerConfig{Command: "node"},
+			wantError: "downstream OAuth is only supported for HTTP MCP servers",
+		},
+		{
+			name:      "rejects mixed transport",
+			server:    &MCPServerConfig{Command: "node", URL: "https://example.com/mcp"},
+			wantError: "downstream OAuth is only supported for HTTP MCP servers",
+		},
+		{
+			name:   "accepts http server",
+			server: &MCPServerConfig{URL: "https://example.com/mcp"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthTransport("oauth-server", tt.server)
+			if tt.wantError == "" {
+				assert.NilError(t, err)
+				return
+			}
+			assert.Assert(t, err != nil)
+			assert.Assert(t, contains(err.Error(), tt.wantError))
+		})
+	}
+}
+
+func TestValidateOAuthConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		server    *MCPServerConfig
+		wantError string
+	}{
+		{
+			name:   "skips nil oauth",
+			server: &MCPServerConfig{URL: "https://example.com/mcp"},
+		},
+		{
+			name: "skips disabled oauth",
+			server: &MCPServerConfig{
+				URL:   "https://example.com/mcp",
+				OAuth: &OAuthConfig{},
+			},
+		},
+		{
+			name: "rejects stdio transport",
+			server: &MCPServerConfig{
+				Command: "node",
+				OAuth: &OAuthConfig{
+					Enabled:      true,
+					ClientID:     "client-id",
+					ClientSecret: "client-secret",
+					Resource:     "https://example.com/mcp",
+					Issuer:       "https://issuer.example",
+				},
+			},
+			wantError: "downstream OAuth is only supported for HTTP MCP servers",
+		},
+		{
+			name: "rejects missing required fields",
+			server: &MCPServerConfig{
+				URL: "https://example.com/mcp",
+				OAuth: &OAuthConfig{
+					Enabled: true,
+					Issuer:  "https://issuer.example",
+				},
+			},
+			wantError: "oauth.clientId is required",
+		},
+		{
+			name: "rejects invalid auth method",
+			server: &MCPServerConfig{
+				URL: "https://example.com/mcp",
+				OAuth: &OAuthConfig{
+					Enabled:          true,
+					ClientID:         "client-id",
+					ClientSecret:     "client-secret",
+					ClientAuthMethod: "private_key_jwt",
+					Resource:         "https://example.com/mcp",
+					Issuer:           "https://issuer.example",
+				},
+			},
+			wantError: "oauth.clientAuthMethod must be client_secret_basic or client_secret_post",
+		},
+		{
+			name: "accepts valid oauth and normalizes values",
+			server: &MCPServerConfig{
+				URL: "https://example.com/mcp",
+				OAuth: &OAuthConfig{
+					Enabled:          true,
+					ClientID:         " client-id ",
+					ClientSecret:     " client-secret ",
+					ClientAuthMethod: " CLIENT_SECRET_POST ",
+					Resource:         " https://example.com/mcp ",
+					Issuer:           " https://issuer.example ",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthConfig("oauth-server", tt.server)
+			if tt.wantError != "" {
+				assert.Assert(t, err != nil)
+				assert.Assert(t, contains(err.Error(), tt.wantError))
+				return
+			}
+
+			assert.NilError(t, err)
+			if tt.server.OAuth != nil && tt.server.OAuth.Enabled {
+				assert.Equal(t, tt.server.OAuth.ClientAuthMethod, "client_secret_post")
+				assert.Equal(t, tt.server.OAuth.ClientID, "client-id")
+				assert.Equal(t, tt.server.OAuth.ClientSecret, "client-secret")
+				assert.Equal(t, tt.server.OAuth.Resource, "https://example.com/mcp")
+				assert.Equal(t, tt.server.OAuth.Issuer, "https://issuer.example")
+			}
+		})
+	}
+}
+
+func TestNormalizeOAuthConfig(t *testing.T) {
+	oauthConfig := &OAuthConfig{
+		ClientID:              "  client-id  ",
+		ClientSecret:          "  client-secret  ",
+		ClientAuthMethod:      "  CLIENT_SECRET_POST  ",
+		Resource:              "  https://example.com/mcp  ",
+		Issuer:                "  https://issuer.example  ",
+		AuthorizationEndpoint: "  https://issuer.example/authorize  ",
+		TokenEndpoint:         "  https://issuer.example/token  ",
+	}
+
+	normalizeOAuthConfig(oauthConfig)
+
+	assert.Equal(t, oauthConfig.ClientID, "client-id")
+	assert.Equal(t, oauthConfig.ClientSecret, "client-secret")
+	assert.Equal(t, oauthConfig.ClientAuthMethod, "client_secret_post")
+	assert.Equal(t, oauthConfig.Resource, "https://example.com/mcp")
+	assert.Equal(t, oauthConfig.Issuer, "https://issuer.example")
+	assert.Equal(t, oauthConfig.AuthorizationEndpoint, "https://issuer.example/authorize")
+	assert.Equal(t, oauthConfig.TokenEndpoint, "https://issuer.example/token")
+}
+
+func TestValidateOAuthRequiredFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		oauth     *OAuthConfig
+		wantError string
+	}{
+		{
+			name:      "requires client id",
+			oauth:     &OAuthConfig{ClientSecret: "secret", Resource: "https://example.com/mcp"},
+			wantError: "oauth.clientId is required",
+		},
+		{
+			name:      "requires client secret",
+			oauth:     &OAuthConfig{ClientID: "client-id", Resource: "https://example.com/mcp"},
+			wantError: "oauth.clientSecret is required",
+		},
+		{
+			name:      "requires resource",
+			oauth:     &OAuthConfig{ClientID: "client-id", ClientSecret: "secret"},
+			wantError: "oauth.resource is required",
+		},
+		{
+			name:  "accepts complete config",
+			oauth: &OAuthConfig{ClientID: "client-id", ClientSecret: "secret", Resource: "https://example.com/mcp"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthRequiredFields("oauth-server", tt.oauth)
+			if tt.wantError == "" {
+				assert.NilError(t, err)
+				return
+			}
+			assert.Assert(t, err != nil)
+			assert.Assert(t, contains(err.Error(), tt.wantError))
+		})
+	}
+}
+
+func TestValidateOAuthClientAuthMethod(t *testing.T) {
+	validMethods := []string{"", "client_secret_basic", "client_secret_post"}
+	for _, method := range validMethods {
+		t.Run("accepts "+method, func(t *testing.T) {
+			assert.NilError(t, validateOAuthClientAuthMethod("oauth-server", method))
+		})
+	}
+
+	err := validateOAuthClientAuthMethod("oauth-server", "private_key_jwt")
+	assert.Assert(t, err != nil)
+	assert.Assert(t, contains(err.Error(), "oauth.clientAuthMethod must be client_secret_basic or client_secret_post"))
+}
+
+func TestValidateOAuthEndpoints(t *testing.T) {
+	tests := []struct {
+		name      string
+		oauth     *OAuthConfig
+		wantError string
+	}{
+		{
+			name: "accepts issuer only",
+			oauth: &OAuthConfig{
+				Issuer: "https://issuer.example",
+			},
+		},
+		{
+			name: "accepts explicit endpoints without issuer",
+			oauth: &OAuthConfig{
+				AuthorizationEndpoint: "https://issuer.example/authorize",
+				TokenEndpoint:         "https://issuer.example/token",
+			},
+		},
+		{
+			name: "rejects invalid issuer",
+			oauth: &OAuthConfig{
+				Issuer: "issuer.example",
+			},
+			wantError: "oauth.issuer must be a valid http:// or https:// URL",
+		},
+		{
+			name: "rejects missing issuer and incomplete endpoints",
+			oauth: &OAuthConfig{
+				AuthorizationEndpoint: "https://issuer.example/authorize",
+			},
+			wantError: "oauth.issuer or both oauth.authorizationEndpoint and oauth.tokenEndpoint are required",
+		},
+		{
+			name: "rejects invalid authorization endpoint",
+			oauth: &OAuthConfig{
+				Issuer:                "https://issuer.example",
+				AuthorizationEndpoint: "issuer.example/authorize",
+			},
+			wantError: "oauth.authorizationEndpoint must be a valid http:// or https:// URL",
+		},
+		{
+			name: "rejects invalid token endpoint",
+			oauth: &OAuthConfig{
+				Issuer:        "https://issuer.example",
+				TokenEndpoint: "issuer.example/token",
+			},
+			wantError: "oauth.tokenEndpoint must be a valid http:// or https:// URL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthEndpoints("oauth-server", tt.oauth)
+			if tt.wantError == "" {
+				assert.NilError(t, err)
+				return
+			}
+			assert.Assert(t, err != nil)
+			assert.Assert(t, contains(err.Error(), tt.wantError))
+		})
+	}
+}
+
+func TestValidateOAuthIssuer(t *testing.T) {
+	tests := []struct {
+		name      string
+		oauth     *OAuthConfig
+		wantError string
+	}{
+		{
+			name: "accepts issuer",
+			oauth: &OAuthConfig{
+				Issuer: "https://issuer.example",
+			},
+		},
+		{
+			name: "accepts explicit endpoints",
+			oauth: &OAuthConfig{
+				AuthorizationEndpoint: "https://issuer.example/authorize",
+				TokenEndpoint:         "https://issuer.example/token",
+			},
+		},
+		{
+			name: "rejects invalid issuer",
+			oauth: &OAuthConfig{
+				Issuer: "issuer.example",
+			},
+			wantError: "oauth.issuer must be a valid http:// or https:// URL",
+		},
+		{
+			name: "rejects missing token endpoint",
+			oauth: &OAuthConfig{
+				AuthorizationEndpoint: "https://issuer.example/authorize",
+			},
+			wantError: "oauth.issuer or both oauth.authorizationEndpoint and oauth.tokenEndpoint are required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateOAuthIssuer("oauth-server", tt.oauth)
+			if tt.wantError == "" {
+				assert.NilError(t, err)
+				return
+			}
+			assert.Assert(t, err != nil)
+			assert.Assert(t, contains(err.Error(), tt.wantError))
+		})
+	}
+}
+
+func TestValidateOptionalOAuthURL(t *testing.T) {
+	assert.NilError(t, validateOptionalOAuthURL("oauth-server", "oauth.authorizationEndpoint", ""))
+	assert.NilError(t, validateOptionalOAuthURL("oauth-server", "oauth.authorizationEndpoint", "https://issuer.example/authorize"))
+
+	err := validateOptionalOAuthURL("oauth-server", "oauth.authorizationEndpoint", "issuer.example/authorize")
+	assert.Assert(t, err != nil)
+	assert.Assert(t, contains(err.Error(), "oauth.authorizationEndpoint must be a valid http:// or https:// URL"))
 }
