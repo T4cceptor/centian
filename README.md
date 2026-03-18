@@ -183,6 +183,65 @@ Example:
 }
 ```
 
+### Downstream OAuth
+
+Centian supports downstream OAuth for HTTP MCP servers. When enabled, Centian handles token storage, refresh, and browser-based authorization for the configured downstream.
+
+Currently supported:
+
+- Browser-based Authorization Code flow
+- PKCE with `S256`
+- Refresh-token based reauthorization after the initial login
+- Client authentication via `client_secret_post` or `client_secret_basic`
+
+Minimal example:
+
+```json
+{
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "8080",
+    "web": {
+      "publicBaseUrl": "http://127.0.0.1:8080"
+    }
+  },
+  "gateways": {
+    "default": {
+      "mcpServers": {
+        "protected-server": {
+          "url": "https://example.com/mcp",
+          "oauth": {
+            "enabled": true,
+            "clientId": "${OAUTH_CLIENT_ID}",
+            "clientSecret": "${OAUTH_CLIENT_SECRET}",
+            "clientAuthMethod": "client_secret_post",
+            "resource": "https://example.com/mcp",
+            "issuer": "https://issuer.example"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Notes:
+
+- Downstream OAuth is supported for HTTP MCP servers only. Stdio servers do not use this flow.
+- `proxy.web.publicBaseUrl` is required when any downstream server enables OAuth. It must be the externally reachable base URL for Centian's hosted `/oauth/start`, `/oauth/status`, and `/oauth/callback` routes.
+- You must set `oauth.clientId`, `oauth.clientSecret`, and `oauth.resource`.
+- For metadata discovery, provide either `oauth.issuer` or both `oauth.authorizationEndpoint` and `oauth.tokenEndpoint`.
+- Supported client auth methods are `client_secret_post` and `client_secret_basic`.
+- After a downstream challenge, Centian exposes `centian.auth_status` and `centian.login.<server>` so clients can inspect auth state and start or resume login.
+
+Be aware of:
+
+- Tokens are stored locally in Centian's config directory in encrypted form, with a locally managed master key.
+- If proxy auth is disabled, Centian uses one shared local identity per endpoint. In that mode, downstream OAuth tokens are also shared per endpoint identity.
+- The login flow depends on the browser being able to reach `proxy.web.publicBaseUrl`.
+- For OAuth-enabled downstreams, Centian manages the downstream `Authorization` header itself instead of forwarding the client's auth header to that server.
+- Not all downstream OAuth patterns are implemented yet. In particular, Dynamic Client Registration (DCR), machine-to-machine `client_credentials` flows, device flows, and other non-browser grant types are not currently supported. Those are expected roadmap items on the way to v1.0.
+
 ### Endpoints
 
 - Aggregated gateway endpoint: `http://localhost:8080/mcp/<gateway>`
@@ -322,8 +381,9 @@ go build -o build/centian ./cmd/main.go
 
 ### Known Limitations
 - stdio servers run locally: Stdio MCP servers run on the host under the same user context as Centian. Only configure stdio servers if you trust the clients using Centian, since they can access local resources through those servers. For the future, we are looking into starting stdio-based servers in a virtualized environment.
-- OAuth not yet supported: Centian does not support OAuth (upstream or downstream) in v0.1. You can use headers for auth; client‑provided headers are forwarded, proxy‑configured headers can override them.
+- OAuth scope is currently limited: Centian supports downstream HTTP OAuth for browser-based Authorization Code + PKCE flows with refresh handling. It does not currently provide a general upstream OAuth layer for authenticating MCP clients to Centian itself, and it does not yet implement DCR, `client_credentials`, device flow, or other non-browser downstream grant types.
 - Shared credentials reduce auditability: If you set auth headers at the proxy level, all downstream requests share the same identity. Prefer per‑client credentials so downstream servers can audit and rate‑limit correctly, or provide appropriate processors and logging to ensure auditability.
+- Unauthenticated mode shares downstream identity: If `auth` is disabled, Centian uses one shared local identity per endpoint. That simplifies local use, but it also means downstream session state and downstream OAuth tokens are shared within that endpoint.
 - Future changes: please be aware that the APIs and especially data structures we are using to log events and provide information to processors are still evolving and might change in the future, especially before version 1.0.0. Further, changes in MCP are reflected by the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) and are dependent on it.
 
 ## Development
