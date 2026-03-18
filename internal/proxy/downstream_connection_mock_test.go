@@ -53,21 +53,45 @@ func (m *MockDownstreamConnection) GetServerName() string {
 
 func (m *MockDownstreamConnection) Connect(ctx context.Context, options *DownstreamConnectOptions) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.ConnectCalls++
 	m.CapturedConnects = append(m.CapturedConnects, cloneConnectOptions(options))
 	m.CapturedConnectAuths = append(m.CapturedConnectAuths, cloneAuthHeaders(options.ForwardedHeaders))
-	if m.ConnectFunc != nil {
-		if err := m.ConnectFunc(ctx, options); err != nil {
+	connectFunc := m.ConnectFunc
+	errToReturn := m.ErrorToReturn
+	m.mu.Unlock()
+
+	if connectFunc != nil {
+		if err := connectFunc(ctx, options); err != nil {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+				if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
+					m.Status = StatusRefreshFailed
+				} else {
+					m.Status = StatusAuthRequired
+				}
+				return err
+			}
 			m.Status = StatusFailed
 			return err
 		}
 	}
-	if m.ErrorToReturn != nil {
+	if errToReturn != nil {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if authErr, ok := centoauth.IsAuthorizationRequired(errToReturn); ok {
+			if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
+				m.Status = StatusRefreshFailed
+			} else {
+				m.Status = StatusAuthRequired
+			}
+			return errToReturn
+		}
 		m.Status = StatusFailed
-		return m.ErrorToReturn
+		return errToReturn
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Status = StatusConnected
 	return nil
 }

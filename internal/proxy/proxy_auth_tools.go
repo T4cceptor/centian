@@ -53,6 +53,7 @@ func isProxyToolName(name string) bool {
 }
 
 func (p *CentianEndpoint) testToolsEnabled() bool {
+	// TODO: this method should be moved to the server level -> makes MUCH more sense
 	return p != nil &&
 		p.server != nil &&
 		p.server.Config != nil &&

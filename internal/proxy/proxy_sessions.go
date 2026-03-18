@@ -450,6 +450,7 @@ func (p *CentianEndpoint) closeDownstreamSessionPool(pool *DownstreamSessionPool
 	if pool == nil {
 		return nil
 	}
+	p.cancelPoolRetryWorkers(pool)
 	errs := make([]error, 0)
 	for _, conn := range pool.downstreamConns {
 		if err := conn.Close(); err != nil {

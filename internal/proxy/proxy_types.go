@@ -69,8 +69,16 @@ type DownstreamSessionPool struct {
 	downstreamSessionKey string
 	downstreamConns      map[string]DownstreamConnectionInterface
 	upstreamSessions     map[string]*UpstreamSession
-	connecting           map[string]bool
-	lastUsed             time.Time
+	// connecting tracks whether a pool-owned connect/retry worker currently owns
+	// this server slot. This is broader than conn.IsConnecting(): the worker may
+	// exist while sleeping between retries, even when no concrete connection is
+	// inside Connect().
+	connecting     map[string]bool
+	retryCancels   map[string]context.CancelFunc
+	retryAttempts  map[string]int
+	retryTokens    map[string]uint64
+	nextRetryToken uint64
+	lastUsed       time.Time
 }
 
 type notificationJob struct {
@@ -95,6 +103,12 @@ func (p *DownstreamSessionPool) GetConnectionByServerName(serverName string) (Do
 // SetConnection sets a downstream connection for the given server name.
 func (p *DownstreamSessionPool) SetConnection(serverName string, conn DownstreamConnectionInterface) {
 	p.downstreamConns[serverName] = conn
+}
+
+// HasActiveConnectWorker reports whether the pool already has a connect/retry
+// worker responsible for this server slot.
+func (p *DownstreamSessionPool) HasActiveConnectWorker(serverName string) bool {
+	return p != nil && p.connecting[serverName]
 }
 
 // IsConnecting returns true if the connection for the given serverName is currently in state Connecting.

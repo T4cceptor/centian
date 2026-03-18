@@ -32,3 +32,16 @@ func TestDownstreamSessionPoolIsConnecting(t *testing.T) {
 	_, err = pool.IsConnecting("missing")
 	assert.ErrorContains(t, err, `no connection to server "missing" found`)
 }
+
+func TestDownstreamSessionPoolHasActiveConnectWorker(t *testing.T) {
+	pool := &DownstreamSessionPool{
+		connecting: map[string]bool{
+			"server-a": true,
+			"server-b": false,
+		},
+	}
+
+	assert.Assert(t, pool.HasActiveConnectWorker("server-a"))
+	assert.Assert(t, !pool.HasActiveConnectWorker("server-b"))
+	assert.Assert(t, !pool.HasActiveConnectWorker("missing"))
+}
