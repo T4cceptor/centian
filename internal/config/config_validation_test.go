@@ -660,3 +660,39 @@ func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateConfig_RequiresPublicBaseURLForOAuth(t *testing.T) {
+	authDisabled := false
+	cfg := &GlobalConfig{
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy:       &ProxySettings{Port: "8080"},
+		Gateways: map[string]*GatewayConfig{
+			"gw": {
+				MCPServers: map[string]*MCPServerConfig{
+					"oauth-server": {
+						URL: "https://example.com/mcp",
+						OAuth: &OAuthConfig{
+							Enabled:          true,
+							ClientID:         "client-id",
+							ClientSecret:     "client-secret",
+							ClientAuthMethod: "client_secret_post",
+							Resource:         "https://example.com/mcp",
+							Issuer:           "https://issuer.example",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidateConfig(cfg, false)
+	if err == nil || !contains(err.Error(), "proxy.web.publicBaseUrl is required") {
+		t.Fatalf("expected public base URL validation error, got %v", err)
+	}
+
+	cfg.Proxy.Web = &ProxyWebSettings{PublicBaseURL: "https://centian.example"}
+	if err := ValidateConfig(cfg, false); err != nil {
+		t.Fatalf("expected valid oauth config, got %v", err)
+	}
+}

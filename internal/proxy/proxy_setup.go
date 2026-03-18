@@ -10,6 +10,7 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 )
 
 // This file creates the Centian HTTP server and registers gateway and
@@ -68,6 +69,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		Logger:     logger,
 		ServerID:   getServerID(globalConfig.Name),
 		Gateways:   make(map[string]*CentianEndpoint),
+		Endpoints:  []*CentianEndpoint{},
 		APIKeys:    apiKeyStore,
 		AuthHeader: globalConfig.GetAuthHeader(),
 	}, nil
@@ -75,6 +77,19 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 
 // Setup uses CentianServer.config to create all gateways and endpoints.
 func (c *CentianServer) Setup() error {
+	if config.HasOAuthServers(c.Config) {
+		publicBaseURL := ""
+		if c.Config != nil && c.Config.Proxy != nil && c.Config.Proxy.Web != nil {
+			publicBaseURL = c.Config.Proxy.Web.PublicBaseURL
+		}
+		manager, err := centoauth.NewManager(publicBaseURL, c.handleDownstreamAuthorized, c.handleDownstreamAuthorizationRequired)
+		if err != nil {
+			return err
+		}
+		c.OAuth = manager
+		c.OAuth.RegisterRoutes(c.Mux)
+	}
+
 	for gatewayName, gatewayConfig := range c.Config.Gateways {
 		endpoint, err := getEndpointString(gatewayName, "")
 		if err != nil {
@@ -85,6 +100,7 @@ func (c *CentianServer) Setup() error {
 		gateway := NewAggregatedEndpoint(gatewayName, endpoint, gatewayConfig)
 		gateway.server = c
 		c.Gateways[gatewayName] = gateway
+		c.Endpoints = append(c.Endpoints, gateway)
 
 		if err := gateway.initEventProcessor(); err != nil {
 			return err
@@ -98,6 +114,7 @@ func (c *CentianServer) Setup() error {
 			singleEndpointRoute := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 			singleEndpoint := NewSingleEndpoint(serverName, singleEndpointRoute, gatewayConfig)
 			singleEndpoint.server = c
+			c.Endpoints = append(c.Endpoints, singleEndpoint)
 			if err := singleEndpoint.initEventProcessor(); err != nil {
 				return err
 			}

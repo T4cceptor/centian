@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -80,11 +81,44 @@ func connectLoggingClient(
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	assert.NilError(t, err)
 	assert.NilError(t, clientSession.SetLoggingLevel(ctx, &mcp.SetLoggingLevelParams{Level: "info"}))
+	session.logLevel = "info"
 	// In-memory SDK sessions do not expose transport session IDs, so use the
 	// existing empty-ID fallback when resolving the live session in tests.
 	session.id = ""
 
 	return recorder, func() {
+		_ = clientSession.Close()
+		_ = serverSession.Close()
+	}
+}
+
+func connectLoggingClientWithoutLevel(
+	t *testing.T,
+	session *UpstreamSession,
+	middleware ...mcp.Middleware,
+) (*mcp.ClientSession, *loggingNotificationRecorder, func()) {
+	t.Helper()
+
+	for _, mw := range middleware {
+		session.upstreamServer.AddSendingMiddleware(mw)
+	}
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := session.upstreamServer.Connect(ctx, serverTransport, nil)
+	assert.NilError(t, err)
+
+	recorder := &loggingNotificationRecorder{}
+	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1.0.0"}, &mcp.ClientOptions{
+		LoggingMessageHandler: func(_ context.Context, req *mcp.LoggingMessageRequest) {
+			recorder.record(req.Params)
+		},
+	})
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	assert.NilError(t, err)
+	session.id = ""
+
+	return clientSession, recorder, func() {
 		_ = clientSession.Close()
 		_ = serverSession.Close()
 	}
@@ -213,6 +247,79 @@ func TestForwardDownstreamLog_ContinuesAfterRecipientError(t *testing.T) {
 
 	messages := waitForSingleLog(t, recorder)
 	assert.Equal(t, messages[0].Data.(string), "still-delivered")
+}
+
+func TestSyncUpstreamLoggingLevel_FlushesQueuedOAuthNotification(t *testing.T) {
+	proxy := &CentianEndpoint{
+		name:             "gateway",
+		endpoint:         "/mcp/gateway",
+		server:           &CentianServer{Config: &config.GlobalConfig{Version: "1.0.0"}},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamSessionPool),
+	}
+	session := newLoggingTestSession(proxy, "session-1")
+	session.identityKey = "principal-1"
+
+	clientSession, recorder, cleanup := connectLoggingClientWithoutLevel(t, session)
+	defer cleanup()
+
+	proxy.notifyOAuthRequired(centoauth.Binding{
+		PrincipalID: "principal-1",
+		Gateway:     "gateway",
+		Server:      "protected",
+	}, "http://127.0.0.1:8080/oauth/start?id=test")
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, len(recorder.snapshot()), 0)
+
+	assert.NilError(t, clientSession.SetLoggingLevel(context.Background(), &mcp.SetLoggingLevelParams{Level: "info"}))
+	proxy.syncUpstreamLoggingLevel("session-1", "info")
+
+	messages := waitForSingleLog(t, recorder)
+	assert.Assert(t, messages[0] != nil)
+	assert.Equal(t, messages[0].Data.(string), "OAuth required for downstream gateway/protected. Use centian.login.protected or open http://127.0.0.1:8080/oauth/start?id=test")
+}
+
+func TestFlushPendingSessionLogs_RetainsRetryableFailures(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+
+	_, cleanup := connectLoggingClient(
+		t,
+		session,
+		failLoggingNotificationMiddleware(errors.New("rejected by transport: undelivered message: stream not connected or already closed")),
+	)
+	defer cleanup()
+
+	session.pendingLogs = []*mcp.LoggingMessageParams{{
+		Level: "info",
+		Data:  "queued",
+	}}
+
+	proxy.flushPendingSessionLogs(context.Background(), session)
+
+	assert.Equal(t, len(session.pendingLogs), 1)
+	assert.Equal(t, session.pendingLogs[0].Data.(string), "queued")
+}
+
+func TestLogUpstreamSession_QueuesRetryableDirectSendFailures(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+
+	_, cleanup := connectLoggingClient(
+		t,
+		session,
+		failLoggingNotificationMiddleware(errors.New("rejected by transport: undelivered message: stream not connected or already closed")),
+	)
+	defer cleanup()
+
+	assert.NilError(t, proxy.logUpstreamSession(context.Background(), session, &mcp.LoggingMessageParams{
+		Level: "info",
+		Data:  "queued-direct",
+	}))
+
+	assert.Equal(t, len(session.pendingLogs), 1)
+	assert.Equal(t, session.pendingLogs[0].Data.(string), "queued-direct")
 }
 
 func TestSyncUpstreamLoggingLevel_UsesMostVerbosePoolLevel(t *testing.T) {

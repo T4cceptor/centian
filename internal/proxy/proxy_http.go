@@ -99,6 +99,7 @@ func (p *CentianEndpoint) observeMCPRequests(next http.Handler) http.Handler {
 				// immediate availability of roots-dependent resources should wait for
 				// the bootstrap to complete on the client side.
 				go p.bootstrapUpstreamSessionState(r.Context(), sseSessionID)
+				p.flushPendingSessionLogsAfterDelay(sseSessionID, 100*time.Millisecond)
 			}
 			next.ServeHTTP(w, r)
 			return

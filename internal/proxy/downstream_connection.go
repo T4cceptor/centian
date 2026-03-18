@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -23,11 +24,13 @@ type ConnectionStatus string
 
 // Connection status constants for tracking downstream connection lifecycle.
 const (
-	StatusPending      ConnectionStatus = "pending"
-	StatusConnecting   ConnectionStatus = "connecting"
-	StatusConnected    ConnectionStatus = "connected"
-	StatusFailed       ConnectionStatus = "failed"
-	StatusDisconnected ConnectionStatus = "disconnected"
+	StatusPending       ConnectionStatus = "pending"
+	StatusConnecting    ConnectionStatus = "connecting"
+	StatusConnected     ConnectionStatus = "connected"
+	StatusAuthRequired  ConnectionStatus = "auth_required"
+	StatusRefreshFailed ConnectionStatus = "refresh_failed"
+	StatusFailed        ConnectionStatus = "failed"
+	StatusDisconnected  ConnectionStatus = "disconnected"
 )
 
 // IsPending returns true if ConnectionStatus is Pending.
@@ -43,6 +46,16 @@ func (s ConnectionStatus) IsConnecting() bool {
 // IsConnected returns true if ConnectionStatus is Connected.
 func (s ConnectionStatus) IsConnected() bool {
 	return s == StatusConnected
+}
+
+// IsAuthRequired returns true if ConnectionStatus is AuthRequired.
+func (s ConnectionStatus) IsAuthRequired() bool {
+	return s == StatusAuthRequired
+}
+
+// IsRefreshFailed returns true if ConnectionStatus is RefreshFailed.
+func (s ConnectionStatus) IsRefreshFailed() bool {
+	return s == StatusRefreshFailed
 }
 
 // IsFailed returns true if ConnectionStatus is Failed.
@@ -67,7 +80,9 @@ type DownstreamConnection struct {
 	prompts           []*mcp.Prompt
 	mu                sync.RWMutex
 
-	clientState DownstreamClientState
+	clientState    DownstreamClientState
+	connectOptions *DownstreamConnectOptions
+	oauthManager   *centoauth.Manager
 
 	// Progressive connection tracking
 	status      ConnectionStatus
@@ -93,6 +108,7 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, options *Downstream
 	defer dc.mu.Unlock()
 
 	dc.status = StatusConnecting
+	dc.connectOptions = cloneDownstreamConnectOptions(options)
 	dc.clientState = options.ClientState
 	dc.client = mcp.NewClient(&mcp.Implementation{
 		Name:    dc.serverName,
@@ -112,16 +128,14 @@ func (dc *DownstreamConnection) Connect(ctx context.Context, options *Downstream
 
 	session, err := dc.client.Connect(ctx, transport, nil)
 	if err != nil {
-		dc.status = StatusFailed
-		dc.connError = err
+		dc.recordConnectError(err)
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 	dc.session = session
 
 	if err := dc.discoverTools(ctx); err != nil {
 		dc.session.Close() //nolint:errcheck // already returning an error
-		dc.status = StatusFailed
-		dc.connError = err
+		dc.recordConnectError(err)
 		return fmt.Errorf("failed to discover tools: %w", err)
 	}
 
@@ -268,12 +282,36 @@ func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]stri
 		for key, value := range dc.config.GetSubstitutedHeaders() {
 			allHeaders[key] = value
 		}
-		for key, value := range forwardedHeaders {
-			allHeaders[key] = value
+		if !dc.config.OAuthEnabled() {
+			for key, value := range forwardedHeaders {
+				allHeaders[key] = value
+			}
+		}
+
+		var transportBase http.RoundTripper = HeaderRoundTripper{Headers: allHeaders}
+		if dc.config.OAuthEnabled() {
+			if dc.connectOptions == nil || dc.connectOptions.GatewayName == "" || dc.connectOptions.IdentityKey == "" {
+				return nil, fmt.Errorf("missing downstream oauth context for server %s", dc.serverName)
+			}
+			if dc.oauthManager == nil {
+				return nil, fmt.Errorf("oauth manager not configured for server %s", dc.serverName)
+			}
+			binding := centoauth.Binding{
+				PrincipalID: dc.connectOptions.IdentityKey,
+				Gateway:     dc.connectOptions.GatewayName,
+				Server:      dc.serverName,
+			}
+			transportBase = dc.oauthManager.NewTransport(
+				http.DefaultTransport,
+				binding,
+				dc.config.URL,
+				dc.config.OAuth,
+				allHeaders,
+			)
 		}
 
 		httpClient := &http.Client{
-			Transport: HeaderRoundTripper{Headers: allHeaders},
+			Transport: transportBase,
 			Timeout:   30 * time.Second,
 		}
 
@@ -293,6 +331,20 @@ func (dc *DownstreamConnection) createTransport(forwardedHeaders map[string]stri
 	}
 
 	return nil, fmt.Errorf("no URL or Command configured for server %s", dc.serverName)
+}
+
+func (dc *DownstreamConnection) recordConnectError(err error) {
+	dc.connError = err
+	if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+		if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
+			dc.status = StatusRefreshFailed
+		} else {
+			dc.status = StatusAuthRequired
+		}
+		dc.connError = authErr
+		return
+	}
+	dc.status = StatusFailed
 }
 
 func mergeEnvironment(base []string, overrides map[string]string) []string {
@@ -488,11 +540,17 @@ func (dc *DownstreamConnection) SetLoggingLevel(ctx context.Context, params *mcp
 // CallTool forwards a tool call to the downstream server.
 func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dc.mu.RLock()
-	defer dc.mu.RUnlock()
-
-	if !dc.status.IsConnected() || dc.session == nil {
+	if (!dc.status.IsConnected() && !dc.status.IsAuthRequired() && !dc.status.IsRefreshFailed()) || dc.session == nil {
+		dc.mu.RUnlock()
 		return nil, fmt.Errorf("not connected to %s", dc.serverName)
 	}
+	if (dc.status.IsAuthRequired() || dc.status.IsRefreshFailed()) && dc.connError != nil {
+		err := dc.connError
+		dc.mu.RUnlock()
+		return nil, err
+	}
+	session := dc.session
+	dc.mu.RUnlock()
 	if req == nil || req.Params == nil {
 		return nil, fmt.Errorf("call tool request params are required")
 	}
@@ -505,7 +563,21 @@ func (dc *DownstreamConnection) CallTool(ctx context.Context, req *mcp.CallToolR
 		params.Arguments = json.RawMessage(append([]byte(nil), req.Params.Arguments...))
 	}
 
-	return dc.session.CallTool(ctx, params)
+	result, err := session.CallTool(ctx, params)
+	if err != nil {
+		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+			dc.mu.Lock()
+			if authErr.Reason == centoauth.AuthorizationReasonRefreshFailed {
+				dc.status = StatusRefreshFailed
+			} else {
+				dc.status = StatusAuthRequired
+			}
+			dc.connError = authErr
+			dc.mu.Unlock()
+		}
+		return nil, err
+	}
+	return result, nil
 }
 
 // Close terminates the downstream connection.

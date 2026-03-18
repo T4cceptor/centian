@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	centauth "github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -28,8 +30,10 @@ type CentianServer struct {
 	Server     *http.Server
 	Logger     *logging.Logger
 	Gateways   map[string]*CentianEndpoint
+	Endpoints  []*CentianEndpoint
 	APIKeys    *centauth.APIKeyStore
 	AuthHeader string
+	OAuth      *centoauth.Manager
 }
 
 // UpstreamSession represents one MCP client session talking to this proxy endpoint.
@@ -39,6 +43,7 @@ type UpstreamSession struct {
 	upstreamServer              *mcp.Server
 	downstreamConns             map[string]DownstreamConnectionInterface
 	registeredTools             map[string]struct{}
+	registeredStaticTools       map[string]struct{}
 	registeredResources         map[string]struct{} // keyed by resource URI
 	registeredResourceTemplates map[string]struct{} // keyed by resource URI template
 	registeredPrompts           map[string]struct{} // keyed by prompt name
@@ -55,6 +60,7 @@ type UpstreamSession struct {
 	capabilitiesFingerprint string
 	rootsFingerprint        string
 	rootsDirty              bool
+	pendingLogs             []*mcp.LoggingMessageParams
 }
 
 // DownstreamSessionPool owns the reusable downstream connection set for one downstream session key.
@@ -65,6 +71,11 @@ type DownstreamSessionPool struct {
 	upstreamSessions     map[string]*UpstreamSession
 	connecting           map[string]bool
 	lastUsed             time.Time
+}
+
+type notificationJob struct {
+	id     string
+	cancel context.CancelFunc
 }
 
 // connectionByServerName looks up a connection in a map by server name.
@@ -132,6 +143,8 @@ type CentianEndpoint struct {
 
 	toolRegMu sync.Mutex
 
+	notificationJobs map[string]notificationJob
+
 	connectionFactory func(string, *config.MCPServerConfig) DownstreamConnectionInterface
 }
 
@@ -143,6 +156,7 @@ func NewAggregatedEndpoint(gatewayName, endpoint string, gatewayConfig *config.G
 		config:            gatewayConfig,
 		upstreamSessions:  make(map[string]*UpstreamSession),
 		downstreamPools:   make(map[string]*DownstreamSessionPool),
+		notificationJobs:  make(map[string]notificationJob),
 		isAggregatedProxy: true,
 	}
 	return proxy
@@ -156,6 +170,7 @@ func NewSingleEndpoint(serverName, endpoint string, gatewayConfig *config.Gatewa
 		config:           gatewayConfig,
 		upstreamSessions: make(map[string]*UpstreamSession),
 		downstreamPools:  make(map[string]*DownstreamSessionPool),
+		notificationJobs: make(map[string]notificationJob),
 	}
 }
 

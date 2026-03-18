@@ -41,6 +41,8 @@ type DownstreamClientState struct {
 type DownstreamConnectOptions struct {
 	ForwardedHeaders           map[string]string
 	ClientState                DownstreamClientState
+	IdentityKey                string
+	GatewayName                string
 	SamplingHandler            DownstreamSamplingHandler
 	ElicitationHandler         DownstreamElicitationHandler
 	LoggingHandler             DownstreamLoggingHandler
@@ -70,6 +72,8 @@ func cloneDownstreamConnectOptions(options *DownstreamConnectOptions) *Downstrea
 			CapabilitiesFingerprint: options.ClientState.CapabilitiesFingerprint,
 			RootsFingerprint:        options.ClientState.RootsFingerprint,
 		},
+		IdentityKey:                options.IdentityKey,
+		GatewayName:                options.GatewayName,
 		SamplingHandler:            options.SamplingHandler,
 		ElicitationHandler:         options.ElicitationHandler,
 		LoggingHandler:             options.LoggingHandler,

@@ -88,6 +88,7 @@ func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, iden
 		id:                          id,
 		downstreamConns:             make(map[string]DownstreamConnectionInterface),
 		registeredTools:             make(map[string]struct{}),
+		registeredStaticTools:       make(map[string]struct{}),
 		registeredResources:         make(map[string]struct{}),
 		registeredResourceTemplates: make(map[string]struct{}),
 		registeredPrompts:           make(map[string]struct{}),

@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -11,6 +13,113 @@ const logLevelInfo mcp.LoggingLevel = "info"
 
 // This file forwards downstream logging notifications to the live upstream
 // sessions attached to the same pooled downstream session.
+
+func cloneLoggingParams(params *mcp.LoggingMessageParams) *mcp.LoggingMessageParams {
+	if params == nil {
+		return nil
+	}
+	cloned := *params
+	return &cloned
+}
+
+func shouldRetryQueuedLog(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "stream not connected or already closed")
+}
+
+func (p *CentianEndpoint) enqueuePendingSessionLog(session *UpstreamSession, params *mcp.LoggingMessageParams) {
+	if p == nil || session == nil || params == nil {
+		return
+	}
+	p.mu.Lock()
+	session.pendingLogs = append(session.pendingLogs, cloneLoggingParams(params))
+	p.mu.Unlock()
+}
+
+func (p *CentianEndpoint) logUpstreamSession(ctx context.Context, session *UpstreamSession, params *mcp.LoggingMessageParams) error {
+	if p == nil || session == nil || params == nil {
+		return nil
+	}
+
+	serverSession := p.currentUpstreamServerSession(session)
+	if session.logLevel == "" || serverSession == nil {
+		p.enqueuePendingSessionLog(session, params)
+		return nil
+	}
+
+	if err := serverSession.Log(ctx, params); err != nil {
+		if shouldRetryQueuedLog(err) {
+			p.enqueuePendingSessionLog(session, params)
+			p.flushPendingSessionLogsAfterDelay(session.id, 250*time.Millisecond)
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (p *CentianEndpoint) flushPendingSessionLogs(ctx context.Context, session *UpstreamSession) {
+	if p == nil || session == nil || session.logLevel == "" {
+		return
+	}
+
+	serverSession := p.currentUpstreamServerSession(session)
+	if serverSession == nil {
+		return
+	}
+
+	p.mu.Lock()
+	pending := append([]*mcp.LoggingMessageParams(nil), session.pendingLogs...)
+	session.pendingLogs = nil
+	p.mu.Unlock()
+
+	for idx, params := range pending {
+		if params == nil {
+			continue
+		}
+		common.LogDebug(
+			"ProxyEndpoint[%s]: flushing queued upstream log for session %s: %v",
+			p.name,
+			sanitizeLogValue(session.id),
+			params.Data,
+		)
+		if err := serverSession.Log(ctx, params); err != nil {
+			common.LogWarn(
+				"ProxyEndpoint[%s]: failed to flush queued log for session %s: %v",
+				p.name,
+				sanitizeLogValue(session.id),
+				err,
+			)
+			if shouldRetryQueuedLog(err) {
+				p.mu.Lock()
+				session.pendingLogs = append(pending[idx:], session.pendingLogs...)
+				p.mu.Unlock()
+				p.flushPendingSessionLogsAfterDelay(session.id, 250*time.Millisecond)
+			}
+			return
+		}
+	}
+}
+
+func (p *CentianEndpoint) flushPendingSessionLogsAfterDelay(sessionID string, delay time.Duration) {
+	if p == nil || sessionID == "" {
+		return
+	}
+	go func() {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		p.mu.RLock()
+		session := p.upstreamSessions[sessionID]
+		p.mu.RUnlock()
+		if session == nil {
+			return
+		}
+		p.flushPendingSessionLogs(context.Background(), session)
+	}()
+}
 
 func (p *CentianEndpoint) newPoolLoggingHandler(
 	downstreamSessionKey string,
@@ -38,11 +147,7 @@ func (p *CentianEndpoint) forwardDownstreamLog(
 
 	sessions := p.snapshotPoolUpstreamSessions(downstreamSessionKey, conn)
 	for _, session := range sessions {
-		serverSession := p.currentUpstreamServerSession(session)
-		if serverSession == nil {
-			continue
-		}
-		if err := serverSession.Log(ctx, params); err != nil {
+		if err := p.logUpstreamSession(ctx, session, params); err != nil {
 			common.LogWarn(
 				"ProxyEndpoint[%s]: failed to forward downstream log from %s to upstream session %s: %v",
 				p.name,
@@ -111,7 +216,12 @@ func (p *CentianEndpoint) syncUpstreamLoggingLevel(sessionID string, level mcp.L
 	}
 	p.mu.Unlock()
 
-	if session == nil || session.downstreamSessionKey == "" {
+	if session == nil {
+		return
+	}
+	p.flushPendingSessionLogs(context.Background(), session)
+	p.flushPendingSessionLogsAfterDelay(sessionID, 250*time.Millisecond)
+	if session.downstreamSessionKey == "" {
 		return
 	}
 	p.syncPoolLoggingLevel(session.downstreamSessionKey)

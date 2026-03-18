@@ -102,6 +102,7 @@ type MCPServerConfig struct {
 	Env         map[string]string      `json:"env,omitempty"`         // Environment variables
 	URL         string                 `json:"url,omitempty"`         // MCP Server URL (for http/sse transport)
 	Headers     map[string]string      `json:"headers,omitempty"`     // HTTP headers (supports ${ENV_VAR} substitution)
+	OAuth       *OAuthConfig           `json:"oauth,omitempty"`       // Downstream OAuth settings for HTTP MCP servers
 	Enabled     *bool                  `json:"enabled,omitempty"`     // Whether server is active
 	Description string                 `json:"description,omitempty"` // Human readable description
 	Source      string                 `json:"source,omitempty"`      // Source file path for auto-discovered servers
@@ -139,15 +140,40 @@ func (s *MCPServerConfig) GetSubstitutedHeaders() map[string]string {
 	return result
 }
 
+// OAuthEnabled returns true when downstream OAuth is configured and enabled.
+func (s *MCPServerConfig) OAuthEnabled() bool {
+	return s != nil && s.OAuth != nil && s.OAuth.Enabled
+}
+
+// OAuthConfig defines downstream OAuth settings for HTTP MCP servers.
+type OAuthConfig struct {
+	Enabled               bool     `json:"enabled"`
+	ClientID              string   `json:"clientId,omitempty"`
+	ClientSecret          string   `json:"clientSecret,omitempty"`
+	ClientAuthMethod      string   `json:"clientAuthMethod,omitempty"`
+	Scopes                []string `json:"scopes,omitempty"`
+	Resource              string   `json:"resource,omitempty"`
+	Issuer                string   `json:"issuer,omitempty"`
+	AuthorizationEndpoint string   `json:"authorizationEndpoint,omitempty"`
+	TokenEndpoint         string   `json:"tokenEndpoint,omitempty"`
+}
+
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Host      string `json:"host,omitempty"`      // Bind address for the proxy
-	Port      string `json:"port,omitempty"`      // HTTP proxy port (if enabled)
-	LogLevel  string `json:"logLevel,omitempty"`  // debug, info, warn, error
-	LogOutput string `json:"logOutput,omitempty"` // file, console, both
-	LogFile   string `json:"logFile,omitempty"`   // Log file path for internal logger
-	Timeout   int    `json:"timeout,omitempty"`   // Request timeout in seconds
+	Host            string            `json:"host,omitempty"`            // Bind address for the proxy
+	Port            string            `json:"port,omitempty"`            // HTTP proxy port (if enabled)
+	LogLevel        string            `json:"logLevel,omitempty"`        // debug, info, warn, error
+	LogOutput       string            `json:"logOutput,omitempty"`       // file, console, both
+	LogFile         string            `json:"logFile,omitempty"`         // Log file path for internal logger
+	Timeout         int               `json:"timeout,omitempty"`         // Request timeout in seconds
+	EnableTestTools bool              `json:"enableTestTools,omitempty"` // Register Centian-owned debug/test tools.
+	Web             *ProxyWebSettings `json:"web,omitempty"`             // Public web settings for hosted OAuth flows
+}
+
+// ProxyWebSettings contains public-facing web settings required for browser-based flows.
+type ProxyWebSettings struct {
+	PublicBaseURL string `json:"publicBaseUrl,omitempty"`
 }
 
 // NewDefaultProxySettings creates a new ProxySettings with default values.
@@ -158,6 +184,7 @@ func NewDefaultProxySettings() ProxySettings {
 		Timeout:   30,
 		LogLevel:  DefaultProxyLogLevel,
 		LogOutput: DefaultProxyLogOutput,
+		Web:       &ProxyWebSettings{},
 	}
 }
 
@@ -382,9 +409,8 @@ func saveConfig(config *GlobalConfig) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// Write to file.
-	//nolint:gosec // We are writing a file without sensitive data.
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+	// Write to file. Config may contain downstream client secrets.
+	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -395,6 +421,9 @@ func saveConfig(config *GlobalConfig) error {
 // This validates required fields and structure but allows empty gateways.
 // Use ValidateConfigForServer for operational validation before starting a server.
 func ValidateConfig(config *GlobalConfig, strict bool) error {
+	if config == nil {
+		return fmt.Errorf("config is required")
+	}
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
@@ -406,6 +435,14 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	}
 	if err := validateNameConventions(config.Gateways); err != nil {
 		return err
+	}
+	if HasOAuthServers(config) {
+		if config.Proxy.Web == nil || config.Proxy.Web.PublicBaseURL == "" {
+			return fmt.Errorf("proxy.web.publicBaseUrl is required when downstream oauth is enabled")
+		}
+		if !isValidHTTPURL(config.Proxy.Web.PublicBaseURL) {
+			return fmt.Errorf("proxy.web.publicBaseUrl must be a valid http:// or https:// URL")
+		}
 	}
 
 	if strict {
@@ -442,6 +479,9 @@ func validateProxySettings(proxy *ProxySettings) error {
 	}
 
 	proxy.LogFile = strings.TrimSpace(proxy.LogFile)
+	if proxy.Web != nil {
+		proxy.Web.PublicBaseURL = strings.TrimSpace(proxy.Web.PublicBaseURL)
+	}
 	return nil
 }
 
@@ -567,7 +607,117 @@ func validateServer(name string, server *MCPServerConfig) error {
 		}
 	}
 
+	if err := validateOAuthConfig(name, server); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func validateOAuthConfig(name string, server *MCPServerConfig) error {
+	if server == nil || !server.OAuthEnabled() {
+		return nil
+	}
+	if err := validateOAuthTransport(name, server); err != nil {
+		return err
+	}
+
+	oauthConfig := server.OAuth
+	normalizeOAuthConfig(oauthConfig)
+	if err := validateOAuthRequiredFields(name, oauthConfig); err != nil {
+		return err
+	}
+	if err := validateOAuthClientAuthMethod(name, oauthConfig.ClientAuthMethod); err != nil {
+		return err
+	}
+	return validateOAuthEndpoints(name, oauthConfig)
+}
+
+func validateOAuthTransport(name string, server *MCPServerConfig) error {
+	if server.URL == "" || server.Command != "" {
+		return fmt.Errorf("server '%s': downstream OAuth is only supported for HTTP MCP servers", name)
+	}
+	return nil
+}
+
+func normalizeOAuthConfig(oauthConfig *OAuthConfig) {
+	oauthConfig.ClientID = strings.TrimSpace(oauthConfig.ClientID)
+	oauthConfig.ClientSecret = strings.TrimSpace(oauthConfig.ClientSecret)
+	oauthConfig.ClientAuthMethod = strings.ToLower(strings.TrimSpace(oauthConfig.ClientAuthMethod))
+	oauthConfig.Resource = strings.TrimSpace(oauthConfig.Resource)
+	oauthConfig.Issuer = strings.TrimSpace(oauthConfig.Issuer)
+	oauthConfig.AuthorizationEndpoint = strings.TrimSpace(oauthConfig.AuthorizationEndpoint)
+	oauthConfig.TokenEndpoint = strings.TrimSpace(oauthConfig.TokenEndpoint)
+}
+
+func validateOAuthRequiredFields(name string, oauthConfig *OAuthConfig) error {
+	switch {
+	case oauthConfig.ClientID == "":
+		return fmt.Errorf("server '%s': oauth.clientId is required when oauth is enabled", name)
+	case oauthConfig.ClientSecret == "":
+		return fmt.Errorf("server '%s': oauth.clientSecret is required when oauth is enabled", name)
+	case oauthConfig.Resource == "":
+		return fmt.Errorf("server '%s': oauth.resource is required when oauth is enabled", name)
+	default:
+		return nil
+	}
+}
+
+func validateOAuthClientAuthMethod(name, method string) error {
+	switch method {
+	case "", "client_secret_basic", "client_secret_post":
+		return nil
+	default:
+		return fmt.Errorf("server '%s': oauth.clientAuthMethod must be client_secret_basic or client_secret_post", name)
+	}
+}
+
+func validateOAuthEndpoints(name string, oauthConfig *OAuthConfig) error {
+	if err := validateOAuthIssuer(name, oauthConfig); err != nil {
+		return err
+	}
+	if err := validateOptionalOAuthURL(name, "oauth.authorizationEndpoint", oauthConfig.AuthorizationEndpoint); err != nil {
+		return err
+	}
+	return validateOptionalOAuthURL(name, "oauth.tokenEndpoint", oauthConfig.TokenEndpoint)
+}
+
+func validateOAuthIssuer(name string, oauthConfig *OAuthConfig) error {
+	if oauthConfig.Issuer == "" {
+		if !isValidHTTPURL(oauthConfig.AuthorizationEndpoint) || !isValidHTTPURL(oauthConfig.TokenEndpoint) {
+			return fmt.Errorf("server '%s': oauth.issuer or both oauth.authorizationEndpoint and oauth.tokenEndpoint are required", name)
+		}
+		return nil
+	}
+	if !isValidHTTPURL(oauthConfig.Issuer) {
+		return fmt.Errorf("server '%s': oauth.issuer must be a valid http:// or https:// URL", name)
+	}
+	return nil
+}
+
+func validateOptionalOAuthURL(name, fieldName, value string) error {
+	if value == "" || isValidHTTPURL(value) {
+		return nil
+	}
+	return fmt.Errorf("server '%s': %s must be a valid http:// or https:// URL", name, fieldName)
+}
+
+// HasOAuthServers reports whether any configured downstream server enables OAuth.
+func HasOAuthServers(config *GlobalConfig) bool {
+	if config == nil {
+		return false
+	}
+	for _, gateway := range config.Gateways {
+		if gateway == nil {
+			continue
+		}
+		for _, server := range gateway.MCPServers {
+			if server != nil && server.OAuthEnabled() {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validateProcessors validates processor configurations.

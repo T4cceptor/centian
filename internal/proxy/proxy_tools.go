@@ -3,8 +3,10 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,7 +22,7 @@ func (p *CentianEndpoint) newUpstreamServer(session *UpstreamSession) *mcp.Serve
 		serverName = "centian-gateway-" + p.name
 	}
 
-	return mcp.NewServer(&mcp.Implementation{
+	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Version: p.server.Config.Version,
 	}, &mcp.ServerOptions{
@@ -49,6 +51,8 @@ func (p *CentianEndpoint) newUpstreamServer(session *UpstreamSession) *mcp.Serve
 			return session.id
 		},
 	})
+	p.registerStaticProxyTools(session, server)
+	return server
 }
 
 func (p *CentianEndpoint) syncAvailableTools(session *UpstreamSession) {
@@ -59,21 +63,7 @@ func (p *CentianEndpoint) syncAvailableTools(session *UpstreamSession) {
 		session.registeredTools = make(map[string]struct{})
 	}
 
-	desiredTools := make(map[string]*mcp.Tool)
-	toolServers := make(map[string]string)
-	for serverName, conn := range session.downstreamConns {
-		if !conn.IsConnected() {
-			continue
-		}
-		for _, tool := range conn.Tools() {
-			upstreamName := tool.Name
-			if p.isAggregatedProxy {
-				upstreamName = fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
-			}
-			desiredTools[upstreamName] = tool
-			toolServers[upstreamName] = serverName
-		}
-	}
+	desiredTools, toolServers := p.desiredToolState(session)
 
 	staleTools := make([]string, 0)
 	for toolName := range session.registeredTools {
@@ -90,6 +80,10 @@ func (p *CentianEndpoint) syncAvailableTools(session *UpstreamSession) {
 
 	for upstreamName, tool := range desiredTools {
 		if _, ok := session.registeredTools[upstreamName]; ok {
+			continue
+		}
+		if strings.HasPrefix(upstreamName, loginToolPrefix) {
+			p.registerLoginTool(session, toolServers[upstreamName])
 			continue
 		}
 		p.registerTool(session, toolServers[upstreamName], tool)
@@ -125,6 +119,7 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 	p.toolRegMu.Lock()
 	p.syncAvailableTools(session)
 	p.toolRegMu.Unlock()
+	p.notifySessionOAuthRequirements(session, pool)
 
 	switch {
 	case summary.connectedCount > 0:
@@ -148,6 +143,34 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 		common.LogError("ProxyEndpoint[%s]: all connections failed: %v", p.name, summary.connErrors)
 	default:
 		common.LogWarn("ProxyEndpoint[%s]: no pooled downstream connections are connected for %s", p.name, session.downstreamSessionKey)
+	}
+}
+
+func (p *CentianEndpoint) notifySessionOAuthRequirements(session *UpstreamSession, pool *DownstreamSessionPool) {
+	if session == nil || pool == nil {
+		return
+	}
+
+	for _, conn := range pool.downstreamConns {
+		if conn == nil || !conn.GetStatus().IsAuthRequired() {
+			continue
+		}
+		authErr, ok := centoauth.IsAuthorizationRequired(conn.GetError())
+		if !ok || authErr.Binding.PrincipalID != session.identityKey {
+			continue
+		}
+		if err := p.logUpstreamSession(context.Background(), session, &mcp.LoggingMessageParams{
+			Level: logLevelInfo,
+			Data: fmt.Sprintf(
+				"OAuth required for downstream %s/%s. Use %s or open %s",
+				authErr.Binding.Gateway,
+				authErr.Binding.Server,
+				loginToolName(authErr.Binding.Server),
+				authErr.AuthURL,
+			),
+		}); err != nil {
+			common.LogWarn("ProxyEndpoint[%s]: failed to log downstream oauth requirement for session %s: %v", p.name, session.id, err)
+		}
 	}
 }
 
@@ -185,6 +208,13 @@ func (p *CentianEndpoint) registerTool(session *UpstreamSession, serverName stri
 	server := session.upstreamServer
 	if session.registeredTools == nil {
 		session.registeredTools = make(map[string]struct{})
+	}
+	if tool == nil {
+		return
+	}
+	if isProxyToolName(tool.Name) {
+		common.LogWarn("ProxyEndpoint[%s]: skipping downstream tool %q on %s; centian.* is reserved", p.name, tool.Name, serverName)
+		return
 	}
 
 	clonedTool := copyToolForRegistration(tool)
@@ -237,6 +267,9 @@ func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamS
 	}
 	// Send the actual downstream request
 	if err := callCtx.SendRequest(ctx); err != nil {
+		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
+			return nil, p.handleDownstreamToolAuthorizationRequired(ctx, session, serverName, authErr)
+		}
 		p.invalidateDownstreamPool(session.downstreamSessionKey)
 		return nil, err
 	}
