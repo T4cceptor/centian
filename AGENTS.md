@@ -26,7 +26,7 @@ Basic repository structure:
 - `internal/logging/`: log readers and shared logging helpers
 - `internal/config/`: config models, validation, accessors, and config-oriented CLI operations
 - `internal/processor/`: processor interfaces, scaffolding, and CLI processor execution support
-- `internal/discovery/`: discovery and parsing of MCP-related configuration sources
+- `internal/config/`: config models, validation, persistence, config CLI operations, and import of existing MCP config files
 - `internal/auth/`: API key and authentication helpers
 - `internal/common/`: shared MCP models, auth context, utilities, and internal logging primitives
 - `docs/`: architecture and setup documentation

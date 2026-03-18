@@ -13,7 +13,6 @@ import (
 	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
-	"github.com/T4cceptor/centian/internal/discovery"
 	"github.com/urfave/cli/v3"
 )
 
@@ -25,8 +24,6 @@ const (
 	InitOptionEmpty InitOption = iota
 	// InitOptionQuickstart creates a ready-to-run config with a default MCP server.
 	InitOptionQuickstart
-	// InitOptionDiscovery auto-discovers existing MCP servers.
-	InitOptionDiscovery
 	// InitOptionFromPath imports servers from a specific config file.
 	InitOptionFromPath
 )
@@ -99,9 +96,7 @@ func (ui *InitUI) promptConfigPath() (string, error) {
 	return path, nil
 }
 
-// importFromPath imports servers from a specific config file path.
-// Note: cfg parameter is currently unused as discovery.ImportServers doesn't
-// add servers to cfg yet (see TODO in runAutoDiscovery).
+// importFromPath imports servers from a specific external MCP config file path.
 //
 //nolint:gosec // G304: path is user-provided intentionally for config import
 func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
@@ -110,7 +105,7 @@ func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
 		return 0, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	servers, err := discovery.ParseConfigFile(data, path)
+	servers, err := config.ParseImportedConfigFile(data, path)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -122,11 +117,24 @@ func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
 
 	fmt.Printf("📦 Found %d server(s) in %s\n", len(servers), path)
 
-	// Import servers using existing discovery import logic.
-	imported := discovery.ImportServers(servers, cfg)
-	discovery.ShowImportSummary(imported)
+	imported, err := config.ImportServers(cfg, servers)
+	if err != nil {
+		return 0, fmt.Errorf("failed to import servers: %w", err)
+	}
+	showImportSummary(imported)
 
 	return imported, nil
+}
+
+func showImportSummary(imported int) {
+	if imported == 0 {
+		fmt.Printf("\n📋 No servers were imported.\n")
+		fmt.Printf("💡 You can add servers manually using:\n")
+		fmt.Printf("   centian server add --name \"my-server-memory\" --command \"npx\" --args \"-y,@modelcontextprotocol/server-memory\"\n\n")
+		return
+	}
+	fmt.Printf("\nImported %d server(s)!\n", imported)
+	common.PressEnterToContinue("")
 }
 
 // InitCommand initializes a new centian setup with default configuration.

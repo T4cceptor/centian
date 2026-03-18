@@ -99,6 +99,6 @@ All notable changes to this project will be documented in this file.
 - Binding to `0.0.0.0` requires an explicit `auth` setting to reduce accidental exposure.
 
 ### Known limitations
-- OAuth is not supported (upstream or downstream) in v0.1.
+- OAuth is not supported (upstream or downstream) in v0.0.3.
 - Stdio MCP servers run on the host under the same user context as Centian.
 - Proxy-level auth headers are shared across downstream requests.
