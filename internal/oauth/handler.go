@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"golang.org/x/oauth2"
 )
@@ -90,23 +91,32 @@ func (t *Transport) authorizationHeader(ctx context.Context) (string, error) {
 	if err == nil && refreshed != nil && refreshed.AccessToken != "" {
 		return "Bearer " + refreshed.AccessToken, nil
 	}
+	if err != nil && !errors.Is(err, errTokenRefreshNotAvailable) {
+		common.LogWarn("oauth: token refresh failed for %s/%s, will retry after 401: %v", t.Binding.Gateway, t.Binding.Server, err)
+	}
 	return "", nil
 }
 
 func (t *Transport) handleAuthorizationChallenge(req *http.Request, bodyBytes []byte, resp *http.Response) (*http.Response, error) {
 	resolved, err := resolveMetadata(req.Context(), t.Manager.httpClient, req.URL.String(), resp.Header, t.Config)
+	// Headers are already parsed; free the body regardless of metadata resolution outcome.
+	closeBody(resp.Body)
 	if err != nil {
-		closeBody(resp.Body)
 		return nil, err
 	}
 
 	refreshed, refreshErr := refreshStoredToken(req.Context(), t.Manager, t.Binding, t.Config, nil, &resolved)
 	if refreshErr == nil && refreshed != nil && refreshed.AccessToken != "" {
-		closeBody(resp.Body)
-		return t.send(req, bodyBytes, t.baseRoundTripper())
+		retryResp, retryErr := t.send(req, bodyBytes, t.baseRoundTripper())
+		if retryErr != nil {
+			return nil, retryErr
+		}
+		if !isAuthorizationResponse(retryResp.StatusCode) {
+			return retryResp, nil
+		}
+		// Refreshed token was also rejected — proceed to interactive auth.
+		closeBody(retryResp.Body)
 	}
-
-	closeBody(resp.Body)
 	verifier := oauth2.GenerateVerifier()
 	pending, err := t.Manager.CreatePending(
 		t.Binding,
