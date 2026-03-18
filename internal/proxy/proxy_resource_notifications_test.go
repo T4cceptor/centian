@@ -67,9 +67,9 @@ func connectResourceClient(t *testing.T, session *UpstreamSession) (*resourceUpd
 	}
 }
 
-func subscribeResource(t *testing.T, clientSession *mcp.ClientSession, uri string) {
+func subscribeResource(t *testing.T, clientSession *mcp.ClientSession) {
 	t.Helper()
-	assert.NilError(t, clientSession.Subscribe(context.Background(), &mcp.SubscribeParams{URI: uri}))
+	assert.NilError(t, clientSession.Subscribe(context.Background(), &mcp.SubscribeParams{URI: "file:///resource"}))
 }
 
 func waitForSingleResourceUpdate(t *testing.T, recorder *resourceUpdateRecorder) {
@@ -99,7 +99,7 @@ func TestNewPoolResourceUpdatedHandler(t *testing.T) {
 		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
 	}
 
-	subscribeResource(t, clientSession, "file:///resource")
+	subscribeResource(t, clientSession)
 
 	handler := proxy.newPoolResourceUpdatedHandler("pool-1", "server-a", nil)
 	handler(context.Background(), nil)

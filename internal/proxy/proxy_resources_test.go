@@ -394,8 +394,8 @@ func TestForwardDownstreamResourceUpdated_BroadcastsToSubscribedSessions(t *test
 		},
 	}
 
-	subscribeResource(t, clientSessionA, "file:///resource")
-	subscribeResource(t, clientSessionB, "file:///resource")
+	subscribeResource(t, clientSessionA)
+	subscribeResource(t, clientSessionB)
 
 	proxy.forwardDownstreamResourceUpdated(context.Background(), "pool-1", "server-a", nil, &mcp.ResourceUpdatedNotificationParams{
 		URI: "file:///resource",
@@ -416,7 +416,7 @@ func TestForwardDownstreamResourceUpdated_StopsAfterUnsubscribe(t *testing.T) {
 		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
 	}
 
-	subscribeResource(t, clientSession, "file:///resource")
+	subscribeResource(t, clientSession)
 	proxy.forwardDownstreamResourceUpdated(context.Background(), "pool-1", "server-a", nil, &mcp.ResourceUpdatedNotificationParams{
 		URI: "file:///resource",
 	})

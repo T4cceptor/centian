@@ -146,8 +146,8 @@ func TestImportServers(t *testing.T) {
 
 func TestStringMapField(t *testing.T) {
 	t.Run("returns nil for missing or invalid maps", func(t *testing.T) {
-		assert.Assert(t, stringMapField(map[string]interface{}{}, "headers") == nil)
-		assert.Assert(t, stringMapField(map[string]interface{}{"headers": "bad"}, "headers") == nil)
+		assert.Assert(t, stringMapField(map[string]interface{}{}) == nil)
+		assert.Assert(t, stringMapField(map[string]interface{}{"headers": "bad"}) == nil)
 	})
 
 	t.Run("filters non-string values and returns nil when empty", func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestStringMapField(t *testing.T) {
 				"Authorization": "Bearer token",
 				"Retry-After":   10,
 			},
-		}, "headers")
+		})
 
 		assert.DeepEqual(t, headers, map[string]string{"Authorization": "Bearer token"})
 
@@ -164,7 +164,7 @@ func TestStringMapField(t *testing.T) {
 			"headers": map[string]interface{}{
 				"Retry-After": 10,
 			},
-		}, "headers")
+		})
 		assert.Assert(t, empty == nil)
 	})
 }

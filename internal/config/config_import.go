@@ -317,7 +317,7 @@ func extractImportedServerFromGeneric(name string, serverInfo map[string]interfa
 	}
 
 	server.Args = firstStringSliceField(serverInfo, "args", "arguments", "params", "parameters")
-	server.Headers = stringMapField(serverInfo, "headers")
+	server.Headers = stringMapField(serverInfo)
 
 	return server
 }
@@ -352,8 +352,8 @@ func firstStringSliceField(values map[string]interface{}, keys ...string) []stri
 	return nil
 }
 
-func stringMapField(values map[string]interface{}, key string) map[string]string {
-	rawMap, ok := values[key].(map[string]interface{})
+func stringMapField(values map[string]interface{}) map[string]string {
+	rawMap, ok := values["headers"].(map[string]interface{})
 	if !ok {
 		return nil
 	}
