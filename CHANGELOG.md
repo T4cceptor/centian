@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.0.6 - 2026-03-18
+
+### Major
+- Added first downstream OAuth support for HTTP MCP servers, including browser-based Authorization Code + PKCE login, refresh-token handling, metadata discovery, and hosted `/oauth/start`, `/oauth/status`, and `/oauth/callback` routes.
+- Added encrypted local storage for downstream OAuth tokens with a locally managed master key, plus downstream reconnect and tool resync after successful authorization.
+- Added proxy-side OAuth tools so clients can inspect and complete downstream login flows with `centian.auth_status` and `centian.login.<server>`.
+
+### Minor
+- Added opt-in Centian test tools via `proxy.enableTestTools`, including the new `centian.test_notifications` tool for emitting session-scoped log notifications.
+- Expanded config validation and README guidance for OAuth-enabled downstreams, including `proxy.web.publicBaseUrl`, supported client auth methods, and current OAuth limitations.
+- Added unit and integration coverage for OAuth config validation, token storage, auth tools, login flows, reconnect behavior, token refresh during reconnect, and URL elicitation.
+- Removed the flaky `uvx`-backed real-world fetch parity tests for now.
+
+### Bugfixes
+- Fixed downstream HTTP handling so OAuth-managed servers inject and refresh their own `Authorization` header instead of relying on forwarded client auth.
+- Fixed OAuth lifecycle handling to surface `auth_required` and `refresh_failed` states cleanly and to retry downstream requests after refresh where possible.
+- Fixed config file permissions to write potentially sensitive downstream client secrets with restricted file mode.
+
 ## v0.0.5 - 2026-03-16
 
 ### Major
