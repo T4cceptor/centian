@@ -31,8 +31,8 @@ func TestConfigLifecycle(t *testing.T) {
 	if config != nil && config.Proxy == nil {
 		t.Fatal("Expected proxy settings to be initialized")
 	}
-	if config != nil && config.Processors == nil {
-		t.Fatal("Expected processors to be initialized")
+	if config != nil && config.GatewayProvider == nil {
+		t.Fatal("Expected gateway provider to be initialized")
 	}
 	if config != nil && !config.IsAuthEnabled() {
 		t.Fatal("Expected auth to be enabled by default")

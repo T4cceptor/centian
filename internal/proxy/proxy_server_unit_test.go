@@ -215,8 +215,8 @@ func TestNewCentianServer_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
 		},
 	}
 
-	// When: creating the proxy
-	proxy, err := NewCentianServer(globalConfig)
+	// When: creating the proxy (with a nil provider since we expect error before provider use)
+	proxy, err := NewCentianServer(globalConfig, newMockProvider(&config.GatewayFile{Version: "1.0.0"}))
 
 	// Then: an error is returned and no proxy is created
 	assert.ErrorContains(t, err, "auth must be explicitly set when binding to 0.0.0.0")

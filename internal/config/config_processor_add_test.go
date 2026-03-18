@@ -179,53 +179,53 @@ func TestInferCommandFromPath(t *testing.T) {
 }
 
 func TestHasProcessor(t *testing.T) {
-	// Given: a config with one processor.
-	cfg := &GlobalConfig{
-		Processors: []*ProcessorConfig{
+	// Given: a gateway file with one processor.
+	gf := &GatewayFile{
+		GlobalProcessors: []*ProcessorConfig{
 			{Name: "existing-processor", Type: "cli", Enabled: true},
 		},
 	}
 
 	// When/Then: checking for existing processor returns true.
-	if !cfg.HasProcessor("existing-processor") {
+	if !gf.HasProcessor("existing-processor") {
 		t.Error("expected HasProcessor to return true for existing processor")
 	}
 
 	// When/Then: checking for non-existing processor returns false.
-	if cfg.HasProcessor("nonexistent") {
+	if gf.HasProcessor("nonexistent") {
 		t.Error("expected HasProcessor to return false for nonexistent processor")
 	}
 
-	// When/Then: checking on nil Processors slice returns false.
-	emptyCfg := &GlobalConfig{}
-	if emptyCfg.HasProcessor("anything") {
-		t.Error("expected HasProcessor to return false on empty config")
+	// When/Then: checking on nil GlobalProcessors slice returns false.
+	emptyGF := &GatewayFile{}
+	if emptyGF.HasProcessor("anything") {
+		t.Error("expected HasProcessor to return false on empty gateway file")
 	}
 }
 
 func TestAddProcessor(t *testing.T) {
-	// Given: a config with no processors.
-	cfg := &GlobalConfig{
-		Processors: []*ProcessorConfig{},
+	// Given: a gateway file with no processors.
+	gf := &GatewayFile{
+		GlobalProcessors: []*ProcessorConfig{},
 	}
 
 	// When: adding a processor.
 	proc := &ProcessorConfig{Name: "new-proc", Type: "cli", Enabled: true}
-	cfg.AddProcessor(proc)
+	gf.AddProcessor(proc)
 
-	// Then: config has one processor.
-	if len(cfg.Processors) != 1 {
-		t.Fatalf("expected 1 processor, got %d", len(cfg.Processors))
+	// Then: gateway file has one processor.
+	if len(gf.GlobalProcessors) != 1 {
+		t.Fatalf("expected 1 processor, got %d", len(gf.GlobalProcessors))
 	}
-	if cfg.Processors[0].Name != "new-proc" {
-		t.Errorf("expected processor name 'new-proc', got %q", cfg.Processors[0].Name)
+	if gf.GlobalProcessors[0].Name != "new-proc" {
+		t.Errorf("expected processor name 'new-proc', got %q", gf.GlobalProcessors[0].Name)
 	}
 }
 
 func TestReplaceProcessor(t *testing.T) {
-	// Given: a config with two processors.
-	cfg := &GlobalConfig{
-		Processors: []*ProcessorConfig{
+	// Given: a gateway file with two processors.
+	gf := &GatewayFile{
+		GlobalProcessors: []*ProcessorConfig{
 			{Name: "first", Type: "cli", Enabled: true, Timeout: 10},
 			{Name: "second", Type: "cli", Enabled: true, Timeout: 20},
 		},
@@ -233,24 +233,24 @@ func TestReplaceProcessor(t *testing.T) {
 
 	// When: replacing the first processor.
 	replacement := &ProcessorConfig{Name: "first", Type: "cli", Enabled: false, Timeout: 30}
-	replaced := cfg.ReplaceProcessor("first", replacement)
+	replaced := gf.ReplaceProcessor("first", replacement)
 
 	// Then: replacement was successful and position preserved.
 	if !replaced {
 		t.Fatal("expected ReplaceProcessor to return true")
 	}
-	if len(cfg.Processors) != 2 {
-		t.Fatalf("expected 2 processors, got %d", len(cfg.Processors))
+	if len(gf.GlobalProcessors) != 2 {
+		t.Fatalf("expected 2 processors, got %d", len(gf.GlobalProcessors))
 	}
-	if cfg.Processors[0].Timeout != 30 {
-		t.Errorf("expected replaced processor timeout 30, got %d", cfg.Processors[0].Timeout)
+	if gf.GlobalProcessors[0].Timeout != 30 {
+		t.Errorf("expected replaced processor timeout 30, got %d", gf.GlobalProcessors[0].Timeout)
 	}
-	if cfg.Processors[0].Enabled {
+	if gf.GlobalProcessors[0].Enabled {
 		t.Error("expected replaced processor to be disabled")
 	}
 
 	// When: replacing a nonexistent processor.
-	notFound := cfg.ReplaceProcessor("nonexistent", replacement)
+	notFound := gf.ReplaceProcessor("nonexistent", replacement)
 
 	// Then: returns false.
 	if notFound {
@@ -266,10 +266,14 @@ func TestProcessorAddPersistence(t *testing.T) {
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Given: a default config saved to disk.
+	// Given: a default config and gateway file saved to disk.
 	cfg := DefaultConfig()
 	if err := SaveConfig(cfg); err != nil {
 		t.Fatalf("failed to save initial config: %v", err)
+	}
+	gf := DefaultGatewayFile()
+	if err := SaveGatewayFile(cfg, gf); err != nil {
+		t.Fatalf("failed to save initial gateway file: %v", err)
 	}
 
 	// When: adding a processor and saving.
@@ -291,20 +295,24 @@ func TestProcessorAddPersistence(t *testing.T) {
 			"args":    configArgs,
 		},
 	}
-	cfg.AddProcessor(proc)
-	if err := SaveConfig(cfg); err != nil {
-		t.Fatalf("failed to save config with processor: %v", err)
+	gf.AddProcessor(proc)
+	if err := SaveGatewayFile(cfg, gf); err != nil {
+		t.Fatalf("failed to save gateway file with processor: %v", err)
 	}
 
-	// Then: loading the config preserves the processor.
-	loaded, err := LoadConfig()
+	// Then: loading the gateway file preserves the processor.
+	loadedCfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
 	}
-	if len(loaded.Processors) != 1 {
-		t.Fatalf("expected 1 processor, got %d", len(loaded.Processors))
+	loadedGF, err := LoadGatewayFile(loadedCfg)
+	if err != nil {
+		t.Fatalf("failed to load gateway file: %v", err)
 	}
-	p := loaded.Processors[0]
+	if len(loadedGF.GlobalProcessors) != 1 {
+		t.Fatalf("expected 1 processor, got %d", len(loadedGF.GlobalProcessors))
+	}
+	p := loadedGF.GlobalProcessors[0]
 	if p.Name != "audit" {
 		t.Errorf("expected processor name 'audit', got %q", p.Name)
 	}

@@ -25,18 +25,37 @@ const (
 	httpsScheme      string        = "https"
 )
 
-// GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
-// This is the root configuration object that contains all settings for MCP servers,
-// proxy behavior, processors, and additional metadata.
-type GlobalConfig struct {
-	Name        string                    `json:"name"`                 // Name of the server - simplifies server identification
-	Version     string                    `json:"version"`              // Config schema version
-	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable proxy auth
-	AuthHeader  string                    `json:"authHeader,omitempty"` // Header name for proxy auth
-	Proxy       *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
-	Gateways    map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
-	Processors  []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
-	Metadata    map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+// ServerConfig represents the server-level configuration stored at ~/.centian/config.json.
+// It contains settings for the proxy process itself (host, port, auth) and a pointer
+// to the gateway provider. Gateway and processor configuration lives separately in
+// the file referenced by GatewayProvider.
+type ServerConfig struct {
+	Name            string                 `json:"name"`                    // Name of the server - simplifies server identification
+	Version         string                 `json:"version"`                 // Config schema version
+	AuthEnabled     *bool                  `json:"auth,omitempty"`          // Enable or disable proxy auth
+	AuthHeader      string                 `json:"authHeader,omitempty"`    // Header name for proxy auth
+	Proxy           *ProxySettings         `json:"proxy,omitempty"`         // Proxy-level settings
+	GatewayProvider *GatewayProviderConfig `json:"gatewayProvider,omitempty"` // Gateway provider configuration
+	Metadata        map[string]interface{} `json:"metadata,omitempty"`      // Additional metadata
+}
+
+// GlobalConfig is an alias for ServerConfig kept for backward compatibility.
+// Deprecated: use ServerConfig directly.
+type GlobalConfig = ServerConfig
+
+// GatewayProviderConfig specifies which GatewayProvider to use and where its data lives.
+type GatewayProviderConfig struct {
+	Type string `json:"type"`            // Provider type: currently only "file"
+	Path string `json:"path,omitempty"`  // Path to the gateway file; empty = default ~/.centian/gateways.json
+}
+
+// GatewayFile is the on-disk format for gateways.json.
+// It holds all gateway configurations and global processors that were previously
+// embedded inside GlobalConfig.
+type GatewayFile struct {
+	Version          string                    `json:"version"`
+	GlobalProcessors []*ProcessorConfig        `json:"globalProcessors,omitempty"`
+	Gateways         map[string]*GatewayConfig `json:"gateways,omitempty"`
 }
 
 // DefaultAuthHeader represents the default header for authentication at the Centian server.
@@ -52,7 +71,7 @@ const (
 )
 
 // IsAuthEnabled returns true when auth is enabled or unset.
-func (g *GlobalConfig) IsAuthEnabled() bool {
+func (g *ServerConfig) IsAuthEnabled() bool {
 	if g == nil || g.AuthEnabled == nil {
 		return true
 	}
@@ -60,7 +79,7 @@ func (g *GlobalConfig) IsAuthEnabled() bool {
 }
 
 // GetAuthHeader returns the configured auth header name or the default.
-func (g *GlobalConfig) GetAuthHeader() string {
+func (g *ServerConfig) GetAuthHeader() string {
 	if g == nil || g.AuthHeader == "" {
 		return DefaultAuthHeader
 	}
@@ -77,9 +96,9 @@ type ServerSearchResult struct {
 
 // SearchServerByName searches for a server given a name,
 // can return multiple results for different gateways.
-func (g *GlobalConfig) SearchServerByName(name string) []ServerSearchResult {
+func (f *GatewayFile) SearchServerByName(name string) []ServerSearchResult {
 	foundServers := make([]ServerSearchResult, 0)
-	for gatewayName, gatewayConfig := range g.Gateways {
+	for gatewayName, gatewayConfig := range f.Gateways {
 		if gatewayConfig.HasServer(name) {
 			foundServers = append(foundServers, ServerSearchResult{
 				gatewayName: gatewayName,
@@ -272,20 +291,98 @@ func (p *ProcessorConfig) GetParts() []string {
 	return p.Parts
 }
 
-// DefaultConfig returns a default configuration.
-func DefaultConfig() *GlobalConfig {
+// DefaultConfig returns a default server configuration.
+func DefaultConfig() *ServerConfig {
 	authEnabled := true
 	proxySettings := NewDefaultProxySettings()
-	return &GlobalConfig{
+	return &ServerConfig{
 		Name:        "Centian Server",
 		Version:     "1.0.0",
 		AuthEnabled: &authEnabled,
 		AuthHeader:  DefaultAuthHeader,
 		Proxy:       &proxySettings,
-		Gateways:    map[string]*GatewayConfig{},
-		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
-		Metadata:    make(map[string]interface{}),
+		GatewayProvider: &GatewayProviderConfig{
+			Type: "file",
+			Path: "",
+		},
+		Metadata: make(map[string]interface{}),
 	}
+}
+
+// DefaultGatewayFile returns an empty-but-valid GatewayFile.
+func DefaultGatewayFile() *GatewayFile {
+	return &GatewayFile{
+		Version:          "1.0.0",
+		GlobalProcessors: []*ProcessorConfig{},
+		Gateways:         map[string]*GatewayConfig{},
+	}
+}
+
+// GetGatewayFilePath returns the path to gateways.json.
+// It reads the path from the ServerConfig's GatewayProvider if available,
+// falling back to ~/.centian/gateways.json.
+func GetGatewayFilePath(cfg *ServerConfig) (string, error) {
+	if cfg != nil && cfg.GatewayProvider != nil && cfg.GatewayProvider.Path != "" {
+		return cfg.GatewayProvider.Path, nil
+	}
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "gateways.json"), nil
+}
+
+// LoadGatewayFile loads the gateway file from the default location.
+func LoadGatewayFile(cfg *ServerConfig) (*GatewayFile, error) {
+	path, err := GetGatewayFilePath(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return LoadGatewayFileFromPath(path)
+}
+
+// LoadGatewayFileFromPath loads a GatewayFile from a specific path.
+func LoadGatewayFileFromPath(path string) (*GatewayFile, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, fmt.Errorf("gateway file not found at %s - try running 'centian init'", path)
+	}
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read gateway file: %w", err)
+	}
+	var file GatewayFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("failed to parse gateway file: %w", err)
+	}
+	if err := ValidateGatewayFile(&file, false); err != nil {
+		return nil, fmt.Errorf("invalid gateway file: %w", err)
+	}
+	return &file, nil
+}
+
+// SaveGatewayFile saves the gateway file to the default location.
+func SaveGatewayFile(cfg *ServerConfig, file *GatewayFile) error {
+	path, err := GetGatewayFilePath(cfg)
+	if err != nil {
+		return err
+	}
+	return SaveGatewayFileToPath(path, file)
+}
+
+// SaveGatewayFileToPath saves a GatewayFile to a specific path.
+func SaveGatewayFileToPath(path string, file *GatewayFile) error {
+	if err := EnsureConfigDir(); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal gateway file: %w", err)
+	}
+	//nolint:gosec // We are writing a file without sensitive data.
+	if err := os.WriteFile(filepath.Clean(path), data, 0o644); err != nil {
+		return fmt.Errorf("failed to write gateway file: %w", err)
+	}
+	return nil
 }
 
 // GetConfigDir returns the centian config directory path.
@@ -315,10 +412,9 @@ func EnsureConfigDir() error {
 	return os.MkdirAll(configDir, 0o750)
 }
 
-// LoadConfig loads the global configuration from ~/.centian/config.json.
-// If the config file doesn't exist, it creates a new one with default settings.
+// LoadConfig loads the server configuration from ~/.centian/config.json.
 // The configuration is validated after loading to ensure it's properly formatted.
-func LoadConfig() (*GlobalConfig, error) {
+func LoadConfig() (*ServerConfig, error) {
 	configPath, err := GetConfigPath()
 	if err != nil {
 		return nil, err
@@ -329,7 +425,7 @@ func LoadConfig() (*GlobalConfig, error) {
 
 // LoadConfigFromPath loads configuration from a custom file path.
 // The configuration is validated after loading.
-func LoadConfigFromPath(path string) (*GlobalConfig, error) {
+func LoadConfigFromPath(path string) (*ServerConfig, error) {
 	// Check if config file exists.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("configuration file not found at %s - try running 'centian init'", path)
@@ -342,13 +438,12 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 	}
 
 	// Parse JSON.
-	var cfg GlobalConfig
+	var cfg ServerConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Validate config schema (allows empty gateways for config management).
-	// Server startup should call ValidateConfigForServer for operational validation.
+	// Validate config schema.
 	if err := ValidateConfig(&cfg, false); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -359,14 +454,14 @@ func LoadConfigFromPath(path string) (*GlobalConfig, error) {
 // SaveConfig saves the configuration to ~/.centian/config.json.
 // Creates the ~/.centian directory if it doesn't exist and writes the
 // configuration as formatted JSON with proper indentation.
-func SaveConfig(config *GlobalConfig) error {
+func SaveConfig(config *ServerConfig) error {
 	if err := ValidateConfig(config, false); err != nil {
 		return fmt.Errorf("config is invalid: %w", err)
 	}
 	return saveConfig(config)
 }
 
-func saveConfig(config *GlobalConfig) error {
+func saveConfig(config *ServerConfig) error {
 	if err := EnsureConfigDir(); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -391,10 +486,10 @@ func saveConfig(config *GlobalConfig) error {
 	return nil
 }
 
-// ValidateConfig performs basic schema validation on the configuration.
-// This validates required fields and structure but allows empty gateways.
-// Use ValidateConfigForServer for operational validation before starting a server.
-func ValidateConfig(config *GlobalConfig, strict bool) error {
+// ValidateConfig performs basic schema validation on the server configuration.
+// This validates required fields (version, proxy settings) only.
+// Gateway and processor validation is now handled by ValidateGatewayFile.
+func ValidateConfig(config *ServerConfig, _ bool) error {
 	if config.Version == "" {
 		return fmt.Errorf("version field is required")
 	}
@@ -404,16 +499,27 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if err := validateProxySettings(config.Proxy); err != nil {
 		return err
 	}
-	if err := validateNameConventions(config.Gateways); err != nil {
+	return nil
+}
+
+// ValidateGatewayFile validates a GatewayFile.
+// Non-strict mode checks name conventions and structure.
+// Strict mode additionally requires at least one gateway with an active server.
+func ValidateGatewayFile(file *GatewayFile, strict bool) error {
+	if file == nil {
+		return fmt.Errorf("gateway file cannot be nil")
+	}
+	if file.Version == "" {
+		return fmt.Errorf("gateway file: version field is required")
+	}
+	if err := validateNameConventions(file.Gateways); err != nil {
 		return err
 	}
-
+	if err := validateProcessors(file.GlobalProcessors); err != nil {
+		return fmt.Errorf("gateway file globalProcessors: %w", err)
+	}
 	if strict {
-		// Validate config for operational purposes - meaning: can we start the server with this?
-		if err := validateGateways(config.Gateways); err != nil {
-			return err
-		}
-		if err := validateProcessors(config.Processors); err != nil {
+		if err := validateGateways(file.Gateways); err != nil {
 			return err
 		}
 	}
@@ -632,9 +738,9 @@ func validateProcessorParts(processor *ProcessorConfig) error {
 	return nil
 }
 
-// HasProcessor returns true if a processor with the given name exists in the global config.
-func (g *GlobalConfig) HasProcessor(name string) bool {
-	for _, p := range g.Processors {
+// HasProcessor returns true if a processor with the given name exists in the gateway file's global processors.
+func (f *GatewayFile) HasProcessor(name string) bool {
+	for _, p := range f.GlobalProcessors {
 		if p.Name == name {
 			return true
 		}
@@ -643,16 +749,16 @@ func (g *GlobalConfig) HasProcessor(name string) bool {
 }
 
 // AddProcessor appends a processor to the global processor chain.
-func (g *GlobalConfig) AddProcessor(p *ProcessorConfig) {
-	g.Processors = append(g.Processors, p)
+func (f *GatewayFile) AddProcessor(p *ProcessorConfig) {
+	f.GlobalProcessors = append(f.GlobalProcessors, p)
 }
 
 // ReplaceProcessor replaces an existing processor by name, preserving its position in the chain.
 // Returns false if no processor with the given name was found.
-func (g *GlobalConfig) ReplaceProcessor(name string, p *ProcessorConfig) bool {
-	for i, existing := range g.Processors {
+func (f *GatewayFile) ReplaceProcessor(name string, p *ProcessorConfig) bool {
+	for i, existing := range f.GlobalProcessors {
 		if existing.Name == name {
-			g.Processors[i] = p
+			f.GlobalProcessors[i] = p
 			return true
 		}
 	}

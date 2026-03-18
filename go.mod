@@ -1,6 +1,6 @@
 module github.com/T4cceptor/centian
 
-go 1.25.6
+go 1.25.1
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.4.1

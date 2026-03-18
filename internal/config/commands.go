@@ -207,7 +207,7 @@ var ServerCommand = &cli.Command{
 }
 
 // initConfig initializes a new configuration file with default settings.
-// Creates ~/.centian/config.json if it doesn't exist, fails if file already exists.
+// Creates ~/.centian/config.json and ~/.centian/gateways.json if they don't exist.
 func initConfig(_ context.Context, _ *cli.Command) error {
 	configPath, err := GetConfigPath()
 	if err != nil {
@@ -220,25 +220,45 @@ func initConfig(_ context.Context, _ *cli.Command) error {
 	}
 
 	// Create default config.
-	config := DefaultConfig()
-	if err := SaveConfig(config); err != nil {
+	cfg := DefaultConfig()
+	if err := SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
 	}
 
+	// Create default gateway file.
+	gatewayFilePath, err := GetGatewayFilePath(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to get gateway file path: %w", err)
+	}
+	if _, err := os.Stat(gatewayFilePath); os.IsNotExist(err) {
+		if err := SaveGatewayFileToPath(gatewayFilePath, DefaultGatewayFile()); err != nil {
+			return fmt.Errorf("failed to create gateway file: %w", err)
+		}
+	}
+
 	fmt.Printf("✅ Configuration initialized at %s\n", configPath)
+	fmt.Printf("✅ Gateway file initialized at %s\n", gatewayFilePath)
 	return nil
 }
 
 // showConfig displays the current configuration either as formatted text
 // or JSON based on the --json flag.
 func showConfig(_ context.Context, cmd *cli.Command) error {
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	gatewayFile, err := LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
 
 	if cmd.Bool("json") {
-		data, err := json.MarshalIndent(config, "", "  ")
+		combined := struct {
+			Config      *ServerConfig `json:"config"`
+			GatewayFile *GatewayFile  `json:"gatewayFile"`
+		}{cfg, gatewayFile}
+		data, err := json.MarshalIndent(combined, "", "  ")
 		if err != nil {
 			return fmt.Errorf("failed to marshal config: %w", err)
 		}
@@ -246,20 +266,20 @@ func showConfig(_ context.Context, cmd *cli.Command) error {
 	} else {
 		configPath, _ := GetConfigPath()
 		fmt.Printf("Configuration path: %s\n", configPath)
-		fmt.Printf("Version: %s\n", config.Version)
-		if config.Proxy.LogLevel != "" {
-			fmt.Printf("Log Level: %s\n", config.Proxy.LogLevel)
+		fmt.Printf("Version: %s\n", cfg.Version)
+		if cfg.Proxy.LogLevel != "" {
+			fmt.Printf("Log Level: %s\n", cfg.Proxy.LogLevel)
 		}
-		if config.Proxy.LogOutput != "" {
-			fmt.Printf("Log Output: %s\n", config.Proxy.LogOutput)
+		if cfg.Proxy.LogOutput != "" {
+			fmt.Printf("Log Output: %s\n", cfg.Proxy.LogOutput)
 		}
-		if config.Proxy.LogFile != "" {
-			fmt.Printf("Log File: %s\n", config.Proxy.LogFile)
+		if cfg.Proxy.LogFile != "" {
+			fmt.Printf("Log File: %s\n", cfg.Proxy.LogFile)
 		}
-		fmt.Printf("Gateways: %d configured\n", len(config.Gateways))
+		fmt.Printf("Gateways: %d configured\n", len(gatewayFile.Gateways))
 
 		allServers := []*MCPServerConfig{}
-		for _, gatewayConfig := range config.Gateways {
+		for _, gatewayConfig := range gatewayFile.Gateways {
 			allServers = append(allServers, gatewayConfig.ListServers()...)
 		}
 		fmt.Printf("Servers: %d configured\n", len(allServers))
@@ -278,12 +298,20 @@ func showConfig(_ context.Context, cmd *cli.Command) error {
 }
 
 func validateConfigCommand(_ context.Context, _ *cli.Command) error {
-	config, err := LoadConfig()
-	if err == nil {
-		err = ValidateConfig(config, true)
-	}
+	cfg, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("❌ Configuration validation failed: %w", err)
+	}
+	if err = ValidateConfig(cfg, true); err != nil {
+		return fmt.Errorf("❌ Configuration validation failed: %w", err)
+	}
+
+	gatewayFile, err := LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("❌ Gateway file validation failed: %w", err)
+	}
+	if err = ValidateGatewayFile(gatewayFile, true); err != nil {
+		return fmt.Errorf("❌ Gateway file validation failed: %w", err)
 	}
 
 	configPath, _ := GetConfigPath()
@@ -358,13 +386,17 @@ func resolveBackupConfigPath(path string) (string, error) {
 }
 
 func listServers(_ context.Context, cmd *cli.Command) error {
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	gatewayFile, err := LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
 
 	enabledOnly := cmd.Bool("enabled-only")
-	gateways := config.Gateways
+	gateways := gatewayFile.Gateways
 
 	if len(gateways) == 0 {
 		fmt.Println("No gateways configured.")
@@ -408,29 +440,33 @@ func listServers(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// addServer adds a new MCP server configuration to the global config.
+// addServer adds a new MCP server configuration to the gateway file.
 // Validates that the server name doesn't already exist before adding.
 func addServer(_ context.Context, cmd *cli.Command) error {
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	gatewayFile, err := LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
 
 	gatewayName := cmd.String("gateway")
-	existingGateway, ok := config.Gateways[gatewayName]
+	existingGateway, ok := gatewayFile.Gateways[gatewayName]
 	if !ok {
-		if config.Gateways == nil {
-			config.Gateways = make(map[string]*GatewayConfig)
+		if gatewayFile.Gateways == nil {
+			gatewayFile.Gateways = make(map[string]*GatewayConfig)
 		}
 		// gatewayName does not exist in the config, so we create it.
 		// Note: if no gatewayName was specified the default is "default".
-		config.Gateways[gatewayName] = &GatewayConfig{
+		gatewayFile.Gateways[gatewayName] = &GatewayConfig{
 			AllowDynamic:         false,
 			AllowGatewayEndpoint: false,
 			MCPServers:           map[string]*MCPServerConfig{},
 			Processors:           make([]*ProcessorConfig, 0),
 		}
-		existingGateway = config.Gateways[gatewayName]
+		existingGateway = gatewayFile.Gateways[gatewayName]
 	}
 
 	name := cmd.String("name")
@@ -455,8 +491,8 @@ func addServer(_ context.Context, cmd *cli.Command) error {
 	}
 	existingGateway.AddServer(name, serverConfig)
 
-	if err := SaveConfig(config); err != nil {
-		return fmt.Errorf("failed to save configuration: \n%w", err)
+	if err := SaveGatewayFile(cfg, gatewayFile); err != nil {
+		return fmt.Errorf("failed to save gateway file: \n%w", err)
 	}
 
 	fmt.Printf("✅ Added server '%s' to gateway '%s'\n", name, gatewayName)
@@ -524,12 +560,16 @@ func promptUserToSelectServer(foundServers []ServerSearchResult, serverName stri
 }
 
 func removeServer(_ context.Context, cmd *cli.Command) error {
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	gatewayFile, err := LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
 	serverName := cmd.String("name")
-	foundServers := config.SearchServerByName(serverName)
+	foundServers := gatewayFile.SearchServerByName(serverName)
 
 	switch len(foundServers) {
 	case 0:
@@ -547,8 +587,8 @@ func removeServer(_ context.Context, cmd *cli.Command) error {
 		selected.gateway.RemoveServer(serverName)
 	}
 
-	if err := SaveConfig(config); err != nil {
-		return fmt.Errorf("failed to save configuration: \n%w", err)
+	if err := SaveGatewayFile(cfg, gatewayFile); err != nil {
+		return fmt.Errorf("failed to save gateway file: \n%w", err)
 	}
 
 	fmt.Printf("✅ Removed server '%s'\n", serverName)
@@ -564,12 +604,16 @@ func disableServer(_ context.Context, cmd *cli.Command) error {
 }
 
 func toggleServer(name string, enabled bool) error {
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	gatewayFile, err := LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
 
-	foundServers := config.SearchServerByName(name)
+	foundServers := gatewayFile.SearchServerByName(name)
 
 	switch len(foundServers) {
 	case 0:
@@ -587,8 +631,8 @@ func toggleServer(name string, enabled bool) error {
 		selected.server.Enabled = &enabled
 	}
 
-	if err := SaveConfig(config); err != nil {
-		return fmt.Errorf("failed to save configuration: \n%w", err)
+	if err := SaveGatewayFile(cfg, gatewayFile); err != nil {
+		return fmt.Errorf("failed to save gateway file: \n%w", err)
 	}
 
 	status := "enabled"

@@ -584,10 +584,14 @@ func addProcessorToConfig(name string, lang scaffoldLanguage, outputFile string)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	if cfg.Processors == nil {
-		cfg.Processors = []*config.ProcessorConfig{}
+	gatewayFile, err := config.LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
 	}
-	for _, processor := range cfg.Processors {
+	if gatewayFile.GlobalProcessors == nil {
+		gatewayFile.GlobalProcessors = []*config.ProcessorConfig{}
+	}
+	for _, processor := range gatewayFile.GlobalProcessors {
 		if processor.Name == name {
 			return fmt.Errorf("processor '%s' already exists in config", name)
 		}
@@ -596,7 +600,7 @@ func addProcessorToConfig(name string, lang scaffoldLanguage, outputFile string)
 	if command == "" {
 		return fmt.Errorf("unsupported language")
 	}
-	cfg.Processors = append(cfg.Processors, &config.ProcessorConfig{
+	gatewayFile.GlobalProcessors = append(gatewayFile.GlobalProcessors, &config.ProcessorConfig{
 		Name:    name,
 		Type:    string(config.CLIProcessor),
 		Enabled: true,
@@ -607,7 +611,7 @@ func addProcessorToConfig(name string, lang scaffoldLanguage, outputFile string)
 		},
 		Required: false,
 	})
-	return config.SaveConfig(cfg)
+	return config.SaveGatewayFile(cfg, gatewayFile)
 }
 
 func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile string, addedToConfig bool) {

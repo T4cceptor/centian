@@ -20,6 +20,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type inlineGatewayProvider struct{ file *config.GatewayFile }
+
+func (p *inlineGatewayProvider) LoadGatewayFile() (*config.GatewayFile, error) { return p.file, nil }
+func (p *inlineGatewayProvider) SaveGatewayFile(_ *config.GatewayFile) error   { return nil }
+
 const (
 	runEverythingIntegrationEnv = "CENTIAN_RUN_EVERYTHING_INTEGRATION"
 	everythingServerCmdEnv      = "CENTIAN_EVERYTHING_SERVER_CMD"
@@ -339,7 +344,7 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 	authDisabled := false
 	port := allocateFreePort(t)
 
-	globalConfig := &config.GlobalConfig{
+	serverConfig := &config.GlobalConfig{
 		Name:        "Everything Integration Proxy",
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
@@ -348,6 +353,9 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 			Port:    port,
 			Timeout: int(defaultSessionTimeout.Seconds()),
 		},
+	}
+	gf := &config.GatewayFile{
+		Version: "1.0.0",
 		Gateways: map[string]*config.GatewayConfig{
 			"everything": {
 				MCPServers: map[string]*config.MCPServerConfig{
@@ -360,7 +368,7 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 		},
 	}
 
-	server, err := proxy.NewCentianServer(globalConfig)
+	server, err := proxy.NewCentianServer(serverConfig, &inlineGatewayProvider{file: gf})
 	if err != nil {
 		t.Fatalf("failed to create centian proxy: %v", err)
 	}

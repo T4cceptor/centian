@@ -433,112 +433,71 @@ func TestValidateServer(t *testing.T) {
 	}
 }
 
-// TestValidateConfigIntegration tests full config validation with gateways.
+// TestValidateConfigIntegration tests server config validation and gateway file validation separately.
 func TestValidateConfigIntegration(t *testing.T) {
-	tests := []struct {
-		name      string
-		config    *GlobalConfig
-		wantError bool
-		errorMsg  string
-	}{
-		{
-			name: "valid complete config",
-			config: &GlobalConfig{
-				Version: "1.0.0",
-				Proxy:   &ProxySettings{},
-				Gateways: map[string]*GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node"},
-						},
-					},
-				},
-				Processors: []*ProcessorConfig{},
-			},
-			wantError: false,
-		},
-		{
-			name: "missing version",
-			config: &GlobalConfig{
-				Proxy: &ProxySettings{},
-				Gateways: map[string]*GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node"},
-						},
-					},
-				},
-			},
-			wantError: true,
-			errorMsg:  "version field is required",
-		},
-		{
-			name: "config with gateway errors",
-			config: &GlobalConfig{
-				Version: "1.0.0",
-				Proxy:   &ProxySettings{},
-				Gateways: map[string]*GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*MCPServerConfig{},
-					},
-				},
-			},
-			wantError: true,
-			errorMsg:  "must have at least one active MCP server",
-		},
-		{
-			name: "config with processor errors",
-			config: &GlobalConfig{
-				Version: "1.0.0",
-				Proxy:   &ProxySettings{},
-				Gateways: map[string]*GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node"},
-						},
-					},
-				},
-				Processors: []*ProcessorConfig{
-					{
-						Name:    "",
-						Type:    "cli",
-						Enabled: true,
-					},
-				},
-			},
-			wantError: true,
-			errorMsg:  "name is required",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Given: a complete config.
-
-			// When: validating the entire config.
-			err := ValidateConfig(tt.config, true)
-
-			// Then: verify error expectation.
-			if tt.wantError {
-				if err == nil {
-					t.Errorf("Expected error containing '%s', got nil", tt.errorMsg)
-				} else if tt.errorMsg != "" && !contains(err.Error(), tt.errorMsg) {
-					t.Errorf("Expected error containing '%s', got '%s'", tt.errorMsg, err.Error())
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Expected no error, got: %v", err)
-				}
-			}
-		})
-	}
-}
-
-func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
-	t.Run("invalid gateway name fails in non-strict mode", func(t *testing.T) {
+	t.Run("valid server config passes", func(t *testing.T) {
 		cfg := &GlobalConfig{
 			Version: "1.0.0",
 			Proxy:   &ProxySettings{},
+		}
+		if err := ValidateConfig(cfg, true); err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("missing version fails", func(t *testing.T) {
+		cfg := &GlobalConfig{
+			Proxy: &ProxySettings{},
+		}
+		err := ValidateConfig(cfg, true)
+		if err == nil {
+			t.Error("Expected error for missing version")
+		} else if !contains(err.Error(), "version field is required") {
+			t.Errorf("Expected 'version field is required', got: %v", err)
+		}
+	})
+
+	t.Run("gateway file with empty gateway fails strict validation", func(t *testing.T) {
+		gf := &GatewayFile{
+			Version: "1.0.0",
+			Gateways: map[string]*GatewayConfig{
+				"gateway1": {
+					MCPServers: map[string]*MCPServerConfig{},
+				},
+			},
+		}
+		err := ValidateGatewayFile(gf, true)
+		if err == nil {
+			t.Error("Expected error for empty gateway")
+		} else if !contains(err.Error(), "must have at least one active MCP server") {
+			t.Errorf("Expected 'must have at least one active MCP server', got: %v", err)
+		}
+	})
+
+	t.Run("gateway file with processor errors fails", func(t *testing.T) {
+		gf := &GatewayFile{
+			Version: "1.0.0",
+			GlobalProcessors: []*ProcessorConfig{
+				{
+					Name:    "",
+					Type:    "cli",
+					Enabled: true,
+				},
+			},
+		}
+		err := ValidateGatewayFile(gf, false)
+		if err == nil {
+			t.Error("Expected error for unnamed processor")
+		} else if !contains(err.Error(), "name is required") {
+			t.Errorf("Expected 'name is required', got: %v", err)
+		}
+	})
+}
+
+func TestValidateGatewayFileNonStrict_ValidatesNameConventions(t *testing.T) {
+	t.Run("invalid gateway name fails in non-strict mode", func(t *testing.T) {
+		gf := &GatewayFile{
+			Version: "1.0.0",
 			Gateways: map[string]*GatewayConfig{
 				"invalid gateway": {
 					MCPServers: map[string]*MCPServerConfig{},
@@ -546,7 +505,7 @@ func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
 			},
 		}
 
-		err := ValidateConfig(cfg, false)
+		err := ValidateGatewayFile(gf, false)
 		if err == nil {
 			t.Fatal("expected error for invalid gateway name")
 		}
@@ -556,9 +515,8 @@ func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
 	})
 
 	t.Run("invalid server name fails in non-strict mode", func(t *testing.T) {
-		cfg := &GlobalConfig{
+		gf := &GatewayFile{
 			Version: "1.0.0",
-			Proxy:   &ProxySettings{},
 			Gateways: map[string]*GatewayConfig{
 				"gateway1": {
 					MCPServers: map[string]*MCPServerConfig{
@@ -568,7 +526,7 @@ func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
 			},
 		}
 
-		err := ValidateConfig(cfg, false)
+		err := ValidateGatewayFile(gf, false)
 		if err == nil {
 			t.Fatal("expected error for invalid server name")
 		}
@@ -577,14 +535,13 @@ func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
 		}
 	})
 
-	t.Run("empty gateways still allowed in non-strict mode", func(t *testing.T) {
-		cfg := &GlobalConfig{
+	t.Run("empty gateways allowed in non-strict mode", func(t *testing.T) {
+		gf := &GatewayFile{
 			Version:  "1.0.0",
-			Proxy:    &ProxySettings{},
-			Gateways: map[string]*GatewayConfig{},
+
 		}
 
-		err := ValidateConfig(cfg, false)
+		err := ValidateGatewayFile(gf, false)
 		if err != nil {
 			t.Fatalf("expected no error for non-strict empty gateways, got: %v", err)
 		}
@@ -634,7 +591,7 @@ func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
 			cfg := &GlobalConfig{
 				Version:  "1.0.0",
 				Proxy:    tt.proxy,
-				Gateways: map[string]*GatewayConfig{},
+	
 			}
 
 			err := ValidateConfig(cfg, false)

@@ -39,6 +39,8 @@ func createTestConfig(t *testing.T) {
 	config := DefaultConfig()
 	err := SaveConfig(config)
 	assert.NilError(t, err)
+	err = SaveGatewayFile(config, DefaultGatewayFile())
+	assert.NilError(t, err)
 }
 
 func writeConfigToPath(t *testing.T, path string, cfg *GlobalConfig) {
@@ -58,7 +60,10 @@ func writeConfigToPath(t *testing.T, path string, cfg *GlobalConfig) {
 // Use this for tests that require a fully valid config (e.g., validation tests).
 func createValidTestConfigWithGateway(t *testing.T) {
 	config := DefaultConfig()
-	config.Gateways = map[string]*GatewayConfig{
+	err := SaveConfig(config)
+	assert.NilError(t, err)
+	gf := DefaultGatewayFile()
+	gf.Gateways = map[string]*GatewayConfig{
 		"test-gateway": {
 			MCPServers: map[string]*MCPServerConfig{
 				"test-server": {
@@ -68,7 +73,7 @@ func createValidTestConfigWithGateway(t *testing.T) {
 			},
 		},
 	}
-	err := SaveConfig(config)
+	err = SaveGatewayFile(config, gf)
 	assert.NilError(t, err)
 }
 
@@ -332,7 +337,8 @@ func TestListServers_DisplaysAllServers(t *testing.T) {
 	createTestConfig(t)
 
 	// Add a test server.
-	config, _ := LoadConfig()
+	cfg, _ := LoadConfig()
+	gf, _ := LoadGatewayFile(cfg)
 	disabled := false
 	gateway := &GatewayConfig{
 		MCPServers: map[string]*MCPServerConfig{
@@ -349,11 +355,11 @@ func TestListServers_DisplaysAllServers(t *testing.T) {
 			},
 		},
 	}
-	if config.Gateways == nil {
-		config.Gateways = map[string]*GatewayConfig{}
+	if gf.Gateways == nil {
+		gf.Gateways = map[string]*GatewayConfig{}
 	}
-	config.Gateways["test-gateway"] = gateway
-	SaveConfig(config)
+	gf.Gateways["test-gateway"] = gateway
+	SaveGatewayFile(cfg, gf)
 
 	ctx := context.Background()
 	cmd := &cli.Command{
@@ -429,7 +435,7 @@ func TestListServers_Details(t *testing.T) {
 	assert.ErrorContains(t, failedToLoadConfig1, "failed to load configuration")
 
 	got := captureStdout(t, func() {
-		// When: adding a real config and calling listServers.
+		// When: adding a real config (and empty gateway file) and calling listServers.
 		proxySettings := NewDefaultProxySettings()
 		newConfig := GlobalConfig{
 			Name:    "test config",
@@ -437,6 +443,8 @@ func TestListServers_Details(t *testing.T) {
 			Proxy:   &proxySettings,
 		}
 		saveError := SaveConfig(&newConfig)
+		assert.NilError(t, saveError)
+		saveError = SaveGatewayFile(&newConfig, DefaultGatewayFile())
 		assert.NilError(t, saveError)
 		noGetwayError := listServers(ctx, cmd)
 		assert.NilError(t, noGetwayError) // in this case we do NOT return an error
@@ -455,17 +463,20 @@ func TestListServers_Details(t *testing.T) {
 			Name:    "test config",
 			Version: "1.0.0",
 			Proxy:   &proxySettings,
-			Gateways: map[string]*GatewayConfig{
-				gatewayName: {
-					MCPServers: map[string]*MCPServerConfig{
-						serverName: {
-							URL: "https://test-url.test123",
-						},
+		}
+		saveError := SaveConfig(&newConfig)
+		assert.NilError(t, saveError)
+		gf := DefaultGatewayFile()
+		gf.Gateways = map[string]*GatewayConfig{
+			gatewayName: {
+				MCPServers: map[string]*MCPServerConfig{
+					serverName: {
+						URL: "https://test-url.test123",
 					},
 				},
 			},
 		}
-		saveError := SaveConfig(&newConfig)
+		saveError = SaveGatewayFile(&newConfig, gf)
 		assert.NilError(t, saveError)
 		noGetwayError := listServers(ctx, cmd)
 		assert.NilError(t, noGetwayError) // in this case we do NOT return an error
@@ -503,12 +514,13 @@ func TestAddServer_Details(t *testing.T) {
 	// When: calling addServer WITH an existing config and NO gateways.
 	proxySettings := NewDefaultProxySettings()
 	newConfig := GlobalConfig{
-		Name:     "test config",
-		Version:  "1.0.0",
-		Proxy:    &proxySettings,
-		Gateways: map[string]*GatewayConfig{},
+		Name:    "test config",
+		Version: "1.0.0",
+		Proxy:   &proxySettings,
 	}
 	saveError := SaveConfig(&newConfig)
+	assert.NilError(t, saveError)
+	saveError = SaveGatewayFile(&newConfig, DefaultGatewayFile())
 	assert.NilError(t, saveError)
 
 	serverName := fmt.Sprintf("my-server-%d", time.Now().UnixNano())
@@ -523,12 +535,14 @@ func TestAddServer_Details(t *testing.T) {
 
 	// Then: the command works as expected, and a new server is added under the "default" gateway.
 	assert.NilError(t, noError)
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	assert.NilError(t, err)
-	assert.Equal(t, len(config.Gateways), 1)
-	assert.Equal(t, len(config.Gateways["default"].MCPServers), 1)
+	gf, err := LoadGatewayFile(cfg)
+	assert.NilError(t, err)
+	assert.Equal(t, len(gf.Gateways), 1)
+	assert.Equal(t, len(gf.Gateways["default"].MCPServers), 1)
 
-	mcpServer, ok := config.Gateways["default"].MCPServers[serverName]
+	mcpServer, ok := gf.Gateways["default"].MCPServers[serverName]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, mcpServer.Command, "npx")
 
@@ -643,6 +657,8 @@ func TestRemoveServer_Details(t *testing.T) {
 	}
 	saveError := SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
+	saveError = SaveGatewayFile(&newConfig, DefaultGatewayFile())
+	assert.NilError(t, saveError)
 
 	// When: calling removeServer.
 	noServerError := removeServer(ctx, cmd)
@@ -653,7 +669,8 @@ func TestRemoveServer_Details(t *testing.T) {
 		Name:    serverName,
 		Command: "npx",
 	}
-	newConfig.Gateways = map[string]*GatewayConfig{
+	gf := DefaultGatewayFile()
+	gf.Gateways = map[string]*GatewayConfig{
 		"gateway1": {
 			MCPServers: map[string]*MCPServerConfig{
 				serverName: &server,
@@ -664,17 +681,19 @@ func TestRemoveServer_Details(t *testing.T) {
 			},
 		},
 	}
-	saveError = SaveConfig(&newConfig)
+	saveError = SaveGatewayFile(&newConfig, gf)
 	assert.NilError(t, saveError)
 
-	// When: calling remnoveServer.
+	// When: calling removeServer.
 	noError := removeServer(ctx, cmd)
 
 	// Then: it successfully removes the server.
 	assert.NilError(t, noError)
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	assert.NilError(t, err)
-	_, ok := config.Gateways["gateway1"].MCPServers[serverName]
+	loadedGf, err := LoadGatewayFile(cfg)
+	assert.NilError(t, err)
+	_, ok := loadedGf.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, !ok)
 }
 
@@ -698,8 +717,10 @@ func TestToggleServer_Details(t *testing.T) {
 	}
 	saveError := SaveConfig(&newConfig)
 	assert.NilError(t, saveError)
+	saveError = SaveGatewayFile(&newConfig, DefaultGatewayFile())
+	assert.NilError(t, saveError)
 
-	// When: calling removeServer.
+	// When: calling toggleServer.
 	noServerError := toggleServer(serverName, false)
 	// Unable to find server '%s' in config.
 	assert.ErrorContains(t, noServerError, "unable to find server 'my-test-server-2' in config")
@@ -708,7 +729,8 @@ func TestToggleServer_Details(t *testing.T) {
 		Name:    serverName,
 		Command: "npx",
 	}
-	newConfig.Gateways = map[string]*GatewayConfig{
+	gf := DefaultGatewayFile()
+	gf.Gateways = map[string]*GatewayConfig{
 		"gateway1": {
 			MCPServers: map[string]*MCPServerConfig{
 				serverName: &server,
@@ -719,18 +741,20 @@ func TestToggleServer_Details(t *testing.T) {
 			},
 		},
 	}
-	saveError = SaveConfig(&newConfig)
+	saveError = SaveGatewayFile(&newConfig, gf)
 	assert.NilError(t, saveError)
 
-	// When: calling remnoveServer.
+	// When: calling toggleServer.
 	expectedValue := false
 	noError := toggleServer(serverName, expectedValue)
 
-	// Then: it successfully removes the server.
+	// Then: it successfully toggles the server.
 	assert.NilError(t, noError)
-	config, err := LoadConfig()
+	cfg, err := LoadConfig()
 	assert.NilError(t, err)
-	loadedServer, ok := config.Gateways["gateway1"].MCPServers[serverName]
+	loadedGf, err := LoadGatewayFile(cfg)
+	assert.NilError(t, err)
+	loadedServer, ok := loadedGf.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, ok)
 	assert.Assert(t, loadedServer.IsEnabled() == expectedValue)
 
@@ -745,9 +769,11 @@ func TestToggleServer_Details(t *testing.T) {
 
 	// Then: server is enabled, and no errors are given.
 	assert.NilError(t, noError)
-	config, err = LoadConfig()
+	cfg, err = LoadConfig()
 	assert.NilError(t, err)
-	loadedServer, ok = config.Gateways["gateway1"].MCPServers[serverName]
+	loadedGf, err = LoadGatewayFile(cfg)
+	assert.NilError(t, err)
+	loadedServer, ok = loadedGf.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, ok)
 	assert.Assert(t, loadedServer.IsEnabled())
 
@@ -760,11 +786,13 @@ func TestToggleServer_Details(t *testing.T) {
 	}
 	noError = disableServer(ctx, cmd)
 
-	// Then: server is enabled, and no errors are given.
+	// Then: server is disabled, and no errors are given.
 	assert.NilError(t, noError)
-	config, err = LoadConfig()
+	cfg, err = LoadConfig()
 	assert.NilError(t, err)
-	loadedServer, ok = config.Gateways["gateway1"].MCPServers[serverName]
+	loadedGf, err = LoadGatewayFile(cfg)
+	assert.NilError(t, err)
+	loadedServer, ok = loadedGf.Gateways["gateway1"].MCPServers[serverName]
 	assert.Assert(t, ok)
 	assert.Assert(t, !loadedServer.IsEnabled())
 }
@@ -776,7 +804,8 @@ func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
 
 	createTestConfig(t)
 
-	config, _ := LoadConfig()
+	cfg, _ := LoadConfig()
+	gf, _ := LoadGatewayFile(cfg)
 	disabled := false
 	gateway := &GatewayConfig{
 		MCPServers: map[string]*MCPServerConfig{
@@ -793,11 +822,11 @@ func TestListServers_DisplaysOnlyEnabledServers(t *testing.T) {
 			},
 		},
 	}
-	if config.Gateways == nil {
-		config.Gateways = make(map[string]*GatewayConfig)
+	if gf.Gateways == nil {
+		gf.Gateways = make(map[string]*GatewayConfig)
 	}
-	config.Gateways["test-gateway"] = gateway
-	SaveConfig(config)
+	gf.Gateways["test-gateway"] = gateway
+	SaveGatewayFile(cfg, gf)
 
 	ctx := context.Background()
 	cmd := &cli.Command{
@@ -860,16 +889,6 @@ func TestRestoreConfig_RestoresConfigWithForceFlag(t *testing.T) {
 
 	backupConfig := DefaultConfig()
 	backupConfig.Name = "Restored Config"
-	backupConfig.Gateways = map[string]*GatewayConfig{
-		"backup-gateway": {
-			MCPServers: map[string]*MCPServerConfig{
-				"backup-server": {
-					Name: "backup-server",
-					URL:  "https://backup.example.com/mcp",
-				},
-			},
-		},
-	}
 
 	backupPath := filepath.Join(os.Getenv("HOME"), ".centian", "backup.config.json")
 	writeConfigToPath(t, backupPath, backupConfig)
@@ -888,8 +907,6 @@ func TestRestoreConfig_RestoresConfigWithForceFlag(t *testing.T) {
 	restoredConfig, err := LoadConfig()
 	assert.NilError(t, err)
 	assert.Equal(t, "Restored Config", restoredConfig.Name)
-	_, exists := restoredConfig.Gateways["backup-gateway"]
-	assert.Assert(t, exists)
 }
 
 func TestRestoreConfig_FailsForInvalidBackup(t *testing.T) {

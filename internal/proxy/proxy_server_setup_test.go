@@ -8,6 +8,24 @@ import (
 	"gotest.tools/assert"
 )
 
+// mockGatewayProvider implements gateway.GatewayProvider for tests.
+type mockGatewayProvider struct {
+	file *config.GatewayFile
+}
+
+func (m *mockGatewayProvider) LoadGatewayFile() (*config.GatewayFile, error) {
+	return m.file, nil
+}
+
+func (m *mockGatewayProvider) SaveGatewayFile(f *config.GatewayFile) error {
+	m.file = f
+	return nil
+}
+
+func newMockProvider(gf *config.GatewayFile) *mockGatewayProvider {
+	return &mockGatewayProvider{file: gf}
+}
+
 // testEchoProcessorConfig returns a minimal valid processor config for use in tests.
 // The processor is never executed during setup, so the command only needs to be creatable.
 func testEchoProcessorConfig(name string) *config.ProcessorConfig {
@@ -23,11 +41,11 @@ func testEchoProcessorConfig(name string) *config.ProcessorConfig {
 }
 
 func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
-	// Given: a global config with auth disabled and a gateway
+	// Given: a server config with auth disabled and a gateway file
 	authDisabled := false
 	enabled := true
 	disabled := false
-	globalConfig := &config.GlobalConfig{
+	serverConfig := &config.GlobalConfig{
 		Name:        "Test",
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
@@ -35,6 +53,9 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 			Port:    "9000",
 			Timeout: 10,
 		},
+	}
+	gf := &config.GatewayFile{
+		Version: "1.0.0",
 		Gateways: map[string]*config.GatewayConfig{
 			"gateway": {
 				MCPServers: map[string]*config.MCPServerConfig{
@@ -47,7 +68,7 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	// Ensure logger writes to temp HOME
 	t.Setenv("HOME", t.TempDir())
 
-	proxy, err := NewCentianServer(globalConfig)
+	proxy, err := NewCentianServer(serverConfig, newMockProvider(gf))
 	assert.NilError(t, err)
 
 	// When: setting up the proxy
@@ -120,9 +141,7 @@ func TestInitEventProcessor_GlobalProcessorsBeforeGatewayProcessors(t *testing.T
 	// Given: a server with global processors and a gateway with its own processors
 	t.Setenv("HOME", t.TempDir())
 	server := &CentianServer{
-		Config: &config.GlobalConfig{
-			Processors: []*config.ProcessorConfig{testEchoProcessorConfig("global-proc")},
-		},
+		Config: &config.GlobalConfig{},
 	}
 	gatewayConfig := &config.GatewayConfig{
 		MCPServers: map[string]*config.MCPServerConfig{"server1": {Command: "node"}},
@@ -130,6 +149,8 @@ func TestInitEventProcessor_GlobalProcessorsBeforeGatewayProcessors(t *testing.T
 	}
 	endpoint := NewSingleEndpoint("server1", "/mcp/gateway/server1", gatewayConfig)
 	endpoint.server = server
+	// Simulate what buildGatewayMux does: populate endpoint's globalProcessors field.
+	endpoint.globalProcessors = []*config.ProcessorConfig{testEchoProcessorConfig("global-proc")}
 
 	// When: the event processor is initialized
 	err := endpoint.initEventProcessor()
@@ -143,11 +164,11 @@ func TestInitEventProcessor_GlobalProcessorsBeforeGatewayProcessors(t *testing.T
 }
 
 func TestSetup_ProcessorsInitializedForBothEndpointTypes(t *testing.T) {
-	// Given: a global config with gateway-level processors on one of its gateways
+	// Given: a server config with gateway-level processors on one of its gateways
 	t.Setenv("HOME", t.TempDir())
 	authDisabled := false
 	enabled := true
-	globalConfig := &config.GlobalConfig{
+	serverConfig := &config.GlobalConfig{
 		Name:        "Test",
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
@@ -155,6 +176,9 @@ func TestSetup_ProcessorsInitializedForBothEndpointTypes(t *testing.T) {
 			Port:    "9001",
 			Timeout: 10,
 		},
+	}
+	gf := &config.GatewayFile{
+		Version: "1.0.0",
 		Gateways: map[string]*config.GatewayConfig{
 			"gateway": {
 				MCPServers: map[string]*config.MCPServerConfig{
@@ -165,7 +189,7 @@ func TestSetup_ProcessorsInitializedForBothEndpointTypes(t *testing.T) {
 		},
 	}
 
-	centianServer, err := NewCentianServer(globalConfig)
+	centianServer, err := NewCentianServer(serverConfig, newMockProvider(gf))
 	assert.NilError(t, err)
 
 	// When: setting up the proxy

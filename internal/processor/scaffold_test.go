@@ -409,16 +409,19 @@ func TestAddProcessorToConfig(t *testing.T) {
 	t.Setenv("HOME", tempHome)
 	cfg := config.DefaultConfig()
 	assert.NilError(t, config.SaveConfig(cfg))
+	assert.NilError(t, config.SaveGatewayFile(cfg, config.DefaultGatewayFile()))
 
 	// When: adding a processor to config
 	err := addProcessorToConfig("demo", langPython, "/tmp/demo.py")
 
-	// Then: processor is persisted
+	// Then: processor is persisted in the gateway file
 	assert.NilError(t, err)
-	loaded, err := config.LoadConfig()
+	loadedCfg, err := config.LoadConfig()
 	assert.NilError(t, err)
-	assert.Equal(t, len(loaded.Processors), 1)
-	assert.Equal(t, loaded.Processors[0].Name, "demo")
+	loadedGF, err := config.LoadGatewayFile(loadedCfg)
+	assert.NilError(t, err)
+	assert.Equal(t, len(loadedGF.GlobalProcessors), 1)
+	assert.Equal(t, loadedGF.GlobalProcessors[0].Name, "demo")
 }
 
 func TestPrintNextSteps(t *testing.T) {

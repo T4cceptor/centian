@@ -18,19 +18,23 @@ import (
 func TestPrintServerInfo(t *testing.T) {
 	tests := []struct {
 		name           string
-		config         *config.GlobalConfig
+		serverConfig   *config.ServerConfig
+		gatewayFile    *config.GatewayFile
 		wantError      bool
 		expectInOutput []string
 	}{
 		{
 			name: "valid config with single gateway and server",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Name:    "Test Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
 					Port:    "8080",
 					Timeout: 30,
 				},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{
@@ -55,13 +59,16 @@ func TestPrintServerInfo(t *testing.T) {
 		},
 		{
 			name: "config with multiple gateways and servers",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Name:    "Multi-Gateway Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
 					Port:    "9000",
 					Timeout: 60,
 				},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{
@@ -90,12 +97,15 @@ func TestPrintServerInfo(t *testing.T) {
 		},
 		{
 			name: "config without name uses default",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
 					Port:    "8080",
 					Timeout: 30,
 				},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{
@@ -111,13 +121,16 @@ func TestPrintServerInfo(t *testing.T) {
 		},
 		{
 			name: "no servers configured error",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Name:    "Empty Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
 					Port:    "8080",
 					Timeout: 30,
 				},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{},
@@ -129,10 +142,13 @@ func TestPrintServerInfo(t *testing.T) {
 		},
 		{
 			name: "empty gateways map error",
-			config: &config.GlobalConfig{
-				Name:     "No Gateways",
+			serverConfig: &config.ServerConfig{
+				Name:    "No Gateways",
+				Version: "1.0.0",
+				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+			},
+			gatewayFile: &config.GatewayFile{
 				Version:  "1.0.0",
-				Proxy:    &config.ProxySettings{Port: "8080", Timeout: 30},
 				Gateways: map[string]*config.GatewayConfig{},
 			},
 			wantError:      true,
@@ -147,7 +163,7 @@ func TestPrintServerInfo(t *testing.T) {
 			assertServerLogger(t, &logOutput)
 
 			// When: printing server info.
-			err := printServerInfo(tt.config)
+			err := printServerInfo(tt.serverConfig, tt.gatewayFile)
 
 			// Then: verify error expectation.
 			if tt.wantError {
@@ -175,33 +191,51 @@ func TestPrintServerInfo(t *testing.T) {
 func TestHandleServerStartCommandValidation(t *testing.T) {
 	tests := []struct {
 		name        string
-		config      *config.GlobalConfig
+		serverJSON  map[string]interface{}
+		gatewayJSON map[string]interface{}
 		expectedErr string
 	}{
 		{
-			name:        "missing proxy settings",
-			config:      &config.GlobalConfig{Version: "1.0.0", Gateways: map[string]*config.GatewayConfig{"g1": {MCPServers: map[string]*config.MCPServerConfig{"s1": {URL: "http://example.com"}}}}},
+			name: "missing proxy settings",
+			serverJSON: map[string]interface{}{
+				"version": "1.0.0",
+			},
 			expectedErr: "proxy settings are required",
 		},
 		{
-			name:        "no gateways configured",
-			config:      &config.GlobalConfig{Version: "1.0.0", Proxy: &config.ProxySettings{Port: "8080"}, Gateways: map[string]*config.GatewayConfig{}},
-			expectedErr: "no gateways configured",
-		},
-		{
-			name:        "nil gateways",
-			config:      &config.GlobalConfig{Version: "1.0.0", Proxy: &config.ProxySettings{Port: "8080"}, Gateways: nil},
+			name: "no gateways configured",
+			serverJSON: map[string]interface{}{
+				"version": "1.0.0",
+				"auth":    false,
+				"proxy":   map[string]interface{}{"port": "8080"},
+			},
+			gatewayJSON: map[string]interface{}{
+				"version":  "1.0.0",
+				"gateways": map[string]interface{}{},
+			},
 			expectedErr: "no gateways configured",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a test config file.
+			// Given: a HOME pointing to a temp dir.
 			tempDir := t.TempDir()
+			t.Setenv("HOME", tempDir)
+
+			// Given: a test server config file.
 			configPath := filepath.Join(tempDir, "test_config.json")
-			data, _ := json.MarshalIndent(tt.config, "", "  ")
-			os.WriteFile(configPath, data, 0o644)
+			serverData, _ := json.MarshalIndent(tt.serverJSON, "", "  ")
+			os.WriteFile(configPath, serverData, 0o644)
+
+			// Given: a gateway file if provided.
+			if tt.gatewayJSON != nil {
+				centianDir := filepath.Join(tempDir, ".centian")
+				os.MkdirAll(centianDir, 0o755)
+				gwPath := filepath.Join(centianDir, "gateways.json")
+				gwData, _ := json.MarshalIndent(tt.gatewayJSON, "", "  ")
+				os.WriteFile(gwPath, gwData, 0o644)
+			}
 
 			// Given: a CLI command with config-path flag.
 			cmd := &urfavecli.Command{
@@ -296,10 +330,7 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 	// Given: a test environment with default config.
 	tempDir := t.TempDir()
-	originalHome := os.Getenv("HOME")
-	testHome := filepath.Join(tempDir, "testhome")
-	os.Setenv("HOME", testHome)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", filepath.Join(tempDir, "testhome"))
 
 	// Create valid config at default location.
 	err := config.EnsureConfigDir()
@@ -307,22 +338,12 @@ func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 		t.Fatalf("Failed to create config dir: %v", err)
 	}
 
-	testConfig := &config.GlobalConfig{
+	testConfig := &config.ServerConfig{
 		Name:    "Default Path Test",
 		Version: "1.0.0",
 		Proxy: &config.ProxySettings{
 			Port:    "8080",
 			Timeout: 30,
-		},
-		Gateways: map[string]*config.GatewayConfig{
-			"test-gateway": {
-				MCPServers: map[string]*config.MCPServerConfig{
-					"test-server": {
-						Name: "test-server",
-						URL:  "https://api.example.com",
-					},
-				},
-			},
 		},
 	}
 
@@ -332,7 +353,7 @@ func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 	}
 
 	// When: verifying config loads from default path.
-	// Note: We can't easily test the full server startup in a unit test.
+	// Note: We can't easily test the full server startup in a unit test
 	// without complex mocking. The integration test covers the full flow.
 	// Here we just test that config loading from default path works.
 
@@ -388,16 +409,20 @@ func TestStartCommandStructure(t *testing.T) {
 // TestPrintServerInfoEdgeCases tests edge cases in server info printing.
 func TestPrintServerInfoEdgeCases(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      *config.GlobalConfig
-		expectPanic bool
+		name         string
+		serverConfig *config.ServerConfig
+		gatewayFile  *config.GatewayFile
+		expectPanic  bool
 	}{
 		{
 			name: "nil gateway in map",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Name:    "Test",
 				Version: "1.0.0",
 				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": nil,
 				},
@@ -406,10 +431,13 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 		},
 		{
 			name: "server with empty URL",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Name:    "Test",
 				Version: "1.0.0",
 				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{
@@ -422,10 +450,13 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 		},
 		{
 			name: "gateway with special characters in name",
-			config: &config.GlobalConfig{
+			serverConfig: &config.ServerConfig{
 				Name:    "Test",
 				Version: "1.0.0",
 				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+			},
+			gatewayFile: &config.GatewayFile{
+				Version: "1.0.0",
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway-with-dashes": {
 						MCPServers: map[string]*config.MCPServerConfig{
@@ -458,7 +489,7 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 			assertServerLogger(t, &logOutput)
 
 			// When: printing server info.
-			_ = printServerInfo(tt.config)
+			_ = printServerInfo(tt.serverConfig, tt.gatewayFile)
 
 			// Then: if we reach here without panic, test passes.
 			if tt.expectPanic {

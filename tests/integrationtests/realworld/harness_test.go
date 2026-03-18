@@ -24,6 +24,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type inlineGatewayProvider struct{ file *config.GatewayFile }
+
+func (p *inlineGatewayProvider) LoadGatewayFile() (*config.GatewayFile, error) { return p.file, nil }
+func (p *inlineGatewayProvider) SaveGatewayFile(_ *config.GatewayFile) error   { return nil }
+
 const (
 	runRealworldIntegrationEnv = "CENTIAN_RUN_REALWORLD_INTEGRATION"
 	defaultSessionTimeout      = 30 * time.Second
@@ -228,7 +233,7 @@ func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downs
 	authDisabled := false
 	port := allocateFreePort(t)
 
-	globalConfig := &config.GlobalConfig{
+	serverConfig := &config.GlobalConfig{
 		Name:        manifest.Name + " Integration Proxy",
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
@@ -237,6 +242,9 @@ func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downs
 			Port:    port,
 			Timeout: int(defaultSessionTimeout.Seconds()),
 		},
+	}
+	gf := &config.GatewayFile{
+		Version: "1.0.0",
 		Gateways: map[string]*config.GatewayConfig{
 			manifest.GatewayID: {
 				MCPServers: map[string]*config.MCPServerConfig{
@@ -250,7 +258,7 @@ func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downs
 		},
 	}
 
-	server, err := proxy.NewCentianServer(globalConfig)
+	server, err := proxy.NewCentianServer(serverConfig, &inlineGatewayProvider{file: gf})
 	if err != nil {
 		t.Fatalf("failed to create centian proxy: %v", err)
 	}

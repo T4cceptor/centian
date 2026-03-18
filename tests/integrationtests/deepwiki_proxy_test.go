@@ -15,6 +15,12 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+type mockProvider struct{ file *config.GatewayFile }
+
+func (m *mockProvider) LoadGatewayFile() (*config.GatewayFile, error) { return m.file, nil }
+func (m *mockProvider) SaveGatewayFile(f *config.GatewayFile) error   { return nil }
+func newMockProvider(gf *config.GatewayFile) *mockProvider            { return &mockProvider{file: gf} }
+
 // TestDeepWikiHTTPProxyWithSDKClient verifies proxy behavior against DeepWiki's
 // public MCP endpoint. This is an external integration test and is opt-in
 // because it depends on network reachability and third-party availability.
@@ -37,6 +43,9 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 			Port:    "9202",
 			Timeout: 30,
 		},
+	}
+	gf := &config.GatewayFile{
+		Version: "1.0.0",
 		Gateways: map[string]*config.GatewayConfig{
 			"public-gateway": {
 				MCPServers: map[string]*config.MCPServerConfig{
@@ -48,7 +57,7 @@ func TestDeepWikiHTTPProxyWithSDKClient(t *testing.T) {
 		},
 	}
 
-	server, err := proxy.NewCentianServer(globalConfig)
+	server, err := proxy.NewCentianServer(globalConfig, newMockProvider(gf))
 	if err != nil {
 		t.Fatal("Unable to create proxy server:", err)
 	}

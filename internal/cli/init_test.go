@@ -95,10 +95,10 @@ func TestPromptConfigPath(t *testing.T) {
 }
 
 func TestImportFromPath(t *testing.T) {
-	cfg := config.DefaultConfig()
+	gatewayFile := config.DefaultGatewayFile()
 
 	t.Run("missing file", func(t *testing.T) {
-		_, err := importFromPath(cfg, "/does/not/exist.json")
+		_, err := importFromPath(gatewayFile, "/does/not/exist.json")
 		assert.Assert(t, err != nil)
 	})
 
@@ -106,7 +106,7 @@ func TestImportFromPath(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "invalid.json")
 		assert.NilError(t, os.WriteFile(path, []byte(`{invalid}`), 0o644))
 
-		_, err := importFromPath(cfg, path)
+		_, err := importFromPath(gatewayFile, path)
 		assert.Assert(t, err != nil)
 	})
 
@@ -114,7 +114,7 @@ func TestImportFromPath(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "empty.json")
 		assert.NilError(t, os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o644))
 
-		imported, err := importFromPath(cfg, path)
+		imported, err := importFromPath(gatewayFile, path)
 		assert.NilError(t, err)
 		assert.Equal(t, imported, 0)
 	})
@@ -122,41 +122,41 @@ func TestImportFromPath(t *testing.T) {
 
 func TestHandleInteractiveInit(t *testing.T) {
 	t.Run("empty option", func(t *testing.T) {
-		cfg := config.DefaultConfig()
+		gatewayFile := config.DefaultGatewayFile()
 		ui := newInitUITestInput("2\n")
 
-		imported, quickstart, err := handleInteractiveInit(cfg, ui)
+		imported, quickstart, err := handleInteractiveInit(gatewayFile, ui)
 		assert.NilError(t, err)
 		assert.Equal(t, imported, 0)
 		assert.Assert(t, !quickstart)
 	})
 
 	t.Run("quickstart without npx returns error", func(t *testing.T) {
-		cfg := config.DefaultConfig()
+		gatewayFile := config.DefaultGatewayFile()
 		ui := newInitUITestInput("1\n")
 		t.Setenv("PATH", "")
 
-		_, _, err := handleInteractiveInit(cfg, ui)
+		_, _, err := handleInteractiveInit(gatewayFile, ui)
 		assert.Assert(t, err != nil)
 	})
 
 	t.Run("from path with missing file falls back to empty", func(t *testing.T) {
-		cfg := config.DefaultConfig()
+		gatewayFile := config.DefaultGatewayFile()
 		ui := newInitUITestInput("3\n/does/not/exist.json\n")
 
-		imported, quickstart, err := handleInteractiveInit(cfg, ui)
+		imported, quickstart, err := handleInteractiveInit(gatewayFile, ui)
 		assert.NilError(t, err)
 		assert.Equal(t, imported, 0)
 		assert.Assert(t, !quickstart)
 	})
 
 	t.Run("from path with valid empty config", func(t *testing.T) {
-		cfg := config.DefaultConfig()
+		gatewayFile := config.DefaultGatewayFile()
 		path := filepath.Join(t.TempDir(), "empty.json")
 		assert.NilError(t, os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o644))
 		ui := newInitUITestInput(fmt.Sprintf("3\n%s\n", path))
 
-		imported, quickstart, err := handleInteractiveInit(cfg, ui)
+		imported, quickstart, err := handleInteractiveInit(gatewayFile, ui)
 		assert.NilError(t, err)
 		assert.Equal(t, imported, 0)
 		assert.Assert(t, !quickstart)
@@ -164,10 +164,10 @@ func TestHandleInteractiveInit(t *testing.T) {
 }
 
 func TestApplyQuickstartConfig(t *testing.T) {
-	cfg := config.DefaultConfig()
-	applyQuickstartConfig(cfg)
+	gatewayFile := config.DefaultGatewayFile()
+	applyQuickstartConfig(gatewayFile)
 
-	defaultGateway, ok := cfg.Gateways["default"]
+	defaultGateway, ok := gatewayFile.Gateways["default"]
 	assert.Assert(t, ok)
 	assert.Assert(t, defaultGateway != nil)
 

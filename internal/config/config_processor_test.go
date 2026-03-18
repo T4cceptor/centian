@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestProcessorValidation tests processor configuration validation.
+// TestProcessorValidation tests processor configuration validation via ValidateGatewayFile.
 func TestProcessorValidation(t *testing.T) {
 	defaultGateways := map[string]*GatewayConfig{
 		"default": {
@@ -16,17 +16,17 @@ func TestProcessorValidation(t *testing.T) {
 		},
 	}
 	tests := []struct {
-		name      string
-		config    *GlobalConfig
-		wantError bool
-		errorMsg  string
+		name        string
+		gatewayFile *GatewayFile
+		wantError   bool
+		errorMsg    string
 	}{
 		{
 			name: "valid cli processor",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "test-processor",
 						Type:    "cli",
@@ -43,10 +43,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "missing processor name",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Type:    "cli",
 						Enabled: true,
@@ -61,10 +61,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "missing processor type",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "test-processor",
 						Enabled: true,
@@ -79,10 +79,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "invalid processor type",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "test-processor",
 						Type:    "http", // Not supported in v1
@@ -98,10 +98,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "valid webhook processor",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "webhook-processor",
 						Type:    "webhook",
@@ -120,10 +120,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "duplicate processor names",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "duplicate",
 						Type:    "cli",
@@ -147,10 +147,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "missing config field",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "no-config",
 						Type:    "cli",
@@ -164,10 +164,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "invalid processor part",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-part",
 						Type:    "cli",
@@ -184,10 +184,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "cli processor missing command",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "no-command",
 						Type:    "cli",
@@ -203,10 +203,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "cli processor command not string",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-command-type",
 						Type:    "cli",
@@ -222,10 +222,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "cli processor args not array",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-args-type",
 						Type:    "cli",
@@ -242,10 +242,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "webhook processor missing url",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "no-url",
 						Type:    "webhook",
@@ -259,10 +259,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "webhook processor url not string",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-url",
 						Type:    "webhook",
@@ -278,10 +278,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "webhook processor invalid headers shape",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-headers",
 						Type:    "webhook",
@@ -298,10 +298,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "webhook processor rejects unsupported method field",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-method",
 						Type:    "webhook",
@@ -318,10 +318,10 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "webhook processor rejects retry config",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "bad-retry",
 						Type:    "webhook",
@@ -340,28 +340,28 @@ func TestProcessorValidation(t *testing.T) {
 		},
 		{
 			name: "empty processor list is valid",
-			config: &GlobalConfig{
-				Version:    "1.0.0",
-				Gateways:   defaultGateways,
-				Processors: []*ProcessorConfig{},
+			gatewayFile: &GatewayFile{
+				Version:          "1.0.0",
+				Gateways:         defaultGateways,
+				GlobalProcessors: []*ProcessorConfig{},
 			},
 			wantError: false,
 		},
 		{
 			name: "nil processor list is valid",
-			config: &GlobalConfig{
-				Version:    "1.0.0",
-				Gateways:   defaultGateways,
-				Processors: nil,
+			gatewayFile: &GatewayFile{
+				Version:          "1.0.0",
+				Gateways:         defaultGateways,
+				GlobalProcessors: nil,
 			},
 			wantError: false,
 		},
 		{
 			name: "default timeout applied",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Version:  "1.0.0",
 				Gateways: defaultGateways,
-				Processors: []*ProcessorConfig{
+				GlobalProcessors: []*ProcessorConfig{
 					{
 						Name:    "default-timeout",
 						Type:    "cli",
@@ -379,12 +379,8 @@ func TestProcessorValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set proxy if not set (required for validation).
-			if tt.config.Proxy == nil {
-				tt.config.Proxy = &ProxySettings{}
-			}
-
-			err := ValidateConfig(tt.config, true)
+			// Use non-strict validation to only validate processors (not require active gateways).
+			err := ValidateGatewayFile(tt.gatewayFile, false)
 
 			if tt.wantError {
 				if err == nil {
@@ -402,8 +398,8 @@ func TestProcessorValidation(t *testing.T) {
 
 				// Verify default timeout was applied.
 				if tt.name == "default timeout applied" {
-					if tt.config.Processors[0].Timeout != 15 {
-						t.Errorf("Expected default timeout 15, got %d", tt.config.Processors[0].Timeout)
+					if tt.gatewayFile.GlobalProcessors[0].Timeout != 15 {
+						t.Errorf("Expected default timeout 15, got %d", tt.gatewayFile.GlobalProcessors[0].Timeout)
 					}
 				}
 			}
@@ -420,9 +416,14 @@ func TestProcessorConfigPersistence(t *testing.T) {
 	os.Setenv("HOME", testHome)
 	defer os.Setenv("HOME", originalHome)
 
-	// Create config with processors.
-	config := DefaultConfig()
-	config.Processors = []*ProcessorConfig{
+	// Create server config and gateway file with processors.
+	cfg := DefaultConfig()
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig failed: %v", err)
+	}
+
+	gf := DefaultGatewayFile()
+	gf.GlobalProcessors = []*ProcessorConfig{
 		{
 			Name:    "security-check",
 			Type:    "cli",
@@ -457,25 +458,28 @@ func TestProcessorConfigPersistence(t *testing.T) {
 		},
 	}
 
-	// Save config.
-	err := SaveConfig(config)
-	if err != nil {
-		t.Fatalf("SaveConfig failed: %v", err)
+	// Save gateway file.
+	if err := SaveGatewayFile(cfg, gf); err != nil {
+		t.Fatalf("SaveGatewayFile failed: %v", err)
 	}
 
-	// Load config.
-	loadedConfig, err := LoadConfig()
+	// Load gateway file back.
+	loadedCfg, err := LoadConfig()
 	if err != nil {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
+	loadedGF, err := LoadGatewayFile(loadedCfg)
+	if err != nil {
+		t.Fatalf("LoadGatewayFile failed: %v", err)
+	}
 
 	// Verify processors were persisted.
-	if len(loadedConfig.Processors) != 3 {
-		t.Fatalf("Expected 3 processors, got %d", len(loadedConfig.Processors))
+	if len(loadedGF.GlobalProcessors) != 3 {
+		t.Fatalf("Expected 3 processors, got %d", len(loadedGF.GlobalProcessors))
 	}
 
 	// Verify first processor.
-	p1 := loadedConfig.Processors[0]
+	p1 := loadedGF.GlobalProcessors[0]
 	if p1.Name != "security-check" {
 		t.Errorf("Processor 1 name: expected 'security-check', got '%s'", p1.Name)
 	}
@@ -496,7 +500,7 @@ func TestProcessorConfigPersistence(t *testing.T) {
 	}
 
 	// Verify second processor.
-	p2 := loadedConfig.Processors[1]
+	p2 := loadedGF.GlobalProcessors[1]
 	if p2.Name != "logger" {
 		t.Errorf("Processor 2 name: expected 'logger', got '%s'", p2.Name)
 	}
@@ -504,7 +508,7 @@ func TestProcessorConfigPersistence(t *testing.T) {
 		t.Error("Processor 2 should be disabled")
 	}
 
-	p3 := loadedConfig.Processors[2]
+	p3 := loadedGF.GlobalProcessors[2]
 	if p3.Name != "webhook-audit" {
 		t.Errorf("Processor 3 name: expected 'webhook-audit', got '%s'", p3.Name)
 	}

@@ -9,14 +9,14 @@ import (
 func TestSearchServerByName(t *testing.T) {
 	tests := []struct {
 		name            string
-		config          *GlobalConfig
+		gatewayFile     *GatewayFile
 		searchName      string
 		expectedCount   int
 		expectedGateway string
 	}{
 		{
 			name: "single server found in one gateway",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{
@@ -31,7 +31,7 @@ func TestSearchServerByName(t *testing.T) {
 		},
 		{
 			name: "server found in multiple gateways",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{
@@ -50,7 +50,7 @@ func TestSearchServerByName(t *testing.T) {
 		},
 		{
 			name: "server not found",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{
@@ -64,7 +64,7 @@ func TestSearchServerByName(t *testing.T) {
 		},
 		{
 			name: "empty gateways",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Gateways: map[string]*GatewayConfig{},
 			},
 			searchName:    "server1",
@@ -72,7 +72,7 @@ func TestSearchServerByName(t *testing.T) {
 		},
 		{
 			name: "nil gateways",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Gateways: nil,
 			},
 			searchName:    "server1",
@@ -80,7 +80,7 @@ func TestSearchServerByName(t *testing.T) {
 		},
 		{
 			name: "gateway with no servers",
-			config: &GlobalConfig{
+			gatewayFile: &GatewayFile{
 				Gateways: map[string]*GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*MCPServerConfig{},
@@ -94,10 +94,10 @@ func TestSearchServerByName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Given: a config with specific gateway and server setup.
+			// Given: a gateway file with specific gateway and server setup.
 
 			// When: searching for a server by name.
-			results := tt.config.SearchServerByName(tt.searchName)
+			results := tt.gatewayFile.SearchServerByName(tt.searchName)
 
 			// Then: verify the expected number of results.
 			if len(results) != tt.expectedCount {

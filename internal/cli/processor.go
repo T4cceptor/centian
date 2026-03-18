@@ -81,6 +81,10 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	gatewayFile, err := config.LoadGatewayFile(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
 
 	path := cmd.String("path")
 	processorType := cmd.String("type")
@@ -89,7 +93,7 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 	name := inferProcessorAddName(cmd.String("name"), processorType, path, urlValue)
 
 	// Handle duplicate name.
-	if cfg.HasProcessor(name) {
+	if gatewayFile.HasProcessor(name) {
 		action, resolvedName, promptErr := promptProcessorNameConflict(name, os.Stdin)
 		if promptErr != nil {
 			return promptErr
@@ -111,14 +115,14 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 	}
 
 	// Add or replace.
-	if cfg.HasProcessor(name) {
-		cfg.ReplaceProcessor(name, processorConfig)
+	if gatewayFile.HasProcessor(name) {
+		gatewayFile.ReplaceProcessor(name, processorConfig)
 	} else {
-		cfg.AddProcessor(processorConfig)
+		gatewayFile.AddProcessor(processorConfig)
 	}
 
-	if err := config.SaveConfig(cfg); err != nil {
-		return fmt.Errorf("failed to save configuration: %w", err)
+	if err := config.SaveGatewayFile(cfg, gatewayFile); err != nil {
+		return fmt.Errorf("failed to save gateway file: %w", err)
 	}
 
 	fmt.Printf("✅ Added processor '%s' (%s)\n", name, summary)

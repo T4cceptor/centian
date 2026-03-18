@@ -99,12 +99,10 @@ func (ui *InitUI) promptConfigPath() (string, error) {
 	return path, nil
 }
 
-// importFromPath imports servers from a specific config file path.
-// Note: cfg parameter is currently unused as discovery.ImportServers doesn't
-// add servers to cfg yet (see TODO in runAutoDiscovery).
+// importFromPath imports servers from a specific config file path into the gateway file.
 //
 //nolint:gosec // G304: path is user-provided intentionally for config import
-func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
+func importFromPath(gatewayFile *config.GatewayFile, path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read file: %w", err)
@@ -123,7 +121,7 @@ func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
 	fmt.Printf("📦 Found %d server(s) in %s\n", len(servers), path)
 
 	// Import servers using existing discovery import logic.
-	imported := discovery.ImportServers(servers, cfg)
+	imported := discovery.ImportServers(servers, gatewayFile)
 	discovery.ShowImportSummary(imported)
 
 	return imported, nil
@@ -155,7 +153,7 @@ var InitCommand = &cli.Command{
 }
 
 // handleInteractiveInit prompts the user for initialization method and performs import.
-func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) (int, bool, error) {
+func handleInteractiveInit(gatewayFile *config.GatewayFile, ui *InitUI) (int, bool, error) {
 	option, err := ui.promptInitOption(true)
 	if err != nil {
 		fmt.Printf("⚠️  %v. Starting with empty config.\n", err)
@@ -169,7 +167,7 @@ func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) (int, bool, err
 		if _, err := exec.LookPath("npx"); err != nil {
 			return 0, false, fmt.Errorf("quickstart requires npx to be installed and available on PATH")
 		}
-		applyQuickstartConfig(cfg)
+		applyQuickstartConfig(gatewayFile)
 		return 1, true, nil
 	case InitOptionFromPath:
 		path, pathErr := ui.promptConfigPath()
@@ -177,7 +175,7 @@ func handleInteractiveInit(cfg *config.GlobalConfig, ui *InitUI) (int, bool, err
 			fmt.Printf("⚠️  %v. \n\nStarting with empty config.\n", pathErr)
 			return 0, false, nil
 		}
-		imported, importErr := importFromPath(cfg, path)
+		imported, importErr := importFromPath(gatewayFile, path)
 		if importErr != nil {
 			fmt.Printf("⚠️  %v. \n\nStarting with empty config.\n", importErr)
 			return 0, false, nil
@@ -206,8 +204,9 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	// Create default config.
+	// Create default config and gateway file.
 	cfg := config.DefaultConfig()
+	gatewayFile := config.DefaultGatewayFile()
 
 	var imported int
 	quickstart := cmd.Bool("quickstart")
@@ -218,12 +217,12 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		if _, err := exec.LookPath("npx"); err != nil {
 			return fmt.Errorf("quickstart requires npx to be installed and available on PATH")
 		}
-		applyQuickstartConfig(cfg)
+		applyQuickstartConfig(gatewayFile)
 		imported = 1
 	} else if fromPath := cmd.String("from-path"); fromPath != "" {
 		// Flag: import from specific path.
 		var importErr error
-		imported, importErr = importFromPath(cfg, fromPath)
+		imported, importErr = importFromPath(gatewayFile, fromPath)
 		if importErr != nil {
 			return fmt.Errorf("failed to import from path: %w", importErr)
 		}
@@ -231,7 +230,7 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		// Interactive mode: prompt user.
 		var usedQuickstart bool
 		var interactiveErr error
-		imported, usedQuickstart, interactiveErr = handleInteractiveInit(cfg, ui)
+		imported, usedQuickstart, interactiveErr = handleInteractiveInit(gatewayFile, ui)
 		if interactiveErr != nil {
 			return interactiveErr
 		}
@@ -240,9 +239,13 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	// Save config (either default or with imported servers).
+	// Save server config.
 	if err := config.SaveConfig(cfg); err != nil {
 		return fmt.Errorf("failed to create configuration: %w", err)
+	}
+	// Save gateway file.
+	if err := config.SaveGatewayFile(cfg, gatewayFile); err != nil {
+		return fmt.Errorf("failed to create gateway file: %w", err)
 	}
 
 	if quickstart {
@@ -292,23 +295,24 @@ func printInitSuccess(configPath string, imported int) {
 	common.PressEnterToContinue("")
 }
 
-func applyQuickstartConfig(cfg *config.GlobalConfig) {
+func applyQuickstartConfig(gatewayFile *config.GatewayFile) {
 	enabled := true
-	cfg.Gateways = map[string]*config.GatewayConfig{
-		"default": {
-			AllowDynamic:         false,
-			AllowGatewayEndpoint: false,
-			MCPServers: map[string]*config.MCPServerConfig{
-				"sequential-thinking": {
-					Name:        "sequential-thinking",
-					Command:     "npx",
-					Args:        []string{"-y", "@modelcontextprotocol/server-sequential-thinking"},
-					Enabled:     &enabled,
-					Description: "Sequential thinking MCP server (via npx)",
-				},
+	if gatewayFile.Gateways == nil {
+		gatewayFile.Gateways = make(map[string]*config.GatewayConfig)
+	}
+	gatewayFile.Gateways["default"] = &config.GatewayConfig{
+		AllowDynamic:         false,
+		AllowGatewayEndpoint: false,
+		MCPServers: map[string]*config.MCPServerConfig{
+			"sequential-thinking": {
+				Name:        "sequential-thinking",
+				Command:     "npx",
+				Args:        []string{"-y", "@modelcontextprotocol/server-sequential-thinking"},
+				Enabled:     &enabled,
+				Description: "Sequential thinking MCP server (via npx)",
 			},
-			Processors: []*config.ProcessorConfig{},
 		},
+		Processors: []*config.ProcessorConfig{},
 	}
 }
 

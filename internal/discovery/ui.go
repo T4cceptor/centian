@@ -212,8 +212,8 @@ func (ui *UserInterface) selectAndReplace(servers []Server) ([]Server, error) {
 	return allSelectedServers, nil
 }
 
-// ImportServers converts discovered servers to MCPServer configs and adds them to the global config.
-func ImportServers(servers []Server, cfg *config.GlobalConfig) int {
+// ImportServers converts discovered servers to MCPServer configs and adds them to the gateway file.
+func ImportServers(servers []Server, gatewayFile *config.GatewayFile) int {
 	common.LogInfo("Starting import of %d discovered servers", len(servers))
 
 	imported := 0
@@ -242,14 +242,14 @@ func ImportServers(servers []Server, cfg *config.GlobalConfig) int {
 			Description: discovered.Description,
 			Source:      discovered.SourcePath,
 		}
-		if len(cfg.Gateways) == 0 {
-			cfg.Gateways = map[string]*config.GatewayConfig{
+		if len(gatewayFile.Gateways) == 0 {
+			gatewayFile.Gateways = map[string]*config.GatewayConfig{
 				"default": {MCPServers: make(map[string]*config.MCPServerConfig)},
 			}
 		}
 
-		cfg.Gateways["default"].AddServer(discovered.Name, mcpServer)
-		if valErr := config.ValidateConfig(cfg, true); valErr != nil {
+		gatewayFile.Gateways["default"].AddServer(discovered.Name, mcpServer)
+		if valErr := config.ValidateGatewayFile(gatewayFile, true); valErr != nil {
 			fmt.Printf("⚠️ Error for: %s (from %s) - %s\n", discovered.Name, discovered.SourcePath, valErr.Error())
 			imported = 0
 			continue
@@ -265,7 +265,6 @@ func ImportServers(servers []Server, cfg *config.GlobalConfig) int {
 
 		fmt.Printf("✅ Imported: %s (from %s)\n", discovered.Name, discovered.SourcePath)
 	}
-	config.SaveConfig(cfg)
 
 	common.LogInfo("Import completed: %d servers imported successfully", imported)
 	return imported

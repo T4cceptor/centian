@@ -9,6 +9,7 @@ import (
 
 	centauth "github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/gateway"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -16,20 +17,23 @@ import (
 // This file defines the core proxy types shared across the server, endpoint,
 // session, and pooled downstream connection layers.
 
-// CentianServer owns the HTTP server, global config, auth, logging, and the
+// CentianServer owns the HTTP server, server config, auth, logging, and the
 // set of registered proxy endpoints exposed by the running Centian process.
 //
 // CentianServer is the main process for providing routes and delegating endpoint creation.
 type CentianServer struct {
-	Name       string
-	ServerID   string
-	Config     *config.GlobalConfig
-	Mux        *http.ServeMux
-	Server     *http.Server
-	Logger     *logging.Logger
-	Gateways   map[string]*CentianEndpoint
-	APIKeys    *centauth.APIKeyStore
-	AuthHeader string
+	Name             string
+	ServerID         string
+	Config           *config.ServerConfig
+	Provider         gateway.GatewayProvider
+	GlobalProcessors []*config.ProcessorConfig // loaded from GatewayFile on setup/reload
+	Mux              *http.ServeMux
+	Server           *http.Server
+	Logger           *logging.Logger
+	Gateways         map[string]*CentianEndpoint
+	APIKeys          *centauth.APIKeyStore
+	AuthHeader       string
+	reloadMu         sync.RWMutex // guards Gateways + Handler during reload
 }
 
 // UpstreamSession represents one MCP client session talking to this proxy endpoint.
@@ -123,8 +127,9 @@ type CentianEndpoint struct {
 
 	isAggregatedProxy bool
 
-	server *CentianServer
-	config *config.GatewayConfig
+	server           *CentianServer
+	config           *config.GatewayConfig
+	globalProcessors []*config.ProcessorConfig // global processors from the gateway file
 
 	eventProcessor ProcessingControllerInterface
 
@@ -134,6 +139,7 @@ type CentianEndpoint struct {
 
 	connectionFactory func(string, *config.MCPServerConfig) DownstreamConnectionInterface
 }
+
 
 // NewAggregatedEndpoint creates an endpoint that aggregates multiple downstream servers.
 func NewAggregatedEndpoint(gatewayName, endpoint string, gatewayConfig *config.GatewayConfig) *CentianEndpoint {

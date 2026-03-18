@@ -23,13 +23,7 @@ func TestLoadConfigFromPath(t *testing.T) {
 				configPath := filepath.Join(tempDir, "custom-config.json")
 
 				cfg := DefaultConfig()
-				cfg.Gateways = map[string]*GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node"},
-						},
-					},
-				}
+				cfg.Name = "custom server"
 
 				data, _ := json.MarshalIndent(cfg, "", "  ")
 				os.WriteFile(configPath, data, 0o644)
@@ -38,31 +32,20 @@ func TestLoadConfigFromPath(t *testing.T) {
 			},
 			wantError: false,
 			verify: func(t *testing.T, cfg *GlobalConfig) {
-				//nolint:staticcheck // we know cfg is non-nil
-				if len(cfg.Gateways) != 1 {
-					t.Errorf("Expected 1 gateway, got %d", len(cfg.Gateways))
+				if cfg.Name != "custom server" {
+					t.Errorf("Expected name 'custom server', got %q", cfg.Name)
 				}
 			},
 		},
 		{
-			name: "load config with multiple gateways",
+			name: "load config with proxy settings",
 			setup: func(t *testing.T) string {
 				tempDir := t.TempDir()
-				configPath := filepath.Join(tempDir, "multi-gateway.json")
+				configPath := filepath.Join(tempDir, "proxy-config.json")
 
 				cfg := DefaultConfig()
-				cfg.Gateways = map[string]*GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*MCPServerConfig{
-							"server1": {Name: "server1", Command: "node"},
-						},
-					},
-					"gateway2": {
-						MCPServers: map[string]*MCPServerConfig{
-							"server2": {Name: "server2", URL: "https://api.example.com"},
-						},
-					},
-				}
+				cfg.Proxy.Port = "9090"
+				cfg.Proxy.Timeout = 60
 
 				data, _ := json.MarshalIndent(cfg, "", "  ")
 				os.WriteFile(configPath, data, 0o644)
@@ -71,8 +54,11 @@ func TestLoadConfigFromPath(t *testing.T) {
 			},
 			wantError: false,
 			verify: func(t *testing.T, cfg *GlobalConfig) {
-				if len(cfg.Gateways) != 2 {
-					t.Errorf("Expected 2 gateways, got %d", len(cfg.Gateways))
+				if cfg.Proxy.Port != "9090" {
+					t.Errorf("Expected port '9090', got %q", cfg.Proxy.Port)
+				}
+				if cfg.Proxy.Timeout != 60 {
+					t.Errorf("Expected timeout 60, got %d", cfg.Proxy.Timeout)
 				}
 			},
 		},
@@ -179,30 +165,8 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 	// Given: a config with specific values.
 	originalConfig := DefaultConfig()
 	originalConfig.Name = "Test Server"
-	disabled := false
-	originalConfig.Gateways = map[string]*GatewayConfig{
-		"gateway1": {
-			AllowDynamic: true,
-			MCPServers: map[string]*MCPServerConfig{
-				"server1": {
-					Name:    "server1",
-					Command: "node",
-					Args:    []string{"index.js", "--port", "3000"},
-					Env: map[string]string{
-						"NODE_ENV": "production",
-					},
-				},
-				"server2": {
-					Name: "server2",
-					URL:  "https://api.example.com",
-					Headers: map[string]string{
-						"Authorization": "Bearer ${TOKEN}",
-					},
-					Enabled: &disabled,
-				},
-			},
-		},
-	}
+	originalConfig.Proxy.Port = "9191"
+	originalConfig.Proxy.Timeout = 45
 
 	// When: saving the config.
 	err := SaveConfig(originalConfig)
@@ -229,12 +193,52 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 	if loadedConfig.Version != originalConfig.Version {
 		t.Errorf("Version: expected '%s', got '%s'", originalConfig.Version, loadedConfig.Version)
 	}
-	if len(loadedConfig.Gateways) != len(originalConfig.Gateways) {
-		t.Errorf("Gateways count: expected %d, got %d", len(originalConfig.Gateways), len(loadedConfig.Gateways))
+	if loadedConfig.Proxy.Port != "9191" {
+		t.Errorf("Port: expected '9191', got '%s'", loadedConfig.Proxy.Port)
+	}
+	if loadedConfig.Proxy.Timeout != 45 {
+		t.Errorf("Timeout: expected 45, got %d", loadedConfig.Proxy.Timeout)
+	}
+
+	// Also verify gateway file round-trip.
+	originalGF := DefaultGatewayFile()
+	disabled := false
+	originalGF.Gateways = map[string]*GatewayConfig{
+		"gateway1": {
+			AllowDynamic: true,
+			MCPServers: map[string]*MCPServerConfig{
+				"server1": {
+					Name:    "server1",
+					Command: "node",
+					Args:    []string{"index.js", "--port", "3000"},
+					Env: map[string]string{
+						"NODE_ENV": "production",
+					},
+				},
+				"server2": {
+					Name: "server2",
+					URL:  "https://api.example.com",
+					Headers: map[string]string{
+						"Authorization": "Bearer ${TOKEN}",
+					},
+					Enabled: &disabled,
+				},
+			},
+		},
+	}
+	if err := SaveGatewayFile(originalConfig, originalGF); err != nil {
+		t.Fatalf("SaveGatewayFile failed: %v", err)
+	}
+	loadedGF, err := LoadGatewayFile(loadedConfig)
+	if err != nil {
+		t.Fatalf("LoadGatewayFile failed: %v", err)
+	}
+	if len(loadedGF.Gateways) != 1 {
+		t.Errorf("Gateways count: expected 1, got %d", len(loadedGF.Gateways))
 	}
 
 	// Verify gateway details.
-	if gw, ok := loadedConfig.Gateways["gateway1"]; ok {
+	if gw, ok := loadedGF.Gateways["gateway1"]; ok {
 		if !gw.AllowDynamic {
 			t.Error("Gateway AllowDynamic should be true")
 		}
@@ -254,7 +258,7 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 				t.Error("Server1 should be enabled")
 			}
 		} else {
-			t.Error("Server1 not found in loaded config")
+			t.Error("Server1 not found in loaded gateway file")
 		}
 
 		// Verify server2.
@@ -266,10 +270,10 @@ func TestSaveAndLoadConfigRoundtrip(t *testing.T) {
 				t.Error("Server2 should be disabled")
 			}
 		} else {
-			t.Error("Server2 not found in loaded config")
+			t.Error("Server2 not found in loaded gateway file")
 		}
 	} else {
-		t.Error("Gateway1 not found in loaded config")
+		t.Error("Gateway1 not found in loaded gateway file")
 	}
 }
 
@@ -458,19 +462,13 @@ func TestSaveConfigErrorHandling(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name: "save config with processors",
+			name: "save config with gateway provider settings",
 			config: &GlobalConfig{
 				Version: "1.0.0",
 				Proxy:   &ProxySettings{},
-				Processors: []*ProcessorConfig{
-					{
-						Name:    "test",
-						Type:    "cli",
-						Enabled: true,
-						Config: map[string]interface{}{
-							"command": "python",
-						},
-					},
+				GatewayProvider: &GatewayProviderConfig{
+					Type: "file",
+					Path: "/custom/path/gateways.json",
 				},
 			},
 			setup:     func(_ *testing.T) {},

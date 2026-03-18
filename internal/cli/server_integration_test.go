@@ -19,37 +19,45 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// inlineCLIGatewayProvider is a simple in-memory GatewayProvider for integration tests.
+type inlineCLIGatewayProvider struct {
+	file *config.GatewayFile
+}
+
+func (p *inlineCLIGatewayProvider) LoadGatewayFile() (*config.GatewayFile, error) {
+	return p.file, nil
+}
+
+func (p *inlineCLIGatewayProvider) SaveGatewayFile(f *config.GatewayFile) error {
+	p.file = f
+	return nil
+}
+
 // TestServerStartIntegration tests the complete server startup flow with a real config file.
 func TestServerStartIntegration(t *testing.T) {
 	// Given: a mock downstream MCP server.
 	mockMCPServer := createMockMCPServer()
 	defer mockMCPServer.Close()
 
-	// Given: a temporary config file pointing to the mock server.
-	configPath := createTestConfigFile(t, mockMCPServer.URL)
-	defer os.Remove(configPath)
-
-	// Given: a test config loaded from the file.
-	globalConfig, err := config.LoadConfigFromPath(configPath)
-	if err != nil {
-		t.Fatalf("Failed to load test config: %v", err)
-	}
+	// Given: a temporary server config file pointing to the mock server.
+	serverConfig, gf := createTestServerAndGatewayConfig(t, mockMCPServer.URL)
 
 	// Validate config structure.
-	if globalConfig.Name != "Test Integration Server" {
-		t.Errorf("Expected server name 'Test Integration Server', got '%s'", globalConfig.Name)
+	if serverConfig.Name != "Test Integration Server" {
+		t.Errorf("Expected server name 'Test Integration Server', got '%s'", serverConfig.Name)
 	}
 
-	if globalConfig.Proxy.Port != "9001" {
-		t.Errorf("Expected port '9001', got '%s'", globalConfig.Proxy.Port)
+	if serverConfig.Proxy.Port != "9001" {
+		t.Errorf("Expected port '9001', got '%s'", serverConfig.Proxy.Port)
 	}
 
-	if len(globalConfig.Gateways) != 1 {
-		t.Fatalf("Expected 1 gateway, got %d", len(globalConfig.Gateways))
+	if len(gf.Gateways) != 1 {
+		t.Fatalf("Expected 1 gateway, got %d", len(gf.Gateways))
 	}
 
 	// When: starting the Centian proxy server.
-	server, err := proxy.NewCentianServer(globalConfig)
+	provider := &inlineCLIGatewayProvider{file: gf}
+	server, err := proxy.NewCentianServer(serverConfig, provider)
 	if err != nil {
 		t.Fatal("Unable to create proxy server:", err)
 	}
@@ -80,7 +88,7 @@ func TestServerStartIntegration(t *testing.T) {
 		Version: "1.0.0",
 	}, nil)
 
-	proxyURL := fmt.Sprintf("http://localhost:%s/mcp/test-gateway/mock-server", globalConfig.Proxy.Port)
+	proxyURL := fmt.Sprintf("http://localhost:%s/mcp/test-gateway/mock-server", serverConfig.Proxy.Port)
 	log.Printf("Connecting to proxy at %s", proxyURL)
 
 	session, err := client.Connect(
@@ -259,12 +267,12 @@ func createMockMCPServer() *httptest.Server {
 	}))
 }
 
-// createTestConfigFile creates a temporary config file for testing.
-func createTestConfigFile(t *testing.T, mockServerURL string) string {
+// createTestServerAndGatewayConfig creates server config + gateway file for testing.
+func createTestServerAndGatewayConfig(t *testing.T, mockServerURL string) (*config.ServerConfig, *config.GatewayFile) {
 	t.Helper()
 
 	authDisabled := false
-	testConfig := &config.GlobalConfig{
+	serverConfig := &config.ServerConfig{
 		Name:        "Test Integration Server",
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
@@ -272,6 +280,10 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 			Port:    "9001",
 			Timeout: 30,
 		},
+	}
+
+	gf := &config.GatewayFile{
+		Version: "1.0.0",
 		Gateways: map[string]*config.GatewayConfig{
 			"test-gateway": {
 				MCPServers: map[string]*config.MCPServerConfig{
@@ -295,18 +307,39 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 		},
 	}
 
-	// Create temporary directory.
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "test_config.json")
+	return serverConfig, gf
+}
 
-	// Write config to file.
-	data, err := json.MarshalIndent(testConfig, "", "  ")
-	if err != nil {
-		t.Fatalf("Failed to marshal test config: %v", err)
+// createTestConfigFile creates a temporary config file for testing.
+// Returns the path to the server config file. Also writes a gateway file alongside.
+func createTestConfigFile(t *testing.T, mockServerURL string) string {
+	t.Helper()
+
+	serverConfig, gf := createTestServerAndGatewayConfig(t, mockServerURL)
+
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	if err := config.EnsureConfigDir(); err != nil {
+		t.Fatalf("Failed to create config dir: %v", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
-		t.Fatalf("Failed to write test config file: %v", err)
+	configPath := filepath.Join(tmpDir, ".centian", "config.json")
+	serverData, err := json.MarshalIndent(serverConfig, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal server config: %v", err)
+	}
+	if err := os.WriteFile(configPath, serverData, 0o644); err != nil {
+		t.Fatalf("Failed to write server config: %v", err)
+	}
+
+	gwPath := filepath.Join(tmpDir, ".centian", "gateways.json")
+	gwData, err := json.MarshalIndent(gf, "", "  ")
+	if err != nil {
+		t.Fatalf("Failed to marshal gateway file: %v", err)
+	}
+	if err := os.WriteFile(gwPath, gwData, 0o644); err != nil {
+		t.Fatalf("Failed to write gateway file: %v", err)
 	}
 
 	log.Printf("Created test config at: %s", configPath)
@@ -317,53 +350,27 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 func TestConfigFileValidation(t *testing.T) {
 	tests := []struct {
 		name        string
-		config      *config.GlobalConfig
+		serverJSON  map[string]interface{}
 		expectError bool
 		errorMsg    string
 	}{
 		{
 			name: "valid config",
-			config: &config.GlobalConfig{
-				Name:    "Valid Server",
-				Version: "1.0.0",
-				Proxy: &config.ProxySettings{
-					Port:    "8080",
-					Timeout: 30,
-				},
-				Gateways: map[string]*config.GatewayConfig{
-					"gateway1": {
-						MCPServers: map[string]*config.MCPServerConfig{
-							"server1": {
-								URL: "http://example.com",
-							},
-						},
-					},
-				},
+			serverJSON: map[string]interface{}{
+				"name":    "Valid Server",
+				"version": "1.0.0",
+				"proxy":   map[string]interface{}{"port": "8080", "timeout": 30},
 			},
 			expectError: false,
 		},
 		{
 			name: "missing version",
-			config: &config.GlobalConfig{
-				Name: "Invalid Server",
-				Proxy: &config.ProxySettings{
-					Port: "8080",
-				},
+			serverJSON: map[string]interface{}{
+				"name":  "Invalid Server",
+				"proxy": map[string]interface{}{"port": "8080"},
 			},
 			expectError: true,
 			errorMsg:    "version field is required",
-		},
-		{
-			name: "empty gateways",
-			config: &config.GlobalConfig{
-				Name:    "No Gateways Server",
-				Version: "1.0.0",
-				Proxy: &config.ProxySettings{
-					Port: "8080",
-				},
-				Gateways: map[string]*config.GatewayConfig{},
-			},
-			expectError: false, // Empty gateways is valid at config level
 		},
 	}
 
@@ -373,7 +380,7 @@ func TestConfigFileValidation(t *testing.T) {
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "test_config.json")
 
-			data, _ := json.MarshalIndent(tt.config, "", "  ")
+			data, _ := json.MarshalIndent(tt.serverJSON, "", "  ")
 			os.WriteFile(configPath, data, 0o644)
 
 			// Try to load config.

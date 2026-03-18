@@ -25,6 +25,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/gateway"
 	"github.com/T4cceptor/centian/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
@@ -76,47 +77,47 @@ Examples:
 	},
 }
 
-func printServerInfo(globalConfig *config.GlobalConfig) error {
-	serverName := globalConfig.Name
+func printServerInfo(serverConfig *config.ServerConfig, gatewayFile *config.GatewayFile) error {
+	serverName := serverConfig.Name
 	if serverName == "" {
 		serverName = "Centian Proxy Server"
 	}
-	if len(globalConfig.Gateways) < 1 {
+	if len(gatewayFile.Gateways) < 1 {
 		return fmt.Errorf("no gateways configured")
 	}
 	totalServers := 0
-	for _, gateway := range globalConfig.Gateways {
-		totalServers += len(gateway.MCPServers)
+	for _, gw := range gatewayFile.Gateways {
+		totalServers += len(gw.MCPServers)
 	}
 
 	if totalServers == 0 {
 		return fmt.Errorf("no MCP servers configured in gateways")
 	}
 
-	host := globalConfig.Proxy.Host
+	host := serverConfig.Proxy.Host
 	if host == "" {
 		host = config.DefaultProxyHost
 	}
 	common.LogInfo("%s", serverName)
 	common.LogInfo("Starting HTTP proxy server")
 	common.LogInfo("Host: %s", host)
-	common.LogInfo("Port: %s", globalConfig.Proxy.Port)
-	common.LogInfo("Timeout: %ds", globalConfig.Proxy.Timeout)
-	common.LogInfo("Gateways: %d", len(globalConfig.Gateways))
+	common.LogInfo("Port: %s", serverConfig.Proxy.Port)
+	common.LogInfo("Timeout: %ds", serverConfig.Proxy.Timeout)
+	common.LogInfo("Gateways: %d", len(gatewayFile.Gateways))
 	common.LogInfo("Total MCP servers: %d", totalServers)
 	common.LogInfo("Configured endpoints:")
-	for gatewayName, gateway := range globalConfig.Gateways {
-		for serverName, server := range gateway.MCPServers {
+	for gatewayName, gw := range gatewayFile.Gateways {
+		for serverName, server := range gw.MCPServers {
 			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
 			if server.URL != "" {
 				common.LogInfo("  - http://%s:%s%s -> %s",
-					host, globalConfig.Proxy.Port, endpoint, server.URL)
+					host, serverConfig.Proxy.Port, endpoint, server.URL)
 			}
 			if server.Command != "" {
 				common.LogInfo(
 					"  - http://%s:%s%s -> %s -- %s",
 					host,
-					globalConfig.Proxy.Port,
+					serverConfig.Proxy.Port,
 					endpoint,
 					server.Command,
 					strings.Join(server.Args, " "),
@@ -131,28 +132,25 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	configPath := cmd.String("config-path")
 
-	// Load configuration.
-	var globalConfig *config.GlobalConfig
-	var err error
+	// Load server configuration.
 	if configPath == "" {
 		configPath, _ = config.GetConfigPath()
 	}
-	globalConfig, err = config.LoadConfigFromPath(configPath)
+	serverConfig, err := config.LoadConfigFromPath(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
 
-	// Validating config
-	err = config.ValidateConfig(globalConfig, true)
-	if err != nil {
+	// Validate server config.
+	if err = config.ValidateConfig(serverConfig, true); err != nil {
 		return fmt.Errorf("config validation failed for %s: %w", configPath, err)
 	}
 
 	// Initializing internal logger
 	if err := common.InitInternalLogger(common.LoggerOptions{
-		Level:    globalConfig.Proxy.LogLevel,
-		Output:   globalConfig.Proxy.LogOutput,
-		FilePath: globalConfig.Proxy.LogFile,
+		Level:    serverConfig.Proxy.LogLevel,
+		Output:   serverConfig.Proxy.LogOutput,
+		FilePath: serverConfig.Proxy.LogFile,
 	}); err != nil {
 		return fmt.Errorf("failed to initialize internal logger: %w", err)
 	}
@@ -161,8 +159,20 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	}()
 	common.LogInfo("Loaded config from: %s", configPath)
 
+	// Build gateway provider from server config.
+	provider, err := gateway.NewFileGatewayProvider(serverConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create gateway provider: %w", err)
+	}
+
+	// Load gateway file for pre-start validation and logging.
+	gatewayFile, err := provider.LoadGatewayFile()
+	if err != nil {
+		return fmt.Errorf("failed to load gateway file: %w", err)
+	}
+
 	// Create HTTP proxy server.
-	server, err := proxy.NewCentianServer(globalConfig)
+	server, err := proxy.NewCentianServer(serverConfig, provider)
 	if err != nil {
 		return fmt.Errorf("failed to create centian server: %w", err)
 	}
@@ -178,7 +188,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	errChan := make(chan error, 1)
 
 	// Display server information.
-	if err := printServerInfo(globalConfig); err != nil {
+	if err := printServerInfo(serverConfig, gatewayFile); err != nil {
 		return err
 	}
 	go func() {

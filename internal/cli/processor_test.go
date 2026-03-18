@@ -117,7 +117,21 @@ func TestPromptProcessorNameConflict(t *testing.T) {
 	}
 }
 
-// setupTestHome creates an isolated HOME with an initialized centian config.
+// loadTestGatewayFile loads the gateway file from the current HOME config directory.
+func loadTestGatewayFile(t *testing.T) *config.GatewayFile {
+	t.Helper()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	gf, err := config.LoadGatewayFile(cfg)
+	if err != nil {
+		t.Fatalf("failed to load gateway file: %v", err)
+	}
+	return gf
+}
+
+// setupTestHome creates an isolated HOME with an initialized centian config and gateway file.
 // Returns a cleanup function that restores the original HOME.
 func setupTestHome(t *testing.T) func() {
 	t.Helper()
@@ -126,10 +140,13 @@ func setupTestHome(t *testing.T) func() {
 	originalHome := os.Getenv("HOME")
 	os.Setenv("HOME", testHome)
 
-	// Create default config.
+	// Create default config and gateway file.
 	cfg := config.DefaultConfig()
 	if err := config.SaveConfig(cfg); err != nil {
 		t.Fatalf("failed to save test config: %v", err)
+	}
+	if err := config.SaveGatewayFile(cfg, config.DefaultGatewayFile()); err != nil {
+		t.Fatalf("failed to save test gateway file: %v", err)
 	}
 
 	return func() {
@@ -157,15 +174,12 @@ func TestHandleProcessorAdd(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Then: config contains the processor with inferred name and command.
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			t.Fatalf("failed to load config: %v", err)
-		}
-		if !cfg.HasProcessor("audit") {
+		// Then: gateway file contains the processor with inferred name and command.
+		gf := loadTestGatewayFile(t)
+		if !gf.HasProcessor("audit") {
 			t.Fatal("expected processor 'audit' to exist in config")
 		}
-		proc := cfg.Processors[0]
+		proc := gf.GlobalProcessors[0]
 		if proc.Type != "cli" {
 			t.Errorf("expected type 'cli', got %q", proc.Type)
 		}
@@ -204,11 +218,11 @@ func TestHandleProcessorAdd(t *testing.T) {
 		}
 
 		// Then: processor uses the provided name, not inferred.
-		cfg, _ := config.LoadConfig()
-		if !cfg.HasProcessor("custom-logger") {
+		gf := loadTestGatewayFile(t)
+		if !gf.HasProcessor("custom-logger") {
 			t.Fatal("expected processor 'custom-logger' to exist")
 		}
-		if cfg.HasProcessor("my_logger") {
+		if gf.HasProcessor("my_logger") {
 			t.Error("inferred name 'my_logger' should not exist when --name was provided")
 		}
 	})
@@ -228,12 +242,12 @@ func TestHandleProcessorAdd(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		cfg, _ := config.LoadConfig()
-		if !cfg.HasProcessor("filter") {
+		gf := loadTestGatewayFile(t)
+		if !gf.HasProcessor("filter") {
 			t.Fatal("expected processor 'filter' to exist")
 		}
-		if cfg.Processors[0].Config["command"] != "bash" {
-			t.Errorf("expected command 'bash', got %v", cfg.Processors[0].Config["command"])
+		if gf.GlobalProcessors[0].Config["command"] != "bash" {
+			t.Errorf("expected command 'bash', got %v", gf.GlobalProcessors[0].Config["command"])
 		}
 	})
 
@@ -252,12 +266,12 @@ func TestHandleProcessorAdd(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		cfg, _ := config.LoadConfig()
-		if !cfg.HasProcessor("validator") {
+		gf := loadTestGatewayFile(t)
+		if !gf.HasProcessor("validator") {
 			t.Fatal("expected processor 'validator' to exist")
 		}
-		if cfg.Processors[0].Config["command"] != "npx" {
-			t.Errorf("expected command 'npx', got %v", cfg.Processors[0].Config["command"])
+		if gf.GlobalProcessors[0].Config["command"] != "npx" {
+			t.Errorf("expected command 'npx', got %v", gf.GlobalProcessors[0].Config["command"])
 		}
 	})
 
@@ -306,15 +320,15 @@ func TestHandleProcessorAdd(t *testing.T) {
 			t.Fatalf("second add failed: %v", err)
 		}
 
-		// Then: both processors exist in config.
-		cfg, _ := config.LoadConfig()
-		if len(cfg.Processors) != 2 {
-			t.Fatalf("expected 2 processors, got %d", len(cfg.Processors))
+		// Then: both processors exist in gateway file.
+		gf := loadTestGatewayFile(t)
+		if len(gf.GlobalProcessors) != 2 {
+			t.Fatalf("expected 2 processors, got %d", len(gf.GlobalProcessors))
 		}
-		if !cfg.HasProcessor("first") {
+		if !gf.HasProcessor("first") {
 			t.Error("expected processor 'first' to exist")
 		}
-		if !cfg.HasProcessor("second") {
+		if !gf.HasProcessor("second") {
 			t.Error("expected processor 'second' to exist")
 		}
 	})
@@ -338,14 +352,11 @@ func TestHandleProcessorAdd(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			t.Fatalf("failed to load config: %v", err)
-		}
-		if !cfg.HasProcessor("audit") {
+		gf := loadTestGatewayFile(t)
+		if !gf.HasProcessor("audit") {
 			t.Fatal("expected processor 'audit' to exist in config")
 		}
-		proc := cfg.Processors[0]
+		proc := gf.GlobalProcessors[0]
 		if proc.Type != "webhook" {
 			t.Errorf("expected type 'webhook', got %q", proc.Type)
 		}
