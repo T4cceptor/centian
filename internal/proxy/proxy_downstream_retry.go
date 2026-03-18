@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"os/exec"
@@ -80,15 +81,17 @@ func poolRetryDelay(serverName string, attempt int) time.Duration {
 	return delay + deterministicRetryJitter(serverName, attempt, jitterWindow)
 }
 
-func deterministicRetryJitter(serverName string, attempt int, max time.Duration) time.Duration {
-	if max <= 0 {
+func deterministicRetryJitter(serverName string, attempt int, jitterLimit time.Duration) time.Duration {
+	if jitterLimit <= 0 {
 		return 0
 	}
 
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(serverName))
-	_, _ = hasher.Write([]byte{byte(attempt)})
-	return time.Duration(hasher.Sum64() % uint64(max))
+	var attemptBuf [8]byte
+	binary.LittleEndian.PutUint64(attemptBuf[:], uint64(attempt))
+	_, _ = hasher.Write(attemptBuf[:])
+	return time.Duration(hasher.Sum64() % uint64(jitterLimit))
 }
 
 func (p *CentianEndpoint) launchPoolConnectRetryLocked(
@@ -109,6 +112,7 @@ func (p *CentianEndpoint) launchPoolConnectRetryLocked(
 		pool.retryTokens = make(map[string]uint64)
 	}
 
+	//nolint:gosec // cancel is stored on the pool and invoked on worker completion or pool teardown.
 	ctx, cancel := context.WithCancel(context.Background())
 	pool.nextRetryToken++
 	token := pool.nextRetryToken
