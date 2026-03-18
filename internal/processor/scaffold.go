@@ -319,11 +319,6 @@ func pythonLogic(procType scaffoldType) string {
     tool_name = (params.name or "") if params else ""
 
     if "delete" in tool_name.lower():
-        event = ctx.event or {}
-        event["status"] = 403
-        event["error"] = "Delete operations not allowed"
-        event["success"] = False
-        ctx.event = event
         payload.result = CallToolResult(
             content=[{"type": "text", "text": "Delete operations not allowed"}],
             is_error=True,
@@ -363,13 +358,14 @@ func pythonLogic(procType scaffoldType) string {
         f.write(json.dumps(log_entry) + "\n")`
 	case typeCustom:
 		return `    # TODO: Add your custom logic here
-    # Example:
+    # Example: set a result to block the request
     # if some_condition:
-    #     event = ctx.event or {}
-    #     event["status"] = 403
-    #     event["error"] = "Condition failed"
-    #     event["success"] = False
-    #     ctx.event = event`
+    #     payload = ctx.payload or PayloadPart()
+    #     payload.result = CallToolResult(
+    #         content=[{"type": "text", "text": "Blocked by custom policy"}],
+    #         is_error=True,
+    #     )
+    #     ctx.payload = payload`
 	default:
 		return ""
 	}
@@ -387,12 +383,6 @@ func javascriptLogic(procType scaffoldType) string {
   const toolName = (params.name || "");
 
   if (toolName.toLowerCase().includes("delete")) {
-    ctx.event = {
-      ...(ctx.event || {}),
-      status: 403,
-      error: "Delete operations not allowed",
-      success: false
-    };
     payload.result = {
       content: [{ type: "text", text: "Delete operations not allowed" }],
       isError: true
@@ -451,12 +441,6 @@ func typescriptLogic(procType scaffoldType) string {
   const toolName = (params.name || "");
 
   if (toolName.toLowerCase().includes("delete")) {
-    ctx.event = {
-      ...(ctx.event || {}),
-      status: 403,
-      error: "Delete operations not allowed",
-      success: false
-    };
     payload.result = {
       content: [{ type: "text", text: "Delete operations not allowed" }],
       isError: true
@@ -512,12 +496,7 @@ func bashLogic(procType scaffoldType) string {
 TOOL_NAME=$(echo "$CTX" | jq -r '.payload.request.Params.name // empty')
 if echo "$TOOL_NAME" | grep -iq "delete"; then
   CTX=$(echo "$CTX" | jq '
-    .event = ((.event // {}) + {
-      "status": 403,
-      "error": "Delete operations not allowed",
-      "success": false
-    })
-    | .payload = (.payload // {})
+    .payload = (.payload // {})
     | .payload.result = {
       "content": [{"type": "text", "text": "Delete operations not allowed"}],
       "isError": true
@@ -549,10 +528,15 @@ func writeTestInput(path string) error {
 	const testPayload = `{
   "version": "1.0",
   "event": {
-    "status": 200,
-    "success": true,
+    "status": 0,
+    "timestamp": "2026-01-01T00:00:00Z",
+    "transport": "http",
+    "request_id": "",
+    "direction": "[CLIENT -> SERVER]",
     "message_type": "request",
-    "direction": "CLIENT_TO_SERVER"
+    "success": true,
+    "modified": false,
+    "routing": {}
   },
   "payload": {
     "request": {

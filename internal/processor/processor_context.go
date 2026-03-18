@@ -5,6 +5,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// CurrentDataContextVersion is the data contract version sent to processors.
+// Follows major.minor semantics: a major bump is breaking, a minor bump is additive
+// and backward-compatible (processors that ignore unknown fields remain functional).
+const CurrentDataContextVersion = "1.0"
+
 // DataContext is passed to processors as JSON.
 // Holds all relevant information of a CallContext for processors to access and modify.
 type DataContext struct {

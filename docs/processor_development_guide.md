@@ -188,8 +188,18 @@ Processors receive a JSON object with this structure. CLI processors read it fro
 {
   "version": "1.0",
   "event": {
+    "status": 0,
     "timestamp": "2025-12-14T10:30:00Z",
-    "direction": "request"
+    "transport": "http",
+    "request_id": "req-abc123",
+    "direction": "[CLIENT -> SERVER]",
+    "message_type": "request",
+    "success": true,
+    "modified": false,
+    "routing": {
+      "transport": "http",
+      "server_name": "memory"
+    }
   },
   "payload": {
     "request": {
@@ -230,19 +240,20 @@ Processors receive a JSON object with this structure. CLI processors read it fro
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | string | Processor DTO version |
-| `event` | object | MCP event metadata when the `meta` part is enabled |
+| `version` | string | Data contract version (e.g. `"1.0"`). Follows major.minor: major is breaking, minor is additive |
+| `event` | object | MCP event metadata when the `meta` part is enabled. Key fields: `direction` (`"[CLIENT -> SERVER]"` or `"[SERVER -> CLIENT]"`), `message_type` (`"request"` or `"response"`), `transport`, `timestamp`, `success`, `routing` |
 | `payload.request` | object | Current `tools/call` request payload when the `payload` part is enabled |
-| `payload.original_request` | object | Original upstream request snapshot |
+| `payload.original_request` | object | Original upstream request snapshot (read-only) |
 | `payload.result` | object | Current downstream tool result if one exists |
-| `payload.original_result` | object | Original downstream result snapshot |
+| `payload.original_result` | object | Original downstream result snapshot (read-only) |
 | `routing` | object | Current and original server/tool routing data |
 | `auth` | object | Read-only auth context |
 
 Notes:
 
 - Only configured parts are present.
-- For `tools/call`, request parameters are serialized under `payload.request.Params`.
+- For `tools/call`, request parameters are serialized under `payload.request.Params` (note capital `P`).
+- The `event.direction` value is `"[CLIENT -> SERVER]"` for requests and `"[SERVER -> CLIENT]"` for responses.
 - Processors should return the full structures they want Centian to apply. Partial request patching is not supported by the default payload handler.
 
 ---
@@ -338,13 +349,8 @@ Simply return the input unchanged:
 
 ```python
 import sys, json
-event = json.load(sys.stdin)
-print(json.dumps({
-    "status": 200,
-    "payload": event["payload"],
-    "error": None,
-    "metadata": {"processor_name": "passthrough"}
-}))
+ctx = json.load(sys.stdin)
+print(json.dumps(ctx))
 ```
 
 **Use Case**: Testing, debugging, placeholder
@@ -353,31 +359,25 @@ print(json.dumps({
 
 ### 2. Validator
 
-Check conditions and reject if invalid:
+Check conditions and inject a blocking result:
 
 ```python
 import sys, json
 
-event = json.load(sys.stdin)
-payload = event["payload"]
+ctx = json.load(sys.stdin)
+payload = ctx.get("payload") or {}
+request = payload.get("request") or {}
+params = request.get("Params") or {}
+tool_name = params.get("name", "")
 
-# Check if method contains "delete"
-if "delete" in payload.get("method", "").lower():
-    result = {
-        "status": 403,
-        "payload": {},
-        "error": "Delete operations not allowed",
-        "metadata": {"processor_name": "delete_blocker"}
+if "delete" in tool_name.lower():
+    payload["result"] = {
+        "content": [{"type": "text", "text": "Delete operations not allowed"}],
+        "isError": True
     }
-else:
-    result = {
-        "status": 200,
-        "payload": payload,
-        "error": None,
-        "metadata": {"processor_name": "delete_blocker"}
-    }
+    ctx["payload"] = payload
 
-print(json.dumps(result))
+print(json.dumps(ctx))
 ```
 
 **Use Cases**: Security policies, input validation, rate limiting
@@ -391,24 +391,20 @@ Modify the payload before forwarding:
 ```python
 import sys, json
 
-event = json.load(sys.stdin)
-payload = event["payload"]
+ctx = json.load(sys.stdin)
+payload = ctx.get("payload") or {}
+request = payload.get("request") or {}
+params = request.get("Params") or {}
+arguments = params.get("arguments") or {}
 
-# Add a custom header
-if "params" in payload:
-    if "arguments" not in payload["params"]:
-        payload["params"]["arguments"] = {}
-    payload["params"]["arguments"]["x-processor"] = "transformer"
+if isinstance(arguments, dict):
+    arguments["x-processor"] = "transformer"
+    params["arguments"] = arguments
+    request["Params"] = params
+    payload["request"] = request
+    ctx["payload"] = payload
 
-print(json.dumps({
-    "status": 200,
-    "payload": payload,
-    "error": None,
-    "metadata": {
-        "processor_name": "transformer",
-        "modifications": ["added x-processor header"]
-    }
-}))
+print(json.dumps(ctx))
 ```
 
 **Use Cases**: Data sanitization, enrichment, normalization
@@ -423,19 +419,20 @@ Record data and pass through:
 import sys, json
 from datetime import datetime
 
-event = json.load(sys.stdin)
+ctx = json.load(sys.stdin)
 
-# Log to file (stderr ignored by Centian v1)
+payload = ctx.get("payload") or {}
+request = payload.get("request") or {}
+params = request.get("Params") or {}
+tool_name = params.get("name", "unknown")
+direction = (ctx.get("event") or {}).get("direction", "unknown")
+
+# Log to file (stderr is also available for debug output)
 with open("/tmp/centian-processor.log", "a") as f:
-    f.write(f"{datetime.now()}: {event['type']} - {event['payload'].get('method')}\n")
+    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "direction": direction, "tool": tool_name}) + "\n")
 
 # Pass through unchanged
-print(json.dumps({
-    "status": 200,
-    "payload": event["payload"],
-    "error": None,
-    "metadata": {"processor_name": "logger"}
-}))
+print(json.dumps(ctx))
 ```
 
 **Use Cases**: Audit logging, analytics, monitoring
@@ -444,36 +441,32 @@ print(json.dumps({
 
 ### 5. Request Filter
 
-Only process specific request types:
+Only apply logic for specific event directions:
 
 ```python
 import sys, json
 
-event = json.load(sys.stdin)
-payload = event["payload"]
+ctx = json.load(sys.stdin)
+event = ctx.get("event") or {}
 
-# Only validate "tools/call" requests
-if event["type"] == "request" and payload.get("method") == "tools/call":
-    # Perform validation
-    if not payload.get("params", {}).get("name"):
-        print(json.dumps({
-            "status": 400,
-            "payload": {},
-            "error": "Tool name is required",
-            "metadata": {"processor_name": "tool_validator"}
-        }))
-        sys.exit(0)
+# Only act on requests (client → server direction)
+if event.get("direction") == "[CLIENT -> SERVER]":
+    payload = ctx.get("payload") or {}
+    request = payload.get("request") or {}
+    params = request.get("Params") or {}
+    tool_name = params.get("name", "")
 
-# Pass through
-print(json.dumps({
-    "status": 200,
-    "payload": payload,
-    "error": None,
-    "metadata": {"processor_name": "tool_validator"}
-}))
+    if not tool_name:
+        payload["result"] = {
+            "content": [{"type": "text", "text": "Tool name is required"}],
+            "isError": True
+        }
+        ctx["payload"] = payload
+
+print(json.dumps(ctx))
 ```
 
-**Use Cases**: Method-specific validation, server-specific logic
+**Use Cases**: Direction-specific validation, server-specific logic
 
 ---
 
@@ -521,22 +514,25 @@ FAILED=0
 test_case() {
     local name=$1
     local input=$2
-    local expected_status=$3
+    local expect_error=$3  # "true" or "false"
 
     result=$(echo "$input" | $PROCESSOR)
-    status=$(echo "$result" | jq -r '.status')
+    is_error=$(echo "$result" | jq -r '.payload.result.isError // false')
 
-    if [ "$status" = "$expected_status" ]; then
+    if [ "$is_error" = "$expect_error" ]; then
         echo "✅ $name"
     else
-        echo "❌ $name (expected $expected_status, got $status)"
+        echo "❌ $name (expected isError=$expect_error, got isError=$is_error)"
         FAILED=1
     fi
 }
 
-# Test cases
-test_case "Allow normal request" '{"type":"request","payload":{"method":"tools/call","params":{"name":"safe_tool"}}}' "200"
-test_case "Block dangerous tool" '{"type":"request","payload":{"method":"tools/call","params":{"name":"delete_user"}}}' "403"
+# Test cases: use the DataContext format (version + event + payload + routing)
+SAFE='{"version":"1.0","event":{"direction":"[CLIENT -> SERVER]","message_type":"request","success":true},"payload":{"request":{"Params":{"name":"safe_tool","arguments":{}}}}}'
+DANGEROUS='{"version":"1.0","event":{"direction":"[CLIENT -> SERVER]","message_type":"request","success":true},"payload":{"request":{"Params":{"name":"delete_user","arguments":{}}}}}'
+
+test_case "Allow normal request" "$SAFE" "false"
+test_case "Block dangerous tool" "$DANGEROUS" "true"
 
 if [ $FAILED -eq 0 ]; then
     echo "All tests passed!"
@@ -670,10 +666,13 @@ Processors execute in order:
 ### 1. Use stderr for Debug Logging
 
 ```python
-import sys
+import sys, json
 
-# This won't affect Centian (stderr ignored in v1)
-print(f"DEBUG: Processing {event['type']}", file=sys.stderr)
+ctx = json.load(sys.stdin)
+event = ctx.get("event") or {}
+
+# This won't affect Centian (stderr ignored by Centian v1)
+print(f"DEBUG: direction={event.get('direction')} message_type={event.get('message_type')}", file=sys.stderr)
 ```
 
 ### 2. Test in Isolation
@@ -770,12 +769,11 @@ def load_blocked_list():
 **3. Early Return**
 
 ```python
-# Skip processing if not relevant
-if event["type"] != "request":
-    return passthrough(event)
-
-if event["payload"].get("method") != "tools/call":
-    return passthrough(event)
+# Skip processing if not relevant (e.g. only act on client→server requests)
+event = ctx.get("event") or {}
+if event.get("direction") != "[CLIENT -> SERVER]":
+    print(json.dumps(ctx))
+    sys.exit(0)
 
 # Now do expensive work
 ```
@@ -798,26 +796,27 @@ import sys
 import json
 from datetime import datetime
 
-event = json.load(sys.stdin)
+ctx = json.load(sys.stdin)
+
+event = ctx.get("event") or {}
+routing = ctx.get("routing") or {}
+payload = ctx.get("payload") or {}
+request = payload.get("request") or {}
+params = request.get("Params") or {}
 
 # Log to file
 log_entry = {
     "timestamp": datetime.now().isoformat(),
-    "type": event["type"],
-    "server": event["connection"]["server_name"],
-    "method": event["payload"].get("method", "unknown")
+    "direction": event.get("direction", "unknown"),
+    "server": routing.get("server_name", "unknown"),
+    "tool": params.get("name", "unknown")
 }
 
 with open("/tmp/centian-requests.log", "a") as f:
     f.write(json.dumps(log_entry) + "\n")
 
 # Pass through unchanged
-print(json.dumps({
-    "status": 200,
-    "payload": event["payload"],
-    "error": None,
-    "metadata": {"processor_name": "request_logger"}
-}))
+print(json.dumps(ctx))
 ```
 
 ### Example 2: SQL Injection Filter (Python)
@@ -828,18 +827,18 @@ import sys
 import json
 import re
 
-event = json.load(sys.stdin)
-payload = event["payload"]
+ctx = json.load(sys.stdin)
 
-# Only check tool calls
-if payload.get("method") != "tools/call":
-    print(json.dumps({
-        "status": 200,
-        "payload": payload,
-        "error": None,
-        "metadata": {"processor_name": "sql_filter"}
-    }))
+event = ctx.get("event") or {}
+# Only check client→server requests
+if event.get("direction") != "[CLIENT -> SERVER]":
+    print(json.dumps(ctx))
     sys.exit(0)
+
+payload = ctx.get("payload") or {}
+request = payload.get("request") or {}
+params = request.get("Params") or {}
+arguments = params.get("arguments") or {}
 
 # Check for SQL injection patterns
 sql_patterns = [
@@ -849,28 +848,20 @@ sql_patterns = [
     r"UNION\s+SELECT"
 ]
 
-args_str = json.dumps(payload.get("params", {}).get("arguments", {}))
+args_str = json.dumps(arguments)
 
 for pattern in sql_patterns:
     if re.search(pattern, args_str, re.IGNORECASE):
-        print(json.dumps({
-            "status": 403,
-            "payload": {},
-            "error": "Potential SQL injection detected",
-            "metadata": {
-                "processor_name": "sql_filter",
-                "pattern_matched": pattern
-            }
-        }))
+        payload["result"] = {
+            "content": [{"type": "text", "text": "Potential SQL injection detected"}],
+            "isError": True
+        }
+        ctx["payload"] = payload
+        print(json.dumps(ctx))
         sys.exit(0)
 
 # Safe - pass through
-print(json.dumps({
-    "status": 200,
-    "payload": payload,
-    "error": None,
-    "metadata": {"processor_name": "sql_filter"}
-}))
+print(json.dumps(ctx))
 ```
 
 ### Example 3: Rate Limiter (JavaScript)
@@ -887,14 +878,17 @@ const WINDOW_MS = 60000; // 1 minute
 let input = '';
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
-  const event = JSON.parse(input);
+  const ctx = JSON.parse(input);
+  const event = ctx.event || {};
+  const routing = ctx.routing || {};
 
-  // Only rate limit requests
-  if (event.type !== 'request') {
-    return success(event.payload);
+  // Only rate limit client→server requests
+  if (event.direction !== '[CLIENT -> SERVER]') {
+    console.log(JSON.stringify(ctx));
+    return;
   }
 
-  const serverId = event.connection.server_name;
+  const serverId = routing.server_name || 'unknown';
   const now = Date.now();
 
   // Load rate limit state
@@ -915,31 +909,19 @@ process.stdin.on('end', () => {
 
   // Check rate limit
   if (state[serverId].count >= MAX_REQUESTS) {
-    reject(429, 'Rate limit exceeded');
+    const payload = ctx.payload || {};
+    payload.result = {
+      content: [{ type: 'text', text: 'Rate limit exceeded' }],
+      isError: true
+    };
+    ctx.payload = payload;
   } else {
     state[serverId].count++;
     fs.writeFileSync(RATE_LIMIT_FILE, JSON.stringify(state));
-    success(event.payload);
   }
+
+  console.log(JSON.stringify(ctx));
 });
-
-function success(payload) {
-  console.log(JSON.stringify({
-    status: 200,
-    payload: payload,
-    error: null,
-    metadata: { processor_name: 'rate_limiter' }
-  }));
-}
-
-function reject(status, error) {
-  console.log(JSON.stringify({
-    status: status,
-    payload: {},
-    error: error,
-    metadata: { processor_name: 'rate_limiter' }
-  }));
-}
 ```
 
 ---

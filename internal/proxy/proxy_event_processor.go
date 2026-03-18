@@ -43,7 +43,7 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 
 // GetInput uses the provided ProcessorConfig and CallContext to create the input map for the processor.
 func GetInput(processorConfig *config.ProcessorConfig, callCtx CallContext) *processor.DataContext {
-	input := &processor.DataContext{}
+	input := &processor.DataContext{Version: processor.CurrentDataContextVersion}
 	for _, part := range processorConfig.GetParts() {
 		handler, ok := callCtx.GetHandler(part) // TODO: we could have a "GetParts"
 		if ok {

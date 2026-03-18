@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "payload": {
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "processed result"
+        }
+      ],
+      "isError": false
+    }
+  }
+}
