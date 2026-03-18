@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 
 	"gotest.tools/assert"
@@ -141,4 +142,40 @@ func TestImportServers(t *testing.T) {
 		_, err := ImportServers(nil, nil)
 		assert.Assert(t, err != nil)
 	})
+}
+
+func TestStringMapField(t *testing.T) {
+	t.Run("returns nil for missing or invalid maps", func(t *testing.T) {
+		assert.Assert(t, stringMapField(map[string]interface{}{}, "headers") == nil)
+		assert.Assert(t, stringMapField(map[string]interface{}{"headers": "bad"}, "headers") == nil)
+	})
+
+	t.Run("filters non-string values and returns nil when empty", func(t *testing.T) {
+		headers := stringMapField(map[string]interface{}{
+			"headers": map[string]interface{}{
+				"Authorization": "Bearer token",
+				"Retry-After":   10,
+			},
+		}, "headers")
+
+		assert.DeepEqual(t, headers, map[string]string{"Authorization": "Bearer token"})
+
+		empty := stringMapField(map[string]interface{}{
+			"headers": map[string]interface{}{
+				"Retry-After": 10,
+			},
+		}, "headers")
+		assert.Assert(t, empty == nil)
+	})
+}
+
+func TestEnsureAbsolutePath(t *testing.T) {
+	absolute := filepath.Join(t.TempDir(), "config.json")
+	assert.Equal(t, ensureAbsolutePath(absolute), absolute)
+
+	relative := filepath.Join("relative", "config.json")
+	ensured := ensureAbsolutePath(relative)
+	assert.Assert(t, filepath.IsAbs(ensured))
+	assert.Assert(t, filepath.IsAbs(ensured))
+	assert.Assert(t, filepath.Base(ensured) == "config.json")
 }

@@ -68,6 +68,76 @@ func TestSyncAvailableToolsRemovesStaleTools(t *testing.T) {
 	assert.Equal(t, len(session.registeredTools), 0)
 }
 
+func TestCollectDownstreamToolState(t *testing.T) {
+	proxy := &CentianEndpoint{}
+
+	tests := []struct {
+		name               string
+		serverName         string
+		poolConnecting     bool
+		conn               *MockDownstreamConnection
+		wantConnectedCount int
+		wantConnecting     int
+		wantErrors         []string
+	}{
+		{
+			name:           "pool-level connecting wins",
+			serverName:     "server-a",
+			poolConnecting: true,
+			conn:           &MockDownstreamConnection{serverName: "server-a", Status: StatusFailed, ErrorToReturn: errors.New("ignored")},
+			wantConnecting: 1,
+		},
+		{
+			name:               "connected connection increments connected count",
+			serverName:         "server-b",
+			conn:               &MockDownstreamConnection{serverName: "server-b", Status: StatusConnected},
+			wantConnectedCount: 1,
+		},
+		{
+			name:           "connecting connection increments connecting count",
+			serverName:     "server-c",
+			conn:           &MockDownstreamConnection{serverName: "server-c", Status: StatusConnecting},
+			wantConnecting: 1,
+		},
+		{
+			name:           "pending connection increments connecting count",
+			serverName:     "server-d",
+			conn:           &MockDownstreamConnection{serverName: "server-d", Status: StatusPending},
+			wantConnecting: 1,
+		},
+		{
+			name:       "failed connection records error",
+			serverName: "server-e",
+			conn: &MockDownstreamConnection{
+				serverName:    "server-e",
+				Status:        StatusFailed,
+				ErrorToReturn: errors.New("dial failed"),
+			},
+			wantErrors: []string{"server-e: dial failed"},
+		},
+		{
+			name:       "failed connection without error is ignored",
+			serverName: "server-f",
+			conn:       &MockDownstreamConnection{serverName: "server-f", Status: StatusFailed},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pool := &DownstreamSessionPool{
+				connecting: map[string]bool{tt.serverName: tt.poolConnecting},
+			}
+			summary := downstreamRegistrationSummary{}
+
+			proxy.collectDownstreamToolState(pool, tt.serverName, tt.conn, &summary)
+
+			assert.Equal(t, summary.connectedCount, tt.wantConnectedCount)
+			assert.Equal(t, summary.connectingCount, tt.wantConnecting)
+			assert.DeepEqual(t, summary.connErrors, tt.wantErrors)
+		})
+	}
+}
+
 func TestGetSyncedSessionReturnsServerSessionFromContext(t *testing.T) {
 	proxy := newLoggingTestProxy()
 	session := newLoggingTestSession(proxy, "session-1")

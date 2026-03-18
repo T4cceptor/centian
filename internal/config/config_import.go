@@ -34,7 +34,8 @@ func ImportServers(cfg *GlobalConfig, servers []ImportedServer) (int, error) {
 	}
 
 	imported := 0
-	for _, server := range servers {
+	for i := range servers {
+		server := &servers[i]
 		if server.Command == "" && server.URL == "" {
 			continue
 		}
@@ -305,48 +306,70 @@ func extractImportedServerFromGeneric(name string, serverInfo map[string]interfa
 		Transport:   string(common.StdioTransport),
 	}
 
-	for _, key := range []string{"command", "cmd", "executable", "exec"} {
-		if command, ok := serverInfo[key].(string); ok && command != "" {
-			server.Command = command
-			break
-		}
-	}
-
-	for _, key := range []string{"url", "endpoint", "uri", "address"} {
-		if url, ok := serverInfo[key].(string); ok && url != "" {
-			server.URL = url
-			server.Transport = string(common.HTTPTransport)
-			break
-		}
+	server.Command = firstStringField(serverInfo, "command", "cmd", "executable", "exec")
+	server.URL = firstStringField(serverInfo, "url", "endpoint", "uri", "address")
+	if server.URL != "" {
+		server.Transport = string(common.HTTPTransport)
 	}
 
 	if server.Command == "" && server.URL == "" {
 		return nil
 	}
 
-	for _, key := range []string{"args", "arguments", "params", "parameters"} {
-		args, ok := serverInfo[key].([]interface{})
+	server.Args = firstStringSliceField(serverInfo, "args", "arguments", "params", "parameters")
+	server.Headers = stringMapField(serverInfo, "headers")
+
+	return server
+}
+
+func firstStringField(values map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		value, ok := values[key].(string)
+		if ok && value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstStringSliceField(values map[string]interface{}, keys ...string) []string {
+	for _, key := range keys {
+		rawValues, ok := values[key].([]interface{})
 		if !ok {
 			continue
 		}
-		for _, arg := range args {
-			if argStr, ok := arg.(string); ok {
-				server.Args = append(server.Args, argStr)
+
+		result := make([]string, 0, len(rawValues))
+		for _, rawValue := range rawValues {
+			value, ok := rawValue.(string)
+			if ok {
+				result = append(result, value)
 			}
 		}
-		break
+		return result
 	}
 
-	if headers, ok := serverInfo["headers"].(map[string]interface{}); ok {
-		server.Headers = make(map[string]string)
-		for key, value := range headers {
-			if valueStr, ok := value.(string); ok {
-				server.Headers[key] = valueStr
-			}
+	return nil
+}
+
+func stringMapField(values map[string]interface{}, key string) map[string]string {
+	rawMap, ok := values[key].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := make(map[string]string)
+	for mapKey, rawValue := range rawMap {
+		value, ok := rawValue.(string)
+		if ok {
+			result[mapKey] = value
 		}
 	}
+	if len(result) == 0 {
+		return nil
+	}
 
-	return server
+	return result
 }
 
 func ensureAbsolutePath(filePath string) string {

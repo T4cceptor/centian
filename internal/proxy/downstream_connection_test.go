@@ -284,6 +284,7 @@ func TestDownstreamConnectionServerName(t *testing.T) {
 
 	// Then: accessor returns the configured server name.
 	assert.Equal(t, dc.ServerName(), "my-server")
+	assert.Equal(t, dc.GetServerName(), "my-server")
 }
 
 func TestDownstreamConnectionGetConfigAndStatus(t *testing.T) {
@@ -293,6 +294,52 @@ func TestDownstreamConnectionGetConfigAndStatus(t *testing.T) {
 
 	assert.Assert(t, dc.GetConfig() == cfg)
 	assert.Equal(t, dc.GetStatus(), StatusFailed)
+}
+
+func TestDownstreamConnectionRecordConnectError(t *testing.T) {
+	t.Run("marks generic errors as failed", func(t *testing.T) {
+		dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+		err := errors.New("connect failed")
+
+		dc.recordConnectError(err)
+
+		assert.Equal(t, dc.GetStatus(), StatusFailed)
+		assert.Equal(t, dc.GetError(), err)
+	})
+
+	t.Run("marks auth required errors", func(t *testing.T) {
+		dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+		authErr := &centoauth.AuthorizationRequiredError{
+			Binding: centoauth.Binding{
+				PrincipalID: "principal-1",
+				Gateway:     "gw",
+				Server:      "server",
+			},
+			Reason: centoauth.AuthorizationReasonRequired,
+		}
+
+		dc.recordConnectError(authErr)
+
+		assert.Equal(t, dc.GetStatus(), StatusAuthRequired)
+		assert.Equal(t, dc.GetError(), authErr)
+	})
+
+	t.Run("marks refresh failures distinctly", func(t *testing.T) {
+		dc := NewDownstreamConnection("server", &config.MCPServerConfig{})
+		authErr := &centoauth.AuthorizationRequiredError{
+			Binding: centoauth.Binding{
+				PrincipalID: "principal-1",
+				Gateway:     "gw",
+				Server:      "server",
+			},
+			Reason: centoauth.AuthorizationReasonRefreshFailed,
+		}
+
+		dc.recordConnectError(authErr)
+
+		assert.Equal(t, dc.GetStatus(), StatusRefreshFailed)
+		assert.Equal(t, dc.GetError(), authErr)
+	})
 }
 
 func TestDownstreamConnectionStateAccessors(t *testing.T) {

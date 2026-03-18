@@ -87,3 +87,28 @@ func waitForSingleResourceUpdate(t *testing.T, recorder *resourceUpdateRecorder)
 	snapshot := recorder.snapshot()
 	t.Fatalf("expected 1 resource update, got %d", len(snapshot))
 }
+
+func TestNewPoolResourceUpdatedHandler(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+	recorder, clientSession, cleanup := connectResourceClient(t, session)
+	defer cleanup()
+
+	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
+	}
+
+	subscribeResource(t, clientSession, "file:///resource")
+
+	handler := proxy.newPoolResourceUpdatedHandler("pool-1", "server-a", nil)
+	handler(context.Background(), nil)
+	handler(context.Background(), &mcp.ResourceUpdatedNotificationRequest{})
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, len(recorder.snapshot()), 0)
+
+	handler(context.Background(), &mcp.ResourceUpdatedNotificationRequest{
+		Params: &mcp.ResourceUpdatedNotificationParams{URI: "file:///resource"},
+	})
+	waitForSingleResourceUpdate(t, recorder)
+}
