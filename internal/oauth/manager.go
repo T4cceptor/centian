@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
@@ -115,6 +114,7 @@ func (s *pendingStore) gcLocked() {
 	}
 }
 
+// updateStatus sets the Status and LastError of a pending flow under the store lock.
 func (s *pendingStore) updateStatus(id string, status PendingStatus, lastError string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -163,7 +163,6 @@ type Manager struct {
 	onRequired    func(Binding, string)
 	now           func() time.Time
 	goroutines    sync.WaitGroup
-	closed        atomic.Bool
 }
 
 // NewManager creates the downstream OAuth manager used by proxy endpoints.
@@ -189,7 +188,6 @@ func NewManager(publicBaseURL string, onAuthorized func(Binding), onRequired fun
 
 // Close waits for all background goroutines spawned by the Manager to finish.
 func (m *Manager) Close() {
-	m.closed.Store(true)
 	m.goroutines.Wait()
 }
 
@@ -433,7 +431,7 @@ func (m *Manager) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	m.pending.updateStatus(pending.ID, PendingStatusCompleted, "")
-	if m.onAuthorized != nil && !m.closed.Load() {
+	if m.onAuthorized != nil {
 		m.goroutines.Add(1)
 		go func() {
 			defer m.goroutines.Done()

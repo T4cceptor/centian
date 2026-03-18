@@ -99,14 +99,14 @@ func (t *Transport) authorizationHeader(ctx context.Context) (string, error) {
 
 func (t *Transport) handleAuthorizationChallenge(req *http.Request, bodyBytes []byte, resp *http.Response) (*http.Response, error) {
 	resolved, err := resolveMetadata(req.Context(), t.Manager.httpClient, req.URL.String(), resp.Header, t.Config)
+	// Headers are already parsed; free the body regardless of metadata resolution outcome.
+	closeBody(resp.Body)
 	if err != nil {
-		closeBody(resp.Body)
 		return nil, err
 	}
 
 	refreshed, refreshErr := refreshStoredToken(req.Context(), t.Manager, t.Binding, t.Config, nil, &resolved)
 	if refreshErr == nil && refreshed != nil && refreshed.AccessToken != "" {
-		closeBody(resp.Body)
 		retryResp, retryErr := t.send(req, bodyBytes, t.baseRoundTripper())
 		if retryErr != nil {
 			return nil, retryErr
@@ -116,8 +116,6 @@ func (t *Transport) handleAuthorizationChallenge(req *http.Request, bodyBytes []
 		}
 		// Refreshed token was also rejected — proceed to interactive auth.
 		closeBody(retryResp.Body)
-	} else {
-		closeBody(resp.Body)
 	}
 	verifier := oauth2.GenerateVerifier()
 	pending, err := t.Manager.CreatePending(
