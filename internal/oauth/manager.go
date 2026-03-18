@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
@@ -114,6 +115,15 @@ func (s *pendingStore) gcLocked() {
 	}
 }
 
+func (s *pendingStore) updateStatus(id string, status PendingStatus, lastError string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p := s.byID[id]; p != nil {
+		p.Status = status
+		p.LastError = lastError
+	}
+}
+
 func (s *pendingStore) deleteLocked(id string) {
 	pending := s.byID[id]
 	if pending != nil {
@@ -152,6 +162,8 @@ type Manager struct {
 	onAuthorized  func(Binding)
 	onRequired    func(Binding, string)
 	now           func() time.Time
+	goroutines    sync.WaitGroup
+	closed        atomic.Bool
 }
 
 // NewManager creates the downstream OAuth manager used by proxy endpoints.
@@ -173,6 +185,12 @@ func NewManager(publicBaseURL string, onAuthorized func(Binding), onRequired fun
 		onRequired:    onRequired,
 		now:           time.Now,
 	}, nil
+}
+
+// Close waits for all background goroutines spawned by the Manager to finish.
+func (m *Manager) Close() {
+	m.closed.Store(true)
+	m.goroutines.Wait()
 }
 
 // NewTransport wraps one downstream HTTP transport with OAuth token management.
@@ -323,7 +341,7 @@ func (m *Manager) handleStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "OAuth flow not found or expired", http.StatusNotFound)
 		return
 	}
-	pending.Status = PendingStatusInProgress
+	m.pending.updateStatus(pending.ID, PendingStatusInProgress, "")
 	http.Redirect(w, r, pending.AuthURL, http.StatusFound)
 }
 
@@ -369,8 +387,7 @@ func (m *Manager) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errText := r.URL.Query().Get("error"); errText != "" {
-		pending.Status = PendingStatusFailed
-		pending.LastError = errText
+		m.pending.updateStatus(pending.ID, PendingStatusFailed, errText)
 		http.Error(w, errText, http.StatusBadRequest)
 		return
 	}
@@ -399,8 +416,7 @@ func (m *Manager) handleCallback(w http.ResponseWriter, r *http.Request) {
 		oauth2.SetAuthURLParam("resource", pending.Metadata.Resource),
 	)
 	if err != nil {
-		pending.Status = PendingStatusFailed
-		pending.LastError = err.Error()
+		m.pending.updateStatus(pending.ID, PendingStatusFailed, err.Error())
 		http.Error(w, "token exchange failed", http.StatusBadGateway)
 		return
 	}
@@ -412,20 +428,22 @@ func (m *Manager) handleCallback(w http.ResponseWriter, r *http.Request) {
 		TokenEndpoint:         pending.Metadata.TokenEndpoint,
 		ClientAuthMethod:      pending.Metadata.ClientAuthMethod,
 	})); err != nil {
-		pending.Status = PendingStatusFailed
-		pending.LastError = err.Error()
+		m.pending.updateStatus(pending.ID, PendingStatusFailed, err.Error())
 		http.Error(w, "failed to persist token", http.StatusInternalServerError)
 		return
 	}
-	pending.Status = PendingStatusCompleted
-	pending.LastError = ""
-	if m.onAuthorized != nil {
-		go m.onAuthorized(pending.Binding)
+	m.pending.updateStatus(pending.ID, PendingStatusCompleted, "")
+	if m.onAuthorized != nil && !m.closed.Load() {
+		m.goroutines.Add(1)
+		go func() {
+			defer m.goroutines.Done()
+			m.onAuthorized(pending.Binding)
+		}()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprintf(
 		w,
-		"<html><body><h1>Authorization complete</h1><p>Server: %s/%s</p><p>You can return to your MCP client.</p></body></html>",
+		"<html><body><h1>Authorization complete</h1><p>Server: %s/%s</p><p>You can return to your MCP client.</p><script>window.close()</script></body></html>",
 		html.EscapeString(pending.Binding.Gateway),
 		html.EscapeString(pending.Binding.Server),
 	)
