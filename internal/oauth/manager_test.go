@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,9 @@ func TestManagerHandleStartAndStatus(t *testing.T) {
 	}
 	pending, err := manager.CreatePending(Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}, "client-id", "client-secret", metadata, "verifier")
 	assert.NilError(t, err)
+	authURL, err := url.Parse(pending.AuthURL)
+	assert.NilError(t, err)
+	assert.Equal(t, authURL.Query().Get("code_challenge_method"), "S256")
 
 	mux := http.NewServeMux()
 	manager.RegisterRoutes(mux)
