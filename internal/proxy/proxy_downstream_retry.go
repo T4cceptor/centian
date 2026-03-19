@@ -2,10 +2,10 @@ package proxy
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,10 +88,13 @@ func deterministicRetryJitter(serverName string, attempt int, jitterLimit time.D
 
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(serverName))
-	var attemptBuf [8]byte
-	binary.LittleEndian.PutUint64(attemptBuf[:], uint64(attempt))
-	_, _ = hasher.Write(attemptBuf[:])
-	return time.Duration(hasher.Sum64() % uint64(jitterLimit))
+	_, _ = hasher.Write([]byte(strconv.Itoa(attempt)))
+
+	var folded time.Duration
+	for _, b := range hasher.Sum(nil) {
+		folded = folded*257 + time.Duration(b)
+	}
+	return folded % jitterLimit
 }
 
 func (p *CentianEndpoint) launchPoolConnectRetryLocked(
