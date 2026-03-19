@@ -1,0 +1,42 @@
+{
+  "auth": {
+    "authenticated": true,
+    "principal_id": "test-user",
+    "principal_type": "api_key"
+  },
+  "event": {
+    "direction": "[CLIENT -\u003e SERVER]",
+    "message_type": "request",
+    "modified": false,
+    "request_id": "req-contract-v1",
+    "status": 0,
+    "success": true,
+    "timestamp": "2026-01-01T00:00:00Z",
+    "transport": "http"
+  },
+  "payload": {
+    "original_request": {
+      "Params": {
+        "arguments": {
+          "key": "value"
+        },
+        "name": "test_tool"
+      }
+    },
+    "request": {
+      "Params": {
+        "arguments": {
+          "key": "value"
+        },
+        "name": "test_tool"
+      }
+    }
+  },
+  "routing": {
+    "original_server_name": "test-server",
+    "original_tool_name": "test_tool",
+    "server_name": "test-server",
+    "tool_name": "test_tool"
+  },
+  "version": "1.0"
+}

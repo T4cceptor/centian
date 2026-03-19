@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -27,7 +29,7 @@ type ToolCallContext struct {
 	originalResult *mcp.CallToolResult // unmodified result from downstream
 
 	// State
-	event *common.MCPEvent
+	meta *common.MetaContext
 
 	// Routing context (reuses common.RoutingContext)
 	routingContext *common.RoutingContext
@@ -62,7 +64,7 @@ func NewToolCallContext(
 		transport = conn.GetConfig().GetTransport()
 	}
 
-	event := common.NewMCPRequestEvent(string(transport)).
+	meta := common.NewRequestMetaContext(string(transport)).
 		WithRequestID(getNewUUIDV7()).
 		WithSessionID(upstreamSession.id).
 		WithServerID(proxy.server.ServerID) // nil check was done above
@@ -89,7 +91,7 @@ func NewToolCallContext(
 		originalRequest:    originalRequest, // Immutable clone of the upstream request
 		request:            req,             // Mutable, will be modified by handlers
 		routingContext:     routingCtx,
-		event:              event,
+		meta:               meta,
 		authData:           upstreamSession.authData.Clone(),
 	}
 
@@ -163,14 +165,50 @@ func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	return nil
 }
 
-// GetEventInfo returns the attached MCPEvent.
-func (c *ToolCallContext) GetEventInfo() *common.MCPEvent {
-	return c.event
+// GetMetaContext returns the attached processor metadata.
+func (c *ToolCallContext) GetMetaContext() *common.MetaContext {
+	return c.meta
 }
 
-// SetEventInfo sets the provided MCPEvent.
-func (c *ToolCallContext) SetEventInfo(event *common.MCPEvent) {
-	c.event = event
+// SetMetaContext sets the provided processor metadata.
+func (c *ToolCallContext) SetMetaContext(meta *common.MetaContext) {
+	c.meta = meta
+}
+
+// ToLogEntry returns the current call state as a structured log entry.
+func (c *ToolCallContext) ToLogEntry() *common.LogEntry {
+	if c.meta == nil {
+		c.meta = common.NewMetaContext(string(common.UnknownTransport), common.DirectionUnknown, common.MessageTypeUnknown)
+	}
+
+	entry := &common.LogEntry{
+		BaseMcpEvent: c.meta.BaseMcpEvent,
+	}
+	entry.Timestamp = time.Now()
+	entry.Success = c.GetStatus() < 400
+
+	if rc := c.GetRoutingContext(); rc != nil {
+		entry.Routing = *rc
+		if rc.Transport != "" {
+			entry.Transport = string(rc.Transport)
+		}
+	}
+	if entry.Transport == "" {
+		entry.Transport = string(common.UnknownTransport)
+	}
+
+	req := c.GetRequest()
+	if req != nil && req.Params != nil {
+		entry.WithToolRequest(c.GetToolName(), c.GetOriginalToolName(), req.Params.Arguments)
+	}
+
+	if c.HasResult() {
+		result := c.GetResult()
+		resultJSON, _ := json.Marshal(result)
+		entry.WithToolResult(resultJSON, result.IsError)
+	}
+
+	return entry
 }
 
 // Result methods
@@ -200,24 +238,24 @@ func (c *ToolCallContext) GetOriginalResult() *mcp.CallToolResult {
 
 // Direction methods
 
-// GetDirection returns MCPEvent.Direction.
+// GetDirection returns MetaContext.Direction.
 func (c *ToolCallContext) GetDirection() common.McpEventDirection {
-	return c.event.Direction
+	return c.meta.Direction
 }
 
-// SetDirection sets MCPEvent.Direction.
+// SetDirection sets MetaContext.Direction.
 func (c *ToolCallContext) SetDirection(d common.McpEventDirection) {
-	c.event.Direction = d
+	c.meta.Direction = d
 }
 
-// GetMessageType returns MCPEvent.MessageType.
+// GetMessageType returns MetaContext.MessageType.
 func (c *ToolCallContext) GetMessageType() common.McpMessageType {
-	return c.event.MessageType
+	return c.meta.MessageType
 }
 
-// SetMessageType sets MCPEvent.MessageType.
+// SetMessageType sets MetaContext.MessageType.
 func (c *ToolCallContext) SetMessageType(t common.McpMessageType) {
-	c.event.MessageType = t
+	c.meta.MessageType = t
 }
 
 // Original request accessors
@@ -275,31 +313,31 @@ func (c *ToolCallContext) GetToolName() string {
 
 // Status and error handling
 
-// GetStatus returns ToolCallContext.MCPEvent.Status.
+// GetStatus returns ToolCallContext.MetaContext.Status.
 func (c *ToolCallContext) GetStatus() int {
-	return c.event.Status
+	return c.meta.Status
 }
 
-// SetStatus sets ToolCallContext.MCPEvent.Status.
+// SetStatus sets ToolCallContext.MetaContext.Status.
 func (c *ToolCallContext) SetStatus(status int) {
-	c.event.Status = status
+	c.meta.Status = status
 }
 
-// GetError returns ToolCallContext.MCPEvent.Error.
+// GetError returns ToolCallContext.MetaContext.Error.
 func (c *ToolCallContext) GetError() string {
-	return c.event.Error
+	return c.meta.Error
 }
 
-// SetError sets the ToolCallContext.MCPEvent.Error.
+// SetError sets the ToolCallContext.MetaContext.Error.
 func (c *ToolCallContext) SetError(msg string) {
-	c.event.Error = msg
+	c.meta.Error = msg
 }
 
 // Session and request identification
 
 // GetRequestID returns the current request ID.
 func (c *ToolCallContext) GetRequestID() string {
-	return c.event.RequestID
+	return c.meta.RequestID
 }
 
 // GetSessionID returns the current session ID.

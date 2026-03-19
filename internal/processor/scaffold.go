@@ -319,11 +319,6 @@ func pythonLogic(procType scaffoldType) string {
     tool_name = (params.name or "") if params else ""
 
     if "delete" in tool_name.lower():
-        event = ctx.event or {}
-        event["status"] = 403
-        event["error"] = "Delete operations not allowed"
-        event["success"] = False
-        ctx.event = event
         payload.result = CallToolResult(
             content=[{"type": "text", "text": "Delete operations not allowed"}],
             is_error=True,
@@ -363,13 +358,14 @@ func pythonLogic(procType scaffoldType) string {
         f.write(json.dumps(log_entry) + "\n")`
 	case typeCustom:
 		return `    # TODO: Add your custom logic here
-    # Example:
+    # Example: set a result to block the request
     # if some_condition:
-    #     event = ctx.event or {}
-    #     event["status"] = 403
-    #     event["error"] = "Condition failed"
-    #     event["success"] = False
-    #     ctx.event = event`
+    #     payload = ctx.payload or PayloadPart()
+    #     payload.result = CallToolResult(
+    #         content=[{"type": "text", "text": "Blocked by custom policy"}],
+    #         is_error=True,
+    #     )
+    #     ctx.payload = payload`
 	default:
 		return ""
 	}
@@ -387,12 +383,6 @@ func javascriptLogic(procType scaffoldType) string {
   const toolName = (params.name || "");
 
   if (toolName.toLowerCase().includes("delete")) {
-    ctx.event = {
-      ...(ctx.event || {}),
-      status: 403,
-      error: "Delete operations not allowed",
-      success: false
-    };
     payload.result = {
       content: [{ type: "text", text: "Delete operations not allowed" }],
       isError: true
@@ -451,12 +441,6 @@ func typescriptLogic(procType scaffoldType) string {
   const toolName = (params.name || "");
 
   if (toolName.toLowerCase().includes("delete")) {
-    ctx.event = {
-      ...(ctx.event || {}),
-      status: 403,
-      error: "Delete operations not allowed",
-      success: false
-    };
     payload.result = {
       content: [{ type: "text", text: "Delete operations not allowed" }],
       isError: true
@@ -512,12 +496,7 @@ func bashLogic(procType scaffoldType) string {
 TOOL_NAME=$(echo "$CTX" | jq -r '.payload.request.Params.name // empty')
 if echo "$TOOL_NAME" | grep -iq "delete"; then
   CTX=$(echo "$CTX" | jq '
-    .event = ((.event // {}) + {
-      "status": 403,
-      "error": "Delete operations not allowed",
-      "success": false
-    })
-    | .payload = (.payload // {})
+    .payload = (.payload // {})
     | .payload.result = {
       "content": [{"type": "text", "text": "Delete operations not allowed"}],
       "isError": true
@@ -549,10 +528,14 @@ func writeTestInput(path string) error {
 	const testPayload = `{
   "version": "1.0",
   "event": {
-    "status": 200,
-    "success": true,
+    "status": 0,
+    "timestamp": "2026-01-01T00:00:00Z",
+    "transport": "http",
+    "request_id": "",
+    "direction": "[CLIENT -> SERVER]",
     "message_type": "request",
-    "direction": "CLIENT_TO_SERVER"
+    "success": true,
+    "modified": false
   },
   "payload": {
     "request": {
@@ -569,6 +552,11 @@ func writeTestInput(path string) error {
     "tool_name": "test_tool",
     "original_server_name": "test",
     "original_tool_name": "test_tool"
+  },
+  "auth": {
+    "authenticated": true,
+    "principal_id": "test-user",
+    "principal_type": "api_key"
   }
 }
 `
@@ -790,21 +778,65 @@ class RoutingPart:
 
 
 @dataclass
+class AuthContext:
+    authenticated: bool = False
+    principal_id: str = ""
+    principal_type: str = ""
+    gateway: str = ""
+    auth_header: str = ""
+    internal_session_id: str = ""
+    transport_session_id: str = ""
+    credential_fingerprint: str = ""
+    key_id: str = ""
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "AuthContext":
+        source = data or {}
+        return AuthContext(
+            authenticated=bool(source.get("authenticated", False)),
+            principal_id=source.get("principal_id", ""),
+            principal_type=source.get("principal_type", ""),
+            gateway=source.get("gateway", ""),
+            auth_header=source.get("auth_header", ""),
+            internal_session_id=source.get("internal_session_id", ""),
+            transport_session_id=source.get("transport_session_id", ""),
+            credential_fingerprint=source.get("credential_fingerprint", ""),
+            key_id=source.get("key_id", ""),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "authenticated": True if self.authenticated else None,
+            "principal_id": self.principal_id or None,
+            "principal_type": self.principal_type or None,
+            "gateway": self.gateway or None,
+            "auth_header": self.auth_header or None,
+            "internal_session_id": self.internal_session_id or None,
+            "transport_session_id": self.transport_session_id or None,
+            "credential_fingerprint": self.credential_fingerprint or None,
+            "key_id": self.key_id or None,
+        })
+
+
+@dataclass
 class DataContext:
     version: str = ""
     event: Optional[Dict[str, Any]] = None
     payload: Optional[PayloadPart] = None
     routing: Optional[RoutingPart] = None
+    auth: Optional[AuthContext] = None
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "DataContext":
         payload_source = data.get("payload")
         routing_source = data.get("routing")
+        auth_source = data.get("auth")
         return DataContext(
             version=data.get("version", ""),
             event=data.get("event"),
             payload=PayloadPart.from_dict(payload_source) if isinstance(payload_source, dict) else None,
             routing=RoutingPart.from_dict(routing_source) if isinstance(routing_source, dict) else None,
+            auth=AuthContext.from_dict(auth_source) if isinstance(auth_source, dict) else None,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -813,6 +845,7 @@ class DataContext:
             "event": self.event,
             "payload": self.payload.to_dict() if self.payload else None,
             "routing": self.routing.to_dict() if self.routing else None,
+            "auth": self.auth.to_dict() if self.auth else None,
         })
 
 
@@ -928,11 +961,24 @@ interface RoutingPart {
   original_tool_name?: string;
 }
 
+interface AuthContext {
+  authenticated?: boolean;
+  principal_id?: string;
+  principal_type?: string;
+  gateway?: string;
+  auth_header?: string;
+  internal_session_id?: string;
+  transport_session_id?: string;
+  credential_fingerprint?: string;
+  key_id?: string;
+}
+
 interface DataContext {
   version?: string;
   event?: Record<string, unknown>;
   payload?: PayloadPart;
   routing?: RoutingPart;
+  auth?: AuthContext;
 }
 
 function processContext(ctx: DataContext): DataContext {

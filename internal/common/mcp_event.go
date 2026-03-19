@@ -5,19 +5,16 @@ import (
 	"time"
 )
 
-// MCPEvent is a unified event type for all MCP transports.
-// It provides a transport-agnostic structure that can represent events from
-// HTTP, stdio, SDK-based proxies, or any future transport mechanism.
-//
-// It is mainly used to hold event metadata for the CallContext interface.
-type MCPEvent struct {
+// MetaContext contains processor-facing event metadata.
+type MetaContext struct {
 	BaseMcpEvent
+}
 
-	// Routing context (always present)
-	Routing RoutingContext `json:"routing"`
-
-	// Tool call context (optional - only for tool call events)
-	ToolCall *ToolCallLog `json:"tool_call,omitempty"`
+// LogEntry is the enriched log payload written to the Centian JSONL log.
+type LogEntry struct {
+	BaseMcpEvent
+	Routing  RoutingContext `json:"routing"`
+	ToolCall *ToolCallLog   `json:"tool_call,omitempty"`
 }
 
 // RoutingContext captures where the request is going.
@@ -48,7 +45,7 @@ type RoutingContext struct {
 
 // ToolCallLog captures tool call specific details.
 //
-// Note: this is typically only filled for logging MCPEvents.
+// Note: this is only filled for logging.
 type ToolCallLog struct {
 	// Name is the tool name being called
 	Name string `json:"name"`
@@ -70,13 +67,13 @@ type ToolCallLog struct {
 // Constructors
 // ============================================================================
 
-// NewMCPEvent creates a new MCPEvent with required fields initialized.
-func NewMCPEvent(
+// NewMetaContext creates a new MetaContext with required fields initialized.
+func NewMetaContext(
 	transport string,
 	direction McpEventDirection,
 	messageType McpMessageType,
-) *MCPEvent {
-	return &MCPEvent{
+) *MetaContext {
+	return &MetaContext{
 		BaseMcpEvent: BaseMcpEvent{
 			Timestamp:        time.Now(),
 			Transport:        transport,
@@ -87,13 +84,12 @@ func NewMCPEvent(
 			ProcessingErrors: make(map[string]error),
 			Metadata:         make(map[string]string),
 		},
-		Routing: RoutingContext{},
 	}
 }
 
-// NewMCPRequestEvent creates an MCPEvent for a request (client → server).
-func NewMCPRequestEvent(transport string) *MCPEvent {
-	return NewMCPEvent(transport, DirectionClientToServer, MessageTypeRequest)
+// NewRequestMetaContext creates a MetaContext for a request (client → server).
+func NewRequestMetaContext(transport string) *MetaContext {
+	return NewMetaContext(transport, DirectionClientToServer, MessageTypeRequest)
 }
 
 // ============================================================================
@@ -101,25 +97,25 @@ func NewMCPRequestEvent(transport string) *MCPEvent {
 // ============================================================================
 
 // WithRequestID sets the request ID.
-func (e *MCPEvent) WithRequestID(id string) *MCPEvent {
+func (e *MetaContext) WithRequestID(id string) *MetaContext {
 	e.RequestID = id
 	return e
 }
 
 // WithSessionID sets the session ID.
-func (e *MCPEvent) WithSessionID(id string) *MCPEvent {
+func (e *MetaContext) WithSessionID(id string) *MetaContext {
 	e.SessionID = id
 	return e
 }
 
 // WithServerID sets the server ID.
-func (e *MCPEvent) WithServerID(id string) *MCPEvent {
+func (e *MetaContext) WithServerID(id string) *MetaContext {
 	e.ServerID = id
 	return e
 }
 
-// WithToolRequest attaches name, originalName and args on ToolCall of this MCPEvent.
-func (e *MCPEvent) WithToolRequest(name, originalName string, args json.RawMessage) *MCPEvent {
+// WithToolRequest attaches name, originalName and args on ToolCall of this LogEntry.
+func (e *LogEntry) WithToolRequest(name, originalName string, args json.RawMessage) *LogEntry {
 	if e.ToolCall == nil {
 		e.ToolCall = &ToolCallLog{}
 	}
@@ -129,8 +125,8 @@ func (e *MCPEvent) WithToolRequest(name, originalName string, args json.RawMessa
 	return e
 }
 
-// WithToolResult attaches provided result and isError status on ToolCall of this MCPEvent.
-func (e *MCPEvent) WithToolResult(result json.RawMessage, isError bool) *MCPEvent {
+// WithToolResult attaches provided result and isError status on ToolCall of this LogEntry.
+func (e *LogEntry) WithToolResult(result json.RawMessage, isError bool) *LogEntry {
 	if e.ToolCall == nil {
 		e.ToolCall = &ToolCallLog{}
 	}
@@ -144,11 +140,21 @@ func (e *MCPEvent) WithToolResult(result json.RawMessage, isError bool) *MCPEven
 // ============================================================================
 
 // GetBaseEvent returns the BaseMcpEvent.
-func (e *MCPEvent) GetBaseEvent() BaseMcpEvent {
+func (e *MetaContext) GetBaseEvent() BaseMcpEvent {
+	return e.BaseMcpEvent
+}
+
+// GetBaseEvent returns the BaseMcpEvent.
+func (e *LogEntry) GetBaseEvent() BaseMcpEvent {
 	return e.BaseMcpEvent
 }
 
 // SetStatus sets the status code for this event.
-func (e *MCPEvent) SetStatus(status int) {
+func (e *MetaContext) SetStatus(status int) {
+	e.Status = status
+}
+
+// SetStatus sets the status code for this log entry.
+func (e *LogEntry) SetStatus(status int) {
 	e.Status = status
 }

@@ -193,7 +193,7 @@ func requestContext(t *testing.T, toolName string, args map[string]any) *process
 	}
 	return &processor.DataContext{
 		Version: "1.0",
-		Event: &common.MCPEvent{
+		Event: &common.MetaContext{
 			BaseMcpEvent: common.BaseMcpEvent{
 				Status:      200,
 				Success:     true,
@@ -215,7 +215,7 @@ func responseContext(t *testing.T, text string) *processor.DataContext {
 	t.Helper()
 	return &processor.DataContext{
 		Version: "1.0",
-		Event: &common.MCPEvent{
+		Event: &common.MetaContext{
 			BaseMcpEvent: common.BaseMcpEvent{
 				Status:      200,
 				Success:     true,

@@ -38,7 +38,7 @@ var ErrNoLogEntries = errors.New("no log entries found")
 
 // AnnotatedLogEntry wraps a generic MCP event with contextual metadata used for display.
 type AnnotatedLogEntry struct {
-	Event      common.MCPEvent
+	Event      common.LogEntry
 	SourceFile string
 }
 
@@ -171,7 +171,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 // readLogFile reads and parses a JSONL log file, returning all valid entries.
 // Returns empty slice (not error) if file doesn't exist. Skips malformed lines.
 // Supports log lines up to 10MB.
-func readLogFile(path string) ([]common.MCPEvent, error) {
+func readLogFile(path string) ([]common.LogEntry, error) {
 	cleanPath := filepath.Clean(path)
 	file, err := os.Open(cleanPath)
 	if err != nil {
@@ -182,7 +182,7 @@ func readLogFile(path string) ([]common.MCPEvent, error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	var entries []common.MCPEvent
+	var entries []common.LogEntry
 
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)
@@ -195,7 +195,7 @@ func readLogFile(path string) ([]common.MCPEvent, error) {
 		}
 
 		// Unmarshal to appropriate type based on transport.
-		var event common.MCPEvent
+		var event common.LogEntry
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
 			continue
 		}

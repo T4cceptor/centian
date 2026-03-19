@@ -8,7 +8,7 @@ import (
 	"gotest.tools/assert"
 )
 
-func hasDefaultValues(event *MCPEvent) bool {
+func hasDefaultValues(event *MetaContext) bool {
 	if event.Timestamp.IsZero() {
 		return false
 	}
@@ -19,10 +19,10 @@ func hasDefaultValues(event *MCPEvent) bool {
 	return is_recent && is_success && has_processing_error_map && has_metadata_map
 }
 
-func TestNewMCPEvent(t *testing.T) {
-	// Given: NewMCPEvent method
-	// When: creating a new event using NewMCPEvent
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+func TestNewMetaContext(t *testing.T) {
+	// Given: NewMetaContext method
+	// When: creating a new event using NewMetaContext
+	event := NewMetaContext("test", DirectionSystem, MessageTypeSystem)
 
 	// Then: the created event is as expected
 	assert.Assert(t, event.Transport == "test")
@@ -31,10 +31,10 @@ func TestNewMCPEvent(t *testing.T) {
 	assert.Assert(t, hasDefaultValues(event))
 }
 
-func TestNewMCPRequestEvent(t *testing.T) {
-	// Given: NewMCPEvent method
-	// When: creating a new event using NewMCPEvent
-	event := NewMCPRequestEvent("test")
+func TestNewRequestMetaContext(t *testing.T) {
+	// Given: NewRequestMetaContext method
+	// When: creating a new event using NewRequestMetaContext
+	event := NewRequestMetaContext("test")
 
 	// Then: the created event is as expected
 	assert.Assert(t, event.Transport == "test")
@@ -44,50 +44,50 @@ func TestNewMCPRequestEvent(t *testing.T) {
 }
 
 func TestWithRequestID(t *testing.T) {
-	// Given: a MCPEvent and a requestID
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a MetaContext and a requestID
+	event := NewMetaContext("test", DirectionSystem, MessageTypeSystem)
 	event.RequestID = "old_id"
 	requestID := "test_req_id"
 
 	// When: calling WithRequestID
-	new_event := event.WithRequestID(requestID)
+	newEvent := event.WithRequestID(requestID)
 
 	// Then:
-	assert.Equal(t, new_event, event)                  // the returned event is the same
+	assert.Equal(t, newEvent, event)                   // the returned event is the same
 	assert.Assert(t, event.RequestID == "test_req_id") // the request ID was set
 }
 
 func TestWithSessionID(t *testing.T) {
-	// Given: a MCPEvent and a sessionID
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a MetaContext and a sessionID
+	event := NewMetaContext("test", DirectionSystem, MessageTypeSystem)
 	event.SessionID = "old_session_id"
 	sessionID := "test_session_id"
 
 	// When: calling WithSessionID
-	new_event := event.WithSessionID(sessionID)
+	newEvent := event.WithSessionID(sessionID)
 
 	// Then:
-	assert.Equal(t, new_event, event)                      // the returned event is the same
+	assert.Equal(t, newEvent, event)                       // the returned event is the same
 	assert.Assert(t, event.SessionID == "test_session_id") // the request ID was set
 }
 
 func TestWithServerID(t *testing.T) {
-	// Given: a MCPEvent and a serverID
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a MetaContext and a serverID
+	event := NewMetaContext("test", DirectionSystem, MessageTypeSystem)
 	event.ServerID = "old_server_id"
 	serverID := "test_server_id"
 
 	// When: calling WithServerID
-	new_event := event.WithServerID(serverID)
+	newEvent := event.WithServerID(serverID)
 
 	// Then:
-	assert.Equal(t, new_event, event)                    // the returned event is the same
+	assert.Equal(t, newEvent, event)                     // the returned event is the same
 	assert.Assert(t, event.ServerID == "test_server_id") // the server ID was set
 }
 
 func TestGetBaseEvent(t *testing.T) {
-	// Given: a MCPEvent with a request ID
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a MetaContext with a request ID
+	event := NewMetaContext("test", DirectionSystem, MessageTypeSystem)
 	event.RequestID = "req-123"
 
 	// When: calling GetBaseEvent
@@ -98,8 +98,8 @@ func TestGetBaseEvent(t *testing.T) {
 }
 
 func TestSetStatus(t *testing.T) {
-	// Given: a MCPEvent
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a MetaContext
+	event := NewMetaContext("test", DirectionSystem, MessageTypeSystem)
 
 	// When: setting a status code
 	event.SetStatus(204)
@@ -109,14 +109,14 @@ func TestSetStatus(t *testing.T) {
 }
 
 func TestWithToolRequest(t *testing.T) {
-	// Given: an event without ToolCall.
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a log entry without ToolCall.
+	event := &LogEntry{}
 	args := json.RawMessage(`{"a":1}`)
 
 	// When: attaching tool request data.
 	updated := event.WithToolRequest("tool-a", "original-tool-a", args)
 
-	// Then: event pointer is preserved and fields are set.
+	// Then: log entry pointer is preserved and fields are set.
 	assert.Assert(t, updated == event)
 	assert.Assert(t, event.ToolCall != nil)
 	assert.Equal(t, event.ToolCall.Name, "tool-a")
@@ -125,8 +125,8 @@ func TestWithToolRequest(t *testing.T) {
 }
 
 func TestWithToolRequest_PreservesExistingResultFields(t *testing.T) {
-	// Given: an event with existing result state.
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a log entry with existing result state.
+	event := &LogEntry{}
 	event.ToolCall = &ToolCallLog{
 		Result:  json.RawMessage(`{"ok":true}`),
 		IsError: true,
@@ -144,14 +144,14 @@ func TestWithToolRequest_PreservesExistingResultFields(t *testing.T) {
 }
 
 func TestWithToolResult(t *testing.T) {
-	// Given: an event without ToolCall.
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a log entry without ToolCall.
+	event := &LogEntry{}
 	result := json.RawMessage(`{"content":[{"type":"text","text":"ok"}]}`)
 
 	// When: attaching tool result data.
 	updated := event.WithToolResult(result, true)
 
-	// Then: event pointer is preserved and fields are set.
+	// Then: log entry pointer is preserved and fields are set.
 	assert.Assert(t, updated == event)
 	assert.Assert(t, event.ToolCall != nil)
 	assert.Equal(t, string(event.ToolCall.Result), `{"content":[{"type":"text","text":"ok"}]}`)
@@ -159,8 +159,8 @@ func TestWithToolResult(t *testing.T) {
 }
 
 func TestWithToolResult_PreservesExistingRequestFields(t *testing.T) {
-	// Given: an event with existing request state.
-	event := NewMCPEvent("test", DirectionSystem, MessageTypeSystem)
+	// Given: a log entry with existing request state.
+	event := &LogEntry{}
 	event.ToolCall = &ToolCallLog{
 		Name:         "tool-c",
 		OriginalName: "orig-tool-c",

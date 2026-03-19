@@ -95,6 +95,6 @@ func (l *Logger) GetLogPath() string {
 }
 
 // LogMcpEvent logs the provided stdio/http MCP event.
-func (l *Logger) LogMcpEvent(event *common.MCPEvent) error {
+func (l *Logger) LogMcpEvent(event *common.LogEntry) error {
 	return l.LogEntry(event)
 }

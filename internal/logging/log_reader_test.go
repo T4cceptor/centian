@@ -25,7 +25,7 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	event1 := common.MCPEvent{
+	event1 := common.LogEntry{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
 			Transport:        "stdio",
@@ -40,7 +40,7 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 			Args:              []string{"pkg"},
 		},
 	}
-	event2 := common.MCPEvent{
+	event2 := common.LogEntry{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 2, 12, 0, 0, 0, time.UTC),
 			Transport:        "stdio",
@@ -55,8 +55,8 @@ func TestLoadRecentLogEntriesOrdersByTimestamp(t *testing.T) {
 			Args:              []string{"pkg"},
 		},
 	}
-	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []common.MCPEvent{event1})
-	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []common.MCPEvent{event2})
+	writeLogFile(t, tempDir, "requests_2025-01-01.jsonl", []common.LogEntry{event1})
+	writeLogFile(t, tempDir, "requests_2025-01-02.jsonl", []common.LogEntry{event2})
 
 	// When: loading all recent log entries with no limit.
 	entries, err := LoadRecentLogEntries(0)
@@ -87,7 +87,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 		os.Setenv("CENTIAN_LOG_DIR", original)
 	}()
 
-	event1 := common.MCPEvent{
+	event1 := common.LogEntry{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 3, 12, 0, 0, 0, time.UTC),
 			Transport:        "stdio",
@@ -101,7 +101,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 			DownstreamCommand: "test",
 		},
 	}
-	event2 := common.MCPEvent{
+	event2 := common.LogEntry{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 4, 12, 0, 0, 0, time.UTC),
 			Transport:        "stdio",
@@ -115,7 +115,7 @@ func TestLoadRecentLogEntriesLimit(t *testing.T) {
 			DownstreamCommand: "npx",
 		},
 	}
-	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []common.MCPEvent{
+	writeLogFile(t, tempDir, "requests_2025-01-03.jsonl", []common.LogEntry{
 		event1,
 		event2,
 	})
@@ -163,7 +163,7 @@ func TestLoadRecentLogEntriesMissingDir(t *testing.T) {
 
 func TestFormatDisplayLine(t *testing.T) {
 	// Given: an annotated log entry with session ID and command details.
-	event := common.MCPEvent{
+	event := common.LogEntry{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Timestamp:        time.Date(2025, 1, 1, 15, 4, 5, 0, time.UTC),
 			Transport:        "stdio",
@@ -195,7 +195,7 @@ func TestFormatDisplayLine(t *testing.T) {
 	}
 }
 
-func writeLogFile(t *testing.T, dir, name string, entries []common.MCPEvent) {
+func writeLogFile(t *testing.T, dir, name string, entries []common.LogEntry) {
 	t.Helper()
 
 	path := filepath.Join(dir, name)

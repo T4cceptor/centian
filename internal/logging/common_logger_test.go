@@ -56,7 +56,7 @@ func TestLogMcpEvent(t *testing.T) {
 	}
 
 	baseMcpEvent := getBaseMcpEvent()
-	mcpEvent := common.MCPEvent{
+	mcpEvent := common.LogEntry{
 		BaseMcpEvent: baseMcpEvent,
 		Routing: common.RoutingContext{
 			DownstreamCommand: command,
@@ -83,7 +83,7 @@ func TestLogMcpEvent(t *testing.T) {
 	}
 
 	// Parse the log line as JSON.
-	var logEntry common.MCPEvent
+	var logEntry common.LogEntry
 	err = json.Unmarshal(logContent, &logEntry)
 	if err != nil {
 		t.Fatalf("Failed to parse log entry: %v", err)
