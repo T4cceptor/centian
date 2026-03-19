@@ -85,12 +85,14 @@ func (p *CentianEndpoint) getOrCreateSessionPoolLocked(session *UpstreamSession)
 
 	activeServerConfigs := p.GetActiveMCPServerConfigs()
 	pool := &DownstreamSessionPool{
-		identityKey:          session.identityKey,
-		downstreamSessionKey: session.downstreamSessionKey,
-		downstreamConns:      make(map[string]DownstreamConnectionInterface, len(activeServerConfigs)),
-		upstreamSessions:     map[string]*UpstreamSession{session.id: session},
-		connecting:           make(map[string]bool),
-		lastUsed:             time.Now(),
+		identityKey:                session.identityKey,
+		downstreamSessionKey:       session.downstreamSessionKey,
+		downstreamConns:            make(map[string]DownstreamConnectionInterface, len(activeServerConfigs)),
+		upstreamSessions:           map[string]*UpstreamSession{session.id: session},
+		connecting:                 make(map[string]bool),
+		resourceCollisions:         make(map[string][]string),
+		resourceTemplateCollisions: make(map[string][]string),
+		lastUsed:                   time.Now(),
 	}
 	p.downstreamPools[session.downstreamSessionKey] = pool
 	p.bindSessionToPoolLocked(session, pool)

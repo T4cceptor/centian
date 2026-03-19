@@ -1,11 +1,14 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -22,47 +25,20 @@ func (c *completionForwardConn) Complete(_ context.Context, req *mcp.CompleteReq
 	return c.result, c.err
 }
 
-// TestFindConnectionForResourceURI_DuplicateURIAcrossServers verifies the documented
-// "first match wins" behaviour when the same resource URI is advertised by more than
-// one downstream server.
-func TestFindConnectionForResourceURI_DuplicateURIAcrossServers(t *testing.T) {
-	const sharedURI = "file:///shared/resource"
+func captureInternalLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
 
-	// Given: two connected downstream servers that both advertise the same resource URI
-	connA := &MockDownstreamConnection{
-		serverName: "server-a",
-		Status:     StatusConnected,
-		resources: []*mcp.Resource{
-			{URI: sharedURI, Name: "resource-on-a"},
-		},
-	}
-	connB := &MockDownstreamConnection{
-		serverName: "server-b",
-		Status:     StatusConnected,
-		resources: []*mcp.Resource{
-			{URI: sharedURI, Name: "resource-on-b"},
-		},
-	}
+	var console bytes.Buffer
+	assert.NilError(t, common.InitInternalLogger(common.LoggerOptions{
+		Level:         "info",
+		Output:        "console",
+		ConsoleWriter: &console,
+	}))
+	t.Cleanup(func() {
+		assert.NilError(t, common.CloseLogger())
+	})
 
-	proxy := &CentianEndpoint{name: "test"}
-	session := &UpstreamSession{
-		id: "session-1",
-		downstreamConns: map[string]DownstreamConnectionInterface{
-			"server-a": connA,
-			"server-b": connB,
-		},
-	}
-
-	// When: looking up the connection for the shared URI
-	found := proxy.findConnectionForResourceURI(session, sharedURI)
-
-	// Then: exactly one connection is returned (first match in iteration order) –
-	// the caller must be aware that URI uniqueness across downstreams is not enforced.
-	assert.Assert(t, found != nil, "expected a connection to be found for the shared URI")
-	assert.Assert(t,
-		found.GetServerName() == "server-a" || found.GetServerName() == "server-b",
-		"returned connection should belong to one of the two servers",
-	)
+	return &console
 }
 
 // TestFindConnectionForResourceURI_ReturnsNilForUnknownURI verifies that nil is
@@ -92,13 +68,66 @@ func TestFindConnectionForResourceURI_ReturnsNilForUnknownURI(t *testing.T) {
 	assert.Assert(t, found == nil)
 }
 
-// TestSyncAvailableResources_DuplicateURILastServerWins verifies that when two
-// downstream servers expose the same URI, syncAvailableResources registers the
-// resource exactly once (last-one-wins during collection) without panicking.
-func TestSyncAvailableResources_DuplicateURILastServerWins(t *testing.T) {
+func TestSyncAvailableResources_AggregatedDuplicateURIIsOmitted(t *testing.T) {
+	const sharedURI = "file:///shared/resource"
+	const uniqueURI = "file:///unique/resource"
+	logs := captureInternalLogs(t)
+
+	connA := &MockDownstreamConnection{
+		serverName: "server-a",
+		Status:     StatusConnected,
+		resources: []*mcp.Resource{
+			{URI: sharedURI, Name: "resource-on-a"},
+			{URI: uniqueURI, Name: "resource-on-a-only"},
+		},
+	}
+	connB := &MockDownstreamConnection{
+		serverName: "server-b",
+		Status:     StatusConnected,
+		resources: []*mcp.Resource{
+			{URI: sharedURI, Name: "resource-on-b"},
+		},
+	}
+
+	proxy := &CentianEndpoint{
+		name:              "test",
+		isAggregatedProxy: true,
+		downstreamPools:   make(map[string]*DownstreamSessionPool),
+	}
+	upstreamServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, &mcp.ServerOptions{
+		HasResources: true,
+	})
+	pool := &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		resourceCollisions:   make(map[string][]string),
+	}
+	proxy.downstreamPools["pool-1"] = pool
+	session := &UpstreamSession{
+		id:                   "session-1",
+		upstreamServer:       upstreamServer,
+		registeredResources:  make(map[string]struct{}),
+		downstreamSessionKey: "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": connA,
+			"server-b": connB,
+		},
+	}
+
+	proxy.syncAvailableResources(session)
+
+	assert.Equal(t, len(session.registeredResources), 1,
+		"only the non-colliding resource should be registered")
+	_, sharedRegistered := session.registeredResources[sharedURI]
+	assert.Assert(t, !sharedRegistered, "the colliding URI must be omitted")
+	_, uniqueRegistered := session.registeredResources[uniqueURI]
+	assert.Assert(t, uniqueRegistered, "the unique URI should remain available")
+	assert.DeepEqual(t, pool.resourceCollisions[sharedURI], []string{"server-a", "server-b"})
+	assert.Assert(t, strings.Contains(logs.String(), `aggregated resource URI "`+sharedURI+`" collides across downstreams [server-a, server-b]`))
+}
+
+func TestSyncAvailableResources_NonAggregatedDuplicateURIRemainsRegistered(t *testing.T) {
 	const sharedURI = "file:///shared/resource"
 
-	// Given: two connected servers that both expose the same resource URI
 	connA := &MockDownstreamConnection{
 		serverName: "server-a",
 		Status:     StatusConnected,
@@ -128,14 +157,68 @@ func TestSyncAvailableResources_DuplicateURILastServerWins(t *testing.T) {
 		},
 	}
 
-	// When: syncing available resources
 	proxy.syncAvailableResources(session)
 
-	// Then: the shared URI is registered exactly once
-	assert.Equal(t, len(session.registeredResources), 1,
-		"duplicate URI should be collapsed to a single registration")
+	assert.Equal(t, len(session.registeredResources), 1)
 	_, registered := session.registeredResources[sharedURI]
-	assert.Assert(t, registered, "the shared URI must appear in registeredResources")
+	assert.Assert(t, registered)
+}
+
+func TestSyncAvailableResources_RegistersSharedURIWhenCollisionResolves(t *testing.T) {
+	const sharedURI = "file:///shared/resource"
+	logs := captureInternalLogs(t)
+
+	connA := &MockDownstreamConnection{
+		serverName: "server-a",
+		Status:     StatusConnected,
+		resources: []*mcp.Resource{
+			{URI: sharedURI, Name: "resource-on-a"},
+		},
+	}
+	connB := &MockDownstreamConnection{
+		serverName: "server-b",
+		Status:     StatusConnected,
+		resources: []*mcp.Resource{
+			{URI: sharedURI, Name: "resource-on-b"},
+		},
+	}
+
+	proxy := &CentianEndpoint{
+		name:              "test",
+		isAggregatedProxy: true,
+		downstreamPools:   make(map[string]*DownstreamSessionPool),
+	}
+	upstreamServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, &mcp.ServerOptions{
+		HasResources: true,
+	})
+	pool := &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		resourceCollisions:   make(map[string][]string),
+	}
+	proxy.downstreamPools["pool-1"] = pool
+	session := &UpstreamSession{
+		id:                   "session-1",
+		upstreamServer:       upstreamServer,
+		registeredResources:  make(map[string]struct{}),
+		downstreamSessionKey: "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": connA,
+			"server-b": connB,
+		},
+	}
+
+	proxy.syncAvailableResources(session)
+	_, registeredWhileColliding := session.registeredResources[sharedURI]
+	assert.Assert(t, !registeredWhileColliding)
+
+	connB.resources = nil
+	proxy.syncAvailableResources(session)
+
+	_, registeredAfterResolution := session.registeredResources[sharedURI]
+	assert.Assert(t, registeredAfterResolution, "the surviving resource should be re-registered after the collision resolves")
+	_, stillColliding := pool.resourceCollisions[sharedURI]
+	assert.Assert(t, !stillColliding, "collision tracking should clear once only one downstream remains")
+	assert.Assert(t, strings.Contains(logs.String(), `aggregated resource URI "`+sharedURI+`" collision resolved`))
 }
 
 func TestForwardReadResource_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
@@ -194,6 +277,47 @@ func TestForwardSubscribe_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
 	assert.ErrorContains(t, err, `no downstream connection found for resource URI "file:///missing"`)
 }
 
+func TestForwardSubscribe_ReturnsCollisionErrorForHiddenURI(t *testing.T) {
+	const sharedURI = "file:///shared/resource"
+
+	connA := &MockDownstreamConnection{
+		serverName: "server-a",
+		Status:     StatusConnected,
+		resources:  []*mcp.Resource{{URI: sharedURI}},
+	}
+	connB := &MockDownstreamConnection{
+		serverName: "server-b",
+		Status:     StatusConnected,
+		resources:  []*mcp.Resource{{URI: sharedURI}},
+	}
+	proxy := &CentianEndpoint{
+		name:              "test",
+		isAggregatedProxy: true,
+		downstreamPools: map[string]*DownstreamSessionPool{
+			"pool-1": {
+				downstreamSessionKey: "pool-1",
+				resourceCollisions: map[string][]string{
+					sharedURI: {"server-a", "server-b"},
+				},
+			},
+		},
+	}
+	session := &UpstreamSession{
+		id:                   "session-1",
+		downstreamSessionKey: "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": connA,
+			"server-b": connB,
+		},
+	}
+
+	err := proxy.forwardSubscribe(context.Background(), session, &mcp.SubscribeRequest{
+		Params: &mcp.SubscribeParams{URI: sharedURI},
+	})
+
+	assert.ErrorContains(t, err, `resource URI "file:///shared/resource" is hidden because multiple downstreams expose it: server-a, server-b`)
+}
+
 func TestForwardUnsubscribe_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
 	proxy := &CentianEndpoint{name: "test"}
 	session := &UpstreamSession{
@@ -206,6 +330,47 @@ func TestForwardUnsubscribe_ReturnsErrorWhenNoDownstreamOwnsURI(t *testing.T) {
 	})
 
 	assert.ErrorContains(t, err, `no downstream connection found for resource URI "file:///missing"`)
+}
+
+func TestForwardUnsubscribe_ReturnsCollisionErrorForHiddenURI(t *testing.T) {
+	const sharedURI = "file:///shared/resource"
+
+	connA := &MockDownstreamConnection{
+		serverName: "server-a",
+		Status:     StatusConnected,
+		resources:  []*mcp.Resource{{URI: sharedURI}},
+	}
+	connB := &MockDownstreamConnection{
+		serverName: "server-b",
+		Status:     StatusConnected,
+		resources:  []*mcp.Resource{{URI: sharedURI}},
+	}
+	proxy := &CentianEndpoint{
+		name:              "test",
+		isAggregatedProxy: true,
+		downstreamPools: map[string]*DownstreamSessionPool{
+			"pool-1": {
+				downstreamSessionKey: "pool-1",
+				resourceCollisions: map[string][]string{
+					sharedURI: {"server-a", "server-b"},
+				},
+			},
+		},
+	}
+	session := &UpstreamSession{
+		id:                   "session-1",
+		downstreamSessionKey: "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": connA,
+			"server-b": connB,
+		},
+	}
+
+	err := proxy.forwardUnsubscribe(context.Background(), session, &mcp.UnsubscribeRequest{
+		Params: &mcp.UnsubscribeParams{URI: sharedURI},
+	})
+
+	assert.ErrorContains(t, err, `resource URI "file:///shared/resource" is hidden because multiple downstreams expose it: server-a, server-b`)
 }
 
 func TestForwardSubscribe_NormalizesDownstreamMethodError(t *testing.T) {
@@ -346,6 +511,114 @@ func TestSyncAvailableResourceTemplates_RegistersTemplates(t *testing.T) {
 
 	_, registered := session.registeredResourceTemplates[templateURI]
 	assert.Assert(t, registered)
+}
+
+func TestSyncAvailableResourceTemplates_AggregatedDuplicateTemplateIsOmitted(t *testing.T) {
+	const sharedTemplateURI = "file:///items/{id}"
+	const uniqueTemplateURI = "file:///other/{id}"
+	logs := captureInternalLogs(t)
+
+	connA := &MockDownstreamConnection{
+		serverName: "server-a",
+		Status:     StatusConnected,
+		resourceTemplates: []*mcp.ResourceTemplate{
+			{URITemplate: sharedTemplateURI, Name: "shared-on-a"},
+			{URITemplate: uniqueTemplateURI, Name: "unique-on-a"},
+		},
+	}
+	connB := &MockDownstreamConnection{
+		serverName: "server-b",
+		Status:     StatusConnected,
+		resourceTemplates: []*mcp.ResourceTemplate{
+			{URITemplate: sharedTemplateURI, Name: "shared-on-b"},
+		},
+	}
+	proxy := &CentianEndpoint{
+		name:              "test",
+		isAggregatedProxy: true,
+		downstreamPools:   make(map[string]*DownstreamSessionPool),
+	}
+	upstreamServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, &mcp.ServerOptions{
+		HasResources: true,
+	})
+	pool := &DownstreamSessionPool{
+		downstreamSessionKey:       "pool-1",
+		resourceTemplateCollisions: make(map[string][]string),
+	}
+	proxy.downstreamPools["pool-1"] = pool
+	session := &UpstreamSession{
+		id:                          "session-1",
+		upstreamServer:              upstreamServer,
+		registeredResources:         make(map[string]struct{}),
+		registeredResourceTemplates: make(map[string]struct{}),
+		downstreamSessionKey:        "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": connA,
+			"server-b": connB,
+		},
+	}
+
+	proxy.syncAvailableResourceTemplates(session)
+
+	_, sharedRegistered := session.registeredResourceTemplates[sharedTemplateURI]
+	assert.Assert(t, !sharedRegistered, "colliding templates should be omitted")
+	_, uniqueRegistered := session.registeredResourceTemplates[uniqueTemplateURI]
+	assert.Assert(t, uniqueRegistered, "unique templates should remain available")
+	assert.DeepEqual(t, pool.resourceTemplateCollisions[sharedTemplateURI], []string{"server-a", "server-b"})
+	assert.Assert(t, strings.Contains(logs.String(), `aggregated resource template "`+sharedTemplateURI+`" collides across downstreams [server-a, server-b]`))
+}
+
+func TestSyncAvailableResourceTemplates_RegistersTemplateWhenCollisionResolves(t *testing.T) {
+	const sharedTemplateURI = "file:///items/{id}"
+	logs := captureInternalLogs(t)
+
+	connA := &MockDownstreamConnection{
+		serverName:        "server-a",
+		Status:            StatusConnected,
+		resourceTemplates: []*mcp.ResourceTemplate{{URITemplate: sharedTemplateURI, Name: "shared-on-a"}},
+	}
+	connB := &MockDownstreamConnection{
+		serverName:        "server-b",
+		Status:            StatusConnected,
+		resourceTemplates: []*mcp.ResourceTemplate{{URITemplate: sharedTemplateURI, Name: "shared-on-b"}},
+	}
+	proxy := &CentianEndpoint{
+		name:              "test",
+		isAggregatedProxy: true,
+		downstreamPools:   make(map[string]*DownstreamSessionPool),
+	}
+	upstreamServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "1.0"}, &mcp.ServerOptions{
+		HasResources: true,
+	})
+	pool := &DownstreamSessionPool{
+		downstreamSessionKey:       "pool-1",
+		resourceTemplateCollisions: make(map[string][]string),
+	}
+	proxy.downstreamPools["pool-1"] = pool
+	session := &UpstreamSession{
+		id:                          "session-1",
+		upstreamServer:              upstreamServer,
+		registeredResources:         make(map[string]struct{}),
+		registeredResourceTemplates: make(map[string]struct{}),
+		downstreamSessionKey:        "pool-1",
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-a": connA,
+			"server-b": connB,
+		},
+	}
+
+	proxy.syncAvailableResourceTemplates(session)
+	_, registeredWhileColliding := session.registeredResourceTemplates[sharedTemplateURI]
+	assert.Assert(t, !registeredWhileColliding)
+
+	connB.resourceTemplates = nil
+	proxy.syncAvailableResourceTemplates(session)
+
+	_, registeredAfterResolution := session.registeredResourceTemplates[sharedTemplateURI]
+	assert.Assert(t, registeredAfterResolution, "the surviving template should be re-registered after the collision resolves")
+	_, stillColliding := pool.resourceTemplateCollisions[sharedTemplateURI]
+	assert.Assert(t, !stillColliding, "template collision tracking should clear once only one downstream remains")
+	assert.Assert(t, strings.Contains(logs.String(), `aggregated resource template "`+sharedTemplateURI+`" collision resolved`))
 }
 
 func TestRefreshDownstreamResources_SyncsTemplatesAndResources(t *testing.T) {

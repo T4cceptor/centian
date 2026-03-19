@@ -80,6 +80,9 @@ func (p *CentianEndpoint) forwardDownstreamResourceUpdated(
 	if params == nil || downstreamSessionKey == "" {
 		return
 	}
+	if len(p.collidingServersForResourceURI(downstreamSessionKey, params.URI)) > 0 {
+		return
+	}
 
 	sessions := p.snapshotPoolUpstreamSessions(downstreamSessionKey, conn)
 	for _, session := range sessions {
