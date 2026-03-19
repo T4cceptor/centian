@@ -552,6 +552,11 @@ func writeTestInput(path string) error {
     "tool_name": "test_tool",
     "original_server_name": "test",
     "original_tool_name": "test_tool"
+  },
+  "auth": {
+    "authenticated": true,
+    "principal_id": "test-user",
+    "principal_type": "api_key"
   }
 }
 `
@@ -773,21 +778,65 @@ class RoutingPart:
 
 
 @dataclass
+class AuthContext:
+    authenticated: bool = False
+    principal_id: str = ""
+    principal_type: str = ""
+    gateway: str = ""
+    auth_header: str = ""
+    internal_session_id: str = ""
+    transport_session_id: str = ""
+    credential_fingerprint: str = ""
+    key_id: str = ""
+
+    @staticmethod
+    def from_dict(data: Optional[Dict[str, Any]]) -> "AuthContext":
+        source = data or {}
+        return AuthContext(
+            authenticated=bool(source.get("authenticated", False)),
+            principal_id=source.get("principal_id", ""),
+            principal_type=source.get("principal_type", ""),
+            gateway=source.get("gateway", ""),
+            auth_header=source.get("auth_header", ""),
+            internal_session_id=source.get("internal_session_id", ""),
+            transport_session_id=source.get("transport_session_id", ""),
+            credential_fingerprint=source.get("credential_fingerprint", ""),
+            key_id=source.get("key_id", ""),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return compact_dict({
+            "authenticated": True if self.authenticated else None,
+            "principal_id": self.principal_id or None,
+            "principal_type": self.principal_type or None,
+            "gateway": self.gateway or None,
+            "auth_header": self.auth_header or None,
+            "internal_session_id": self.internal_session_id or None,
+            "transport_session_id": self.transport_session_id or None,
+            "credential_fingerprint": self.credential_fingerprint or None,
+            "key_id": self.key_id or None,
+        })
+
+
+@dataclass
 class DataContext:
     version: str = ""
     event: Optional[Dict[str, Any]] = None
     payload: Optional[PayloadPart] = None
     routing: Optional[RoutingPart] = None
+    auth: Optional[AuthContext] = None
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> "DataContext":
         payload_source = data.get("payload")
         routing_source = data.get("routing")
+        auth_source = data.get("auth")
         return DataContext(
             version=data.get("version", ""),
             event=data.get("event"),
             payload=PayloadPart.from_dict(payload_source) if isinstance(payload_source, dict) else None,
             routing=RoutingPart.from_dict(routing_source) if isinstance(routing_source, dict) else None,
+            auth=AuthContext.from_dict(auth_source) if isinstance(auth_source, dict) else None,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -796,6 +845,7 @@ class DataContext:
             "event": self.event,
             "payload": self.payload.to_dict() if self.payload else None,
             "routing": self.routing.to_dict() if self.routing else None,
+            "auth": self.auth.to_dict() if self.auth else None,
         })
 
 
@@ -911,11 +961,24 @@ interface RoutingPart {
   original_tool_name?: string;
 }
 
+interface AuthContext {
+  authenticated?: boolean;
+  principal_id?: string;
+  principal_type?: string;
+  gateway?: string;
+  auth_header?: string;
+  internal_session_id?: string;
+  transport_session_id?: string;
+  credential_fingerprint?: string;
+  key_id?: string;
+}
+
 interface DataContext {
   version?: string;
   event?: Record<string, unknown>;
   payload?: PayloadPart;
   routing?: RoutingPart;
+  auth?: AuthContext;
 }
 
 function processContext(ctx: DataContext): DataContext {

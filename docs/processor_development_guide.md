@@ -523,7 +523,7 @@ test_case() {
     fi
 }
 
-# Test cases: use the DataContext format (version + event + payload + routing)
+# Test cases: use the DataContext format (version + event + payload + routing + auth)
 SAFE='{"version":"1.0","event":{"direction":"[CLIENT -> SERVER]","message_type":"request","success":true},"payload":{"request":{"Params":{"name":"safe_tool","arguments":{}}}}}'
 DANGEROUS='{"version":"1.0","event":{"direction":"[CLIENT -> SERVER]","message_type":"request","success":true},"payload":{"request":{"Params":{"name":"delete_user","arguments":{}}}}}'
 

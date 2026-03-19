@@ -402,6 +402,10 @@ func TestWriteTestInput(t *testing.T) {
 	params, ok := request["Params"].(map[string]any)
 	assert.Assert(t, ok)
 	assert.Equal(t, params["name"], "test_tool")
+
+	auth, ok := input["auth"].(map[string]any)
+	assert.Assert(t, ok)
+	assert.Equal(t, auth["principal_type"], "api_key")
 }
 func TestAddProcessorToConfig(t *testing.T) {
 	// Given: a temp config and processor details

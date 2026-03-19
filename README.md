@@ -303,6 +303,7 @@ centian processor add --type webhook --url https://example.com/processors/audit 
 ```
 
 CLI and webhook processors use the same `DataContext` contract and can coexist in the same chain.
+That contract centers on `event`, `payload`, `routing`, and optional read-only `auth` context, as documented in [`docs/processor_development_guide.md`](/Users/brb/_devspace/centian-cli/docs/processor_development_guide.md).
 
 ## Logging
 
