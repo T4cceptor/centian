@@ -184,3 +184,26 @@ func TestSetup_ProcessorsInitializedForBothEndpointTypes(t *testing.T) {
 	assert.Assert(t, singleHandler != nil)
 	assert.Equal(t, "/mcp/gateway/server1", singlePattern)
 }
+
+func TestCentianServerClose_ClosesEndpointPools(t *testing.T) {
+	conn := &MockDownstreamConnection{serverName: "server-a", Status: StatusConnected}
+	endpoint := &CentianEndpoint{
+		downstreamPools: map[string]*DownstreamSessionPool{
+			"pool-1": {
+				downstreamConns: map[string]DownstreamConnectionInterface{
+					"server-a": conn,
+				},
+				connecting: make(map[string]bool),
+			},
+		},
+	}
+	server := &CentianServer{
+		Endpoints: []*CentianEndpoint{nil, endpoint},
+	}
+
+	errs := server.Close()
+
+	assert.Assert(t, len(errs) == 0)
+	assert.Equal(t, conn.CloseCalls, 1)
+	assert.Equal(t, len(endpoint.downstreamPools), 0)
+}

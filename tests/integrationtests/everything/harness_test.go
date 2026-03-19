@@ -27,6 +27,7 @@ const (
 	defaultSessionTimeout       = 30 * time.Second
 	defaultDirectTerminateWait  = 250 * time.Millisecond
 	defaultToolsWaitTimeout     = 20 * time.Second
+	defaultShutdownTimeout      = 10 * time.Second
 	defaultEverythingServerCmd  = "npx"
 	defaultEverythingServerArgs = "-y @modelcontextprotocol/server-everything"
 )
@@ -379,7 +380,7 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 	waitForProxyListener(t, server.Server.Addr)
 
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 		defer cancel()
 
 		if err := server.Server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
