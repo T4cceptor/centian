@@ -51,6 +51,12 @@ func (p *CentianEndpoint) newUpstreamServer(session *UpstreamSession) *mcp.Serve
 			return session.id
 		},
 	})
+	// TODO: refactor registerStaticProxyTools into 2 functions:
+	// 1. for auth tools
+	// 2. for test notifications (they should be separated)
+	// then call both from here
+	// and move registerStaticProxyTools away from CentianEndpoint
+	// it should be a session.upstreamServer function actually
 	p.registerStaticProxyTools(session, server)
 	return server
 }
@@ -186,7 +192,7 @@ func (p *CentianEndpoint) collectDownstreamToolState(
 	conn DownstreamConnectionInterface,
 	summary *downstreamRegistrationSummary,
 ) {
-	if pool.connecting[serverName] {
+	if pool.HasActiveConnectWorker(serverName) {
 		summary.connectingCount++
 		return
 	}

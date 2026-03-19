@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +13,31 @@ import (
 
 // DownstreamConnectionPool is a test-only alias kept for readability in existing test setups.
 type DownstreamConnectionPool = DownstreamSessionPool
+
+func connectUpstreamTestClient(
+	t *testing.T,
+	session *UpstreamSession,
+	options *mcp.ClientOptions,
+) (*mcp.ClientSession, func()) {
+	t.Helper()
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := session.upstreamServer.Connect(ctx, serverTransport, nil)
+	assert.NilError(t, err)
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "client", Version: "1.0.0"}, options)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	assert.NilError(t, err)
+
+	// Tests use the existing empty-ID fallback to resolve the live server session.
+	session.id = ""
+
+	return clientSession, func() {
+		_ = clientSession.Close()
+		_ = serverSession.Close()
+	}
+}
 
 func TestCreateSession_AuthHeaders(t *testing.T) {
 	// Given: a proxy with a configured auth header

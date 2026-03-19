@@ -62,7 +62,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		common.LogInfo("API key auth disabled via config\n")
 	}
 
-	return &CentianServer{
+	centianServer := &CentianServer{
 		Config:     globalConfig,
 		Mux:        mux,
 		Server:     server,
@@ -72,7 +72,14 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		Endpoints:  []*CentianEndpoint{},
 		APIKeys:    apiKeyStore,
 		AuthHeader: globalConfig.GetAuthHeader(),
-	}, nil
+	}
+	server.RegisterOnShutdown(func() {
+		for _, err := range centianServer.Close() {
+			common.LogWarn("error during centian shutdown cleanup: %v", err)
+		}
+	})
+
+	return centianServer, nil
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints.
@@ -122,6 +129,22 @@ func (c *CentianServer) Setup() error {
 		}
 	}
 	return nil
+}
+
+// Close releases endpoint-owned resources such as pooled downstream sessions.
+func (c *CentianServer) Close() []error {
+	if c == nil {
+		return nil
+	}
+
+	errs := make([]error, 0)
+	for _, endpoint := range c.Endpoints {
+		if endpoint == nil {
+			continue
+		}
+		errs = append(errs, endpoint.Close()...)
+	}
+	return errs
 }
 
 // initEventProcessor initializes the event processor for this ProxyEndpoint.

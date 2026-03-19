@@ -104,17 +104,40 @@ func (p *CentianEndpoint) getOrCreateSessionPoolLocked(session *UpstreamSession)
 func (p *CentianEndpoint) startMissingPoolConnectionsLocked(pool *DownstreamSessionPool, connectOptions *DownstreamConnectOptions) {
 	for serverName, serverConfig := range p.GetActiveMCPServerConfigs() {
 		conn, err := pool.GetConnectionByServerName(serverName)
-		if err != nil || conn.GetStatus().IsFailed() || conn.GetStatus().IsAuthRequired() || conn.GetStatus().IsRefreshFailed() {
+		if err != nil {
 			conn = p.newDownstreamConnection(serverName, serverConfig)
 			pool.SetConnection(serverName, conn)
 		}
-		isConnecting, _ := pool.IsConnecting(serverName)
-		if isConnecting || conn.IsConnected() {
+		if p.shouldSkipPoolConnectStartLocked(pool, serverName, conn) {
 			continue
 		}
-		pool.connecting[serverName] = true
-		go p.connectDownstreamPool(pool.downstreamSessionKey, conn, cloneDownstreamConnectOptions(connectOptions))
+		if conn.GetStatus().IsFailed() || conn.GetStatus().IsDisconnected() {
+			conn = p.newDownstreamConnection(serverName, serverConfig)
+			pool.SetConnection(serverName, conn)
+		}
+		p.launchPoolConnectRetryLocked(pool, serverName, connectOptions)
 	}
+}
+
+// shouldSkipPoolConnectStartLocked reports whether the pool already has an
+// owning connect worker or the current connection is in a state that should not
+// start a new pool connect flow.
+//
+// The pool-level worker state is the authoritative concurrency guard. It stays
+// true across backoff sleeps, while conn.IsConnecting() only describes one
+// concrete connection object being inside Connect() right now.
+func (p *CentianEndpoint) shouldSkipPoolConnectStartLocked(
+	pool *DownstreamSessionPool,
+	serverName string,
+	conn DownstreamConnectionInterface,
+) bool {
+	if pool == nil || conn == nil {
+		return true
+	}
+	if pool.HasActiveConnectWorker(serverName) {
+		return true
+	}
+	return conn.IsConnected() || conn.GetStatus().IsAuthRequired() || conn.GetStatus().IsRefreshFailed()
 }
 
 // waitForFirstUsableDownstream waits briefly for at least one connected downstream with tools.
@@ -142,7 +165,7 @@ func (p *CentianEndpoint) downstreamPoolHasUsableConnection(pool *DownstreamSess
 	defer p.mu.RUnlock()
 
 	for serverName, conn := range pool.downstreamConns {
-		if pool.connecting[serverName] {
+		if pool.HasActiveConnectWorker(serverName) {
 			continue
 		}
 		if conn.IsConnected() && len(conn.Tools()) > 0 {
@@ -154,15 +177,15 @@ func (p *CentianEndpoint) downstreamPoolHasUsableConnection(pool *DownstreamSess
 
 // connectDownstreamPool establishes one downstream connection owned by a reusable pool.
 func (p *CentianEndpoint) connectDownstreamPool(
+	ctx context.Context,
 	downstreamSessionKey string,
 	conn DownstreamConnectionInterface,
 	connectOptions *DownstreamConnectOptions,
-) {
+) error {
 	serverName := conn.GetServerName()
 	options := p.poolConnectOptions(downstreamSessionKey, serverName, conn, connectOptions)
-	if err := conn.Connect(context.Background(), options); err != nil {
-		p.handlePoolConnectError(downstreamSessionKey, serverName, conn, err)
-		return
+	if err := conn.Connect(ctx, options); err != nil {
+		return err
 	}
 
 	p.syncPoolLoggingLevel(downstreamSessionKey)
@@ -171,6 +194,7 @@ func (p *CentianEndpoint) connectDownstreamPool(
 	p.syncPoolSessions(serverName, sessions, oauthEnabled)
 	common.LogInfo("ProxyEndpoint[%s]: connected pooled downstream %s with %d tools, %d resources, %d resource templates, %d prompts",
 		p.name, sanitizeLogValue(serverName), len(conn.Tools()), len(conn.Resources()), len(conn.ResourceTemplates()), len(conn.Prompts()))
+	return nil
 }
 
 func (p *CentianEndpoint) poolConnectOptions(
@@ -185,7 +209,7 @@ func (p *CentianEndpoint) poolConnectOptions(
 	return options
 }
 
-func (p *CentianEndpoint) handlePoolConnectError(
+func (p *CentianEndpoint) handlePoolConnectAuthError(
 	downstreamSessionKey, serverName string,
 	conn DownstreamConnectionInterface,
 	err error,
@@ -206,7 +230,15 @@ func (p *CentianEndpoint) handlePoolConnectError(
 		)
 		return
 	}
-	common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, serverName, err)
+}
+
+func (p *CentianEndpoint) handlePoolConnectFailure(
+	downstreamSessionKey, serverName string,
+	conn DownstreamConnectionInterface,
+	err error,
+) {
+	p.releasePoolConnection(downstreamSessionKey, serverName, conn)
+	common.LogWarn("ProxyEndpoint[%s]: failed to connect pooled downstream %s: %v", p.name, sanitizeLogValue(serverName), err)
 }
 
 func (p *CentianEndpoint) releasePoolConnection(

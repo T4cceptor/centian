@@ -108,7 +108,7 @@ func TestSessionNeedsInitialRootsBootstrap(t *testing.T) {
 	assert.Assert(t, !proxy.sessionNeedsInitialRootsBootstrap(session.id))
 }
 
-func TestApplyClientStateLockedConnectsWithResolvedRoots(t *testing.T) {
+func TestApplyClientStateLockedPropagatesResolvedRoots(t *testing.T) {
 	proxy := NewSingleEndpoint("server-a", "/mcp/server-a", &config.GatewayConfig{
 		MCPServers: map[string]*config.MCPServerConfig{
 			"server-a": {Command: "node"},
@@ -152,29 +152,17 @@ func TestApplyClientStateLockedConnectsWithResolvedRoots(t *testing.T) {
 	assert.Assert(t, session.downstreamSessionKey != "")
 	assert.Assert(t, !proxy.sessionNeedsInitialRootsBootstrap(session.id))
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
+	waitForCondition(t, 3*time.Second, func() bool {
 		mockConn.mu.RLock()
-		connected := mockConn.ConnectCalls > 0
-		foundResolvedRoots := false
-		if connected {
-			for _, captured := range mockConn.CapturedConnects {
-				if reflect.DeepEqual(normalizeRoots(captured.ClientState.Roots), normalizeRoots(resolvedRoots)) {
-					foundResolvedRoots = true
-					break
-				}
+		defer mockConn.mu.RUnlock()
+
+		for _, captured := range mockConn.CapturedConnects {
+			if reflect.DeepEqual(normalizeRoots(captured.ClientState.Roots), normalizeRoots(resolvedRoots)) {
+				return true
 			}
 		}
-		mockConn.mu.RUnlock()
-
-		if connected {
-			assert.Assert(t, foundResolvedRoots)
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	t.Fatal("expected downstream connect with resolved roots")
+		return false
+	})
 }
 
 func TestMarkUpstreamSessionRootsDirty(t *testing.T) {

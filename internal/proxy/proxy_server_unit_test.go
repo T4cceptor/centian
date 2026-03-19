@@ -14,6 +14,7 @@ import (
 	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
+	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -455,7 +456,7 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 }
 
 func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing.T) {
-	// Given: an aggregated proxy where one downstream fails the first time
+	// Given: an aggregated proxy where a later session encounters a failed pooled downstream
 	createdByServer := make(map[string]int)
 	proxy := &CentianEndpoint{
 		name:              "gateway",
@@ -474,10 +475,6 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 					{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
 				},
 			}
-			if name == "server2" && createdByServer[name] == 1 {
-				conn.ErrorToReturn = errors.New("dial failed")
-				conn.Status = StatusFailed
-			}
 			return conn
 		},
 		server: &CentianServer{
@@ -494,20 +491,24 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	request2.Header.Set("Mcp-Session-Id", "session-2")
 	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
 
-	// When: the first session creates a partial failure
+	// When: the first session establishes the pooled downstream set
 	server1 := proxy.GetOrCreateServerForRequest(request1)
 	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
-	firstSession := attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
-	waitForCondition(t, time.Second, func() bool {
-		proxy.mu.RLock()
-		defer proxy.mu.RUnlock()
-		entry, ok := proxy.downstreamPools[firstSession.downstreamSessionKey]
-		if !ok {
-			return false
-		}
-		conn, exists := entry.downstreamConns["server2"]
-		return exists && conn.GetStatus().IsFailed() && !entry.connecting["server2"]
-	})
+	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
+	waitForCondition(t, time.Second, func() bool { return createdByServer["server2"] >= 1 })
+	beforeRetry := createdByServer["server2"]
+
+	proxy.mu.Lock()
+	firstSession := proxy.upstreamSessions[firstSessionID]
+	pool := proxy.downstreamPools[firstSession.downstreamSessionKey]
+	pool.downstreamConns["server2"] = &MockDownstreamConnection{
+		serverName:    "server2",
+		cfg:           proxy.config.MCPServers["server2"],
+		Status:        StatusFailed,
+		ErrorToReturn: errors.New("terminal failure"),
+	}
+	delete(pool.connecting, "server2")
+	proxy.mu.Unlock()
 
 	// And: a later session with the same identity arrives after that failure settled
 	server2 := proxy.GetOrCreateServerForRequest(request2)
@@ -516,7 +517,340 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 	// Then: the failed downstream should be retried for the later session
 	assert.Assert(t, server1 != nil)
 	assert.Assert(t, server2 != nil)
-	assert.Equal(t, createdByServer["server2"], 2)
+	waitForCondition(t, time.Second, func() bool {
+		return createdByServer["server2"] == beforeRetry+1
+	})
+}
+
+func TestGetServerForRequest_RetriesTransientFailureInBackground(t *testing.T) {
+	conn := &MockDownstreamConnection{
+		serverName: "server1",
+		cfg:        &config.MCPServerConfig{Command: "node"},
+		tools: []*mcp.Tool{
+			{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
+		},
+	}
+	conn.ConnectFunc = func(context.Context, *DownstreamConnectOptions) error {
+		if conn.ConnectCalls == 1 {
+			return errors.New("dial failed")
+		}
+		return nil
+	}
+
+	proxy := &CentianEndpoint{
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
+		connectionFactory: func(string, *config.MCPServerConfig) DownstreamConnectionInterface {
+			return conn
+		},
+		server: &CentianServer{
+			APIKeys:    createTestAPIKeyStore(t),
+			AuthHeader: "Authorization",
+			Config:     &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request = request.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	server := proxy.GetOrCreateServerForRequest(request)
+	assert.Assert(t, server != nil)
+
+	sessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
+	proxy.mu.RLock()
+	session := proxy.upstreamSessions[sessionID]
+	proxy.mu.RUnlock()
+	assert.Assert(t, session != nil)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	attachInitializedSessionForTest(t, proxy, sessionID, &mcp.ClientCapabilities{})
+
+	waitForCondition(t, 3*time.Second, func() bool {
+		toolsResult, err := clientSession.ListTools(context.Background(), nil)
+		return err == nil && len(toolsResult.Tools) == 1
+	})
+	assert.Equal(t, conn.ConnectCalls, 2)
+}
+
+func TestGetServerForRequest_DoesNotRetryPermanentFailures(t *testing.T) {
+	conn := &MockDownstreamConnection{
+		serverName:    "server1",
+		cfg:           &config.MCPServerConfig{Command: "node"},
+		ErrorToReturn: errors.New("failed to create transport: no URL or Command configured for server server1"),
+		Status:        StatusPending,
+	}
+
+	proxy := &CentianEndpoint{
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
+		connectionFactory: func(string, *config.MCPServerConfig) DownstreamConnectionInterface {
+			return conn
+		},
+		server: &CentianServer{
+			APIKeys:    createTestAPIKeyStore(t),
+			AuthHeader: "Authorization",
+			Config:     &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request = request.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	server := proxy.GetOrCreateServerForRequest(request)
+	assert.Assert(t, server != nil)
+
+	sessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
+	proxy.mu.RLock()
+	session := proxy.upstreamSessions[sessionID]
+	proxy.mu.RUnlock()
+	assert.Assert(t, session != nil)
+
+	_, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	attachInitializedSessionForTest(t, proxy, sessionID, &mcp.ClientCapabilities{})
+
+	waitForCondition(t, time.Second, func() bool {
+		proxy.mu.RLock()
+		defer proxy.mu.RUnlock()
+		pool := proxy.downstreamPools[session.downstreamSessionKey]
+		return pool != nil && !pool.connecting["server1"]
+	})
+	time.Sleep(350 * time.Millisecond)
+	assert.Equal(t, conn.ConnectCalls, 1)
+}
+
+func TestGetServerForRequest_DoesNotRetryAuthorizationFailures(t *testing.T) {
+	testCases := []struct {
+		name   string
+		reason string
+	}{
+		{name: "auth required", reason: centoauth.AuthorizationReasonRequired},
+		{name: "refresh failed", reason: centoauth.AuthorizationReasonRefreshFailed},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &MockDownstreamConnection{
+				serverName: "server1",
+				cfg:        &config.MCPServerConfig{Command: "node"},
+				ErrorToReturn: &centoauth.AuthorizationRequiredError{
+					Binding: centoauth.Binding{
+						PrincipalID: "auth:key_1",
+						Gateway:     "gateway",
+						Server:      "server1",
+					},
+					AuthURL: "http://127.0.0.1:8080/oauth/start?id=test",
+					Reason:  tc.reason,
+				},
+			}
+
+			proxy := &CentianEndpoint{
+				name:              "gateway",
+				endpoint:          "/mcp/gateway",
+				config:            testGatewayConfig("server1"),
+				isAggregatedProxy: true,
+				upstreamSessions:  make(map[string]*UpstreamSession),
+				downstreamPools:   make(map[string]*DownstreamConnectionPool),
+				connectionFactory: func(string, *config.MCPServerConfig) DownstreamConnectionInterface {
+					return conn
+				},
+				server: &CentianServer{
+					APIKeys:    createTestAPIKeyStore(t),
+					AuthHeader: "Authorization",
+					Config:     &config.GlobalConfig{Version: "1.0.0"},
+				},
+			}
+
+			request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+			request = request.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+			server := proxy.GetOrCreateServerForRequest(request)
+			assert.Assert(t, server != nil)
+
+			sessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
+			proxy.mu.RLock()
+			session := proxy.upstreamSessions[sessionID]
+			proxy.mu.RUnlock()
+			assert.Assert(t, session != nil)
+
+			_, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+			defer cleanup()
+
+			attachInitializedSessionForTest(t, proxy, sessionID, &mcp.ClientCapabilities{})
+
+			waitForCondition(t, time.Second, func() bool {
+				proxy.mu.RLock()
+				defer proxy.mu.RUnlock()
+				pool := proxy.downstreamPools[session.downstreamSessionKey]
+				return pool != nil && !pool.connecting["server1"]
+			})
+			time.Sleep(350 * time.Millisecond)
+			assert.Equal(t, conn.ConnectCalls, 1)
+		})
+	}
+}
+
+func TestInvalidatePooledDownstream_CancelsActiveRetry(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	conn := &MockDownstreamConnection{
+		serverName: "server1",
+		cfg:        &config.MCPServerConfig{Command: "node"},
+	}
+	conn.ConnectFunc = func(ctx context.Context, _ *DownstreamConnectOptions) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-release:
+			return nil
+		}
+	}
+
+	proxy := &CentianEndpoint{
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
+		connectionFactory: func(string, *config.MCPServerConfig) DownstreamConnectionInterface {
+			return conn
+		},
+		server: &CentianServer{
+			APIKeys:    createTestAPIKeyStore(t),
+			AuthHeader: "Authorization",
+			Config:     &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request = request.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	server := proxy.GetOrCreateServerForRequest(request)
+	assert.Assert(t, server != nil)
+
+	sessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
+	proxy.mu.RLock()
+	session := proxy.upstreamSessions[sessionID]
+	proxy.mu.RUnlock()
+	assert.Assert(t, session != nil)
+
+	_, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	attachInitializedSessionForTest(t, proxy, sessionID, &mcp.ClientCapabilities{})
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("connect attempt did not start in time")
+	}
+
+	proxy.invalidateDownstreamPool(session.downstreamSessionKey)
+	close(release)
+
+	waitForCondition(t, time.Second, func() bool {
+		proxy.mu.RLock()
+		defer proxy.mu.RUnlock()
+		_, ok := proxy.downstreamPools[session.downstreamSessionKey]
+		return !ok
+	})
+	waitForCondition(t, time.Second, func() bool {
+		return conn.CloseCalls == 1
+	})
+	assert.Equal(t, conn.ConnectCalls, 1)
+}
+
+func TestGetServerForRequest_DoesNotSpawnDuplicateRetryWorker(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	created := 0
+
+	conn := &MockDownstreamConnection{
+		serverName: "server1",
+		cfg:        &config.MCPServerConfig{Command: "node"},
+		tools: []*mcp.Tool{
+			{Name: "ping", Description: "ping", InputSchema: map[string]any{"type": "object"}},
+		},
+	}
+	conn.ConnectFunc = func(ctx context.Context, _ *DownstreamConnectOptions) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-release:
+			return nil
+		}
+	}
+
+	proxy := &CentianEndpoint{
+		name:              "gateway",
+		endpoint:          "/mcp/gateway",
+		config:            testGatewayConfig("server1"),
+		isAggregatedProxy: true,
+		upstreamSessions:  make(map[string]*UpstreamSession),
+		downstreamPools:   make(map[string]*DownstreamConnectionPool),
+		connectionFactory: func(string, *config.MCPServerConfig) DownstreamConnectionInterface {
+			created++
+			return conn
+		},
+		server: &CentianServer{
+			APIKeys:    createTestAPIKeyStore(t),
+			AuthHeader: "Authorization",
+			Config:     &config.GlobalConfig{Version: "1.0.0"},
+		},
+	}
+
+	request1 := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request1 = request1.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+	request2 := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway", http.NoBody)
+	request2.Header.Set("Mcp-Session-Id", "session-2")
+	request2 = request2.WithContext(withRequestIdentity(context.Background(), "auth:key_1"))
+
+	server1 := proxy.GetOrCreateServerForRequest(request1)
+	assert.Assert(t, server1 != nil)
+
+	firstSessionID := findOnlyUpstreamSessionIDForTest(t, proxy)
+	proxy.mu.RLock()
+	firstSession := proxy.upstreamSessions[firstSessionID]
+	proxy.mu.RUnlock()
+	assert.Assert(t, firstSession != nil)
+
+	_, cleanup := connectUpstreamTestClient(t, firstSession, &mcp.ClientOptions{})
+	defer cleanup()
+
+	attachInitializedSessionForTest(t, proxy, firstSessionID, &mcp.ClientCapabilities{})
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("connect attempt did not start in time")
+	}
+
+	server2 := proxy.GetOrCreateServerForRequest(request2)
+	assert.Assert(t, server2 != nil)
+	attachInitializedSessionForTest(t, proxy, "session-2", &mcp.ClientCapabilities{})
+
+	assert.Equal(t, created, 1)
+	close(release)
 }
 
 func TestLogRequestForDebugPreservesRequestBody(t *testing.T) {

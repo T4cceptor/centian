@@ -28,6 +28,7 @@ const (
 	runRealworldIntegrationEnv = "CENTIAN_RUN_REALWORLD_INTEGRATION"
 	defaultSessionTimeout      = 30 * time.Second
 	defaultToolsWaitTimeout    = 20 * time.Second
+	defaultShutdownTimeout     = 10 * time.Second
 )
 
 type serverMode string
@@ -269,7 +270,7 @@ func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downs
 	waitForProxyListener(t, server.Server.Addr)
 
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 		defer cancel()
 
 		if err := server.Server.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {

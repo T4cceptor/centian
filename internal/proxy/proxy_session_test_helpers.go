@@ -13,7 +13,7 @@ func attachInitializedSessionForTest(
 	proxy *CentianEndpoint,
 	sessionID string,
 	capabilities *mcp.ClientCapabilities,
-) *UpstreamSession {
+) {
 	t.Helper()
 
 	proxy.mu.RLock()
@@ -29,7 +29,6 @@ func attachInitializedSessionForTest(
 	proxy.mu.Unlock()
 
 	proxy.finalizeDownstreamPoolUpdate(context.Background(), session, update)
-	return session
 }
 
 func findOnlyUpstreamSessionIDForTest(t *testing.T, proxy *CentianEndpoint) string {

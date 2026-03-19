@@ -101,14 +101,11 @@ func (p *CentianEndpoint) handleOAuthAuthorized(binding centoauth.Binding) {
 
 	p.mu.Lock()
 	type reconnectRequest struct {
-		downstreamSessionKey string
-		oldConn              DownstreamConnectionInterface
-		conn                 DownstreamConnectionInterface
-		options              *DownstreamConnectOptions
+		oldConn DownstreamConnectionInterface
 	}
 	reconnects := make([]reconnectRequest, 0)
 
-	for downstreamSessionKey, pool := range p.downstreamPools {
+	for _, pool := range p.downstreamPools {
 		if pool == nil || pool.identityKey != binding.PrincipalID {
 			continue
 		}
@@ -135,12 +132,9 @@ func (p *CentianEndpoint) handleOAuthAuthorized(binding centoauth.Binding) {
 		}
 		newConn := p.newDownstreamConnection(binding.Server, serverConfig)
 		pool.downstreamConns[binding.Server] = newConn
-		pool.connecting[binding.Server] = true
+		p.launchPoolConnectRetryLocked(pool, binding.Server, p.buildDownstreamConnectOptions(session))
 		reconnects = append(reconnects, reconnectRequest{
-			downstreamSessionKey: downstreamSessionKey,
-			oldConn:              conn,
-			conn:                 newConn,
-			options:              cloneDownstreamConnectOptions(p.buildDownstreamConnectOptions(session)),
+			oldConn: conn,
 		})
 	}
 	p.mu.Unlock()
@@ -156,6 +150,5 @@ func (p *CentianEndpoint) handleOAuthAuthorized(binding centoauth.Binding) {
 				)
 			}
 		}
-		go p.connectDownstreamPool(reconnect.downstreamSessionKey, reconnect.conn, reconnect.options)
 	}
 }
