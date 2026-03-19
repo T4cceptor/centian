@@ -112,3 +112,25 @@ func TestNewPoolResourceUpdatedHandler(t *testing.T) {
 	})
 	waitForSingleResourceUpdate(t, recorder)
 }
+
+func TestForwardDownstreamResourceUpdated_SuppressesCollidedResourceURI(t *testing.T) {
+	proxy := newLoggingTestProxy()
+	session := newLoggingTestSession(proxy, "session-1")
+	recorder, clientSession, cleanup := connectResourceClient(t, session)
+	defer cleanup()
+
+	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
+		downstreamSessionKey: "pool-1",
+		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
+		resourceCollisions:   map[string][]string{"file:///resource": {"server-a", "server-b"}},
+	}
+
+	subscribeResource(t, clientSession)
+
+	proxy.forwardDownstreamResourceUpdated(context.Background(), "pool-1", "server-a", nil, &mcp.ResourceUpdatedNotificationParams{
+		URI: "file:///resource",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	assert.Equal(t, len(recorder.snapshot()), 0)
+}

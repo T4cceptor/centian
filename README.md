@@ -249,7 +249,10 @@ Be aware of:
 - Aggregated gateway endpoint: `http://localhost:8080/mcp/<gateway>`
 - Individual server endpoint: `http://localhost:8080/mcp/<gateway>/<server>`
 
-In aggregated mode, tools are namespaced to avoid collisions.
+In aggregated mode, tools and prompts are namespaced to avoid collisions.
+Resources and resource templates are not namespaced. If multiple downstreams expose
+the same resource URI or resource-template URI, Centian hides that entry from the
+aggregated surface and logs a warning instead of silently letting one downstream win.
 
 ## Session Management
 

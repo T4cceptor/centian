@@ -79,6 +79,10 @@ type DownstreamSessionPool struct {
 	retryTokens    map[string]uint64
 	nextRetryToken uint64
 	lastUsed       time.Time
+
+	collisionMu                sync.RWMutex
+	resourceCollisions         map[string][]string // keyed by resource URI
+	resourceTemplateCollisions map[string][]string // keyed by resource URI template
 }
 
 type notificationJob struct {

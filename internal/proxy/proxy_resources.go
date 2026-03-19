@@ -3,6 +3,9 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -10,6 +13,16 @@ import (
 
 // This file registers upstream resource surfaces and routes proxied resource
 // requests to downstream servers. It mirrors the pattern in proxy_tools.go.
+
+type resourceEntry struct {
+	resource   *mcp.Resource
+	serverName string
+}
+
+type resourceTemplateEntry struct {
+	resourceTemplate *mcp.ResourceTemplate
+	serverName       string
+}
 
 // syncAvailableResources reconciles the upstream server's registered resources
 // against the set currently available from connected downstream servers.
@@ -26,26 +39,8 @@ func (p *CentianEndpoint) syncAvailableResources(session *UpstreamSession) {
 		session.registeredResources = make(map[string]struct{})
 	}
 
-	// --- Collection step ---
-	type resourceEntry struct {
-		resource   *mcp.Resource
-		serverName string
-	}
-	desiredResources := make(map[string]resourceEntry) // keyed by URI
-	for serverName, conn := range session.downstreamConns {
-		if !conn.IsConnected() {
-			continue
-		}
-		for _, resource := range conn.Resources() {
-			if resource == nil {
-				continue
-			}
-			// Edge case: if multiple downstreams expose the same URI in an aggregated
-			// proxy, the last one wins. URI namespacing across downstreams is not yet
-			// implemented; callers should be aware of this limitation.
-			desiredResources[resource.URI] = resourceEntry{resource: resource, serverName: serverName}
-		}
-	}
+	desiredResources, collisions := p.desiredResourceState(session)
+	p.updatePoolResourceCollisions(session.downstreamSessionKey, collisions)
 
 	// --- Registration step (future hook point for capability filtering) ---
 
@@ -115,25 +110,8 @@ func (p *CentianEndpoint) syncAvailableResourceTemplates(session *UpstreamSessio
 		session.registeredResourceTemplates = make(map[string]struct{})
 	}
 
-	type resourceTemplateEntry struct {
-		resourceTemplate *mcp.ResourceTemplate
-		serverName       string
-	}
-	desiredTemplates := make(map[string]resourceTemplateEntry) // keyed by URI template
-	for serverName, conn := range session.downstreamConns {
-		if !conn.IsConnected() {
-			continue
-		}
-		for _, resourceTemplate := range conn.ResourceTemplates() {
-			if resourceTemplate == nil {
-				continue
-			}
-			desiredTemplates[resourceTemplate.URITemplate] = resourceTemplateEntry{
-				resourceTemplate: resourceTemplate,
-				serverName:       serverName,
-			}
-		}
-	}
+	desiredTemplates, collisions := p.desiredResourceTemplateState(session)
+	p.updatePoolResourceTemplateCollisions(session.downstreamSessionKey, collisions)
 
 	staleTemplates := make([]string, 0)
 	for uriTemplate := range session.registeredResourceTemplates {
@@ -204,6 +182,13 @@ func (p *CentianEndpoint) forwardReadResource(ctx context.Context, session *Upst
 // forwardSubscribe forwards a resource subscription request to the downstream that owns the URI.
 func (p *CentianEndpoint) forwardSubscribe(ctx context.Context, session *UpstreamSession, req *mcp.SubscribeRequest) error {
 	uri := req.Params.URI
+	if servers := p.collidingServersForResourceURI(session.downstreamSessionKey, uri); len(servers) > 0 {
+		return fmt.Errorf(
+			"resource URI %q is hidden because multiple downstreams expose it: %s",
+			uri,
+			strings.Join(servers, ", "),
+		)
+	}
 	conn := p.findConnectionForResourceURI(session, uri)
 	if conn == nil {
 		return fmt.Errorf("no downstream connection found for resource URI %q", uri)
@@ -214,6 +199,13 @@ func (p *CentianEndpoint) forwardSubscribe(ctx context.Context, session *Upstrea
 // forwardUnsubscribe forwards a resource unsubscription request to the downstream that owns the URI.
 func (p *CentianEndpoint) forwardUnsubscribe(ctx context.Context, session *UpstreamSession, req *mcp.UnsubscribeRequest) error {
 	uri := req.Params.URI
+	if servers := p.collidingServersForResourceURI(session.downstreamSessionKey, uri); len(servers) > 0 {
+		return fmt.Errorf(
+			"resource URI %q is hidden because multiple downstreams expose it: %s",
+			uri,
+			strings.Join(servers, ", "),
+		)
+	}
 	conn := p.findConnectionForResourceURI(session, uri)
 	if conn == nil {
 		return fmt.Errorf("no downstream connection found for resource URI %q", uri)
@@ -250,4 +242,216 @@ func (p *CentianEndpoint) findConnectionForResourceURI(session *UpstreamSession,
 	}
 	common.LogWarn("ProxyEndpoint[%s]: no downstream found for resource URI %q", p.name, uri)
 	return nil
+}
+
+func (p *CentianEndpoint) desiredResourceState(session *UpstreamSession) (map[string]resourceEntry, map[string][]string) {
+	desiredResources := make(map[string]resourceEntry)
+	if session == nil {
+		return desiredResources, map[string][]string{}
+	}
+
+	if !p.isAggregatedProxy {
+		for serverName, conn := range session.downstreamConns {
+			if !conn.IsConnected() {
+				continue
+			}
+			for _, resource := range conn.Resources() {
+				if resource == nil {
+					continue
+				}
+				desiredResources[resource.URI] = resourceEntry{resource: resource, serverName: serverName}
+			}
+		}
+		return desiredResources, map[string][]string{}
+	}
+
+	owners := make(map[string]map[string]struct{})
+	entries := make(map[string]resourceEntry)
+	for serverName, conn := range session.downstreamConns {
+		if !conn.IsConnected() {
+			continue
+		}
+		for _, resource := range conn.Resources() {
+			if resource == nil {
+				continue
+			}
+			if owners[resource.URI] == nil {
+				owners[resource.URI] = make(map[string]struct{})
+				entries[resource.URI] = resourceEntry{resource: resource, serverName: serverName}
+			}
+			owners[resource.URI][serverName] = struct{}{}
+		}
+	}
+
+	collisions := make(map[string][]string)
+	for uri, entry := range entries {
+		servers := sortedServerSet(owners[uri])
+		if len(servers) > 1 {
+			collisions[uri] = servers
+			continue
+		}
+		desiredResources[uri] = entry
+	}
+	return desiredResources, collisions
+}
+
+func (p *CentianEndpoint) desiredResourceTemplateState(session *UpstreamSession) (map[string]resourceTemplateEntry, map[string][]string) {
+	desiredTemplates := make(map[string]resourceTemplateEntry)
+	if session == nil {
+		return desiredTemplates, map[string][]string{}
+	}
+
+	if !p.isAggregatedProxy {
+		for serverName, conn := range session.downstreamConns {
+			if !conn.IsConnected() {
+				continue
+			}
+			for _, resourceTemplate := range conn.ResourceTemplates() {
+				if resourceTemplate == nil {
+					continue
+				}
+				desiredTemplates[resourceTemplate.URITemplate] = resourceTemplateEntry{
+					resourceTemplate: resourceTemplate,
+					serverName:       serverName,
+				}
+			}
+		}
+		return desiredTemplates, map[string][]string{}
+	}
+
+	owners := make(map[string]map[string]struct{})
+	entries := make(map[string]resourceTemplateEntry)
+	for serverName, conn := range session.downstreamConns {
+		if !conn.IsConnected() {
+			continue
+		}
+		for _, resourceTemplate := range conn.ResourceTemplates() {
+			if resourceTemplate == nil {
+				continue
+			}
+			if owners[resourceTemplate.URITemplate] == nil {
+				owners[resourceTemplate.URITemplate] = make(map[string]struct{})
+				entries[resourceTemplate.URITemplate] = resourceTemplateEntry{
+					resourceTemplate: resourceTemplate,
+					serverName:       serverName,
+				}
+			}
+			owners[resourceTemplate.URITemplate][serverName] = struct{}{}
+		}
+	}
+
+	collisions := make(map[string][]string)
+	for uriTemplate, entry := range entries {
+		servers := sortedServerSet(owners[uriTemplate])
+		if len(servers) > 1 {
+			collisions[uriTemplate] = servers
+			continue
+		}
+		desiredTemplates[uriTemplate] = entry
+	}
+	return desiredTemplates, collisions
+}
+
+func (p *CentianEndpoint) updatePoolResourceCollisions(downstreamSessionKey string, next map[string][]string) {
+	pool := p.downstreamPool(downstreamSessionKey)
+	if pool == nil {
+		return
+	}
+
+	pool.collisionMu.Lock()
+	defer pool.collisionMu.Unlock()
+
+	previous := cloneCollisionMap(pool.resourceCollisions)
+	p.logCollisionStateChanges("resource URI", previous, next)
+	pool.resourceCollisions = cloneCollisionMap(next)
+}
+
+func (p *CentianEndpoint) updatePoolResourceTemplateCollisions(downstreamSessionKey string, next map[string][]string) {
+	pool := p.downstreamPool(downstreamSessionKey)
+	if pool == nil {
+		return
+	}
+
+	pool.collisionMu.Lock()
+	defer pool.collisionMu.Unlock()
+
+	previous := cloneCollisionMap(pool.resourceTemplateCollisions)
+	p.logCollisionStateChanges("resource template", previous, next)
+	pool.resourceTemplateCollisions = cloneCollisionMap(next)
+}
+
+func (p *CentianEndpoint) logCollisionStateChanges(kind string, previous, next map[string][]string) {
+	for _, key := range sortedCollisionKeys(next) {
+		servers := next[key]
+		if prevServers, ok := previous[key]; ok && slices.Equal(prevServers, servers) {
+			continue
+		}
+		common.LogWarn(
+			"ProxyEndpoint[%s]: aggregated %s %q collides across downstreams [%s]; omitting it from the upstream surface",
+			p.name,
+			kind,
+			key,
+			strings.Join(servers, ", "),
+		)
+	}
+
+	for _, key := range sortedCollisionKeys(previous) {
+		if _, stillColliding := next[key]; stillColliding {
+			continue
+		}
+		common.LogInfo(
+			"ProxyEndpoint[%s]: aggregated %s %q collision resolved; advertising it again if a single downstream still exposes it",
+			p.name,
+			kind,
+			key,
+		)
+	}
+}
+
+func (p *CentianEndpoint) collidingServersForResourceURI(downstreamSessionKey, uri string) []string {
+	pool := p.downstreamPool(downstreamSessionKey)
+	if pool == nil {
+		return nil
+	}
+
+	pool.collisionMu.RLock()
+	defer pool.collisionMu.RUnlock()
+
+	return slices.Clone(pool.resourceCollisions[uri])
+}
+
+func (p *CentianEndpoint) downstreamPool(downstreamSessionKey string) *DownstreamSessionPool {
+	if downstreamSessionKey == "" {
+		return nil
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.downstreamPools[downstreamSessionKey]
+}
+
+func cloneCollisionMap(source map[string][]string) map[string][]string {
+	cloned := make(map[string][]string, len(source))
+	for key, servers := range source {
+		cloned[key] = slices.Clone(servers)
+	}
+	return cloned
+}
+
+func sortedCollisionKeys(collisions map[string][]string) []string {
+	keys := make([]string, 0, len(collisions))
+	for key := range collisions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedServerSet(serverSet map[string]struct{}) []string {
+	servers := make([]string, 0, len(serverSet))
+	for serverName := range serverSet {
+		servers = append(servers, serverName)
+	}
+	sort.Strings(servers)
+	return servers
 }
