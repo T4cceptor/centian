@@ -122,9 +122,7 @@ func TestForwardDownstreamResourceUpdated_SuppressesCollidedResourceURI(t *testi
 	proxy.downstreamPools["pool-1"] = &DownstreamSessionPool{
 		downstreamSessionKey: "pool-1",
 		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
-		resourceCollisions: map[string][]string{
-			"file:///resource": []string{"server-a", "server-b"},
-		},
+		resourceCollisions:   map[string][]string{"file:///resource": {"server-a", "server-b"}},
 	}
 
 	subscribeResource(t, clientSession)
