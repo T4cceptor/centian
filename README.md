@@ -304,6 +304,7 @@ centian processor add --type webhook --url https://example.com/processors/audit 
 
 CLI and webhook processors use the same `DataContext` contract and can coexist in the same chain.
 That contract centers on `event`, `payload`, `routing`, and optional read-only `auth` context, as documented in [`docs/processor_development_guide.md`](/Users/brb/_devspace/centian-cli/docs/processor_development_guide.md).
+Processor `timeout` values are configured in seconds per processor and default to `15`. The timeout is enforced per invocation, so the same processor may consume that budget once on the request phase and again on the response phase of a single tool call. Required processor timeouts fail the current phase; non-required processor timeouts are logged and skipped.
 
 ## Logging
 
