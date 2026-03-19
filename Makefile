@@ -18,7 +18,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test test-integration test-everything test-realworld test-all test-coverage test-coverage-html lint fmt vet tidy run dev tag-release release major minor patch
+.PHONY: help build clean test test-integration test-everything test-realworld test-all test-coverage test-coverage-html lint fmt vet tidy run dev check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -140,7 +140,7 @@ tag-release: ## Create and push a release tag (BUMP=major|minor|patch)
 
 
 # Release commands
-release: ## Tag a new release (usage: make tag-release [major|minor|patch], defaults to patch)
+release: check-main-branch ## Tag a new release (usage: make tag-release [major|minor|patch], defaults to patch)
 	@./scripts/tag-release.sh $(filter-out $@,$(MAKECMDGOALS))
 
 major minor patch:
@@ -148,3 +148,9 @@ major minor patch:
 
 inspect:
 	npx @modelcontextprotocol/inspector centian stdio --cmd npx -- -y @modelcontextprotocol/server-memory
+check-main-branch: ## Ensure the current git branch is main
+	@branch=$$(git rev-parse --abbrev-ref HEAD 2>/dev/null); \
+	if [ "$$branch" != "main" ]; then \
+		echo "Error: release must be run from main (current branch: $$branch)"; \
+		exit 1; \
+	fi
