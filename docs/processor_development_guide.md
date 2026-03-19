@@ -195,11 +195,7 @@ Processors receive a JSON object with this structure. CLI processors read it fro
     "direction": "[CLIENT -> SERVER]",
     "message_type": "request",
     "success": true,
-    "modified": false,
-    "routing": {
-      "transport": "http",
-      "server_name": "memory"
-    }
+    "modified": false
   },
   "payload": {
     "request": {
@@ -241,7 +237,7 @@ Processors receive a JSON object with this structure. CLI processors read it fro
 | Field | Type | Description |
 |-------|------|-------------|
 | `version` | string | Data contract version (e.g. `"1.0"`). Follows major.minor: major is breaking, minor is additive |
-| `event` | object | MCP event metadata when the `meta` part is enabled. Key fields: `direction` (`"[CLIENT -> SERVER]"` or `"[SERVER -> CLIENT]"`), `message_type` (`"request"` or `"response"`), `transport`, `timestamp`, `success`, `routing` |
+| `event` | object | MCP event metadata when the `meta` part is enabled. Key fields: `direction` (`"[CLIENT -> SERVER]"` or `"[SERVER -> CLIENT]"`), `message_type` (`"request"` or `"response"`), `transport`, `timestamp`, `success` |
 | `payload.request` | object | Current `tools/call` request payload when the `payload` part is enabled |
 | `payload.original_request` | object | Original upstream request snapshot (read-only) |
 | `payload.result` | object | Current downstream tool result if one exists |

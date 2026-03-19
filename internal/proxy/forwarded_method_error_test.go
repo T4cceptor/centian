@@ -91,7 +91,7 @@ func TestToolCallContextSendRequestNormalizesDownstreamMethodWrapper(t *testing.
 				Arguments: []byte(`{"a":1}`),
 			},
 		},
-		event: common.NewMCPRequestEvent("stdio"),
+		meta: common.NewRequestMetaContext("stdio"),
 	}
 
 	err := toolCtx.SendRequest(context.Background())

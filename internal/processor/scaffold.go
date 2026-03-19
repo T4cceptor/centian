@@ -535,8 +535,7 @@ func writeTestInput(path string) error {
     "direction": "[CLIENT -> SERVER]",
     "message_type": "request",
     "success": true,
-    "modified": false,
-    "routing": {}
+    "modified": false
   },
   "payload": {
     "request": {

@@ -29,8 +29,9 @@ type CallContext interface {
 	GetOriginalResult() *mcp.CallToolResult // Returns the initial CallToolResult first set, can be nil if request was not sent yet OR resulted in error
 	SetResult(*mcp.CallToolResult)          // Sets the result for this call context
 
-	GetEventInfo() *common.MCPEvent // Returns the attached MCPEvent
-	SetEventInfo(*common.MCPEvent)  // Sets the provided MCPEvent
+	GetMetaContext() *common.MetaContext // Returns the attached processor metadata
+	SetMetaContext(*common.MetaContext)  // Sets the provided processor metadata
+	ToLogEntry() *common.LogEntry        // Returns the current call state as a log entry
 
 	// Original request (immutable deep clone - for auditing/comparison)
 	GetOriginalServerName() string            // Returns name of the original server

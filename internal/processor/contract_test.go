@@ -42,7 +42,7 @@ var contractFixtureTime = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 func buildContractInputDataContext() *DataContext {
 	rawArgs := json.RawMessage(`{"key":"value"}`)
 
-	event := &common.MCPEvent{
+	event := &common.MetaContext{
 		BaseMcpEvent: common.BaseMcpEvent{
 			Status:      0,
 			Timestamp:   contractFixtureTime,
@@ -52,10 +52,6 @@ func buildContractInputDataContext() *DataContext {
 			MessageType: common.MessageTypeRequest,
 			Success:     true,
 			Modified:    false,
-		},
-		Routing: common.RoutingContext{
-			Transport:  common.HTTPTransport,
-			ServerName: "test-server",
 		},
 	}
 

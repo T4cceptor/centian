@@ -1,46 +1,42 @@
 {
-  "version": "1.0",
-  "event": {
-    "status": 0,
-    "timestamp": "2026-01-01T00:00:00Z",
-    "transport": "http",
-    "request_id": "req-contract-v1",
-    "direction": "[CLIENT -> SERVER]",
-    "message_type": "request",
-    "success": true,
-    "modified": false,
-    "routing": {
-      "transport": "http",
-      "server_name": "test-server"
-    }
-  },
-  "payload": {
-    "request": {
-      "Params": {
-        "name": "test_tool",
-        "arguments": {
-          "key": "value"
-        }
-      }
-    },
-    "original_request": {
-      "Params": {
-        "name": "test_tool",
-        "arguments": {
-          "key": "value"
-        }
-      }
-    }
-  },
-  "routing": {
-    "server_name": "test-server",
-    "tool_name": "test_tool",
-    "original_server_name": "test-server",
-    "original_tool_name": "test_tool"
-  },
   "auth": {
     "authenticated": true,
     "principal_id": "test-user",
     "principal_type": "api_key"
-  }
+  },
+  "event": {
+    "direction": "[CLIENT -\u003e SERVER]",
+    "message_type": "request",
+    "modified": false,
+    "request_id": "req-contract-v1",
+    "status": 0,
+    "success": true,
+    "timestamp": "2026-01-01T00:00:00Z",
+    "transport": "http"
+  },
+  "payload": {
+    "original_request": {
+      "Params": {
+        "arguments": {
+          "key": "value"
+        },
+        "name": "test_tool"
+      }
+    },
+    "request": {
+      "Params": {
+        "arguments": {
+          "key": "value"
+        },
+        "name": "test_tool"
+      }
+    }
+  },
+  "routing": {
+    "original_server_name": "test-server",
+    "original_tool_name": "test_tool",
+    "server_name": "test-server",
+    "tool_name": "test_tool"
+  },
+  "version": "1.0"
 }

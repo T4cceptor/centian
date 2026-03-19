@@ -15,10 +15,6 @@ import (
 
 type noopLogHandler struct{}
 
-func (l *noopLogHandler) ToLogEntry(_ CallContext) *common.MCPEvent {
-	return nil
-}
-
 func (l *noopLogHandler) Log(_ CallContext) error {
 	return nil
 }
@@ -294,7 +290,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 					Arguments: args,
 				},
 			},
-			event: common.NewMCPRequestEvent("stdio"),
+			meta: common.NewRequestMetaContext("stdio"),
 		}
 	}
 
@@ -309,7 +305,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 			request: &mcp.CallToolRequest{
 				Params: &mcp.CallToolParamsRaw{Name: "tool_name", Arguments: json.RawMessage(`{}`)},
 			},
-			event: common.NewMCPRequestEvent("stdio"),
+			meta: common.NewRequestMetaContext("stdio"),
 		}
 
 		err := toolCtx.SendRequest(context.Background())
@@ -340,7 +336,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 			},
 			routingContext: &common.RoutingContext{ServerName: "srv"},
 			request:        &mcp.CallToolRequest{},
-			event:          common.NewMCPRequestEvent("stdio"),
+			meta:           common.NewRequestMetaContext("stdio"),
 		}
 
 		err := toolCtx.SendRequest(context.Background())
@@ -400,7 +396,7 @@ func TestToolCallContextSendRequest(t *testing.T) {
 }
 
 func TestToolCallContextAccessors(t *testing.T) {
-	event := common.NewMCPRequestEvent("stdio")
+	meta := common.NewRequestMetaContext("stdio")
 	toolCtx := &ToolCallContext{
 		proxy: &CentianEndpoint{
 			name:              "gw",
@@ -421,7 +417,7 @@ func TestToolCallContextAccessors(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Name: "orig_tool"},
 		},
 		originalServerName: "orig-srv",
-		event:              event,
+		meta:               meta,
 	}
 
 	// Given: no routing context yet.
@@ -464,14 +460,14 @@ func TestToolCallContextAccessors(t *testing.T) {
 	assert.Equal(t, toolCtx.GetMessageType(), common.MessageTypeResponse)
 
 	// And: event can be replaced.
-	updatedEvent := common.NewMCPRequestEvent("http")
-	toolCtx.SetEventInfo(updatedEvent)
-	assert.Assert(t, toolCtx.GetEventInfo() == updatedEvent)
+	updatedMeta := common.NewRequestMetaContext("http")
+	toolCtx.SetMetaContext(updatedMeta)
+	assert.Assert(t, toolCtx.GetMetaContext() == updatedMeta)
 }
 
 func TestToolCallContextSetResultAndHandlers(t *testing.T) {
 	toolCtx := &ToolCallContext{
-		event: common.NewMCPRequestEvent("stdio"),
+		meta: common.NewRequestMetaContext("stdio"),
 	}
 
 	// Given: first and second results.
@@ -504,7 +500,7 @@ func TestToolCallContextSetResultAndHandlers(t *testing.T) {
 
 func TestToolCallContextSessionAndOriginalAccessors(t *testing.T) {
 	toolCtx := &ToolCallContext{
-		event: common.NewMCPRequestEvent("stdio").WithRequestID("req-1"),
+		meta: common.NewRequestMetaContext("stdio").WithRequestID("req-1"),
 	}
 
 	// Given: nil session and nil original request.

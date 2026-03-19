@@ -21,7 +21,7 @@ type mockCallContext struct {
 	originalRequest    *mcp.CallToolRequest
 	result             *mcp.CallToolResult
 	originalResult     *mcp.CallToolResult
-	event              *common.MCPEvent
+	meta               *common.MetaContext
 	routing            *common.RoutingContext
 	authData           *AuthData
 	handlers           map[string]CallContextHandler
@@ -41,7 +41,7 @@ func newMockCallContext() *mockCallContext {
 	return &mockCallContext{
 		request:         req,
 		originalRequest: deepCloneRequest(req),
-		event:           common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
+		meta:            common.NewRequestMetaContext("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
 		routing:         &common.RoutingContext{ServerName: "server-a", Transport: common.StdioTransport},
 		authData: &AuthData{
 			AuthHeaderName: "Authorization",
@@ -67,9 +67,16 @@ func (m *mockCallContext) SetResult(result *mcp.CallToolResult) {
 	}
 	m.result = result
 }
-func (m *mockCallContext) GetEventInfo() *common.MCPEvent { return m.event }
-func (m *mockCallContext) SetEventInfo(event *common.MCPEvent) {
-	m.event = event
+func (m *mockCallContext) GetMetaContext() *common.MetaContext { return m.meta }
+func (m *mockCallContext) SetMetaContext(meta *common.MetaContext) {
+	m.meta = meta
+}
+func (m *mockCallContext) ToLogEntry() *common.LogEntry {
+	entry := &common.LogEntry{BaseMcpEvent: m.meta.BaseMcpEvent}
+	if m.routing != nil {
+		entry.Routing = *m.routing
+	}
+	return entry
 }
 func (m *mockCallContext) GetOriginalServerName() string { return m.originalServerName }
 func (m *mockCallContext) GetOriginalRequest() *mcp.CallToolRequest {
@@ -95,24 +102,24 @@ func (m *mockCallContext) GetToolName() string {
 	}
 	return m.request.Params.Name
 }
-func (m *mockCallContext) GetStatus() int       { return m.event.Status }
-func (m *mockCallContext) SetStatus(status int) { m.event.Status = status }
-func (m *mockCallContext) GetError() string     { return m.event.Error }
-func (m *mockCallContext) SetError(msg string)  { m.event.Error = msg }
-func (m *mockCallContext) GetRequestID() string { return m.event.RequestID }
-func (m *mockCallContext) GetSessionID() string { return m.event.SessionID }
+func (m *mockCallContext) GetStatus() int       { return m.meta.Status }
+func (m *mockCallContext) SetStatus(status int) { m.meta.Status = status }
+func (m *mockCallContext) GetError() string     { return m.meta.Error }
+func (m *mockCallContext) SetError(msg string)  { m.meta.Error = msg }
+func (m *mockCallContext) GetRequestID() string { return m.meta.RequestID }
+func (m *mockCallContext) GetSessionID() string { return m.meta.SessionID }
 func (m *mockCallContext) GetAuthData() *AuthData {
 	return m.authData
 }
 func (m *mockCallContext) GetDirection() common.McpEventDirection {
-	return m.event.Direction
+	return m.meta.Direction
 }
 func (m *mockCallContext) SetDirection(direction common.McpEventDirection) {
-	m.event.Direction = direction
+	m.meta.Direction = direction
 }
-func (m *mockCallContext) GetMessageType() common.McpMessageType { return m.event.MessageType }
+func (m *mockCallContext) GetMessageType() common.McpMessageType { return m.meta.MessageType }
 func (m *mockCallContext) SetMessageType(msgType common.McpMessageType) {
-	m.event.MessageType = msgType
+	m.meta.MessageType = msgType
 }
 func (m *mockCallContext) GetRoutingContext() *common.RoutingContext { return m.routing }
 func (m *mockCallContext) GetHandler(part string) (CallContextHandler, bool) {
@@ -156,7 +163,6 @@ type mockLogHandler struct {
 	logErr   error
 }
 
-func (m *mockLogHandler) ToLogEntry(callCtx CallContext) *common.MCPEvent { return nil }
 func (m *mockLogHandler) Log(callCtx CallContext) error {
 	m.logCalls++
 	return m.logErr
@@ -221,7 +227,7 @@ func TestGetInput_UsesConfiguredHandlers(t *testing.T) {
 	}
 	metaHandler := &mockHandler{
 		getFn: func(callCtx CallContext, input *processor.DataContext) {
-			input.Event = callCtx.GetEventInfo()
+			input.Event = callCtx.GetMetaContext()
 		},
 	}
 
@@ -304,7 +310,7 @@ func TestApplyResult_AppliesConfiguredHandlers(t *testing.T) {
 	}
 	result := &processor.DataContext{
 		Payload: &processor.PayloadPart{},
-		Event:   common.NewMCPRequestEvent("stdio"),
+		Event:   common.NewRequestMetaContext("stdio"),
 	}
 
 	err := ApplyResult(processorConfig, result, callCtx)

@@ -174,7 +174,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 	baseMcpEvent := BaseMcpEvent{
 		Transport: "my-test-transport",
 	}
-	mcpEvents := []MCPEvent{{BaseMcpEvent: baseMcpEvent}}
+	mcpEvents := []MetaContext{{BaseMcpEvent: baseMcpEvent}}
 
 	for _, event := range mcpEvents {
 		// When: calling IsRequest and IsResponse.
@@ -187,7 +187,7 @@ func TestGetBaseEvent_Works(t *testing.T) {
 
 func TestSetStatus_Works(t *testing.T) {
 	// Given: some MCP Events.
-	mcpEvents := []MCPEvent{{}}
+	mcpEvents := []MetaContext{{}}
 
 	for _, event := range mcpEvents {
 		// When: calling IsRequest and IsResponse.

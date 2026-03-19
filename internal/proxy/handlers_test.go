@@ -31,7 +31,7 @@ func newHandlerTestCallContext() *ToolCallContext {
 		request:            req,
 		result:             &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result-current"}}},
 		originalResult:     &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "result-original"}}},
-		event:              common.NewMCPRequestEvent("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
+		meta:               common.NewRequestMetaContext("stdio").WithRequestID("req-1").WithSessionID("sess-1"),
 		routingContext:     &common.RoutingContext{ServerName: "server-current"},
 		authData: &AuthData{
 			AuthHeaderName: "Authorization",
@@ -119,17 +119,17 @@ func TestDefaultMetaHandlerAttachPartAndApply(t *testing.T) {
 	handler := &DefaultMetaHandler{}
 
 	handler.AttachPart(callCtx, input)
-	assert.Assert(t, input.Event == callCtx.GetEventInfo())
+	assert.Assert(t, input.Event == callCtx.GetMetaContext())
 
-	originalEvent := callCtx.GetEventInfo()
+	originalEvent := callCtx.GetMetaContext()
 	err := handler.Apply(callCtx, &processor.DataContext{})
 	assert.NilError(t, err)
-	assert.Assert(t, callCtx.GetEventInfo() == originalEvent)
+	assert.Assert(t, callCtx.GetMetaContext() == originalEvent)
 
-	newEvent := common.NewMCPRequestEvent("http")
+	newEvent := common.NewRequestMetaContext("http")
 	err = handler.Apply(callCtx, &processor.DataContext{Event: newEvent})
 	assert.NilError(t, err)
-	assert.Assert(t, callCtx.GetEventInfo() == newEvent)
+	assert.Assert(t, callCtx.GetMetaContext() == newEvent)
 }
 
 func TestDefaultRoutingHandlerAttachPart(t *testing.T) {
@@ -222,9 +222,7 @@ func TestDefaultAuthHandlerAttachPartAndApply(t *testing.T) {
 	assert.Equal(t, callCtx.GetAuthData().KeyEntry.ID, "key_1")
 }
 
-func TestDefaultLogHandlerToLogEntry(t *testing.T) {
-	handler := &DefaultLogHandler{}
-
+func TestToolCallContextToLogEntry(t *testing.T) {
 	t.Run("request entry includes routing and tool call arguments", func(t *testing.T) {
 		callCtx := newHandlerTestCallContext()
 		callCtx.result = nil
@@ -233,7 +231,7 @@ func TestDefaultLogHandlerToLogEntry(t *testing.T) {
 		callCtx.SetMessageType(common.MessageTypeRequest)
 		callCtx.SetStatus(200)
 
-		entry := handler.ToLogEntry(callCtx)
+		entry := callCtx.ToLogEntry()
 		assert.Assert(t, entry != nil)
 		assert.Equal(t, entry.Transport, string(common.StdioTransport))
 		assert.Equal(t, entry.Direction, common.DirectionClientToServer)
@@ -259,7 +257,7 @@ func TestDefaultLogHandlerToLogEntry(t *testing.T) {
 		callCtx.SetMessageType(common.MessageTypeResponse)
 		callCtx.SetStatus(500)
 
-		entry := handler.ToLogEntry(callCtx)
+		entry := callCtx.ToLogEntry()
 		assert.Assert(t, entry != nil)
 		assert.Equal(t, entry.Direction, common.DirectionServerToClient)
 		assert.Equal(t, entry.MessageType, common.MessageTypeResponse)
@@ -269,17 +267,6 @@ func TestDefaultLogHandlerToLogEntry(t *testing.T) {
 		assert.Assert(t, entry.ToolCall.IsError)
 		assert.Assert(t, len(entry.ToolCall.Result) > 0)
 	})
-}
-
-func TestDefaultLogHandlerGetTransport(t *testing.T) {
-	handler := &DefaultLogHandler{}
-	callCtx := newHandlerTestCallContext()
-
-	callCtx.routingContext = nil
-	assert.Equal(t, handler.getTransport(callCtx), "unknown")
-
-	callCtx.routingContext = &common.RoutingContext{Transport: common.HTTPTransport}
-	assert.Equal(t, handler.getTransport(callCtx), string(common.HTTPTransport))
 }
 
 func TestDefaultLogHandlerLog(t *testing.T) {

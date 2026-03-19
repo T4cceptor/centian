@@ -1,9 +1,7 @@
 package proxy
 
 import (
-	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/logging"
@@ -25,8 +23,6 @@ type CallContextHandler interface {
 // LogHandler defines how CallContext is serialized for logging.
 // Different implementations allow different log formats.
 type LogHandler interface {
-	// ToLogEntry creates a loggable representation of the current state
-	ToLogEntry(callCtx CallContext) *common.MCPEvent
 	Log(callCtx CallContext) error
 }
 
@@ -82,18 +78,18 @@ func (h *DefaultPayloadHandler) Apply(callCtx CallContext, result *processor.Dat
 // metadata information to/by a processor.
 type DefaultMetaHandler struct{}
 
-// AttachPart attaches MCPEvent information from CallContext on input ProcessorContext.
+// AttachPart attaches MetaContext information from CallContext on input ProcessorContext.
 func (h *DefaultMetaHandler) AttachPart(callCtx CallContext, input *processor.DataContext) {
-	input.Event = callCtx.GetEventInfo()
+	input.Event = callCtx.GetMetaContext()
 	// TODO: slight issue here: we are attaching a reference to the callCtx
-	// - this can result in processors changing the attached MCPEvent before calling Apply
-	// Better: clone MCPEvent
+	// - this can result in processors changing the attached MetaContext before calling Apply
+	// Better: clone MetaContext
 }
 
 // Apply uses provided result ProcessorContext to modify the CallContext.
 func (h *DefaultMetaHandler) Apply(callCtx CallContext, result *processor.DataContext) error {
 	if result.Event != nil {
-		callCtx.SetEventInfo(result.Event)
+		callCtx.SetMetaContext(result.Event)
 	}
 	return nil
 }
@@ -203,7 +199,7 @@ func (h *DefaultAuthHandler) Apply(_ CallContext, _ *processor.DataContext) erro
 }
 
 // =============================================================================
-// DefaultLogHandler - produces MCPEvent-compatible log entries
+// DefaultLogHandler writes the current call state to the request log.
 // =============================================================================
 
 // DefaultLogHandler provides simple, default functionality for logging CallContext data.
@@ -218,52 +214,7 @@ func NewDefaultLogHandler(logger *logging.Logger) *DefaultLogHandler {
 	}
 }
 
-// Log uses the attached logger and ToLogEntry to log the provided CallContext data.
+// Log uses the attached logger to log the provided CallContext data.
 func (h *DefaultLogHandler) Log(callCtx CallContext) error {
-	return h.logger.LogEntry(h.ToLogEntry(callCtx))
-}
-
-// ToLogEntry transforms the provided CallContext into an MCPEvent struct.
-func (h *DefaultLogHandler) ToLogEntry(callCtx CallContext) *common.MCPEvent {
-	direction := callCtx.GetDirection()
-	msgType := callCtx.GetMessageType()
-	event := &common.MCPEvent{
-		BaseMcpEvent: common.BaseMcpEvent{
-			Timestamp:   time.Now(),
-			Transport:   h.getTransport(callCtx),
-			RequestID:   callCtx.GetRequestID(),
-			SessionID:   callCtx.GetSessionID(),
-			Direction:   direction,
-			MessageType: msgType,
-			Status:      callCtx.GetStatus(),
-			Success:     callCtx.GetStatus() < 400,
-		},
-	}
-
-	// Add routing context
-	if rc := callCtx.GetRoutingContext(); rc != nil {
-		// TODO
-		event.Routing = *rc
-	}
-
-	// Add arguments for request
-	req := callCtx.GetRequest()
-	if req != nil && req.Params != nil {
-		event.WithToolRequest(callCtx.GetToolName(), callCtx.GetOriginalToolName(), req.Params.Arguments)
-	}
-
-	// Add result for response
-	if callCtx.HasResult() {
-		result := callCtx.GetResult()
-		resultJSON, _ := json.Marshal(result)
-		event.WithToolResult(resultJSON, result.IsError)
-	}
-	return event
-}
-
-func (h *DefaultLogHandler) getTransport(callCtx CallContext) string {
-	if rc := callCtx.GetRoutingContext(); rc != nil {
-		return string(rc.Transport)
-	}
-	return "unknown"
+	return h.logger.LogEntry(callCtx.ToLogEntry())
 }
