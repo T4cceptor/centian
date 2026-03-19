@@ -148,3 +148,27 @@ func TestFetchJSONAndAuthMethodHelpers(t *testing.T) {
 	assert.Assert(t, first != second)
 	assert.Assert(t, !strings.Contains(first, "+"))
 }
+
+func TestFetchAuthorizationServerMetadataRequiresPKCES256(t *testing.T) {
+	t.Run("missing code challenge methods", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return newJSONResponse(`{"issuer":"https://issuer.example","authorization_endpoint":"https://issuer.example/authorize","token_endpoint":"https://issuer.example/token"}`), nil
+		})}
+
+		_, err := fetchAuthorizationServerMetadata(context.Background(), client, "https://issuer.example")
+		assert.Assert(t, err != nil)
+		assert.ErrorContains(t, err, pkceS256Requirement)
+		assert.ErrorContains(t, err, "code_challenge_methods_supported")
+	})
+
+	t.Run("missing S256 support", func(t *testing.T) {
+		client := &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			return newJSONResponse(`{"issuer":"https://issuer.example","authorization_endpoint":"https://issuer.example/authorize","token_endpoint":"https://issuer.example/token","code_challenge_methods_supported":["plain"]}`), nil
+		})}
+
+		_, err := fetchAuthorizationServerMetadata(context.Background(), client, "https://issuer.example")
+		assert.Assert(t, err != nil)
+		assert.ErrorContains(t, err, pkceS256Requirement)
+		assert.ErrorContains(t, err, "plain")
+	})
+}

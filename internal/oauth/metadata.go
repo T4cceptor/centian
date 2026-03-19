@@ -47,6 +47,8 @@ type ResolvedMetadata struct {
 	ClientAuthMethod      string
 }
 
+const pkceS256Requirement = "Centian currently requires downstream OAuth authorization servers to support PKCE S256"
+
 func resolveMetadata(ctx context.Context, httpClient *http.Client, reqURL string, header http.Header, oauthConfig *config.OAuthConfig) (ResolvedMetadata, error) {
 	resolved := newResolvedMetadata(oauthConfig)
 	challenges, err := parseWWWAuthenticate(header[http.CanonicalHeaderKey("WWW-Authenticate")])
@@ -198,7 +200,7 @@ func fetchAuthorizationServerMetadata(ctx context.Context, httpClient *http.Clie
 		return nil, fmt.Errorf("authorization server issuer mismatch: got %q want %q", meta.Issuer, issuer)
 	}
 	if len(meta.CodeChallengeMethodsSupported) == 0 {
-		return nil, fmt.Errorf("authorization server does not advertise PKCE support")
+		return nil, fmt.Errorf("%s; metadata does not advertise any code_challenge_methods_supported values", pkceS256Requirement)
 	}
 	supportsS256 := false
 	for _, method := range meta.CodeChallengeMethodsSupported {
@@ -208,7 +210,7 @@ func fetchAuthorizationServerMetadata(ctx context.Context, httpClient *http.Clie
 		}
 	}
 	if !supportsS256 {
-		return nil, fmt.Errorf("authorization server does not support PKCE S256")
+		return nil, fmt.Errorf("%s; advertised methods: %s", pkceS256Requirement, strings.Join(meta.CodeChallengeMethodsSupported, ", "))
 	}
 	return meta, nil
 }
