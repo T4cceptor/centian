@@ -315,6 +315,7 @@ The current processor contract does not use a top-level `status` field.
 
 - Required processor failure stops the chain.
 - Non-required processor failure is logged and later processors continue.
+- Timeouts follow the same rule: required timeouts fail the current phase, non-required timeouts are logged and skipped.
 
 ### Example
 
@@ -583,11 +584,43 @@ Edit `~/.centian/config.json`:
 | `type` | string | ✅ Yes | `"cli"` or `"webhook"` |
 | `enabled` | boolean | ✅ Yes | Whether to execute this processor |
 | `parts` | array | No | Context parts to provide; defaults to `["payload","meta"]` |
-| `timeout` | number | No | Timeout in seconds; defaults to `15` |
+| `timeout` | number | No | Per-invocation timeout in seconds; defaults to `15` |
 | `config.command` | string | CLI only | Executable to run (`python3`, `node`, etc.) |
 | `config.args` | array | CLI only | Arguments including script path |
 | `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST` |
 | `config.headers` | object | Webhook only | Optional string headers; supports `${VAR}` and `$VAR` env substitution |
+
+### Timeout Behavior
+
+- `timeout` is enforced separately for each processor invocation.
+- A processor can run twice for one MCP tool call:
+  - once in the request phase with `event.direction == "[CLIENT -> SERVER]"`
+  - once in the response phase with `event.direction == "[SERVER -> CLIENT]"`
+- If `timeout` is omitted or set to `0`, Centian defaults it to `15` seconds during config validation.
+- For CLI processors, the timeout covers the spawned process execution. Centian cancels the command context and returns an error like `processor '<name>' timed out after <n> seconds`.
+- For webhook processors, the timeout covers the synchronous HTTP request/response round trip and returns the same timeout-style error.
+- There are no automatic retries after a timeout.
+- Timeouts are treated like any other processor execution failure:
+  - required processors stop the current phase immediately
+  - non-required processors are logged and skipped, and later processors still run
+
+Example:
+
+```json
+{
+  "name": "audit_webhook",
+  "type": "webhook",
+  "enabled": true,
+  "required": false,
+  "timeout": 5,
+  "parts": ["payload", "routing"],
+  "config": {
+    "url": "https://example.com/processors/audit"
+  }
+}
+```
+
+With this config, Centian waits up to 5 seconds for the request-phase run and up to 5 seconds again for the response-phase run of the same tool call.
 
 ### CLI Registration
 
