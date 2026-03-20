@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.0 - 2026-03-20
+
+### Major
+- Formalized the processor `DataContext` contract as v1.0 with golden fixtures, updated scaffolds, and clarified that processors run around proxied `tools/call` requests and results.
+- Added retry handling for downstream connection establishment to make pooled downstream recovery more resilient to transient failures.
+- Changed aggregated resource and resource-template collision handling to fail loudly instead of silently hiding conflicting downstream entries.
+
+### Minor
+- Expanded tests and helper coverage for the formalized processor contract, downstream retry behavior, and aggregated resource collision scenarios.
+- Clarified README and processor documentation around processor scope, timeout behavior, downstream OAuth PKCE `S256` expectations, and demo setup details.
+- Added a release safeguard so the release target must be run from `main`.
+
+### Bugfixes
+- Fixed MCP event/logging structures and related handler behavior to match the formalized processor contract consistently.
+- Fixed OAuth metadata handling and tests to validate `S256` PKCE support more explicitly.
+
 ## v0.0.6 - 2026-03-18
 
 ### Major
