@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	centauth "github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
+	"github.com/T4cceptor/centian/internal/taskverification"
 )
 
 // This file creates the Centian HTTP server and registers gateway and
@@ -62,16 +65,22 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		common.LogInfo("API key auth disabled via config\n")
 	}
 
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine current working directory: %w", err)
+	}
+
 	centianServer := &CentianServer{
-		Config:     globalConfig,
-		Mux:        mux,
-		Server:     server,
-		Logger:     logger,
-		ServerID:   getServerID(globalConfig.Name),
-		Gateways:   make(map[string]*CentianEndpoint),
-		Endpoints:  []*CentianEndpoint{},
-		APIKeys:    apiKeyStore,
-		AuthHeader: globalConfig.GetAuthHeader(),
+		Config:           globalConfig,
+		Mux:              mux,
+		Server:           server,
+		Logger:           logger,
+		ServerID:         getServerID(globalConfig.Name),
+		Gateways:         make(map[string]*CentianEndpoint),
+		Endpoints:        []*CentianEndpoint{},
+		APIKeys:          apiKeyStore,
+		AuthHeader:       globalConfig.GetAuthHeader(),
+		TaskVerification: taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir),
 	}
 	server.RegisterOnShutdown(func() {
 		for _, err := range centianServer.Close() {

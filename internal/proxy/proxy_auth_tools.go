@@ -68,6 +68,9 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 	if session.registeredStaticTools == nil {
 		session.registeredStaticTools = make(map[string]struct{})
 	}
+	// TODO: this is the wrong spot to add those tools -> we should add those tools not on a specific endpoint
+	// -> we should potentially think about a separate server for this?
+	p.registerTaskVerificationTools(session, server)
 	if p.hasOAuthDownstreams() {
 		if _, exists := session.registeredStaticTools[authStatusToolName]; !exists {
 			server.AddTool(&mcp.Tool{

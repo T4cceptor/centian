@@ -5,6 +5,7 @@ go 1.25.6
 require (
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/urfave/cli/v3 v3.6.2
+	gopkg.in/yaml.v3 v3.0.1
 	golang.org/x/crypto v0.24.0
 )
 

@@ -12,6 +12,7 @@ import (
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
+	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -23,17 +24,18 @@ import (
 //
 // CentianServer is the main process for providing routes and delegating endpoint creation.
 type CentianServer struct {
-	Name       string
-	ServerID   string
-	Config     *config.GlobalConfig
-	Mux        *http.ServeMux
-	Server     *http.Server
-	Logger     *logging.Logger
-	Gateways   map[string]*CentianEndpoint
-	Endpoints  []*CentianEndpoint
-	APIKeys    *centauth.APIKeyStore
-	AuthHeader string
-	OAuth      *centoauth.Manager
+	Name             string
+	ServerID         string
+	Config           *config.GlobalConfig
+	Mux              *http.ServeMux
+	Server           *http.Server
+	Logger           *logging.Logger
+	Gateways         map[string]*CentianEndpoint
+	Endpoints        []*CentianEndpoint
+	APIKeys          *centauth.APIKeyStore
+	AuthHeader       string
+	OAuth            *centoauth.Manager
+	TaskVerification *taskverification.Service
 }
 
 // UpstreamSession represents one MCP client session talking to this proxy endpoint.
@@ -61,6 +63,9 @@ type UpstreamSession struct {
 	rootsFingerprint        string
 	rootsDirty              bool
 	pendingLogs             []*mcp.LoggingMessageParams
+
+	taskMu  sync.Mutex
+	taskRun *taskverification.RunState
 }
 
 // DownstreamSessionPool owns the reusable downstream connection set for one downstream session key.
