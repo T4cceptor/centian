@@ -6,7 +6,12 @@
     "host": "0.0.0.0",
     "port": "8080",
     "timeout": 30,
-    "logLevel": "info"
+    "logLevel": "debug",
+    "logOutput": "both",
+    "logFile": "~/centian_default.log",
+    "web": {
+        "publicBaseUrl": "http://127.0.0.1:9666"
+    }
   },
   "gateways": {
     "logging-demo": {

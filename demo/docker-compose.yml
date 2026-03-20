@@ -27,7 +27,7 @@ services:
       retries: 20
 
   centian-demo:
-    image: t4cceptor/centian:latest
+    image: t4ce/centian:latest
     restart: unless-stopped
     depends_on:
       postgres:
