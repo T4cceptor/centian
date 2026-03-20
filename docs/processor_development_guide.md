@@ -92,14 +92,14 @@ Quick-start to get a processor running in minutes:
 
 ## What is a Processor?
 
-A **processor** is a composable unit that intercepts, validates, modifies, rejects or in any other way processes MCP (Model Context Protocol) messages, included but not limited to requests AND responses, as they flow through Centian's proxy layer.
+A **processor** is a composable unit that intercepts, validates, modifies, rejects, or otherwise processes proxied `tools/call` traffic as it flows through Centian's proxy layer.
 
 **Potential Capabilities:**
-- 🔍 Inspect all MCP requests and responses
-- ✏️ Modify message payloads
+- 🔍 Inspect proxied tool call requests and downstream tool results
+- ✏️ Modify tool call payloads
 - 🛡️ Enforce security policies
-- 📊 Log and analyze communication
-- ⛔ Reject requests based on custom rules
+- 📊 Log and analyze tool call communication
+- ⛔ Reject tool calls based on custom rules
 
 **How it Works:**
 ```
@@ -110,7 +110,8 @@ MCP Client → Centian Proxy → [Processor 1] → [Processor 2] → MCP Server
 
 - Processors execute sequentially in the order defined in your configuration (see `~/.centian/config.json`).
 - Processors receive a reduced `DataContext` JSON document built from the configured parts (`payload`, `meta`, `routing`, `auth`).
-- A processor modifies the current call by returning an updated `DataContext`.
+- A processor modifies the current tool call by returning an updated `DataContext`.
+- Processors are currently invoked for proxied `tools/call` traffic only. They are not run for `initialize`, resources, prompts, completions, or other non-tool protocol surfaces.
 - If a processor execution fails:
   - required processors stop the chain
   - non-required processors are skipped and later processors still run
@@ -493,9 +494,9 @@ cat test-malformed.json | ./my_processor.py | jq
 
 Check:
 - ✅ Valid JSON structure
-- ✅ Correct status codes
+- ✅ Expected `payload.request` / `payload.result` mutations
 - ✅ Appropriate error messages
-- ✅ Exit code is 0 (even for rejections)
+- ✅ Exit code is 0 when the processor intentionally returns a rejection result
 
 ### Automated Testing
 
@@ -759,17 +760,17 @@ Centian logs processor execution:
 ### Timeout
 
 - **Default**: 15 seconds per processor
-- **Future**: Configurable per processor (see Issue #31)
+- **Config**: Set per processor via the `timeout` field; `0` or omitted defaults to `15`
 - **Best Practice**: Keep processors fast (<100ms ideal)
 
 ### Execution Frequency
 
-**Important**: Processors run on **EVERY** MCP message:
-- Every request from client to server
-- Every response from server to client
-- Includes initialization, tool calls, resource lists, etc.
+**Important**: Processors run on proxied `tools/call` traffic only:
+- Once on the request phase before the downstream tool call is sent
+- Once on the response phase after a downstream result is returned
+- They are not invoked for initialization, prompts, resources, completions, or other non-tool methods
 
-**Impact**: A slow processor will slow down ALL MCP communication.
+**Impact**: A slow processor will slow down proxied tool call handling.
 
 ### Optimization Tips
 

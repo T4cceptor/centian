@@ -135,8 +135,8 @@ go tool cover -html=coverage.out
     - Side effect testing
 
     **Expected Behavior**:
-    - Status: 200
-    - Payload: Unchanged
+    - Execution succeeds
+    - Payload remains unchanged
     - Side effect: Writes to `~/centian/logs/processor.log`
 
 - **payload_transformer.py**
@@ -149,9 +149,9 @@ go tool cover -html=coverage.out
     - Header injection
 
     **Expected Behavior**:
-    - Status: 200
-    - Payload: Modified with `x-processor` header
-    - Metadata: Lists modifications
+    - Execution succeeds
+    - Payload is modified with the `x-processor` field
+    - Returned JSON remains a valid `DataContext`
 
 ### Test Data Fixtures
 
@@ -161,13 +161,22 @@ Standard tool call request with safe parameters.
 
 ```json
 {
-  "type": "request",
+  "version": "1.0",
+  "event": {
+    "message_type": "request",
+    "direction": "[CLIENT -> SERVER]"
+  },
   "payload": {
-    "method": "tools/call",
-    "params": {
-      "name": "query_database",
-      "arguments": {...}
+    "request": {
+      "Params": {
+        "name": "query_database",
+        "arguments": {...}
+      }
     }
+  },
+  "routing": {
+    "server_name": "db",
+    "tool_name": "query_database"
   }
 }
 ```
@@ -178,10 +187,18 @@ Request that should be blocked by security validator.
 
 ```json
 {
-  "type": "request",
+  "version": "1.0",
+  "event": {
+    "message_type": "request",
+    "direction": "[CLIENT -> SERVER]"
+  },
   "payload": {
-    "method": "tools/delete_user",
-    ...
+    "request": {
+      "Params": {
+        "name": "delete_user",
+        "arguments": {...}
+      }
+    }
   }
 }
 ```
@@ -192,9 +209,12 @@ Successful response from MCP server.
 
 ```json
 {
-  "type": "response",
+  "version": "1.0",
+  "event": {
+    "message_type": "response",
+    "direction": "[SERVER -> CLIENT]"
+  },
   "payload": {
-    "jsonrpc": "2.0",
     "result": {...}
   }
 }
@@ -217,16 +237,11 @@ Or manually create in `tests/integrationtests/processors/`:
 import sys
 import json
 
-event = json.load(sys.stdin)
+ctx = json.load(sys.stdin)
 
 # Your logic here
 
-print(json.dumps({
-    "status": 200,
-    "payload": event["payload"],
-    "error": None,
-    "metadata": {"processor_name": "my_processor"}
-}))
+print(json.dumps(ctx))
 ```
 
 #### 2. Create Test Fixture (if needed)
@@ -235,11 +250,14 @@ Add to `tests/integrationtests/testdata/`:
 
 ```json
 {
-  "type": "request",
-  "timestamp": "2025-12-28T10:00:00Z",
-  "connection": {...},
+  "version": "1.0",
+  "event": {
+    "timestamp": "2025-12-28T10:00:00Z",
+    "message_type": "request",
+    "direction": "[CLIENT -> SERVER]"
+  },
   "payload": {...},
-  "metadata": {...}
+  "routing": {...}
 }
 ```
 
@@ -279,18 +297,11 @@ All processors must adhere to the processor contract:
 
 ```json
 {
-  "type": "request" | "response",
-  "timestamp": "ISO 8601",
-  "connection": {
-    "server_name": "string",
-    "transport": "string",
-    "session_id": "string"
-  },
+  "version": "1.0",
+  "event": {...},
   "payload": {...},
-  "metadata": {
-    "processor_chain": [],
-    "original_payload": {...}
-  }
+  "routing": {...},
+  "auth": {...}
 }
 ```
 
@@ -298,26 +309,20 @@ All processors must adhere to the processor contract:
 
 ```json
 {
-  "status": 200 | 40x | 50x,
+  "version": "1.0",
+  "event": {...},
   "payload": {...},
-  "error": "string" | null,
-  "metadata": {
-    "processor_name": "string",
-    "modifications": []
-  }
+  "routing": {...},
+  "auth": {...}
 }
 ```
 
 #### Exit Codes
 
-- **0**: Processor executed successfully (check JSON status for decision)
-- **≠0**: Processor crashed (treated as 50x error)
+- **0**: Processor executed successfully and returned valid `DataContext` JSON
+- **≠0**: Processor crashed or failed execution
 
-#### Status Codes
-
-- **200**: Success, continue to next processor
-- **40x**: Client error, reject request (403 = forbidden, 400 = bad request)
-- **50x**: Server error, internal processor failure
+Intentional rejection or short-circuit behavior is represented by returning an updated `payload.result`, not by a top-level status field.
 
 ### Processors: Troubleshooting
 

@@ -117,7 +117,7 @@ Example:
       }
     }
   },
-  "processors": [],           // Processor chain (for future use)
+  "processors": [],           // Optional processor chain for proxied tool-call handling
   "metadata": {}             // Additional metadata
 }
 ```

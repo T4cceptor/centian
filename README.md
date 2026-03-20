@@ -9,7 +9,7 @@ Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextproto
 
 ## Highlights
 
-- **Programmable MCP traffic processing** – inspect, modify, block, or enrich requests and responses with processor scripts.
+- **Programmable tool-call processing** – inspect, modify, block, or enrich proxied `tools/call` requests and results with processor scripts.
 - **Unified gateway for multiple servers** – expose many downstream MCP servers through one clean endpoint (DRY config).
 - **Structured logging & visibility** – capture MCP events for debugging, auditing, and analysis.
 - **Fast setup via auto‑discovery** – import existing MCP configs from common tools to get started quickly.
@@ -74,8 +74,8 @@ Example:
 }
 ```
 
-5) **Done!** - you can now log and process all MCP requests proxied by centian.
-    - (Optional): to process requests and responses by downstream MCPs, add a processor via `centian processor add` or scaffold a CLI processor via `centian processor new`.
+5) **Done!** - you can now log and process proxied MCP tool calls with centian.
+    - (Optional): to process downstream `tools/call` requests and results, add a processor via `centian processor add` or scaffold a CLI processor via `centian processor new`.
 
 
 ## Demo
@@ -289,7 +289,7 @@ This applies to both stateful and stateless upstream MCP traffic. Even if the up
 
 ## Processors
 
-Processors let you enforce policies or transform MCP traffic (request/response). Centian supports two processor runtimes:
+Processors let you enforce policies or transform proxied `tools/call` traffic. Centian supports two processor runtimes:
 
 - `cli`: Centian runs a local executable and exchanges JSON over `stdin`/`stdout`
 - `webhook`: Centian sends the same reduced `DataContext` JSON to a remote HTTP endpoint via synchronous `POST`
@@ -309,6 +309,7 @@ centian processor add --type webhook --url https://example.com/processors/audit 
 
 CLI and webhook processors use the same `DataContext` contract and can coexist in the same chain.
 That contract centers on `event`, `payload`, `routing`, and optional read-only `auth` context, as documented in [`docs/processor_development_guide.md`](/Users/brb/_devspace/centian-cli/docs/processor_development_guide.md).
+Processors currently run only around proxied `tools/call` handling: once before the downstream call and once after the downstream result is returned.
 Processor `timeout` values are configured in seconds per processor and default to `15`. The timeout is enforced per invocation, so the same processor may consume that budget once on the request phase and again on the response phase of a single tool call. Required processor timeouts fail the current phase; non-required processor timeouts are logged and skipped.
 
 ## Logging
@@ -347,7 +348,7 @@ Use this path when you want to inspect or retain MCP traffic.
 
 ### Processor-Based Observability
 
-If you want to log, export, redact, or otherwise process MCP communication details, use processors rather than the internal proxy logger. This is the correct place for request/response-specific observability, audit enrichment, and custom telemetry.
+If you want to log, export, redact, or otherwise process proxied tool-call details, use processors rather than the internal proxy logger. This is the correct place for tool-call-specific observability, audit enrichment, and custom telemetry.
 
 See:
 
