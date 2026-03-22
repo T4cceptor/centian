@@ -15,11 +15,13 @@ task:
   id: "simple_tdd"
   name: "Simple TDD"
   description: "Test driven task"
+  instructions: "Use Centian step completion as the source of truth."
 parameters:
   - name: "testName"
     description: "The test case to target."
 steps:
   - id: "failing_test"
+    instructions: "Start the step before changing anything."
     checks:
       - id: "selected_test_fails"
         command: "printf '%s' '${testName}'"
@@ -32,11 +34,13 @@ steps:
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].ID, "simple_tdd")
+	assert.Equal(t, summaries[0].Instructions, "Use Centian step completion as the source of truth.")
 	assert.DeepEqual(t, summaries[0].Parameters, []TemplateParameter{{
 		Name:        "testName",
 		Description: "The test case to target.",
 	}})
 	assert.Equal(t, summaries[0].StepCount, 1)
+	assert.Equal(t, summaries[0].Steps[0].Instructions, "Start the step before changing anything.")
 }
 
 func TestRegisterTaskFailsOnMissingOrUnknownParameters(t *testing.T) {

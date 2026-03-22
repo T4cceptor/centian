@@ -1,0 +1,11 @@
+Implemented `score_parentheses(text: str) -> int` using a stack-based parser and added TDD tests.
+
+Changed files:
+- [score_parentheses.py](/workspace/project/score_parentheses.py)
+- [test_score_parentheses.py](/workspace/project/tests/test_score_parentheses.py)
+
+Centian workflow status (`python_tdd_demo`):
+1. `establish_failing_baseline` passed
+2. `implement_fix` passed
+
+Task status is `completed`.

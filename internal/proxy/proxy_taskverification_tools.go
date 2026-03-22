@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -33,6 +34,8 @@ type taskFailArgs struct {
 	Reason string `json:"reason"`
 }
 
+type taskToolHandler func(context.Context, *UpstreamSession, *mcp.CallToolRequest) (*mcp.CallToolResult, error)
+
 func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession, server *mcp.Server) {
 	if session == nil || server == nil || p == nil || p.server == nil || p.server.TaskVerification == nil {
 		return
@@ -48,9 +51,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleTaskListTemplatesTool(ctx, session, req)
-	})
+	}, p.wrapTaskToolHandler(session, taskListTemplatesTool, p.handleTaskListTemplatesTool))
 	session.registeredStaticTools[taskListTemplatesTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
@@ -64,9 +65,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			},
 			"required": []string{"templateId", "parameters"},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleTaskRegisterTool(ctx, session, req)
-	})
+	}, p.wrapTaskToolHandler(session, taskRegisterTool, p.handleTaskRegisterTool))
 	session.registeredStaticTools[taskRegisterTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
@@ -79,9 +78,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			},
 			"required": []string{"step"},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleTaskStartStepTool(ctx, session, req)
-	})
+	}, p.wrapTaskToolHandler(session, taskStartStepTool, p.handleTaskStartStepTool))
 	session.registeredStaticTools[taskStartStepTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
@@ -94,9 +91,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			},
 			"required": []string{"step"},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleTaskCompleteStepTool(ctx, session, req)
-	})
+	}, p.wrapTaskToolHandler(session, taskCompleteStepTool, p.handleTaskCompleteStepTool))
 	session.registeredStaticTools[taskCompleteStepTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
@@ -106,9 +101,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleTaskRestartTool(ctx, session, req)
-	})
+	}, p.wrapTaskToolHandler(session, taskRestartTool, p.handleTaskRestartTool))
 	session.registeredStaticTools[taskRestartTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
@@ -120,10 +113,84 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 				"reason": map[string]any{"type": "string"},
 			},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleTaskFailTool(ctx, session, req)
-	})
+	}, p.wrapTaskToolHandler(session, taskFailTool, p.handleTaskFailTool))
 	session.registeredStaticTools[taskFailTool] = struct{}{}
+}
+
+func (p *CentianEndpoint) wrapTaskToolHandler(
+	session *UpstreamSession,
+	toolName string,
+	handler taskToolHandler,
+) func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		result, err := handler(ctx, session, req)
+		p.logTaskToolCall(session, toolName, req, result, err)
+		return result, err
+	}
+}
+
+func (p *CentianEndpoint) logTaskToolCall(
+	session *UpstreamSession,
+	toolName string,
+	req *mcp.CallToolRequest,
+	result *mcp.CallToolResult,
+	callErr error,
+) {
+	if p == nil || p.server == nil || p.server.Logger == nil || session == nil {
+		return
+	}
+
+	meta := common.NewRequestMetaContext(string(common.HTTPTransport)).
+		WithRequestID(getNewUUIDV7()).
+		WithSessionID(session.id).
+		WithServerID(p.server.ServerID)
+	meta.Success = callErr == nil && (result == nil || !result.IsError)
+	meta.Direction = common.DirectionClientToServer
+	meta.MessageType = common.MessageTypeRequest
+	if callErr != nil {
+		meta.Error = callErr.Error()
+		meta.Status = 500
+	} else {
+		meta.Status = 200
+	}
+
+	entry := &common.LogEntry{
+		BaseMcpEvent: meta.BaseMcpEvent,
+		Routing: common.RoutingContext{
+			Transport:  common.HTTPTransport,
+			Gateway:    p.name,
+			ServerName: "centian",
+			Endpoint:   p.endpoint,
+		},
+	}
+	entry.WithToolRequest(toolName, toolName, taskToolArguments(req))
+	entry.WithToolResult(taskToolResultJSON(result, callErr), callErr != nil || (result != nil && result.IsError))
+	if err := p.server.Logger.LogMcpEvent(entry); err != nil {
+		common.LogWarn("ProxyEndpoint[%s]: failed to log task tool call %s for session %s: %v", p.name, toolName, session.id, err)
+	}
+}
+
+func taskToolArguments(req *mcp.CallToolRequest) json.RawMessage {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return req.Params.Arguments
+}
+
+func taskToolResultJSON(result *mcp.CallToolResult, callErr error) json.RawMessage {
+	if callErr != nil {
+		payload, _ := json.Marshal(map[string]any{"error": callErr.Error()})
+		return payload
+	}
+	if result == nil {
+		return json.RawMessage(`null`)
+	}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		fallback, _ := json.Marshal(map[string]any{"error": err.Error()})
+		return fallback
+	}
+	return payload
 }
 
 func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -137,11 +204,13 @@ func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *Upst
 	for _, template := range templates {
 		lines = append(lines, fmt.Sprintf("%s (%d steps)", template.ID, template.StepCount))
 		structured = append(structured, map[string]any{
-			"id":          template.ID,
-			"name":        template.Name,
-			"description": template.Description,
-			"parameters":  template.Parameters,
-			"stepCount":   template.StepCount,
+			"id":           template.ID,
+			"name":         template.Name,
+			"description":  template.Description,
+			"instructions": template.Instructions,
+			"parameters":   template.Parameters,
+			"stepCount":    template.StepCount,
+			"steps":        template.Steps,
 		})
 	}
 	if len(lines) == 0 {
@@ -177,15 +246,9 @@ func (p *CentianEndpoint) handleTaskRegisterTool(_ context.Context, session *Ups
 	}
 	session.taskRun = run
 
-	return toolResult(
-		fmt.Sprintf("Registered task %s with %d step(s).", run.TemplateID, len(run.Steps)),
-		map[string]any{
-			"templateId": run.TemplateID,
-			"status":     string(run.Status),
-			"stepCount":  len(run.Steps),
-			"parameters": run.Parameters,
-		},
-	), nil
+	structured := runStructuredContent(run)
+	structured["stepCount"] = len(run.Steps)
+	return toolResult(fmt.Sprintf("Registered task %s with %d step(s).", run.TemplateID, len(run.Steps)), structured), nil
 }
 
 func (p *CentianEndpoint) handleTaskStartStepTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -287,10 +350,14 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 
 	steps := make([]map[string]any, 0, len(run.Steps))
 	for index, step := range run.Steps {
+		templateStep := run.ResolvedTemplate.Steps[index]
 		steps = append(steps, map[string]any{
-			"step":   index + 1,
-			"id":     step.ID,
-			"status": step.Status,
+			"step":         index + 1,
+			"id":           step.ID,
+			"name":         templateStep.Name,
+			"description":  templateStep.Description,
+			"instructions": templateStep.Instructions,
+			"status":       step.Status,
 		})
 	}
 	sort.Slice(steps, func(i, j int) bool {
@@ -299,6 +366,9 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 
 	return map[string]any{
 		"templateId":         run.TemplateID,
+		"templateName":       run.ResolvedTemplate.Task.Name,
+		"description":        run.ResolvedTemplate.Task.Description,
+		"instructions":       run.ResolvedTemplate.Task.Instructions,
 		"status":             string(run.Status),
 		"parameters":         run.Parameters,
 		"steps":              steps,

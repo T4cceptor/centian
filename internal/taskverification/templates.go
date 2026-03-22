@@ -38,11 +38,13 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 	summaries := make([]TemplateSummary, 0, len(templates))
 	for _, template := range templates {
 		summaries = append(summaries, TemplateSummary{
-			ID:          template.Task.ID,
-			Name:        template.Task.Name,
-			Description: template.Task.Description,
-			Parameters:  template.ParameterDefinitions(),
-			StepCount:   len(template.Steps),
+			ID:           template.Task.ID,
+			Name:         template.Task.Name,
+			Description:  template.Task.Description,
+			Instructions: template.Task.Instructions,
+			Parameters:   template.ParameterDefinitions(),
+			StepCount:    len(template.Steps),
+			Steps:        template.StepSummaries(),
 		})
 	}
 	sort.Slice(summaries, func(i, j int) bool {
@@ -414,6 +416,25 @@ func (t *Template) ParameterDefinitions() []TemplateParameter {
 		definitions = append(definitions, parameter)
 	}
 	return definitions
+}
+
+// StepSummaries returns step metadata in template order.
+func (t *Template) StepSummaries() []StepSummary {
+	if t == nil || len(t.Steps) == 0 {
+		return nil
+	}
+
+	summaries := make([]StepSummary, 0, len(t.Steps))
+	for index, step := range t.Steps {
+		summaries = append(summaries, StepSummary{
+			Step:         index + 1,
+			ID:           step.ID,
+			Name:         step.Name,
+			Description:  step.Description,
+			Instructions: step.Instructions,
+		})
+	}
+	return summaries
 }
 
 // Resolve substitutes the provided parameter values into the template.

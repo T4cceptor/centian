@@ -10,18 +10,20 @@ type Template struct {
 
 // Task describes the human-facing identity of a template.
 type Task struct {
-	ID          string `yaml:"id" json:"id"`
-	Name        string `yaml:"name" json:"name"`
-	Description string `yaml:"description" json:"description"`
+	ID           string `yaml:"id" json:"id"`
+	Name         string `yaml:"name" json:"name"`
+	Description  string `yaml:"description" json:"description"`
+	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 }
 
 // Step defines one fixed unit of progress in a task template.
 type Step struct {
-	ID          string      `yaml:"id" json:"id"`
-	Name        string      `yaml:"name,omitempty" json:"name,omitempty"`
-	Description string      `yaml:"description,omitempty" json:"description,omitempty"`
-	Checks      []Check     `yaml:"checks" json:"checks"`
-	Invariants  []Invariant `yaml:"invariants,omitempty" json:"invariants,omitempty"`
+	ID           string      `yaml:"id" json:"id"`
+	Name         string      `yaml:"name,omitempty" json:"name,omitempty"`
+	Description  string      `yaml:"description,omitempty" json:"description,omitempty"`
+	Instructions string      `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	Checks       []Check     `yaml:"checks" json:"checks"`
+	Invariants   []Invariant `yaml:"invariants,omitempty" json:"invariants,omitempty"`
 }
 
 // Check defines one command plus its pre/post conditions.
@@ -54,11 +56,22 @@ type TemplateParameter struct {
 
 // TemplateSummary is the lightweight view returned to MCP clients.
 type TemplateSummary struct {
-	ID          string              `json:"id"`
-	Name        string              `json:"name"`
-	Description string              `json:"description"`
-	Parameters  []TemplateParameter `json:"parameters"`
-	StepCount   int                 `json:"stepCount"`
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Description  string              `json:"description"`
+	Instructions string              `json:"instructions,omitempty"`
+	Parameters   []TemplateParameter `json:"parameters"`
+	StepCount    int                 `json:"stepCount"`
+	Steps        []StepSummary       `json:"steps"`
+}
+
+// StepSummary is the lightweight view of one template step returned to MCP clients.
+type StepSummary struct {
+	Step         int    `json:"step"`
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
 }
 
 // TaskStatus enumerates the task lifecycle states.

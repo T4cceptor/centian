@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/taskverification"
@@ -17,6 +19,7 @@ func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoin
 	t.Helper()
 
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
 	templateDir := t.TempDir()
 	workingDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(templateDir, "task.yaml"), []byte(templateContent), 0o644)
@@ -88,6 +91,11 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	assert.Assert(t, registerResult != nil)
+	registerStructured := registerResult.StructuredContent.(map[string]any)
+	assert.Equal(t, registerStructured["instructions"], "Use Centian validation instead of rebuilding checks manually.")
+	registerSteps := registerStructured["steps"].([]any)
+	firstStep := registerSteps[0].(map[string]any)
+	assert.Equal(t, firstStep["instructions"], "Start the step before using complete_step.")
 
 	startResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -170,6 +178,49 @@ func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
 	assert.Assert(t, sessionA.taskRun != sessionB.taskRun)
 }
 
+func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
+	// Given: an upstream session with task verification tools enabled.
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	// When: built-in task tools are called through the upstream MCP surface.
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskListTemplatesTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskStartStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.NilError(t, err)
+
+	// Then: the request log contains the built-in task tool calls.
+	entries := readTaskToolLogEntries(t, endpoint.server.Logger.GetLogPath())
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ToolCall != nil {
+			names = append(names, entry.ToolCall.Name)
+		}
+	}
+	assert.DeepEqual(t, names, []string{
+		taskListTemplatesTool,
+		taskRegisterTool,
+		taskStartStepTool,
+	})
+}
+
 func basicTaskTemplate() string {
 	return `
 version: "0.1"
@@ -177,8 +228,10 @@ task:
   id: "task"
   name: "Task"
   description: "desc"
+  instructions: "Use Centian validation instead of rebuilding checks manually."
 steps:
   - id: "step_one"
+    instructions: "Start the step before using complete_step."
     checks:
       - id: "check_one"
         command: "printf 'ok'"
@@ -189,4 +242,40 @@ steps:
           - type: stdout_contains
             value: "ok"
 `
+}
+
+func readTaskToolLogEntries(t *testing.T, path string) []common.LogEntry {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	assert.NilError(t, err)
+
+	lines := bytesSplitLines(data)
+	entries := make([]common.LogEntry, 0, len(lines))
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		var entry common.LogEntry
+		err := json.Unmarshal(line, &entry)
+		assert.NilError(t, err)
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+func bytesSplitLines(data []byte) [][]byte {
+	lines := make([][]byte, 0)
+	start := 0
+	for idx, b := range data {
+		if b != '\n' {
+			continue
+		}
+		lines = append(lines, data[start:idx])
+		start = idx + 1
+	}
+	if start < len(data) {
+		lines = append(lines, data[start:])
+	}
+	return lines
 }
