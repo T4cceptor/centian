@@ -74,15 +74,25 @@ type StepSummary struct {
 	Instructions string `json:"instructions,omitempty"`
 }
 
-// TaskStatus enumerates the task lifecycle states.
+// TaskStatus enumerates the overall condition of a task run.
 type TaskStatus string
 
-// TaskStatus values represent the overall task lifecycle.
+// TaskStatus values represent the overall run condition.
 const (
-	TaskStatusRegistered TaskStatus = "registered"
-	TaskStatusInProgress TaskStatus = "in_progress"
-	TaskStatusCompleted  TaskStatus = "completed"
-	TaskStatusFailed     TaskStatus = "failed"
+	TaskStatusActive    TaskStatus = "active"
+	TaskStatusCompleted TaskStatus = "completed"
+	TaskStatusFailed    TaskStatus = "failed"
+)
+
+// TaskPhase enumerates the workflow position of a task run.
+type TaskPhase string
+
+// TaskPhase values represent the current workflow phase.
+const (
+	TaskPhaseRegistered TaskPhase = "registered"
+	TaskPhaseOnboarding TaskPhase = "onboarding"
+	TaskPhasePlanning   TaskPhase = "planning"
+	TaskPhaseExecution  TaskPhase = "execution"
 )
 
 // StepStatus enumerates the per-step lifecycle states.
@@ -106,10 +116,13 @@ type StepState struct {
 // RunState stores the mutable session-scoped state of one registered task.
 type RunState struct {
 	TemplateID         string            `json:"templateId"`
-	Parameters         map[string]string `json:"parameters"`
-	ResolvedTemplate   Template          `json:"template"`
+	SelectedTemplate   Template          `json:"-"`
+	DraftParameters    map[string]string `json:"draftParameters"`
 	Status             TaskStatus        `json:"status"`
-	Steps              []StepState       `json:"steps"`
+	Phase              TaskPhase         `json:"phase"`
+	ExecutionReady     bool              `json:"executionReady"`
+	ExecutionTemplate  *Template         `json:"-"`
+	Steps              []StepState       `json:"steps,omitempty"`
 	LastFailureMessage string            `json:"lastFailureMessage,omitempty"`
 	ExplicitFailReason string            `json:"explicitFailReason,omitempty"`
 }
@@ -120,6 +133,7 @@ type StepResult struct {
 	Message    string     `json:"message"`
 	Step       int        `json:"step"`
 	StepID     string     `json:"stepId"`
-	TaskStatus TaskStatus `json:"taskStatus"`
+	Status     TaskStatus `json:"status"`
+	Phase      TaskPhase  `json:"phase"`
 	StepStatus StepStatus `json:"stepStatus"`
 }

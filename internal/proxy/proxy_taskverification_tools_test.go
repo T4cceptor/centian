@@ -93,30 +93,19 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Assert(t, registerResult != nil)
 	registerStructured := registerResult.StructuredContent.(map[string]any)
 	assert.Equal(t, registerStructured["instructions"], "Use Centian validation instead of rebuilding checks manually.")
-	registerSteps := registerStructured["steps"].([]any)
-	firstStep := registerSteps[0].(map[string]any)
-	assert.Equal(t, firstStep["instructions"], "Start the step before using complete_step.")
+	assert.Equal(t, registerStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseRegistered))
+	assert.Equal(t, registerStructured["executionReady"], false)
+	_, hasSteps := registerStructured["steps"]
+	assert.Assert(t, !hasSteps)
 
-	startResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
 		Arguments: map[string]any{
 			"step": 1,
 		},
 	})
-	assert.NilError(t, err)
-	startStructured := startResult.StructuredContent.(map[string]any)
-	assert.Equal(t, startStructured["passed"], true)
-
-	completeResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: taskCompleteStepTool,
-		Arguments: map[string]any{
-			"step": 1,
-		},
-	})
-	assert.NilError(t, err)
-	completeStructured := completeResult.StructuredContent.(map[string]any)
-	assert.Equal(t, completeStructured["passed"], true)
-	assert.Equal(t, completeStructured["status"], string(taskverification.TaskStatusCompleted))
+	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
 
 	restartResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRestartTool,
@@ -124,7 +113,8 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	restartStructured := restartResult.StructuredContent.(map[string]any)
-	assert.Equal(t, restartStructured["status"], string(taskverification.TaskStatusRegistered))
+	assert.Equal(t, restartStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, restartStructured["phase"], string(taskverification.TaskPhaseRegistered))
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskFailTool,
@@ -136,6 +126,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	failStructured := failResult.StructuredContent.(map[string]any)
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
+	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseRegistered))
 }
 
 func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
@@ -204,7 +195,7 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 			"step": 1,
 		},
 	})
-	assert.NilError(t, err)
+	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
 
 	// Then: the request log contains the built-in task tool calls.
 	entries := readTaskToolLogEntries(t, endpoint.server.Logger.GetLogPath())

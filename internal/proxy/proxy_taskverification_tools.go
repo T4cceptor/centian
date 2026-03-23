@@ -236,7 +236,7 @@ func (p *CentianEndpoint) handleTaskRegisterTool(_ context.Context, session *Ups
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 
-	if session.taskRun != nil && (session.taskRun.Status == taskverification.TaskStatusRegistered || session.taskRun.Status == taskverification.TaskStatusInProgress) {
+	if session.taskRun != nil && session.taskRun.Status == taskverification.TaskStatusActive {
 		return nil, fmt.Errorf("an active task is already registered for this session")
 	}
 
@@ -247,8 +247,8 @@ func (p *CentianEndpoint) handleTaskRegisterTool(_ context.Context, session *Ups
 	session.taskRun = run
 
 	structured := runStructuredContent(run)
-	structured["stepCount"] = len(run.Steps)
-	return toolResult(fmt.Sprintf("Registered task %s with %d step(s).", run.TemplateID, len(run.Steps)), structured), nil
+	structured["stepCount"] = len(run.SelectedTemplate.Steps)
+	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, len(run.SelectedTemplate.Steps)), structured), nil
 }
 
 func (p *CentianEndpoint) handleTaskStartStepTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -338,7 +338,8 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	structured["message"] = result.Message
 	structured["step"] = result.Step
 	structured["stepId"] = result.StepID
-	structured["taskStatus"] = string(result.TaskStatus)
+	structured["status"] = string(result.Status)
+	structured["phase"] = string(result.Phase)
 	structured["stepStatus"] = string(result.StepStatus)
 	return toolResult(result.Message, structured)
 }
@@ -348,9 +349,27 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		return map[string]any{}
 	}
 
+	structured := map[string]any{
+		"templateId":         run.TemplateID,
+		"templateName":       run.SelectedTemplate.Task.Name,
+		"description":        run.SelectedTemplate.Task.Description,
+		"instructions":       run.SelectedTemplate.Task.Instructions,
+		"status":             string(run.Status),
+		"phase":              string(run.Phase),
+		"draftParameters":    run.DraftParameters,
+		"executionReady":     run.ExecutionReady,
+		"stepCount":          len(run.SelectedTemplate.Steps),
+		"lastFailureMessage": run.LastFailureMessage,
+		"explicitFailReason": run.ExplicitFailReason,
+	}
+
+	if !run.ExecutionReady || run.ExecutionTemplate == nil {
+		return structured
+	}
+
 	steps := make([]map[string]any, 0, len(run.Steps))
 	for index, step := range run.Steps {
-		templateStep := run.ResolvedTemplate.Steps[index]
+		templateStep := run.ExecutionTemplate.Steps[index]
 		steps = append(steps, map[string]any{
 			"step":         index + 1,
 			"id":           step.ID,
@@ -363,16 +382,6 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 	sort.Slice(steps, func(i, j int) bool {
 		return steps[i]["step"].(int) < steps[j]["step"].(int)
 	})
-
-	return map[string]any{
-		"templateId":         run.TemplateID,
-		"templateName":       run.ResolvedTemplate.Task.Name,
-		"description":        run.ResolvedTemplate.Task.Description,
-		"instructions":       run.ResolvedTemplate.Task.Instructions,
-		"status":             string(run.Status),
-		"parameters":         run.Parameters,
-		"steps":              steps,
-		"lastFailureMessage": run.LastFailureMessage,
-		"explicitFailReason": run.ExplicitFailReason,
-	}
+	structured["steps"] = steps
+	return structured
 }

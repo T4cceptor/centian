@@ -53,49 +53,39 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 	return summaries, nil
 }
 
-// RegisterTask resolves a template into a new session-scoped task run.
+// RegisterTask creates a shell task run from the selected template.
 func (s *Service) RegisterTask(templateID string, parameters map[string]string) (*RunState, error) {
 	template, err := s.loadTemplateByID(templateID)
 	if err != nil {
 		return nil, err
 	}
-
-	resolved, err := template.Resolve(parameters)
-	if err != nil {
+	if err := validateDraftParameters(template, parameters); err != nil {
 		return nil, err
-	}
-
-	stepStates := make([]StepState, 0, len(resolved.Steps))
-	for _, step := range resolved.Steps {
-		stepStates = append(stepStates, StepState{
-			ID:                 step.ID,
-			Status:             StepStatusPending,
-			InvariantBaselines: make(map[string]string),
-		})
 	}
 
 	return &RunState{
 		TemplateID:       template.Task.ID,
-		Parameters:       cloneParameters(parameters),
-		ResolvedTemplate: resolved,
-		Status:           TaskStatusRegistered,
-		Steps:            stepStates,
+		SelectedTemplate: *template,
+		DraftParameters:  cloneParameters(parameters),
+		Status:           TaskStatusActive,
+		Phase:            TaskPhaseRegistered,
+		ExecutionReady:   false,
 	}, nil
 }
 
-// RestartTask resets an existing task run back to its registered state.
+// RestartTask resets an existing task run back to its registered shell state.
 func (s *Service) RestartTask(run *RunState) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
 
-	run.Status = TaskStatusRegistered
+	run.Status = TaskStatusActive
+	run.Phase = TaskPhaseRegistered
+	run.ExecutionReady = false
+	run.ExecutionTemplate = nil
+	run.Steps = nil
 	run.LastFailureMessage = ""
 	run.ExplicitFailReason = ""
-	for index := range run.Steps {
-		run.Steps[index].Status = StepStatusPending
-		run.Steps[index].InvariantBaselines = make(map[string]string)
-	}
 	return nil
 }
 
@@ -108,6 +98,38 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	run.Status = TaskStatusFailed
 	run.ExplicitFailReason = strings.TrimSpace(reason)
 	run.LastFailureMessage = run.ExplicitFailReason
+	return nil
+}
+
+// PrepareExecution resolves the selected template using the draft parameters
+// and initializes execution state for later step verification.
+func (s *Service) PrepareExecution(run *RunState) error {
+	if run == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	if run.Status != TaskStatusActive {
+		return fmt.Errorf("task is %s", run.Status)
+	}
+
+	resolved, err := run.SelectedTemplate.Resolve(run.DraftParameters)
+	if err != nil {
+		return err
+	}
+
+	stepStates := make([]StepState, 0, len(resolved.Steps))
+	for _, step := range resolved.Steps {
+		stepStates = append(stepStates, StepState{
+			ID:                 step.ID,
+			Status:             StepStatusPending,
+			InvariantBaselines: make(map[string]string),
+		})
+	}
+
+	run.ExecutionReady = true
+	run.ExecutionTemplate = &resolved
+	run.Steps = stepStates
+	run.Phase = TaskPhaseExecution
+	run.LastFailureMessage = ""
 	return nil
 }
 
@@ -575,4 +597,21 @@ func cloneParameters(parameters map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func validateDraftParameters(template *Template, parameters map[string]string) error {
+	if template == nil {
+		return fmt.Errorf("template is required")
+	}
+
+	defined := make(map[string]struct{}, len(template.ParameterDefinitions()))
+	for _, parameter := range template.ParameterDefinitions() {
+		defined[parameter.Name] = struct{}{}
+	}
+	for name := range parameters {
+		if _, exists := defined[name]; !exists {
+			return fmt.Errorf("unknown task parameter %q", name)
+		}
+	}
+	return nil
 }

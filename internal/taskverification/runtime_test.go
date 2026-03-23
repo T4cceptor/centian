@@ -40,10 +40,13 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 	}
 	service := NewService(dir, dir)
 	run := &RunState{
-		TemplateID:       template.Task.ID,
-		Parameters:       map[string]string{},
-		ResolvedTemplate: template,
-		Status:           TaskStatusRegistered,
+		TemplateID:        template.Task.ID,
+		SelectedTemplate:  template,
+		DraftParameters:   map[string]string{},
+		Status:            TaskStatusActive,
+		Phase:             TaskPhaseExecution,
+		ExecutionReady:    true,
+		ExecutionTemplate: &template,
 		Steps: []StepState{
 			{ID: "step_one", Status: StepStatusPending, InvariantBaselines: map[string]string{}},
 		},
@@ -58,6 +61,7 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, complete.Passed)
 	assert.Equal(t, run.Status, TaskStatusCompleted)
+	assert.Equal(t, run.Phase, TaskPhaseExecution)
 	assert.Equal(t, run.Steps[0].Status, StepStatusPassed)
 }
 
@@ -82,6 +86,42 @@ steps:
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
 	assert.Equal(t, run.Steps[0].Status, StepStatusPending)
+}
+
+func TestStartStepRequiresExecutionPhase(t *testing.T) {
+	service, run := newRuntimeShellTestService(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+steps:
+  - id: "step_one"
+    checks:
+      - id: "check_one"
+        command: "printf 'ok'"
+`)
+
+	_, err := service.StartStep(run, 1)
+	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
+}
+
+func TestCompleteStepRequiresExecutionPhase(t *testing.T) {
+	service, run := newRuntimeShellTestService(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+steps:
+  - id: "step_one"
+    checks:
+      - id: "check_one"
+        command: "printf 'ok'"
+`)
+
+	_, err := service.CompleteStep(run, 1)
+	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
 }
 
 func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
@@ -120,10 +160,13 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 	}
 	service := NewService(dir, dir)
 	run := &RunState{
-		TemplateID:       template.Task.ID,
-		Parameters:       map[string]string{},
-		ResolvedTemplate: template,
-		Status:           TaskStatusRegistered,
+		TemplateID:        template.Task.ID,
+		SelectedTemplate:  template,
+		DraftParameters:   map[string]string{},
+		Status:            TaskStatusActive,
+		Phase:             TaskPhaseExecution,
+		ExecutionReady:    true,
+		ExecutionTemplate: &template,
 		Steps: []StepState{
 			{ID: "step_one", Status: StepStatusPending, InvariantBaselines: map[string]string{}},
 		},
@@ -201,11 +244,29 @@ steps:
 
 	err = service.RestartTask(run)
 	assert.NilError(t, err)
-	assert.Equal(t, run.Status, TaskStatusRegistered)
-	assert.Equal(t, run.Steps[0].Status, StepStatusPending)
+	assert.Equal(t, run.Status, TaskStatusActive)
+	assert.Equal(t, run.Phase, TaskPhaseRegistered)
+	assert.Assert(t, !run.ExecutionReady)
+	assert.Assert(t, run.ExecutionTemplate == nil)
+	assert.Equal(t, len(run.Steps), 0)
 }
 
 func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
+	t.Helper()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "task.yaml"), []byte(content), 0o644)
+	assert.NilError(t, err)
+
+	service := NewService(dir, dir)
+	run, err := service.RegisterTask("task", map[string]string{})
+	assert.NilError(t, err)
+	err = service.PrepareExecution(run)
+	assert.NilError(t, err)
+	return service, run
+}
+
+func newRuntimeShellTestService(t *testing.T, content string) (*Service, *RunState) {
 	t.Helper()
 
 	dir := t.TempDir()

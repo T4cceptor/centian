@@ -43,7 +43,7 @@ steps:
 	assert.Equal(t, summaries[0].Steps[0].Instructions, "Start the step before changing anything.")
 }
 
-func TestRegisterTaskFailsOnMissingOrUnknownParameters(t *testing.T) {
+func TestRegisterTaskAllowsMissingParametersButRejectsUnknownOnShellRegistration(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
 task:
@@ -60,8 +60,13 @@ steps:
         command: "printf '%s' '${testName}'"
 `, "simple_tdd.yaml")
 
-	_, err := service.RegisterTask("simple_tdd", map[string]string{})
-	assert.ErrorContains(t, err, `missing required task parameter "testName"`)
+	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	assert.NilError(t, err)
+	assert.Equal(t, run.Status, TaskStatusActive)
+	assert.Equal(t, run.Phase, TaskPhaseRegistered)
+	assert.Assert(t, !run.ExecutionReady)
+	assert.Assert(t, run.ExecutionTemplate == nil)
+	assert.Equal(t, len(run.Steps), 0)
 
 	_, err = service.RegisterTask("simple_tdd", map[string]string{
 		"testName": "MyTest",
@@ -70,7 +75,7 @@ steps:
 	assert.ErrorContains(t, err, `unknown task parameter "unknown"`)
 }
 
-func TestRegisterTaskResolvesParameters(t *testing.T) {
+func TestPrepareExecutionResolvesDraftParameters(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
 task:
@@ -94,7 +99,13 @@ steps:
 		"expectedError": "boom",
 	})
 	assert.NilError(t, err)
-	assert.Equal(t, run.ResolvedTemplate.Steps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
+
+	err = service.PrepareExecution(run)
+	assert.NilError(t, err)
+	assert.Assert(t, run.ExecutionReady)
+	assert.Assert(t, run.ExecutionTemplate != nil)
+	assert.Equal(t, run.Phase, TaskPhaseExecution)
+	assert.Equal(t, run.ExecutionTemplate.Steps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
 }
 
 func TestInvalidTemplateFailsValidation(t *testing.T) {

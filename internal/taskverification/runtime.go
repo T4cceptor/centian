@@ -19,7 +19,7 @@ type commandResult struct {
 
 // StartStep validates the next step, runs its preconditions, and captures invariant baselines.
 func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) {
-	if err := validateTaskMutable(run); err != nil {
+	if err := validateTaskExecutable(run); err != nil {
 		return nil, err
 	}
 	stepIndex, err := validateStepRequest(run, stepNumber)
@@ -35,7 +35,7 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		return nil, err
 	}
 
-	step := &run.ResolvedTemplate.Steps[stepIndex]
+	step := &run.ExecutionTemplate.Steps[stepIndex]
 	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepNumber, "precondition", func(check *Check) []Condition {
 		return check.PreConditions
 	}); failed {
@@ -46,7 +46,6 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		return result, nil
 	}
 
-	run.Status = TaskStatusInProgress
 	run.LastFailureMessage = ""
 	run.Steps[stepIndex].Status = StepStatusActive
 	run.Steps[stepIndex].InvariantBaselines = baselines
@@ -56,13 +55,17 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		Message:    fmt.Sprintf("step %d (%s) started", stepNumber, step.ID),
 		Step:       stepNumber,
 		StepID:     step.ID,
-		TaskStatus: run.Status,
+		Status:     run.Status,
+		Phase:      run.Phase,
 		StepStatus: run.Steps[stepIndex].Status,
 	}, nil
 }
 
 // CompleteStep runs postconditions and invariant verification for an active step.
 func (s *Service) CompleteStep(run *RunState, stepNumber int) (*StepResult, error) {
+	if err := validateTaskExecutable(run); err != nil {
+		return nil, err
+	}
 	stepIndex, err := validateStepRequest(run, stepNumber)
 	if err != nil {
 		return nil, err
@@ -75,10 +78,10 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 		return nil, err
 	}
 	if run.Steps[stepIndex].Status != StepStatusActive {
-		return nil, fmt.Errorf("step %d (%s) is not active", stepIndex+1, run.ResolvedTemplate.Steps[stepIndex].ID)
+		return nil, fmt.Errorf("step %d (%s) is not active", stepIndex+1, run.ExecutionTemplate.Steps[stepIndex].ID)
 	}
 
-	step := &run.ResolvedTemplate.Steps[stepIndex]
+	step := &run.ExecutionTemplate.Steps[stepIndex]
 	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepIndex+1, "postcondition", func(check *Check) []Condition {
 		return check.PostConditions
 	}); failed {
@@ -103,7 +106,8 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 		Message:    message,
 		Step:       stepIndex + 1,
 		StepID:     step.ID,
-		TaskStatus: run.Status,
+		Status:     run.Status,
+		Phase:      run.Phase,
 		StepStatus: run.Steps[stepIndex].Status,
 	}, nil
 }
@@ -112,31 +116,43 @@ func validateStepRequest(run *RunState, stepNumber int) (int, error) {
 	if run == nil {
 		return 0, fmt.Errorf("task is not registered")
 	}
-	if stepNumber < 1 || stepNumber > len(run.ResolvedTemplate.Steps) {
+	if run.ExecutionTemplate == nil {
+		return 0, fmt.Errorf("task has no execution contract")
+	}
+	if stepNumber < 1 || stepNumber > len(run.ExecutionTemplate.Steps) {
 		return 0, fmt.Errorf("step %d is out of range", stepNumber)
 	}
 	return stepNumber - 1, nil
 }
 
 func validateActiveStep(run *RunState, stepIndex int) error {
-	if err := validateTaskMutable(run); err != nil {
+	if err := validateTaskExecutable(run); err != nil {
 		return err
 	}
-	if stepIndex < 0 || stepIndex >= len(run.ResolvedTemplate.Steps) {
+	if stepIndex < 0 || stepIndex >= len(run.ExecutionTemplate.Steps) {
 		return fmt.Errorf("step %d is out of range", stepIndex+1)
 	}
 	return nil
 }
 
-func validateTaskMutable(run *RunState) error {
+func validateTaskExecutable(run *RunState) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
-	if run.Status == TaskStatusFailed {
-		return fmt.Errorf("task is failed; restart or register a new task")
-	}
-	if run.Status == TaskStatusCompleted {
+	switch run.Status {
+	case TaskStatusActive:
+	case TaskStatusCompleted:
 		return fmt.Errorf("task is already completed")
+	case TaskStatusFailed:
+		return fmt.Errorf("task is failed; restart or register a new task")
+	default:
+		return fmt.Errorf("task is %s", run.Status)
+	}
+	if run.Phase != TaskPhaseExecution {
+		return fmt.Errorf("task is in %s phase; step execution is only allowed in %s phase", run.Phase, TaskPhaseExecution)
+	}
+	if !run.ExecutionReady || run.ExecutionTemplate == nil {
+		return fmt.Errorf("task has no execution contract")
 	}
 	return nil
 }
@@ -171,7 +187,7 @@ func (s *Service) runPhaseChecks(
 		if err := evaluateConditions(conditions(check), result, s.WorkingDir); err != nil {
 			message := fmt.Sprintf("step %d (%s) %s failed for check %s: %v", stepNumber, step.ID, phase, check.ID, err)
 			run.LastFailureMessage = message
-			return failureResult(message, stepNumber, step.ID, run.Status, run.Steps[stepIndex].Status), true
+			return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status), true
 		}
 	}
 	return nil, false
@@ -194,7 +210,7 @@ func (s *Service) captureInvariantBaselines(run *RunState, step *Step, stepIndex
 			)
 			run.LastFailureMessage = message
 			run.Steps[stepIndex].Status = StepStatusFailed
-			return nil, failureResult(message, stepNumber, step.ID, run.Status, StepStatusFailed), true
+			return nil, failureResult(message, stepNumber, step.ID, run.Status, run.Phase, StepStatusFailed), true
 		}
 		baselines[invariant.ID] = result.Stdout
 	}
@@ -219,7 +235,7 @@ func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNum
 	message := fmt.Sprintf("step %d (%s) could not execute check %s: %v", stepNumber, step.ID, checkID, err)
 	run.LastFailureMessage = message
 	run.Steps[stepIndex].Status = StepStatusFailed
-	return failureResult(message, stepNumber, step.ID, run.Status, StepStatusFailed)
+	return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, StepStatusFailed)
 }
 
 func (s *Service) invariantExecutionFailure(
@@ -232,7 +248,7 @@ func (s *Service) invariantExecutionFailure(
 	message := fmt.Sprintf("step %d (%s) could not %s invariant %s: %v", stepNumber, step.ID, action, invariantID, err)
 	run.LastFailureMessage = message
 	run.Steps[stepIndex].Status = StepStatusFailed
-	return failureResult(message, stepNumber, step.ID, run.Status, StepStatusFailed)
+	return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, StepStatusFailed)
 }
 
 func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *commandResult, invariant Invariant) *StepResult {
@@ -246,13 +262,13 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 			result.ExitCode,
 		)
 		run.LastFailureMessage = message
-		return failureResult(message, stepNumber, step.ID, run.Status, run.Steps[stepIndex].Status)
+		return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status)
 	}
 	baseline, exists := run.Steps[stepIndex].InvariantBaselines[invariant.ID]
 	if !exists {
 		message := fmt.Sprintf("step %d (%s) invariant %s has no baseline", stepNumber, step.ID, invariant.ID)
 		run.LastFailureMessage = message
-		return failureResult(message, stepNumber, step.ID, run.Status, run.Steps[stepIndex].Status)
+		return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status)
 	}
 	if baseline != result.Stdout {
 		message := fmt.Sprintf(
@@ -264,18 +280,19 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 			result.Stdout,
 		)
 		run.LastFailureMessage = message
-		return failureResult(message, stepNumber, step.ID, run.Status, run.Steps[stepIndex].Status)
+		return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status)
 	}
 	return nil
 }
 
-func failureResult(message string, stepNumber int, stepID string, taskStatus TaskStatus, stepStatus StepStatus) *StepResult {
+func failureResult(message string, stepNumber int, stepID string, status TaskStatus, phase TaskPhase, stepStatus StepStatus) *StepResult {
 	return &StepResult{
 		Passed:     false,
 		Message:    message,
 		Step:       stepNumber,
 		StepID:     stepID,
-		TaskStatus: taskStatus,
+		Status:     status,
+		Phase:      phase,
 		StepStatus: stepStatus,
 	}
 }
