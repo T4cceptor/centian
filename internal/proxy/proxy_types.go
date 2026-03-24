@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type CentianServer struct {
 	AuthHeader       string
 	OAuth            *centoauth.Manager
 	TaskVerification *taskverification.Service
+	eventStoreCloser io.Closer
 }
 
 // UpstreamSession represents one MCP client session talking to this proxy endpoint.

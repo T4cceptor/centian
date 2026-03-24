@@ -4,6 +4,7 @@ package logging
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,9 +16,10 @@ import (
 
 // Logger handles log file I/O operations (base logger for all transports).
 type Logger struct {
-	logFile *os.File
-	logPath string
-	mu      sync.Mutex // Protect concurrent writes
+	logFile          *os.File
+	logPath          string
+	actionEventStore ActionEventStore
+	mu               sync.Mutex // Protect concurrent writes
 }
 
 // NewLogger creates a new base logger instance.
@@ -76,6 +78,13 @@ func (l *Logger) LogEntry(entry interface{}) error {
 	return l.logFile.Sync()
 }
 
+// SetActionEventStore configures an optional SQL/event sink for MCP action events.
+func (l *Logger) SetActionEventStore(store ActionEventStore) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.actionEventStore = store
+}
+
 // Close closes the logger.
 func (l *Logger) Close() error {
 	if l.logFile != nil {
@@ -96,5 +105,22 @@ func (l *Logger) GetLogPath() string {
 
 // LogMcpEvent logs the provided stdio/http MCP event.
 func (l *Logger) LogMcpEvent(event *common.LogEntry) error {
-	return l.LogEntry(event)
+	var errs []error
+	if err := l.LogEntry(event); err != nil {
+		errs = append(errs, err)
+	}
+
+	l.mu.Lock()
+	store := l.actionEventStore
+	l.mu.Unlock()
+	if store != nil {
+		if err := store.AppendActionEvent(event); err != nil {
+			errs = append(errs, fmt.Errorf("failed to persist action event: %w", err))
+		}
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
 }

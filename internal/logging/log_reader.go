@@ -57,6 +57,15 @@ func GetLogsDirectory() (string, error) {
 	return filepath.Join(homeDir, ".centian", "logs"), nil
 }
 
+// GetDefaultEventStorePath returns the default SQLite path for durable event storage.
+func GetDefaultEventStorePath() (string, error) {
+	logDir, err := GetLogsDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(logDir, "events.sqlite"), nil
+}
+
 // LoadRecentLogEntries collects log entries from Centian log files, orders them by
 // timestamp descending, and enforces an optional limit. A non-positive limit
 // returns all available entries.

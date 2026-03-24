@@ -196,6 +196,12 @@ func (c *ToolCallContext) ToLogEntry() *common.LogEntry {
 	if entry.Transport == "" {
 		entry.Transport = string(common.UnknownTransport)
 	}
+	if entry.Metadata == nil {
+		entry.Metadata = make(map[string]string)
+	}
+	if c.upstreamSession != nil && c.upstreamSession.identityKey != "" {
+		entry.Metadata["principal_id"] = c.upstreamSession.identityKey
+	}
 
 	req := c.GetRequest()
 	if req != nil && req.Params != nil {

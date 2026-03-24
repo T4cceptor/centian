@@ -10,6 +10,7 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
@@ -57,7 +58,23 @@ func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoin
 	}
 	session.upstreamServer = endpoint.newUpstreamServer(session)
 	endpoint.upstreamSessions[session.id] = session
+	err = endpoint.initEventProcessor()
+	assert.NilError(t, err)
 	return endpoint, session
+}
+
+func newPersistentTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoint, *UpstreamSession, *persistence.Store) {
+	t.Helper()
+
+	endpoint, session := newTaskToolTestProxy(t, templateContent)
+	store, err := persistence.NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+	endpoint.server.TaskVerification.EventStore = store
+	endpoint.server.Logger.SetActionEventStore(store)
+	return endpoint, session, store
 }
 
 func attachTaskToolDownstream(
@@ -455,6 +472,90 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 
 	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
 	assert.Equal(t, len(contexts), before+1)
+	assert.Equal(t, contexts[len(contexts)-1].PhasePath, taskverification.TaskPhaseOnboarding)
+}
+
+func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
+	_, session, store := newPersistentTaskToolTestProxy(t, basicTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: taskListTemplatesTool})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+		},
+	})
+	assert.NilError(t, err)
+
+	actionEvents := store.ActionEvents()
+	assert.Assert(t, len(actionEvents) >= 3)
+	assert.Equal(t, actionEvents[0].ToolName, taskListTemplatesTool)
+	assert.Equal(t, actionEvents[1].ToolName, taskRegisterTool)
+	assert.Equal(t, actionEvents[1].PrincipalID, "principal-1")
+
+	taskEvents := store.TaskEvents()
+	assert.Equal(t, len(taskEvents), 2)
+	assert.Equal(t, taskEvents[0].EventType, taskverification.TaskEventTypeRegistered)
+	assert.Equal(t, taskEvents[1].EventType, taskverification.TaskEventTypeOnboardingCompleted)
+
+	contexts := store.ActionEventTaskContexts()
+	assert.Equal(t, len(contexts), 2)
+	assert.Equal(t, contexts[0].ActionEventID, actionEvents[1].ID)
+	assert.Equal(t, contexts[0].TaskRunID, taskEvents[0].TaskRunID)
+	assert.Equal(t, contexts[1].PhasePath, taskverification.TaskPhasePlanning)
+}
+
+func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
+	endpoint, session, store := newPersistentTaskToolTestProxy(t, basicTaskTemplate())
+	attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+
+	actionEvents := store.ActionEvents()
+	assert.Assert(t, len(actionEvents) >= 1)
+	foundShell := false
+	knownActionIDs := make(map[string]struct{}, len(actionEvents))
+	for _, actionEvent := range actionEvents {
+		knownActionIDs[actionEvent.ID] = struct{}{}
+		if actionEvent.ToolName == "shell__exec" {
+			foundShell = true
+			assert.Assert(t, actionEvent.OriginalToolName != "")
+			assert.Equal(t, actionEvent.PrincipalID, "principal-1")
+		}
+	}
+	assert.Assert(t, foundShell)
+
+	contexts := store.ActionEventTaskContexts()
+	assert.Assert(t, len(contexts) >= 2)
+	_, exists := knownActionIDs[contexts[len(contexts)-1].ActionEventID]
+	assert.Assert(t, exists)
 	assert.Equal(t, contexts[len(contexts)-1].PhasePath, taskverification.TaskPhaseOnboarding)
 }
 

@@ -208,6 +208,12 @@ func (p *CentianEndpoint) logTaskToolCall(
 			Endpoint:   p.endpoint,
 		},
 	}
+	if entry.Metadata == nil {
+		entry.Metadata = make(map[string]string)
+	}
+	if session.identityKey != "" {
+		entry.Metadata["principal_id"] = session.identityKey
+	}
 	entry.WithToolRequest(toolName, toolName, taskToolArguments(req))
 	entry.WithToolResult(taskToolResultJSON(result, callErr), callErr != nil || (result != nil && result.IsError))
 	if err := p.server.Logger.LogMcpEvent(entry); err != nil {

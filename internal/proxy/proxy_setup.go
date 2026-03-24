@@ -13,6 +13,7 @@ import (
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
+	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
 
@@ -70,6 +71,38 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		return nil, fmt.Errorf("failed to determine current working directory: %w", err)
 	}
 
+	taskService := taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir)
+
+	var eventStoreCloser interface{ Close() error }
+	if globalConfig.Proxy.EventStorage == nil || globalConfig.Proxy.EventStorage.IsEnabled() {
+		driver := config.DefaultEventStorageDriver
+		if globalConfig.Proxy.EventStorage != nil {
+			driver = globalConfig.Proxy.EventStorage.GetDriver()
+		}
+		if driver != config.DefaultEventStorageDriver {
+			return nil, fmt.Errorf("unsupported event storage driver %q", driver)
+		}
+
+		storePath := ""
+		if globalConfig.Proxy.EventStorage != nil {
+			storePath = globalConfig.Proxy.EventStorage.Path
+		}
+		if storePath == "" {
+			storePath, err = logging.GetDefaultEventStorePath()
+			if err != nil {
+				return nil, fmt.Errorf("failed to determine default event storage path: %w", err)
+			}
+		}
+
+		store, err := persistence.NewSQLiteStore(storePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize event storage: %w", err)
+		}
+		taskService.EventStore = store
+		logger.SetActionEventStore(store)
+		eventStoreCloser = store
+	}
+
 	centianServer := &CentianServer{
 		Config:           globalConfig,
 		Mux:              mux,
@@ -80,7 +113,8 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		Endpoints:        []*CentianEndpoint{},
 		APIKeys:          apiKeyStore,
 		AuthHeader:       globalConfig.GetAuthHeader(),
-		TaskVerification: taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir),
+		TaskVerification: taskService,
+		eventStoreCloser: eventStoreCloser,
 	}
 	server.RegisterOnShutdown(func() {
 		for _, err := range centianServer.Close() {
@@ -147,6 +181,11 @@ func (c *CentianServer) Close() []error {
 	}
 
 	errs := make([]error, 0)
+	if c.eventStoreCloser != nil {
+		if err := c.eventStoreCloser.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	for _, endpoint := range c.Endpoints {
 		if endpoint == nil {
 			continue

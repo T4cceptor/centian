@@ -216,5 +216,5 @@ func NewDefaultLogHandler(logger *logging.Logger) *DefaultLogHandler {
 
 // Log uses the attached logger to log the provided CallContext data.
 func (h *DefaultLogHandler) Log(callCtx CallContext) error {
-	return h.logger.LogEntry(callCtx.ToLogEntry())
+	return h.logger.LogMcpEvent(callCtx.ToLogEntry())
 }

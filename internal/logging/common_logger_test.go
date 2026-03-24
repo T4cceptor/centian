@@ -2,6 +2,7 @@ package logging
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,12 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 )
+
+type failingActionEventStore struct{}
+
+func (f *failingActionEventStore) AppendActionEvent(_ *common.LogEntry) error {
+	return errors.New("boom")
+}
 
 func getBaseMcpEvent() common.BaseMcpEvent {
 	requestID := "req_123"
@@ -165,5 +172,41 @@ func TestGetLogPath_ReturnsCorrectPath(t *testing.T) {
 	fileName := filepath.Base(logPath)
 	if !strings.HasPrefix(fileName, "requests_") || !strings.HasSuffix(fileName, ".jsonl") {
 		t.Errorf("Expected log file name format 'requests_YYYY-MM-DD.jsonl', got: %s", fileName)
+	}
+}
+
+func TestLogMcpEvent_BestEffortWhenActionStoreFails(t *testing.T) {
+	tempDir := t.TempDir()
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	logger, err := NewLogger()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+	logger.SetActionEventStore(&failingActionEventStore{})
+
+	entry := common.LogEntry{
+		BaseMcpEvent: getBaseMcpEvent(),
+		Routing: common.RoutingContext{
+			Gateway:    "gw",
+			ServerName: "server-a",
+		},
+	}
+	entry.WithToolRequest("tool-a", "", json.RawMessage(`{"ping":true}`))
+
+	err = logger.LogMcpEvent(&entry)
+	if err == nil {
+		t.Fatal("expected best-effort log error when action store fails")
+	}
+
+	logContent, readErr := os.ReadFile(logger.GetLogPath())
+	if readErr != nil {
+		t.Fatalf("Failed to read log file: %v", readErr)
+	}
+	if !strings.Contains(string(logContent), "\"name\":\"tool-a\"") {
+		t.Fatalf("expected JSONL log to be written even when action store fails, got %s", string(logContent))
 	}
 }

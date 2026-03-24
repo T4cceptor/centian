@@ -2,9 +2,12 @@ package proxy
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/logging"
 	"gotest.tools/assert"
 )
 
@@ -206,4 +209,36 @@ func TestCentianServerClose_ClosesEndpointPools(t *testing.T) {
 	assert.Assert(t, len(errs) == 0)
 	assert.Equal(t, conn.CloseCalls, 1)
 	assert.Equal(t, len(endpoint.downstreamPools), 0)
+}
+
+func TestNewCentianServer_DefaultEventStorageCreatesSQLiteStore(t *testing.T) {
+	authDisabled := false
+	logDir := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", logDir)
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Gateways: map[string]*config.GatewayConfig{},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+
+	defaultPath, err := logging.GetDefaultEventStorePath()
+	assert.NilError(t, err)
+	info, err := os.Stat(defaultPath)
+	assert.NilError(t, err)
+	assert.Assert(t, !info.IsDir())
+	assert.Equal(t, filepath.Dir(defaultPath), logDir)
+	assert.Assert(t, server.TaskVerification.EventStore != nil)
 }
