@@ -10,31 +10,40 @@ parameters:
     description: "The path or selector for the test file or test target."
   - name: "expectedError"
     description: "A stable substring expected in the initial failing test output."
-steps:
-  - id: "create_failing_test_baseline"
-    name: "Create failing test baseline"
-    checks:
-      - id: "selected_test_fails"
-        command: "${testCommand} ${testFile}"
-        pre_conditions:
-          - type: exit_code_in
-            values: [0, 1]
-        post_conditions:
-          - type: exit_code
-            value: 1
-          - type: stdout_contains
-            value: "${expectedError}"
-    invariants:
-      - id: "test_file_stable"
-        command: "cat ${testFile}"
-  - id: "implement_fix"
-    name: "Implement production fix"
-    checks:
-      - id: "selected_test_passes"
-        command: "${testCommand} ${testFile}"
-        post_conditions:
-          - type: exit_code
-            value: 0
-    invariants:
-      - id: "test_file_stable"
-        command: "cat ${testFile}"
+workflow:
+  onboarding: {}
+  planning:
+    editable_fields:
+      - "parameters.testCommand"
+      - "parameters.testFile"
+      - "parameters.expectedError"
+    required_outputs:
+      - "testTarget"
+  execution:
+    - id: "create_failing_test_baseline"
+      name: "Create failing test baseline"
+      checks:
+        - id: "selected_test_fails"
+          command: "${testCommand} ${testFile}"
+          pre_conditions:
+            - type: exit_code_in
+              values: [0, 1]
+          post_conditions:
+            - type: exit_code
+              value: 1
+            - type: stdout_contains
+              value: "${expectedError}"
+      invariants:
+        - id: "test_file_stable"
+          command: "cat ${testFile}"
+    - id: "implement_fix"
+      name: "Implement production fix"
+      checks:
+        - id: "selected_test_passes"
+          command: "${testCommand} ${testFile}"
+          post_conditions:
+            - type: exit_code
+              value: 0
+      invariants:
+        - id: "test_file_stable"
+          command: "cat ${testFile}"

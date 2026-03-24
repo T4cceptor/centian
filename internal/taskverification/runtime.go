@@ -35,7 +35,7 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		return nil, err
 	}
 
-	step := &run.ExecutionTemplate.Steps[stepIndex]
+	step := executionStep(run, stepIndex)
 	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepNumber, "precondition", func(check *Check) []Condition {
 		return check.PreConditions
 	}); failed {
@@ -78,10 +78,10 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 		return nil, err
 	}
 	if run.Steps[stepIndex].Status != StepStatusActive {
-		return nil, fmt.Errorf("step %d (%s) is not active", stepIndex+1, run.ExecutionTemplate.Steps[stepIndex].ID)
+		return nil, fmt.Errorf("step %d (%s) is not active", stepIndex+1, run.Steps[stepIndex].ID)
 	}
 
-	step := &run.ExecutionTemplate.Steps[stepIndex]
+	step := executionStep(run, stepIndex)
 	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepIndex+1, "postcondition", func(check *Check) []Condition {
 		return check.PostConditions
 	}); failed {
@@ -96,9 +96,11 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 	run.Steps[stepIndex].InvariantBaselines = make(map[string]string)
 
 	message := fmt.Sprintf("step %d (%s) completed", stepIndex+1, step.ID)
-	if stepIndex == len(run.Steps)-1 {
+	if step.NextPath == "" {
 		run.Status = TaskStatusCompleted
 		message = fmt.Sprintf("%s; task completed", message)
+	} else {
+		run.Phase = step.NextPath
 	}
 
 	return &StepResult{
@@ -119,7 +121,10 @@ func validateStepRequest(run *RunState, stepNumber int) (int, error) {
 	if run.ExecutionTemplate == nil {
 		return 0, fmt.Errorf("task has no execution contract")
 	}
-	if stepNumber < 1 || stepNumber > len(run.ExecutionTemplate.Steps) {
+	if run.ExecutionTemplate.CompiledWorkflow == nil {
+		return 0, fmt.Errorf("task has no compiled execution workflow")
+	}
+	if stepNumber < 1 || stepNumber > len(run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps) {
 		return 0, fmt.Errorf("step %d is out of range", stepNumber)
 	}
 	return stepNumber - 1, nil
@@ -129,8 +134,11 @@ func validateActiveStep(run *RunState, stepIndex int) error {
 	if err := validateTaskExecutable(run); err != nil {
 		return err
 	}
-	if stepIndex < 0 || stepIndex >= len(run.ExecutionTemplate.Steps) {
+	if stepIndex < 0 || stepIndex >= len(run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps) {
 		return fmt.Errorf("step %d is out of range", stepIndex+1)
+	}
+	if executionStep(run, stepIndex).Path != run.Phase {
+		return fmt.Errorf("task is currently at %s; step %d (%s) is not the active workflow node", run.Phase, stepIndex+1, run.Steps[stepIndex].ID)
 	}
 	return nil
 }
@@ -148,8 +156,12 @@ func validateTaskExecutable(run *RunState) error {
 	default:
 		return fmt.Errorf("task is %s", run.Status)
 	}
-	if run.Phase != TaskPhaseExecution {
-		return fmt.Errorf("task is in %s phase; step execution is only allowed in %s phase", run.Phase, TaskPhaseExecution)
+	node, exists := run.CurrentNode()
+	if !exists {
+		return fmt.Errorf("task is in unknown workflow phase %s", run.Phase)
+	}
+	if node.Kind != WorkflowNodeKindExecution {
+		return fmt.Errorf("task is in %s phase; step execution is only allowed in execution nodes", run.Phase)
 	}
 	if !run.ExecutionReady || run.ExecutionTemplate == nil {
 		return fmt.Errorf("task has no execution contract")
@@ -171,13 +183,7 @@ func (s *Service) completePreviousStepIfNeeded(run *RunState, stepIndex int) (bo
 	return false, nil, nil
 }
 
-func (s *Service) runPhaseChecks(
-	run *RunState,
-	step *Step,
-	stepIndex, stepNumber int,
-	phase string,
-	conditions func(check *Check) []Condition,
-) (*StepResult, bool) {
+func (s *Service) runPhaseChecks(run *RunState, step *Step, stepIndex, stepNumber int, phase string, conditions func(check *Check) []Condition) (*StepResult, bool) {
 	for checkIndex := range step.Checks {
 		check := &step.Checks[checkIndex]
 		result, err := s.runCommand(context.Background(), check.Command)
@@ -301,6 +307,9 @@ func ensureStepCanStart(run *RunState, stepIndex int) error {
 	if stepIndex < 0 || stepIndex >= len(run.Steps) {
 		return fmt.Errorf("step %d is out of range", stepIndex+1)
 	}
+	if executionStep(run, stepIndex).Path != run.Phase {
+		return fmt.Errorf("task is currently at %s; step %d (%s) is not the active workflow node", run.Phase, stepIndex+1, run.Steps[stepIndex].ID)
+	}
 	for previous := 0; previous < stepIndex; previous++ {
 		if run.Steps[previous].Status != StepStatusPassed {
 			return fmt.Errorf("step %d (%s) cannot start before step %d (%s) passes", stepIndex+1, run.Steps[stepIndex].ID, previous+1, run.Steps[previous].ID)
@@ -318,6 +327,10 @@ func ensureStepCanStart(run *RunState, stepIndex int) error {
 	default:
 		return fmt.Errorf("step %d (%s) has invalid status %q", stepIndex+1, run.Steps[stepIndex].ID, run.Steps[stepIndex].Status)
 	}
+}
+
+func executionStep(run *RunState, stepIndex int) *Step {
+	return &run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[stepIndex]
 }
 
 func (s *Service) runCommand(ctx context.Context, command string) (*commandResult, error) {

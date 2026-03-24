@@ -2,10 +2,11 @@ package taskverification
 
 // Template defines one task verification template loaded from YAML.
 type Template struct {
-	Version    string              `yaml:"version" json:"version"`
-	Task       Task                `yaml:"task" json:"task"`
-	Parameters []TemplateParameter `yaml:"parameters,omitempty" json:"parameters,omitempty"`
-	Steps      []Step              `yaml:"steps" json:"steps"`
+	Version          string              `yaml:"version" json:"version"`
+	Task             Task                `yaml:"task" json:"task"`
+	Parameters       []TemplateParameter `yaml:"parameters,omitempty" json:"parameters,omitempty"`
+	Workflow         *Workflow           `yaml:"workflow" json:"workflow"`
+	CompiledWorkflow *CompiledWorkflow   `yaml:"-" json:"-"`
 }
 
 // Task describes the human-facing identity of a template.
@@ -16,14 +17,63 @@ type Task struct {
 	Instructions string `yaml:"instructions,omitempty" json:"instructions,omitempty"`
 }
 
-// Step defines one fixed unit of progress in a task template.
+// Workflow describes the declarative task lifecycle.
+type Workflow struct {
+	Onboarding *LifecycleNodeSpec  `yaml:"onboarding" json:"onboarding"`
+	Planning   *PlanningNodeSpec   `yaml:"planning" json:"planning"`
+	Execution  []ExecutionNodeSpec `yaml:"execution" json:"execution"`
+}
+
+// LifecycleNodeSpec describes a non-execution workflow node.
+type LifecycleNodeSpec struct {
+	Instructions string          `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	AllowedTools []string        `yaml:"tools_allowed,omitempty" json:"toolsAllowed,omitempty"`
+	Checkpoint   *CheckpointHint `yaml:"checkpoint,omitempty" json:"checkpoint,omitempty"`
+}
+
+// PlanningNodeSpec describes the planning workflow node.
+type PlanningNodeSpec struct {
+	Instructions    string          `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	AllowedTools    []string        `yaml:"tools_allowed,omitempty" json:"toolsAllowed,omitempty"`
+	Checkpoint      *CheckpointHint `yaml:"checkpoint,omitempty" json:"checkpoint,omitempty"`
+	EditableFields  []string        `yaml:"editable_fields,omitempty" json:"editableFields,omitempty"`
+	RequiredOutputs []string        `yaml:"required_outputs,omitempty" json:"requiredOutputs,omitempty"`
+	Next            string          `yaml:"next,omitempty" json:"next,omitempty"`
+}
+
+// ExecutionNodeSpec describes one author-facing execution or approval node.
+type ExecutionNodeSpec struct {
+	ID           string              `yaml:"id" json:"id"`
+	Kind         WorkflowNodeKind    `yaml:"kind,omitempty" json:"kind,omitempty"`
+	Name         string              `yaml:"name,omitempty" json:"name,omitempty"`
+	Description  string              `yaml:"description,omitempty" json:"description,omitempty"`
+	Instructions string              `yaml:"instructions,omitempty" json:"instructions,omitempty"`
+	AllowedTools []string            `yaml:"tools_allowed,omitempty" json:"toolsAllowed,omitempty"`
+	Checkpoint   *CheckpointHint     `yaml:"checkpoint,omitempty" json:"checkpoint,omitempty"`
+	Checks       []Check             `yaml:"checks,omitempty" json:"checks,omitempty"`
+	Invariants   []Invariant         `yaml:"invariants,omitempty" json:"invariants,omitempty"`
+	Next         string              `yaml:"next,omitempty" json:"next,omitempty"`
+	SubSteps     []ExecutionNodeSpec `yaml:"sub_steps,omitempty" json:"subSteps,omitempty"`
+}
+
+// CheckpointHint stores declarative checkpoint metadata for later runtime use.
+type CheckpointHint struct {
+	Enabled bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+}
+
+// Step defines one compiled executable workflow node.
 type Step struct {
-	ID           string      `yaml:"id" json:"id"`
-	Name         string      `yaml:"name,omitempty" json:"name,omitempty"`
-	Description  string      `yaml:"description,omitempty" json:"description,omitempty"`
-	Instructions string      `yaml:"instructions,omitempty" json:"instructions,omitempty"`
-	Checks       []Check     `yaml:"checks" json:"checks"`
-	Invariants   []Invariant `yaml:"invariants,omitempty" json:"invariants,omitempty"`
+	ID           string          `json:"id"`
+	Path         TaskPhase       `json:"path"`
+	ParentPath   TaskPhase       `json:"parentPath,omitempty"`
+	NextPath     TaskPhase       `json:"nextPath,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Description  string          `json:"description,omitempty"`
+	Instructions string          `json:"instructions,omitempty"`
+	AllowedTools []string        `json:"allowedTools,omitempty"`
+	Checkpoint   *CheckpointHint `json:"checkpoint,omitempty"`
+	Checks       []Check         `json:"checks"`
+	Invariants   []Invariant     `json:"invariants,omitempty"`
 }
 
 // Check defines one command plus its pre/post conditions.
@@ -76,6 +126,52 @@ type OnboardingCommand struct {
 	Purpose string `json:"purpose"`
 }
 
+// PlanningArtifact stores the frozen execution inputs produced during planning.
+type PlanningArtifact struct {
+	SelectedFiles        []string `json:"selectedFiles,omitempty"`
+	TestTarget           string   `json:"testTarget,omitempty"`
+	LintCommand          string   `json:"lintCommand,omitempty"`
+	ExpectedFailure      string   `json:"expectedFailure,omitempty"`
+	ImplementationTarget string   `json:"implementationTarget,omitempty"`
+	Invariants           []string `json:"invariants,omitempty"`
+}
+
+// WorkflowNodeKind identifies the semantic meaning of one compiled workflow node.
+type WorkflowNodeKind string
+
+const (
+	WorkflowNodeKindOnboarding         WorkflowNodeKind = "onboarding"
+	WorkflowNodeKindPlanning           WorkflowNodeKind = "planning"
+	WorkflowNodeKindExecution          WorkflowNodeKind = "execution"
+	WorkflowNodeKindWaitingForApproval WorkflowNodeKind = "waiting_for_approval"
+)
+
+// WorkflowNode is the normalized runtime representation of one workflow node.
+type WorkflowNode struct {
+	Path                    TaskPhase        `json:"path"`
+	Kind                    WorkflowNodeKind `json:"kind"`
+	ParentPath              TaskPhase        `json:"parentPath,omitempty"`
+	NextPath                TaskPhase        `json:"nextPath,omitempty"`
+	StepNumber              int              `json:"stepNumber,omitempty"`
+	StepID                  string           `json:"stepId,omitempty"`
+	Name                    string           `json:"name,omitempty"`
+	Description             string           `json:"description,omitempty"`
+	Instructions            string           `json:"instructions,omitempty"`
+	AllowedTools            []string         `json:"allowedTools,omitempty"`
+	Checkpoint              *CheckpointHint  `json:"checkpoint,omitempty"`
+	EditableFields          []string         `json:"editableFields,omitempty"`
+	RequiredPlanningOutputs []string         `json:"requiredPlanningOutputs,omitempty"`
+}
+
+// CompiledWorkflow stores normalized workflow nodes derived from the template schema.
+type CompiledWorkflow struct {
+	Nodes               map[TaskPhase]WorkflowNode `json:"-"`
+	OnboardingPath      TaskPhase                  `json:"-"`
+	PlanningPath        TaskPhase                  `json:"-"`
+	FirstExecutablePath TaskPhase                  `json:"-"`
+	ExecutionSteps      []Step                     `json:"-"`
+}
+
 // TemplateSummary is the lightweight view returned to MCP clients.
 type TemplateSummary struct {
 	ID           string              `json:"id"`
@@ -87,19 +183,19 @@ type TemplateSummary struct {
 	Steps        []StepSummary       `json:"steps"`
 }
 
-// StepSummary is the lightweight view of one template step returned to MCP clients.
+// StepSummary is the lightweight view of one compiled execution step returned to MCP clients.
 type StepSummary struct {
-	Step         int    `json:"step"`
-	ID           string `json:"id"`
-	Name         string `json:"name,omitempty"`
-	Description  string `json:"description,omitempty"`
-	Instructions string `json:"instructions,omitempty"`
+	Step         int       `json:"step"`
+	ID           string    `json:"id"`
+	Path         TaskPhase `json:"path"`
+	Name         string    `json:"name,omitempty"`
+	Description  string    `json:"description,omitempty"`
+	Instructions string    `json:"instructions,omitempty"`
 }
 
 // TaskStatus enumerates the overall condition of a task run.
 type TaskStatus string
 
-// TaskStatus values represent the overall run condition.
 const (
 	TaskStatusActive    TaskStatus = "active"
 	TaskStatusCompleted TaskStatus = "completed"
@@ -109,18 +205,16 @@ const (
 // TaskPhase enumerates the workflow position of a task run.
 type TaskPhase string
 
-// TaskPhase values represent the current workflow phase.
 const (
-	TaskPhaseRegistered TaskPhase = "registered"
-	TaskPhaseOnboarding TaskPhase = "onboarding"
-	TaskPhasePlanning   TaskPhase = "planning"
-	TaskPhaseExecution  TaskPhase = "execution"
+	TaskPhaseOnboarding         TaskPhase = "onboarding"
+	TaskPhasePlanning           TaskPhase = "planning"
+	TaskPhaseExecution          TaskPhase = "execution"
+	TaskPhaseWaitingForApproval TaskPhase = "waiting_for_approval"
 )
 
 // StepStatus enumerates the per-step lifecycle states.
 type StepStatus string
 
-// StepStatus values represent the lifecycle of one step within a task run.
 const (
 	StepStatusPending StepStatus = "pending"
 	StepStatusActive  StepStatus = "active"
@@ -131,6 +225,7 @@ const (
 // StepState stores mutable runtime state for a single step.
 type StepState struct {
 	ID                 string            `json:"id"`
+	Path               TaskPhase         `json:"path"`
 	Status             StepStatus        `json:"status"`
 	InvariantBaselines map[string]string `json:"-"`
 }
@@ -143,6 +238,7 @@ type RunState struct {
 	Status             TaskStatus          `json:"status"`
 	Phase              TaskPhase           `json:"phase"`
 	Onboarding         *OnboardingArtifact `json:"onboarding,omitempty"`
+	Planning           *PlanningArtifact   `json:"planning,omitempty"`
 	ExecutionReady     bool                `json:"executionReady"`
 	ExecutionTemplate  *Template           `json:"-"`
 	Steps              []StepState         `json:"steps,omitempty"`

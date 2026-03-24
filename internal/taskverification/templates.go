@@ -43,7 +43,7 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 			Description:  template.Task.Description,
 			Instructions: template.Task.Instructions,
 			Parameters:   template.ParameterDefinitions(),
-			StepCount:    len(template.Steps),
+			StepCount:    len(template.CompiledWorkflow.ExecutionSteps),
 			Steps:        template.StepSummaries(),
 		})
 	}
@@ -68,7 +68,7 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 		SelectedTemplate: *template,
 		DraftParameters:  cloneParameters(parameters),
 		Status:           TaskStatusActive,
-		Phase:            TaskPhaseOnboarding,
+		Phase:            template.CompiledWorkflow.OnboardingPath,
 		ExecutionReady:   false,
 	}, nil
 }
@@ -88,6 +88,32 @@ func (s *Service) CompleteOnboarding(run *RunState, artifact OnboardingArtifact)
 	return nil
 }
 
+// CompletePlanning validates and freezes planning context, then enters execution.
+func (s *Service) CompletePlanning(run *RunState, artifact PlanningArtifact) error {
+	if err := validatePlanningArtifact(&run.SelectedTemplate, artifact); err != nil {
+		return err
+	}
+	resolved, stepStates, err := freezeExecutionContract(run)
+	if err != nil {
+		return err
+	}
+	nextPath := run.SelectedTemplate.CompiledWorkflow.Nodes[TaskPhasePlanning].NextPath
+	if nextPath == "" {
+		return fmt.Errorf("planning has no configured next workflow node")
+	}
+	if err := transitionTaskPhase(run, nextPath, run.SelectedTemplate.CompiledWorkflow.PlanningPath); err != nil {
+		return err
+	}
+
+	artifactCopy := clonePlanningArtifact(artifact)
+	run.Planning = &artifactCopy
+	run.ExecutionReady = true
+	run.ExecutionTemplate = &resolved
+	run.Steps = stepStates
+	run.LastFailureMessage = ""
+	return nil
+}
+
 // RestartTask resets an existing task run back to its onboarding shell state.
 func (s *Service) RestartTask(run *RunState) error {
 	if run == nil {
@@ -95,7 +121,8 @@ func (s *Service) RestartTask(run *RunState) error {
 	}
 
 	run.Status = TaskStatusActive
-	run.Phase = TaskPhaseOnboarding
+	run.Phase = run.SelectedTemplate.CompiledWorkflow.OnboardingPath
+	run.Planning = nil
 	run.ExecutionReady = false
 	run.ExecutionTemplate = nil
 	run.Steps = nil
@@ -116,36 +143,29 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	return nil
 }
 
-// PrepareExecution resolves the selected template using the draft parameters
-// and initializes execution state for later step verification.
-func (s *Service) PrepareExecution(run *RunState) error {
+func freezeExecutionContract(run *RunState) (Template, []StepState, error) {
 	if run == nil {
-		return fmt.Errorf("task is not registered")
+		return Template{}, nil, fmt.Errorf("task is not registered")
 	}
 	if run.Status != TaskStatusActive {
-		return fmt.Errorf("task is %s", run.Status)
+		return Template{}, nil, fmt.Errorf("task is %s", run.Status)
 	}
 
 	resolved, err := run.SelectedTemplate.Resolve(run.DraftParameters)
 	if err != nil {
-		return err
+		return Template{}, nil, err
 	}
 
-	stepStates := make([]StepState, 0, len(resolved.Steps))
-	for _, step := range resolved.Steps {
+	stepStates := make([]StepState, 0, len(resolved.CompiledWorkflow.ExecutionSteps))
+	for _, step := range resolved.CompiledWorkflow.ExecutionSteps {
 		stepStates = append(stepStates, StepState{
 			ID:                 step.ID,
+			Path:               step.Path,
 			Status:             StepStatusPending,
 			InvariantBaselines: make(map[string]string),
 		})
 	}
-
-	run.ExecutionReady = true
-	run.ExecutionTemplate = &resolved
-	run.Steps = stepStates
-	run.Phase = TaskPhaseExecution
-	run.LastFailureMessage = ""
-	return nil
+	return resolved, stepStates, nil
 }
 
 func (s *Service) loadTemplateByID(templateID string) (*Template, error) {
@@ -238,14 +258,16 @@ func (t *Template) validate(checkParameterCoverage bool) error {
 	if strings.TrimSpace(t.Task.Description) == "" {
 		return fmt.Errorf("task.description is required")
 	}
-	if len(t.Steps) == 0 {
-		return fmt.Errorf("at least one step is required")
-	}
 
 	if err := t.validateParameters(checkParameterCoverage); err != nil {
 		return err
 	}
-	return t.validateSteps()
+	compiled, err := t.compileWorkflow()
+	if err != nil {
+		return err
+	}
+	t.CompiledWorkflow = compiled
+	return nil
 }
 
 func (t *Template) validateParameters(checkCoverage bool) error {
@@ -277,17 +299,6 @@ func (t *Template) validateParameters(checkCoverage bool) error {
 	for _, name := range requiredParams {
 		if _, exists := definedParams[name]; len(t.Parameters) > 0 && !exists {
 			return fmt.Errorf("parameter %q is used by a placeholder but missing from parameters", name)
-		}
-	}
-	return nil
-}
-
-func (t *Template) validateSteps() error {
-	stepIDs := make(map[string]struct{}, len(t.Steps))
-	for stepIndex := range t.Steps {
-		step := &t.Steps[stepIndex]
-		if err := validateStep(stepIndex, step, stepIDs); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -457,15 +468,16 @@ func (t *Template) ParameterDefinitions() []TemplateParameter {
 
 // StepSummaries returns step metadata in template order.
 func (t *Template) StepSummaries() []StepSummary {
-	if t == nil || len(t.Steps) == 0 {
+	if t == nil || t.CompiledWorkflow == nil || len(t.CompiledWorkflow.ExecutionSteps) == 0 {
 		return nil
 	}
 
-	summaries := make([]StepSummary, 0, len(t.Steps))
-	for index, step := range t.Steps {
+	summaries := make([]StepSummary, 0, len(t.CompiledWorkflow.ExecutionSteps))
+	for index, step := range t.CompiledWorkflow.ExecutionSteps {
 		summaries = append(summaries, StepSummary{
 			Step:         index + 1,
 			ID:           step.ID,
+			Path:         step.Path,
 			Name:         step.Name,
 			Description:  step.Description,
 			Instructions: step.Instructions,
@@ -692,4 +704,86 @@ func cloneOnboardingArtifact(artifact OnboardingArtifact) OnboardingArtifact {
 		copy(cloned.CommonCommands, artifact.CommonCommands)
 	}
 	return cloned
+}
+
+func validatePlanningArtifact(template *Template, artifact PlanningArtifact) error {
+	if strings.TrimSpace(artifact.TestTarget) == "" && artifact.TestTarget != "" {
+		return fmt.Errorf("planning.testTarget is required")
+	}
+	if strings.TrimSpace(artifact.LintCommand) == "" && artifact.LintCommand != "" {
+		return fmt.Errorf("planning.lintCommand is required")
+	}
+	if strings.TrimSpace(artifact.ExpectedFailure) == "" && artifact.ExpectedFailure != "" {
+		return fmt.Errorf("planning.expectedFailure is required")
+	}
+	if strings.TrimSpace(artifact.ImplementationTarget) == "" && artifact.ImplementationTarget != "" {
+		return fmt.Errorf("planning.implementationTarget is required")
+	}
+	if err := validateUniqueTrimmedStrings("planning.selectedFiles", artifact.SelectedFiles); err != nil {
+		return err
+	}
+	if err := validateUniqueTrimmedStrings("planning.invariants", artifact.Invariants); err != nil {
+		return err
+	}
+	requiredOutputs := []string(nil)
+	if template != nil && template.CompiledWorkflow != nil {
+		if planningNode, exists := template.CompiledWorkflow.Nodes[template.CompiledWorkflow.PlanningPath]; exists {
+			requiredOutputs = append(requiredOutputs, planningNode.RequiredPlanningOutputs...)
+		}
+	}
+	for _, output := range requiredOutputs {
+		switch output {
+		case "selectedFiles":
+			if len(artifact.SelectedFiles) == 0 {
+				return fmt.Errorf("planning.selectedFiles is required")
+			}
+		case "testTarget":
+			if strings.TrimSpace(artifact.TestTarget) == "" {
+				return fmt.Errorf("planning.testTarget is required")
+			}
+		case "lintCommand":
+			if strings.TrimSpace(artifact.LintCommand) == "" {
+				return fmt.Errorf("planning.lintCommand is required")
+			}
+		case "expectedFailure":
+			if strings.TrimSpace(artifact.ExpectedFailure) == "" {
+				return fmt.Errorf("planning.expectedFailure is required")
+			}
+		case "implementationTarget":
+			if strings.TrimSpace(artifact.ImplementationTarget) == "" {
+				return fmt.Errorf("planning.implementationTarget is required")
+			}
+		case "invariants":
+			if len(artifact.Invariants) == 0 {
+				return fmt.Errorf("planning.invariants is required")
+			}
+		}
+	}
+	return nil
+}
+
+func clonePlanningArtifact(artifact PlanningArtifact) PlanningArtifact {
+	return PlanningArtifact{
+		SelectedFiles:        append([]string(nil), artifact.SelectedFiles...),
+		TestTarget:           artifact.TestTarget,
+		LintCommand:          artifact.LintCommand,
+		ExpectedFailure:      artifact.ExpectedFailure,
+		ImplementationTarget: artifact.ImplementationTarget,
+		Invariants:           append([]string(nil), artifact.Invariants...),
+	}
+}
+
+func validateUniqueTrimmedStrings(field string, values []string) error {
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return fmt.Errorf("%s[%d] is required", field, index)
+		}
+		if _, exists := seen[trimmed]; exists {
+			return fmt.Errorf("%s contains duplicate value %q", field, trimmed)
+		}
+		seen[trimmed] = struct{}{}
+	}
+	return nil
 }

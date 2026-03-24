@@ -24,43 +24,60 @@ parameters:
     description: "The command used to run linting for the project."
   - name: "expectedError"
     description: "A stable substring expected in the failing test output for the initial TDD baseline."
-steps:
-  - id: "establish_failing_baseline"
-    name: "Establish failing baseline"
+workflow:
+  onboarding:
     instructions: |
-      Create or identify the target pytest case so it fails for the intended reason.
-      The pass/fail decision for this step comes from `centian.task_complete_step`.
-    checks:
-      - id: "selected_test_fails"
-        command: "cd /workspace/project && ${testCommand} ${testTarget}"
-        pre_conditions:
-          - type: exit_code_in
-            values: [0, 1, 4]
-        post_conditions:
-          - type: exit_code
-            value: 1
-          - type: stdout_contains
-            value: "${expectedError}"
-  - id: "implement_solution"
-    name: "Implement solution"
-    instructions: |
-      Start this step before changing production code.
-      Make the implementation pass the selected test, then let Centian verify the step.
-      Once this step is active, keep the selected test file stable.
-    checks:
-      - id: "selected_test_passes"
-        command: "cd /workspace/project && ${testCommand} ${testTarget}"
-        pre_conditions:
-          - type: exit_code
-            value: 1
-        post_conditions:
-          - type: exit_code
-            value: 0
-      - id: "project_lint_passes"
-        command: "cd /workspace/project && ${lintCommand}"
-        post_conditions:
-          - type: exit_code
-            value: 0
-    invariants:
-      - id: "test_file_stable"
-        command: "cd /workspace/project && cat ${testFile}"
+      Identify the concrete pytest target, relevant source files, and project commands before planning.
+  planning:
+    editable_fields:
+      - "parameters.testCommand"
+      - "parameters.testTarget"
+      - "parameters.testFile"
+      - "parameters.lintCommand"
+      - "parameters.expectedError"
+    required_outputs:
+      - "selectedFiles"
+      - "testTarget"
+      - "lintCommand"
+      - "expectedFailure"
+      - "implementationTarget"
+  execution:
+    - id: "establish_failing_baseline"
+      name: "Establish failing baseline"
+      instructions: |
+        Create or identify the target pytest case so it fails for the intended reason.
+        The pass/fail decision for this step comes from `centian.task_complete_step`.
+      checks:
+        - id: "selected_test_fails"
+          command: "cd /workspace/project && ${testCommand} ${testTarget}"
+          pre_conditions:
+            - type: exit_code_in
+              values: [0, 1, 4]
+          post_conditions:
+            - type: exit_code
+              value: 1
+            - type: stdout_contains
+              value: "${expectedError}"
+    - id: "implement_solution"
+      name: "Implement solution"
+      instructions: |
+        Start this step before changing production code.
+        Make the implementation pass the selected test, then let Centian verify the step.
+        Once this step is active, keep the selected test file stable.
+      checks:
+        - id: "selected_test_passes"
+          command: "cd /workspace/project && ${testCommand} ${testTarget}"
+          pre_conditions:
+            - type: exit_code
+              value: 1
+          post_conditions:
+            - type: exit_code
+              value: 0
+        - id: "project_lint_passes"
+          command: "cd /workspace/project && ${lintCommand}"
+          post_conditions:
+            - type: exit_code
+              value: 0
+      invariants:
+        - id: "test_file_stable"
+          command: "cd /workspace/project && cat ${testFile}"

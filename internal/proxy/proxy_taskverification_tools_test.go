@@ -68,6 +68,7 @@ func TestNewUpstreamServerRegistersTaskVerificationTools(t *testing.T) {
 
 	assert.DeepEqual(t, listToolNames(t, clientSession), []string{
 		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
 		taskCompleteStepTool,
 		taskFailTool,
 		taskListTemplatesTool,
@@ -96,6 +97,9 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, registerStructured["instructions"], "Use Centian validation instead of rebuilding checks manually.")
 	assert.Equal(t, registerStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+	assert.Equal(t, registerStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
+	assert.Equal(t, registerStructured["nextNodePath"], string(taskverification.TaskPhasePlanning))
+	assert.Equal(t, registerStructured["approvalBlocked"], false)
 	assert.Equal(t, registerStructured["executionReady"], false)
 	assert.Equal(t, registerStructured["hasOnboarding"], false)
 	_, hasSteps := registerStructured["steps"]
@@ -128,9 +132,12 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	completeOnboardingStructured := completeOnboardingResult.StructuredContent.(map[string]any)
 	assert.Equal(t, completeOnboardingStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, completeOnboardingStructured["phase"], string(taskverification.TaskPhasePlanning))
+	assert.Equal(t, completeOnboardingStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindPlanning))
+	assert.Equal(t, completeOnboardingStructured["nextNodePath"], "execution.step_one")
 	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
 	assert.Equal(t, completeOnboardingStructured["onboardingSummary"], "Small test project with one shell validation path.")
 	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
+	assert.Equal(t, completeOnboardingStructured["hasPlanning"], false)
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -138,7 +145,40 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 			"step": 1,
 		},
 	})
-	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
+	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+
+	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"selectedFiles":        []string{"tests/test_mathlib.py"},
+				"testTarget":           "python -m pytest -q tests/test_mathlib.py",
+				"lintCommand":          "ruff check .",
+				"implementationTarget": "mathlib.add",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	completePlanningStructured := completePlanningResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completePlanningStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, completePlanningStructured["phase"], "execution.step_one")
+	assert.Equal(t, completePlanningStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindExecution))
+	assert.Equal(t, completePlanningStructured["approvalBlocked"], false)
+	assert.Equal(t, completePlanningStructured["hasPlanning"], true)
+	assert.Equal(t, completePlanningStructured["executionReady"], true)
+	assert.Assert(t, completePlanningStructured["planningSummary"] != nil)
+	assert.Assert(t, completePlanningStructured["steps"] != nil)
+
+	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskStartStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.NilError(t, err)
+	startStepStructured := startStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, startStepStructured["phase"], "execution.step_one")
+	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
 
 	restartResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRestartTool,
@@ -148,8 +188,9 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	restartStructured := restartResult.StructuredContent.(map[string]any)
 	assert.Equal(t, restartStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, restartStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+	assert.Equal(t, restartStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
 	assert.Equal(t, restartStructured["hasOnboarding"], true)
-	assert.Equal(t, restartStructured["onboardingSummary"], "Small test project with one shell validation path.")
+	assert.Equal(t, restartStructured["hasPlanning"], false)
 	assert.Equal(t, restartStructured["onboardingSummary"], "Small test project with one shell validation path.")
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -163,6 +204,74 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
 	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+}
+
+func TestTaskCompletePlanningCanEnterApprovalWait(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+workflow:
+  onboarding: {}
+  planning:
+    required_outputs: ["testTarget"]
+    next: "waiting_for_approval.review_plan"
+  execution:
+    - id: "review_plan"
+      kind: "waiting_for_approval"
+      next: "execution.step_one"
+    - id: "step_one"
+      checks:
+        - id: "check_one"
+          command: "printf 'ok'"
+`)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"projectSummary": "Stored summary",
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"testTarget": "pytest -q",
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["phase"], "waiting_for_approval.review_plan")
+	assert.Equal(t, structured["currentNodeKind"], string(taskverification.WorkflowNodeKindWaitingForApproval))
+	assert.Equal(t, structured["approvalBlocked"], true)
+	assert.Equal(t, structured["nextNodePath"], "execution.step_one")
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskStartStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
 }
 
 func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
@@ -235,12 +344,21 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"testTarget": "pytest -q",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
 		Arguments: map[string]any{
 			"step": 1,
 		},
 	})
-	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
+	assert.NilError(t, err)
 
 	// Then: the request log contains the built-in task tool calls.
 	entries := readTaskToolLogEntries(t, endpoint.server.Logger.GetLogPath())
@@ -254,6 +372,7 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 		taskListTemplatesTool,
 		taskRegisterTool,
 		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
 		taskStartStepTool,
 	})
 }
@@ -266,18 +385,22 @@ task:
   name: "Task"
   description: "desc"
   instructions: "Use Centian validation instead of rebuilding checks manually."
-steps:
-  - id: "step_one"
-    instructions: "Start the step before using complete_step."
-    checks:
-      - id: "check_one"
-        command: "printf 'ok'"
-        pre_conditions:
-          - type: stdout_contains
-            value: "ok"
-        post_conditions:
-          - type: stdout_contains
-            value: "ok"
+workflow:
+  onboarding: {}
+  planning:
+    required_outputs: ["testTarget"]
+  execution:
+    - id: "step_one"
+      instructions: "Start the step before using complete_step."
+      checks:
+        - id: "check_one"
+          command: "printf 'ok'"
+          pre_conditions:
+            - type: stdout_contains
+              value: "ok"
+          post_conditions:
+            - type: stdout_contains
+              value: "ok"
 `
 }
 

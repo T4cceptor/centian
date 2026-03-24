@@ -16,6 +16,7 @@ const (
 	taskListTemplatesTool      = "centian.task_list_templates"
 	taskRegisterTool           = "centian.task_register"
 	taskCompleteOnboardingTool = "centian.task_complete_onboarding"
+	taskCompletePlanningTool   = "centian.task_complete_planning"
 	taskStartStepTool          = "centian.task_start_step"
 	taskCompleteStepTool       = "centian.task_complete_step"
 	taskRestartTool            = "centian.task_restart"
@@ -33,6 +34,10 @@ type taskStepArgs struct {
 
 type taskCompleteOnboardingArgs struct {
 	Onboarding taskverification.OnboardingArtifact `json:"onboarding"`
+}
+
+type taskCompletePlanningArgs struct {
+	Planning taskverification.PlanningArtifact `json:"planning"`
 }
 
 type taskFailArgs struct {
@@ -85,6 +90,19 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		},
 	}, p.wrapTaskToolHandler(session, taskCompleteOnboardingTool, p.handleTaskCompleteOnboardingTool))
 	session.registeredStaticTools[taskCompleteOnboardingTool] = struct{}{}
+
+	server.AddTool(&mcp.Tool{
+		Name:        taskCompletePlanningTool,
+		Description: "Persist planning context, freeze the contract, and enter execution.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"planning": map[string]any{"type": "object"},
+			},
+			"required": []string{"planning"},
+		},
+	}, p.wrapTaskToolHandler(session, taskCompletePlanningTool, p.handleTaskCompletePlanningTool))
+	session.registeredStaticTools[taskCompletePlanningTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskStartStepTool,
@@ -265,8 +283,9 @@ func (p *CentianEndpoint) handleTaskRegisterTool(_ context.Context, session *Ups
 	session.taskRun = run
 
 	structured := runStructuredContent(run)
-	structured["stepCount"] = len(run.SelectedTemplate.Steps)
-	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, len(run.SelectedTemplate.Steps)), structured), nil
+	stepCount := len(run.SelectedTemplate.CompiledWorkflow.ExecutionSteps)
+	structured["stepCount"] = stepCount
+	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, stepCount), structured), nil
 }
 
 func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -286,6 +305,25 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(_ context.Context, se
 		structured["onboarding"] = session.taskRun.Onboarding
 	}
 	return toolResult("Task onboarding completed; task moved to planning.", structured), nil
+}
+
+func (p *CentianEndpoint) handleTaskCompletePlanningTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := taskCompletePlanningArgs{}
+	if err := decodeToolArguments(req, &args); err != nil {
+		return nil, err
+	}
+
+	session.taskMu.Lock()
+	defer session.taskMu.Unlock()
+
+	if err := p.server.TaskVerification.CompletePlanning(session.taskRun, args.Planning); err != nil {
+		return nil, err
+	}
+	structured := runStructuredContent(session.taskRun)
+	if session.taskRun.Planning != nil {
+		structured["planning"] = session.taskRun.Planning
+	}
+	return toolResult(fmt.Sprintf("Task planning completed; task moved to %s.", session.taskRun.Phase), structured), nil
 }
 
 func (p *CentianEndpoint) handleTaskStartStepTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -395,13 +433,29 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		"phase":              string(run.Phase),
 		"draftParameters":    run.DraftParameters,
 		"hasOnboarding":      run.Onboarding != nil,
+		"hasPlanning":        run.Planning != nil,
 		"executionReady":     run.ExecutionReady,
-		"stepCount":          len(run.SelectedTemplate.Steps),
+		"stepCount":          len(run.SelectedTemplate.CompiledWorkflow.ExecutionSteps),
 		"lastFailureMessage": run.LastFailureMessage,
 		"explicitFailReason": run.ExplicitFailReason,
 	}
+	if node, exists := run.CurrentNode(); exists {
+		structured["currentNodeKind"] = string(node.Kind)
+		structured["approvalBlocked"] = node.Kind == taskverification.WorkflowNodeKindWaitingForApproval
+		if node.NextPath != "" {
+			structured["nextNodePath"] = string(node.NextPath)
+		}
+	}
 	if run.Onboarding != nil {
 		structured["onboardingSummary"] = run.Onboarding.ProjectSummary
+	}
+	if run.Planning != nil {
+		structured["planningSummary"] = map[string]any{
+			"selectedFiles":        run.Planning.SelectedFiles,
+			"testTarget":           run.Planning.TestTarget,
+			"lintCommand":          run.Planning.LintCommand,
+			"implementationTarget": run.Planning.ImplementationTarget,
+		}
 	}
 
 	if !run.ExecutionReady || run.ExecutionTemplate == nil {
@@ -410,10 +464,11 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 
 	steps := make([]map[string]any, 0, len(run.Steps))
 	for index, step := range run.Steps {
-		templateStep := run.ExecutionTemplate.Steps[index]
+		templateStep := run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[index]
 		steps = append(steps, map[string]any{
 			"step":         index + 1,
 			"id":           step.ID,
+			"path":         string(step.Path),
 			"name":         templateStep.Name,
 			"description":  templateStep.Description,
 			"instructions": templateStep.Instructions,
