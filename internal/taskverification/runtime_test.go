@@ -124,6 +124,29 @@ steps:
 	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
 }
 
+func TestStartStepFailsInPlanningAfterOnboardingCompletion(t *testing.T) {
+	service, run := newRuntimeShellTestService(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+steps:
+  - id: "step_one"
+    checks:
+      - id: "check_one"
+        command: "printf 'ok'"
+`)
+
+	err := service.StartOnboarding(run)
+	assert.NilError(t, err)
+	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready to plan"})
+	assert.NilError(t, err)
+
+	_, err = service.StartStep(run, 1)
+	assert.ErrorContains(t, err, "step execution is only allowed in execution phase")
+}
+
 func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 	dir := t.TempDir()
 	stateFile := filepath.Join(dir, "state.txt")
@@ -241,6 +264,9 @@ steps:
 	err := service.FailTask(run, "stuck")
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusFailed)
+
+	err = service.StartOnboarding(run)
+	assert.ErrorContains(t, err, "task is failed")
 
 	err = service.RestartTask(run)
 	assert.NilError(t, err)

@@ -13,12 +13,14 @@ import (
 )
 
 const (
-	taskListTemplatesTool = "centian.task_list_templates"
-	taskRegisterTool      = "centian.task_register"
-	taskStartStepTool     = "centian.task_start_step"
-	taskCompleteStepTool  = "centian.task_complete_step"
-	taskRestartTool       = "centian.task_restart"
-	taskFailTool          = "centian.task_fail"
+	taskListTemplatesTool      = "centian.task_list_templates"
+	taskRegisterTool           = "centian.task_register"
+	taskStartOnboardingTool    = "centian.task_start_onboarding"
+	taskCompleteOnboardingTool = "centian.task_complete_onboarding"
+	taskStartStepTool          = "centian.task_start_step"
+	taskCompleteStepTool       = "centian.task_complete_step"
+	taskRestartTool            = "centian.task_restart"
+	taskFailTool               = "centian.task_fail"
 )
 
 type taskRegisterArgs struct {
@@ -28,6 +30,10 @@ type taskRegisterArgs struct {
 
 type taskStepArgs struct {
 	Step int `json:"step"`
+}
+
+type taskCompleteOnboardingArgs struct {
+	Onboarding taskverification.OnboardingArtifact `json:"onboarding"`
 }
 
 type taskFailArgs struct {
@@ -67,6 +73,29 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		},
 	}, p.wrapTaskToolHandler(session, taskRegisterTool, p.handleTaskRegisterTool))
 	session.registeredStaticTools[taskRegisterTool] = struct{}{}
+
+	server.AddTool(&mcp.Tool{
+		Name:        taskStartOnboardingTool,
+		Description: "Enter or resume the onboarding phase for the active task.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}, p.wrapTaskToolHandler(session, taskStartOnboardingTool, p.handleTaskStartOnboardingTool))
+	session.registeredStaticTools[taskStartOnboardingTool] = struct{}{}
+
+	server.AddTool(&mcp.Tool{
+		Name:        taskCompleteOnboardingTool,
+		Description: "Persist onboarding context and advance the task into planning.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"onboarding": map[string]any{"type": "object"},
+			},
+			"required": []string{"onboarding"},
+		},
+	}, p.wrapTaskToolHandler(session, taskCompleteOnboardingTool, p.handleTaskCompleteOnboardingTool))
+	session.registeredStaticTools[taskCompleteOnboardingTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskStartStepTool,
@@ -251,6 +280,39 @@ func (p *CentianEndpoint) handleTaskRegisterTool(_ context.Context, session *Ups
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, len(run.SelectedTemplate.Steps)), structured), nil
 }
 
+func (p *CentianEndpoint) handleTaskStartOnboardingTool(_ context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	session.taskMu.Lock()
+	defer session.taskMu.Unlock()
+
+	if err := p.server.TaskVerification.StartOnboarding(session.taskRun); err != nil {
+		return nil, err
+	}
+	structured := runStructuredContent(session.taskRun)
+	if session.taskRun.Onboarding != nil {
+		structured["onboarding"] = session.taskRun.Onboarding
+	}
+	return toolResult("Task onboarding started.", structured), nil
+}
+
+func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := taskCompleteOnboardingArgs{}
+	if err := decodeToolArguments(req, &args); err != nil {
+		return nil, err
+	}
+
+	session.taskMu.Lock()
+	defer session.taskMu.Unlock()
+
+	if err := p.server.TaskVerification.CompleteOnboarding(session.taskRun, args.Onboarding); err != nil {
+		return nil, err
+	}
+	structured := runStructuredContent(session.taskRun)
+	if session.taskRun.Onboarding != nil {
+		structured["onboarding"] = session.taskRun.Onboarding
+	}
+	return toolResult("Task onboarding completed; task moved to planning.", structured), nil
+}
+
 func (p *CentianEndpoint) handleTaskStartStepTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := taskStepArgs{}
 	if err := decodeToolArguments(req, &args); err != nil {
@@ -357,10 +419,14 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		"status":             string(run.Status),
 		"phase":              string(run.Phase),
 		"draftParameters":    run.DraftParameters,
+		"hasOnboarding":      run.Onboarding != nil,
 		"executionReady":     run.ExecutionReady,
 		"stepCount":          len(run.SelectedTemplate.Steps),
 		"lastFailureMessage": run.LastFailureMessage,
 		"explicitFailReason": run.ExplicitFailReason,
+	}
+	if run.Onboarding != nil {
+		structured["onboardingSummary"] = run.Onboarding.ProjectSummary
 	}
 
 	if !run.ExecutionReady || run.ExecutionTemplate == nil {

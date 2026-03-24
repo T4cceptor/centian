@@ -67,11 +67,13 @@ func TestNewUpstreamServerRegistersTaskVerificationTools(t *testing.T) {
 	defer cleanup()
 
 	assert.DeepEqual(t, listToolNames(t, clientSession), []string{
+		taskCompleteOnboardingTool,
 		taskCompleteStepTool,
 		taskFailTool,
 		taskListTemplatesTool,
 		taskRegisterTool,
 		taskRestartTool,
+		taskStartOnboardingTool,
 		taskStartStepTool,
 	})
 }
@@ -96,8 +98,49 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, registerStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseRegistered))
 	assert.Equal(t, registerStructured["executionReady"], false)
+	assert.Equal(t, registerStructured["hasOnboarding"], false)
 	_, hasSteps := registerStructured["steps"]
 	assert.Assert(t, !hasSteps)
+
+	startOnboardingResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartOnboardingTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+	startOnboardingStructured := startOnboardingResult.StructuredContent.(map[string]any)
+	assert.Equal(t, startOnboardingStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, startOnboardingStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+
+	completeOnboardingResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"projectSummary": "Small test project with one shell validation path.",
+				"artifactMap": []map[string]any{
+					{
+						"path":  "/workspace/project/tests",
+						"kind":  "tests",
+						"notes": "Primary test directory",
+					},
+				},
+				"commonCommands": []map[string]any{
+					{
+						"command": "python -m pytest -q",
+						"purpose": "Run targeted tests",
+					},
+				},
+				"constraints":   []string{"Use Centian tools only"},
+				"openQuestions": []string{"Which file should planning target?"},
+			},
+		},
+	})
+	assert.NilError(t, err)
+	completeOnboardingStructured := completeOnboardingResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completeOnboardingStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, completeOnboardingStructured["phase"], string(taskverification.TaskPhasePlanning))
+	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
+	assert.Equal(t, completeOnboardingStructured["onboardingSummary"], "Small test project with one shell validation path.")
+	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -115,6 +158,18 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	restartStructured := restartResult.StructuredContent.(map[string]any)
 	assert.Equal(t, restartStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, restartStructured["phase"], string(taskverification.TaskPhaseRegistered))
+	assert.Equal(t, restartStructured["hasOnboarding"], true)
+	assert.Equal(t, restartStructured["onboardingSummary"], "Small test project with one shell validation path.")
+
+	restartOnboardingResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartOnboardingTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+	restartOnboardingStructured := restartOnboardingResult.StructuredContent.(map[string]any)
+	assert.Equal(t, restartOnboardingStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+	assert.Equal(t, restartOnboardingStructured["hasOnboarding"], true)
+	assert.Assert(t, restartOnboardingStructured["onboarding"] != nil)
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskFailTool,
@@ -126,7 +181,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	failStructured := failResult.StructuredContent.(map[string]any)
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
-	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseRegistered))
+	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
 }
 
 func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
@@ -190,6 +245,20 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartOnboardingTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"projectSummary": "Stored summary",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
 		Arguments: map[string]any{
 			"step": 1,
@@ -208,6 +277,8 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 	assert.DeepEqual(t, names, []string{
 		taskListTemplatesTool,
 		taskRegisterTool,
+		taskStartOnboardingTool,
+		taskCompleteOnboardingTool,
 		taskStartStepTool,
 	})
 }

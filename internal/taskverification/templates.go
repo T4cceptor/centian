@@ -73,6 +73,27 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 	}, nil
 }
 
+// StartOnboarding enters onboarding or returns the existing onboarding phase.
+func (s *Service) StartOnboarding(run *RunState) error {
+	return transitionTaskPhase(run, TaskPhaseOnboarding, TaskPhaseRegistered, TaskPhaseOnboarding)
+}
+
+// CompleteOnboarding validates and persists onboarding context, then advances to planning.
+func (s *Service) CompleteOnboarding(run *RunState, artifact OnboardingArtifact) error {
+	if err := transitionTaskPhase(run, TaskPhasePlanning, TaskPhaseOnboarding); err != nil {
+		return err
+	}
+	if err := validateOnboardingArtifact(artifact); err != nil {
+		run.Phase = TaskPhaseOnboarding
+		return err
+	}
+
+	artifactCopy := cloneOnboardingArtifact(artifact)
+	run.Onboarding = &artifactCopy
+	run.LastFailureMessage = ""
+	return nil
+}
+
 // RestartTask resets an existing task run back to its registered shell state.
 func (s *Service) RestartTask(run *RunState) error {
 	if run == nil {
@@ -599,6 +620,29 @@ func cloneParameters(parameters map[string]string) map[string]string {
 	return cloned
 }
 
+func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) error {
+	if run == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	switch run.Status {
+	case TaskStatusActive:
+	case TaskStatusCompleted:
+		return fmt.Errorf("task is already completed")
+	case TaskStatusFailed:
+		return fmt.Errorf("task is failed; restart or register a new task")
+	default:
+		return fmt.Errorf("task is %s", run.Status)
+	}
+
+	for _, phase := range allowed {
+		if run.Phase == phase {
+			run.Phase = next
+			return nil
+		}
+	}
+	return fmt.Errorf("task is in %s phase; cannot transition to %s", run.Phase, next)
+}
+
 func validateDraftParameters(template *Template, parameters map[string]string) error {
 	if template == nil {
 		return fmt.Errorf("template is required")
@@ -614,4 +658,44 @@ func validateDraftParameters(template *Template, parameters map[string]string) e
 		}
 	}
 	return nil
+}
+
+func validateOnboardingArtifact(artifact OnboardingArtifact) error {
+	if strings.TrimSpace(artifact.ProjectSummary) == "" {
+		return fmt.Errorf("onboarding.projectSummary is required")
+	}
+	for index, ref := range artifact.ArtifactMap {
+		if strings.TrimSpace(ref.Path) == "" {
+			return fmt.Errorf("onboarding.artifactMap[%d].path is required", index)
+		}
+		if strings.TrimSpace(ref.Kind) == "" {
+			return fmt.Errorf("onboarding.artifactMap[%d].kind is required", index)
+		}
+	}
+	for index, command := range artifact.CommonCommands {
+		if strings.TrimSpace(command.Command) == "" {
+			return fmt.Errorf("onboarding.commonCommands[%d].command is required", index)
+		}
+		if strings.TrimSpace(command.Purpose) == "" {
+			return fmt.Errorf("onboarding.commonCommands[%d].purpose is required", index)
+		}
+	}
+	return nil
+}
+
+func cloneOnboardingArtifact(artifact OnboardingArtifact) OnboardingArtifact {
+	cloned := OnboardingArtifact{
+		ProjectSummary: artifact.ProjectSummary,
+		Constraints:    append([]string(nil), artifact.Constraints...),
+		OpenQuestions:  append([]string(nil), artifact.OpenQuestions...),
+	}
+	if len(artifact.ArtifactMap) > 0 {
+		cloned.ArtifactMap = make([]OnboardingArtifactRef, len(artifact.ArtifactMap))
+		copy(cloned.ArtifactMap, artifact.ArtifactMap)
+	}
+	if len(artifact.CommonCommands) > 0 {
+		cloned.CommonCommands = make([]OnboardingCommand, len(artifact.CommonCommands))
+		copy(cloned.CommonCommands, artifact.CommonCommands)
+	}
+	return cloned
 }

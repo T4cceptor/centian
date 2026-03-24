@@ -54,6 +54,28 @@ type TemplateParameter struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
+// OnboardingArtifact stores reusable project/environment discovery context.
+type OnboardingArtifact struct {
+	ProjectSummary string                  `json:"projectSummary"`
+	ArtifactMap    []OnboardingArtifactRef `json:"artifactMap,omitempty"`
+	CommonCommands []OnboardingCommand     `json:"commonCommands,omitempty"`
+	Constraints    []string                `json:"constraints,omitempty"`
+	OpenQuestions  []string                `json:"openQuestions,omitempty"`
+}
+
+// OnboardingArtifactRef describes a project artifact discovered during onboarding.
+type OnboardingArtifactRef struct {
+	Path  string `json:"path"`
+	Kind  string `json:"kind"`
+	Notes string `json:"notes,omitempty"`
+}
+
+// OnboardingCommand describes a useful project command discovered during onboarding.
+type OnboardingCommand struct {
+	Command string `json:"command"`
+	Purpose string `json:"purpose"`
+}
+
 // TemplateSummary is the lightweight view returned to MCP clients.
 type TemplateSummary struct {
 	ID           string              `json:"id"`
@@ -115,16 +137,17 @@ type StepState struct {
 
 // RunState stores the mutable session-scoped state of one registered task.
 type RunState struct {
-	TemplateID         string            `json:"templateId"`
-	SelectedTemplate   Template          `json:"-"`
-	DraftParameters    map[string]string `json:"draftParameters"`
-	Status             TaskStatus        `json:"status"`
-	Phase              TaskPhase         `json:"phase"`
-	ExecutionReady     bool              `json:"executionReady"`
-	ExecutionTemplate  *Template         `json:"-"`
-	Steps              []StepState       `json:"steps,omitempty"`
-	LastFailureMessage string            `json:"lastFailureMessage,omitempty"`
-	ExplicitFailReason string            `json:"explicitFailReason,omitempty"`
+	TemplateID         string              `json:"templateId"`
+	SelectedTemplate   Template            `json:"-"`
+	DraftParameters    map[string]string   `json:"draftParameters"`
+	Status             TaskStatus          `json:"status"`
+	Phase              TaskPhase           `json:"phase"`
+	Onboarding         *OnboardingArtifact `json:"onboarding,omitempty"`
+	ExecutionReady     bool                `json:"executionReady"`
+	ExecutionTemplate  *Template           `json:"-"`
+	Steps              []StepState         `json:"steps,omitempty"`
+	LastFailureMessage string              `json:"lastFailureMessage,omitempty"`
+	ExplicitFailReason string              `json:"explicitFailReason,omitempty"`
 }
 
 // StepResult is the MCP-facing outcome of starting or completing a step.
