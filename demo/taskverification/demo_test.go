@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/persistence"
+	tv "github.com/T4cceptor/centian/internal/taskverification"
 	"gotest.tools/assert"
 )
 
@@ -31,15 +33,34 @@ type verificationCommand struct {
 	ExpectContains string
 }
 
+type taskToolExpectation struct {
+	ToolName        string
+	Phase           string
+	CurrentNodeKind string
+	NextNodePath    string
+	ApprovalBlocked *bool
+}
+
 type taskVerificationScenario struct {
-	Name                    string
-	PromptPath              string
-	ProjectFile             string
-	TestFile                string
-	ExpectProjectContains   []string
-	ExpectTestContains      []string
-	PytestCommand           string
-	AdditionalVerifications []verificationCommand
+	Name                     string
+	PromptPath               string
+	ProjectFile              string
+	TestFile                 string
+	ExpectProjectContains    []string
+	ExpectTestContains       []string
+	PytestCommand            string
+	AdditionalVerifications  []verificationCommand
+	RequireProjectAssertions bool
+	RequirePytestAndLint     bool
+	ExpectedToolSubsequence  []string
+	ExpectedTaskToolResults  []taskToolExpectation
+	ExpectedTaskEventTypes   []tv.TaskEventType
+	ExpectBlockedToolPrefix  string
+}
+
+type loggedToolResult struct {
+	IsError           bool           `json:"isError"`
+	StructuredContent map[string]any `json:"structuredContent"`
 }
 
 func TestTaskVerificationE2E(t *testing.T) {
@@ -55,6 +76,42 @@ func TestTaskVerificationE2E(t *testing.T) {
 }
 
 func taskVerificationScenarios() []taskVerificationScenario {
+	falseValue := false
+	trueValue := true
+	fullFlowTools := []string{
+		"centian.task_list_templates",
+		"centian.task_register",
+		"centian.task_complete_onboarding",
+		"centian.task_complete_planning",
+		"centian.task_start_step",
+		"centian.task_complete_step",
+		"centian.task_start_step",
+		"centian.task_complete_step",
+	}
+	fullFlowExpectations := []taskToolExpectation{
+		{
+			ToolName:        "centian.task_register",
+			Phase:           "onboarding",
+			CurrentNodeKind: string(tv.WorkflowNodeKindOnboarding),
+			NextNodePath:    "planning",
+			ApprovalBlocked: &falseValue,
+		},
+		{
+			ToolName:        "centian.task_complete_onboarding",
+			Phase:           "planning",
+			CurrentNodeKind: string(tv.WorkflowNodeKindPlanning),
+			NextNodePath:    "execution.establish_failing_baseline",
+			ApprovalBlocked: &falseValue,
+		},
+		{
+			ToolName:        "centian.task_complete_planning",
+			Phase:           "execution.establish_failing_baseline",
+			CurrentNodeKind: string(tv.WorkflowNodeKindExecution),
+			NextNodePath:    "execution.implement_solution",
+			ApprovalBlocked: &falseValue,
+		},
+	}
+
 	return []taskVerificationScenario{
 		{
 			Name:                  "problem_only",
@@ -70,15 +127,81 @@ func taskVerificationScenarios() []taskVerificationScenario {
 					ExpectContains: "contract-ok",
 				},
 			},
+			RequireProjectAssertions: true,
+			RequirePytestAndLint:     true,
+			ExpectedToolSubsequence:  fullFlowTools,
+			ExpectedTaskToolResults:  fullFlowExpectations,
+			ExpectedTaskEventTypes: []tv.TaskEventType{
+				tv.TaskEventTypeRegistered,
+				tv.TaskEventTypeOnboardingCompleted,
+				tv.TaskEventTypePlanningCompleted,
+				tv.TaskEventTypeStepStarted,
+				tv.TaskEventTypeStepCompleted,
+				tv.TaskEventTypeStepStarted,
+				tv.TaskEventTypeStepCompleted,
+			},
 		},
 		{
-			Name:                  "existing_bug",
-			PromptPath:            "/agent/prompts/existing_bug_mathlib.md",
-			ProjectFile:           "mathlib.py",
-			TestFile:              filepath.Join("tests", "test_mathlib.py"),
-			ExpectProjectContains: []string{"return a + b"},
-			ExpectTestContains:    []string{"test_add_two_numbers", "assert add(1, 2) == 3"},
-			PytestCommand:         "cd /workspace/project && python -m pytest -q tests/test_mathlib.py",
+			Name:                     "existing_bug",
+			PromptPath:               "/agent/prompts/existing_bug_mathlib.md",
+			ProjectFile:              "mathlib.py",
+			TestFile:                 filepath.Join("tests", "test_mathlib.py"),
+			ExpectProjectContains:    []string{"return a + b"},
+			ExpectTestContains:       []string{"test_add_two_numbers", "assert add(1, 2) == 3"},
+			PytestCommand:            "cd /workspace/project && python -m pytest -q tests/test_mathlib.py",
+			RequireProjectAssertions: true,
+			RequirePytestAndLint:     true,
+			ExpectedToolSubsequence:  fullFlowTools,
+			ExpectedTaskToolResults:  fullFlowExpectations,
+			ExpectedTaskEventTypes: []tv.TaskEventType{
+				tv.TaskEventTypeRegistered,
+				tv.TaskEventTypeOnboardingCompleted,
+				tv.TaskEventTypePlanningCompleted,
+				tv.TaskEventTypeStepStarted,
+				tv.TaskEventTypeStepCompleted,
+				tv.TaskEventTypeStepStarted,
+				tv.TaskEventTypeStepCompleted,
+			},
+		},
+		{
+			Name:       "approval_wait",
+			PromptPath: "/agent/prompts/approval_wait_mathlib.md",
+			ExpectedToolSubsequence: []string{
+				"centian.task_list_templates",
+				"centian.task_register",
+				"centian.task_complete_onboarding",
+				"centian.task_complete_planning",
+			},
+			ExpectedTaskToolResults: []taskToolExpectation{
+				{
+					ToolName:        "centian.task_register",
+					Phase:           "onboarding",
+					CurrentNodeKind: string(tv.WorkflowNodeKindOnboarding),
+					NextNodePath:    "planning",
+					ApprovalBlocked: &falseValue,
+				},
+				{
+					ToolName:        "centian.task_complete_onboarding",
+					Phase:           "planning",
+					CurrentNodeKind: string(tv.WorkflowNodeKindPlanning),
+					NextNodePath:    "waiting_for_approval.review_plan",
+					ApprovalBlocked: &falseValue,
+				},
+				{
+					ToolName:        "centian.task_complete_planning",
+					Phase:           "waiting_for_approval.review_plan",
+					CurrentNodeKind: string(tv.WorkflowNodeKindWaitingForApproval),
+					NextNodePath:    "execution.establish_failing_baseline",
+					ApprovalBlocked: &trueValue,
+				},
+			},
+			ExpectedTaskEventTypes: []tv.TaskEventType{
+				tv.TaskEventTypeRegistered,
+				tv.TaskEventTypeOnboardingCompleted,
+				tv.TaskEventTypePlanningCompleted,
+				tv.TaskEventTypeApprovalWaitEntered,
+			},
+			ExpectBlockedToolPrefix: "shell___",
 		},
 	}
 }
@@ -158,8 +281,10 @@ func runTaskVerificationScenario(t *testing.T, scenario *taskVerificationScenari
 		t.Fatalf("docker compose run agent failed: %v\n%s", err, agentOutput)
 	}
 
-	assertComposeCommandPasses(t, demoDir, scenario.PytestCommand)
-	assertComposeCommandPasses(t, demoDir, "cd /workspace/project && python -m ruff check .")
+	if scenario.RequirePytestAndLint {
+		assertComposeCommandPasses(t, demoDir, scenario.PytestCommand)
+		assertComposeCommandPasses(t, demoDir, "cd /workspace/project && python -m ruff check .")
+	}
 
 	for idx := range scenario.AdditionalVerifications {
 		verification := scenario.AdditionalVerifications[idx]
@@ -169,10 +294,17 @@ func runTaskVerificationScenario(t *testing.T, scenario *taskVerificationScenari
 		}
 	}
 
-	assertFileContains(t, filepath.Join(projectDir, scenario.ProjectFile), scenario.ExpectProjectContains)
-	assertFileContains(t, filepath.Join(projectDir, scenario.TestFile), scenario.ExpectTestContains)
+	if scenario.RequireProjectAssertions {
+		assertFileContains(t, filepath.Join(projectDir, scenario.ProjectFile), scenario.ExpectProjectContains)
+		assertFileContains(t, filepath.Join(projectDir, scenario.TestFile), scenario.ExpectTestContains)
+	}
+
 	assertArtifactsExist(t, artifactsDir, "final_message.txt", "codex-events.jsonl", "codex.stderr.log")
-	assertStructuredToolFlow(t, filepath.Join(artifactsDir, "logs"))
+
+	logDir := filepath.Join(artifactsDir, "logs")
+	entries := readRequestLogEntries(t, logDir)
+	assertStructuredToolFlow(t, entries, scenario)
+	assertPersistedEventStore(t, logDir, entries, scenario)
 }
 
 func mustCurrentFile(t *testing.T) string {
@@ -297,24 +429,81 @@ func waitForTCPPort(t *testing.T, address string, timeout time.Duration) {
 	}
 }
 
-func assertStructuredToolFlow(t *testing.T, logDir string) {
+func assertStructuredToolFlow(t *testing.T, entries []common.LogEntry, scenario *taskVerificationScenario) {
 	t.Helper()
 
-	toolNames := collectToolCallNames(readRequestLogEntries(t, logDir))
-
-	assertSubsequence(t, toolNames, []string{
-		"centian.task_list_templates",
-		"centian.task_register",
-		"centian.task_start_step",
-		"centian.task_complete_step",
-		"centian.task_start_step",
-		"centian.task_complete_step",
-	})
+	toolNames := collectToolCallNames(entries)
+	assertSubsequence(t, toolNames, scenario.ExpectedToolSubsequence)
 	assert.Assert(t, containsToolPrefix(toolNames, "filesystem___"))
-	assert.Assert(t, containsToolPrefix(toolNames, "shell___"))
+	if scenario.ExpectBlockedToolPrefix != "" {
+		assert.Assert(t, containsToolPrefix(toolNames, scenario.ExpectBlockedToolPrefix))
+	} else {
+		assert.Assert(t, containsToolPrefix(toolNames, "shell___"))
+	}
 	assert.Assert(t, !slices.Contains(toolNames, "centian.task_fail"))
-	assert.Assert(t, hasToolPrefixBetween(toolNames, "shell___", "centian.task_start_step", "centian.task_complete_step"))
-	assert.Assert(t, hasToolPrefixBetween(toolNames, "filesystem___", "centian.task_complete_step", "centian.task_start_step"))
+
+	assertTaskToolResults(t, entries, scenario.ExpectedTaskToolResults)
+	if scenario.ExpectBlockedToolPrefix != "" {
+		assertBlockedProxiedTool(t, entries, scenario.ExpectBlockedToolPrefix)
+	}
+}
+
+func assertPersistedEventStore(t *testing.T, logDir string, entries []common.LogEntry, scenario *taskVerificationScenario) {
+	t.Helper()
+
+	dbPath := filepath.Join(logDir, "events.sqlite")
+	_, err := os.Stat(dbPath)
+	assert.NilError(t, err)
+
+	store, err := persistence.NewSQLiteStore(dbPath)
+	assert.NilError(t, err)
+	defer func() {
+		assert.NilError(t, store.Close())
+	}()
+
+	taskEvents := store.TaskEvents()
+	actionEvents := store.ActionEvents()
+	contexts := store.ActionEventTaskContexts()
+	taskRunID := taskRunIDFromEntries(t, entries, scenario.ExpectedTaskToolResults)
+
+	assert.Assert(t, len(taskEvents) > 0)
+	assert.Assert(t, len(actionEvents) > 0)
+	assert.Assert(t, len(contexts) > 0)
+
+	filteredTaskEvents := filterTaskEventsByRunID(taskEvents, taskRunID)
+	filteredContexts := filterActionEventTaskContextsByRunID(contexts, taskRunID)
+
+	assert.Assert(t, len(filteredTaskEvents) > 0)
+	assert.Assert(t, len(filteredContexts) > 0)
+	assertTaskEventSubsequence(t, filteredTaskEvents, scenario.ExpectedTaskEventTypes)
+
+	actionIDs := make(map[string]struct{}, len(actionEvents))
+	for idx := range actionEvents {
+		actionIDs[actionEvents[idx].ID] = struct{}{}
+	}
+	for idx := range filteredTaskEvents {
+		if filteredTaskEvents[idx].RelatedActionEventID == "" {
+			continue
+		}
+		_, exists := actionIDs[filteredTaskEvents[idx].RelatedActionEventID]
+		assert.Assert(t, exists)
+	}
+	for idx := range filteredContexts {
+		_, exists := actionIDs[filteredContexts[idx].ActionEventID]
+		assert.Assert(t, exists)
+	}
+
+	if scenario.ExpectBlockedToolPrefix != "" {
+		foundBlocked := false
+		for idx := range actionEvents {
+			event := actionEvents[idx]
+			if strings.HasPrefix(event.OriginalToolName, scenario.ExpectBlockedToolPrefix) && event.IsError {
+				foundBlocked = true
+				break
+			}
+		}
+		assert.Assert(t, foundBlocked)
+	}
 }
 
 func readRequestLogEntries(t *testing.T, logDir string) []common.LogEntry {
@@ -347,11 +536,169 @@ func readRequestLogEntries(t *testing.T, logDir string) []common.LogEntry {
 func collectToolCallNames(entries []common.LogEntry) []string {
 	names := make([]string, 0, len(entries))
 	for idx := range entries {
-		if entries[idx].ToolCall != nil && entries[idx].ToolCall.Name != "" {
+		if entries[idx].ToolCall == nil {
+			continue
+		}
+		if entries[idx].ToolCall.OriginalName != "" {
+			names = append(names, entries[idx].ToolCall.OriginalName)
+			continue
+		}
+		if entries[idx].ToolCall.Name != "" {
 			names = append(names, entries[idx].ToolCall.Name)
 		}
 	}
 	return names
+}
+
+func assertTaskToolResults(t *testing.T, entries []common.LogEntry, expectations []taskToolExpectation) {
+	t.Helper()
+
+	var taskRunID string
+	for idx := range expectations {
+		expectation := expectations[idx]
+		entry := findToolEntry(t, entries, expectation.ToolName)
+		result := decodeLoggedToolResult(t, entry)
+		structured := result.StructuredContent
+
+		assert.Assert(t, structured != nil)
+		assert.Equal(t, structured["phase"], expectation.Phase)
+		assert.Equal(t, structured["currentNodeKind"], expectation.CurrentNodeKind)
+		if expectation.NextNodePath != "" {
+			assert.Equal(t, structured["nextNodePath"], expectation.NextNodePath)
+		}
+		if expectation.ApprovalBlocked != nil {
+			assert.Equal(t, structured["approvalBlocked"], *expectation.ApprovalBlocked)
+		}
+		runID, ok := structured["taskRunId"].(string)
+		assert.Assert(t, ok)
+		assert.Assert(t, runID != "")
+		if taskRunID == "" {
+			taskRunID = runID
+		} else {
+			assert.Equal(t, runID, taskRunID)
+		}
+		allowedTools, ok := structured["allowedTools"].([]any)
+		assert.Assert(t, ok)
+		assert.Assert(t, len(allowedTools) > 0)
+	}
+}
+
+func assertBlockedProxiedTool(t *testing.T, entries []common.LogEntry, prefix string) {
+	t.Helper()
+
+	found := false
+	for idx := range entries {
+		entry := entries[idx]
+		if entry.ToolCall == nil {
+			continue
+		}
+		name := entry.ToolCall.OriginalName
+		if name == "" {
+			name = entry.ToolCall.Name
+		}
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		result := decodeLoggedToolResult(t, entry)
+		if !result.IsError {
+			continue
+		}
+		if result.StructuredContent["reason"] == "waiting_for_approval" {
+			found = true
+			break
+		}
+	}
+	assert.Assert(t, found)
+}
+
+func assertTaskEventSubsequence(t *testing.T, events []tv.TaskEvent, expected []tv.TaskEventType) {
+	t.Helper()
+
+	index := 0
+	for idx := range events {
+		if index < len(expected) && events[idx].EventType == expected[index] {
+			index++
+		}
+	}
+	if index != len(expected) {
+		t.Fatalf("task event sequence %v does not contain subsequence %v", collectTaskEventTypes(events), expected)
+	}
+}
+
+func collectTaskEventTypes(events []tv.TaskEvent) []tv.TaskEventType {
+	result := make([]tv.TaskEventType, 0, len(events))
+	for idx := range events {
+		result = append(result, events[idx].EventType)
+	}
+	return result
+}
+
+func findToolEntry(t *testing.T, entries []common.LogEntry, toolName string) common.LogEntry {
+	t.Helper()
+
+	for idx := range entries {
+		entry := entries[idx]
+		if entry.ToolCall == nil {
+			continue
+		}
+		if entry.ToolCall.Name == toolName || entry.ToolCall.OriginalName == toolName {
+			return entry
+		}
+	}
+	t.Fatalf("tool log entry for %s not found", toolName)
+	return common.LogEntry{}
+}
+
+func decodeLoggedToolResult(t *testing.T, entry common.LogEntry) loggedToolResult {
+	t.Helper()
+
+	if entry.ToolCall == nil || len(entry.ToolCall.Result) == 0 {
+		t.Fatalf("tool result missing for %s", entry.ToolCall.Name)
+	}
+	var result loggedToolResult
+	assert.NilError(t, json.Unmarshal(entry.ToolCall.Result, &result))
+	return result
+}
+
+func taskRunIDFromEntries(t *testing.T, entries []common.LogEntry, expectations []taskToolExpectation) string {
+	t.Helper()
+
+	for idx := range expectations {
+		entry := findToolEntry(t, entries, expectations[idx].ToolName)
+		result := decodeLoggedToolResult(t, entry)
+		runID, ok := result.StructuredContent["taskRunId"].(string)
+		if ok && runID != "" {
+			return runID
+		}
+	}
+	t.Fatal("no taskRunId found in logged task tool results")
+	return ""
+}
+
+func filterTaskEventsByRunID(events []tv.TaskEvent, taskRunID string) []tv.TaskEvent {
+	if taskRunID == "" {
+		return nil
+	}
+	filtered := make([]tv.TaskEvent, 0, len(events))
+	for idx := range events {
+		if events[idx].TaskRunID == taskRunID {
+			filtered = append(filtered, events[idx])
+		}
+	}
+	return filtered
+}
+
+func filterActionEventTaskContextsByRunID(contexts []tv.ActionEventTaskContext, taskRunID string) []tv.ActionEventTaskContext {
+	if taskRunID == "" {
+		return nil
+	}
+	filtered := make([]tv.ActionEventTaskContext, 0, len(contexts))
+	for idx := range contexts {
+		if contexts[idx].TaskRunID == taskRunID {
+			filtered = append(filtered, contexts[idx])
+		}
+	}
+	return filtered
 }
 
 func assertSubsequence(t *testing.T, actual, expected []string) {
@@ -371,23 +718,6 @@ func assertSubsequence(t *testing.T, actual, expected []string) {
 func containsToolPrefix(names []string, prefix string) bool {
 	for _, name := range names {
 		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasToolPrefixBetween(names []string, prefix, startName, endName string) bool {
-	start := slices.Index(names, startName)
-	if start == -1 {
-		return false
-	}
-
-	for idx := start + 1; idx < len(names); idx++ {
-		switch {
-		case names[idx] == endName:
-			return false
-		case strings.HasPrefix(names[idx], prefix):
 			return true
 		}
 	}

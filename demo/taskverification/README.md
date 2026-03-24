@@ -20,25 +20,24 @@ Optional:
 
 ## Flow
 
-The demo now uses one generic task template:
+The demo now exercises the current workflow-path runtime explicitly:
 
-- `python_tdd_workflow`
+1. The agent lists templates and registers a workflow template.
+2. The agent completes onboarding with a concise project summary and artifact map.
+3. The agent completes planning with the required planning artifact.
+4. Execution step tools run only after planning has advanced the task into an execution node.
+5. When a template routes into `waiting_for_approval.*`, proxied downstream tools are blocked and the task stops there.
 
-The scenario comes from the prompt you choose:
+The demo currently exposes three scenarios:
 
-- `run-agent-problem`: harder path, prompt contains only the problem statement
-- `run-agent-existing`: simpler path, prompt points at an existing bug in the sample project
+- `run-agent-problem`: full TDD flow using `python_tdd_workflow` from only a problem statement
+- `run-agent-existing`: full TDD flow using `python_tdd_workflow` for an existing bug
+- `run-agent-approval`: planning routes into `python_tdd_approval_wait` and stops at approval wait
 
-The default agent path prefers the harder problem-only scenario.
+Artifacts are written to:
 
-Default flow:
-
-1. The agent lists templates and registers `python_tdd_workflow`.
-2. Step 1 proves the selected or authored pytest case fails.
-3. The agent edits or creates the project through Centian-exposed tools only.
-4. Step 2 proves the selected test passes and `ruff` is clean.
-
-Request logs are written to `demo/taskverification/artifacts/logs/requests_*.jsonl`.
+- request logs: `demo/taskverification/artifacts/logs/requests_*.jsonl`
+- persisted event store: `demo/taskverification/artifacts/logs/events.sqlite`
 
 ## Commands
 
@@ -49,6 +48,7 @@ make build
 make demo-up
 make run-agent-problem
 make run-agent-existing
+make run-agent-approval
 make demo-down
 ```
 
@@ -56,9 +56,7 @@ For the explicit end-to-end verification path, the Make targets now call the Go 
 
 ```bash
 cd /Users/brb/_devspace/centian-cli
-make demo-taskverification-test
-make demo-taskverification-test-problem
-make demo-taskverification-test-existing
+make test-taskverification
 ```
 
 Scenario-specific Go e2e runs are also available directly from the demo folder:
@@ -67,10 +65,11 @@ Scenario-specific Go e2e runs are also available directly from the demo folder:
 cd /Users/brb/_devspace/centian-cli/demo/taskverification
 make e2e-problem
 make e2e-existing
+make e2e-approval
 make e2e
 ```
 
-The Go harness is extensible through scenario registration in [demo_test.go](/Users/brb/_devspace/centian-cli/demo/taskverification/demo_test.go). New tasks only need a new prompt plus a new scenario entry; the Docker lifecycle, artifact reset, request-log assertions, and final verification stay shared.
+The Go harness is extensible through scenario registration in [demo_test.go](/Users/brb/_devspace/centian-cli/demo/taskverification/demo_test.go). New tasks only need a new prompt plus a new scenario entry; the Docker lifecycle, artifact reset, request-log assertions, persisted event-store checks, and final verification stay shared.
 
 ## Unsafe PoC Note
 

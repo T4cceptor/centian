@@ -29,7 +29,8 @@ Rules:
 - Do not use local container filesystem access as a substitute for project access.
 - Do not call `centian.task_fail` unless recovery is impossible.
 - Prefer `centian.task_complete_step` over manually re-running the full validation flow yourself.
-- Read and follow the task instructions returned by Centian after listing templates or registering the task.
+- Read and follow the task instructions and structured workflow state returned by Centian after each lifecycle call.
+- Use Centian's `phase`, `currentNodeKind`, `nextNodePath`, `allowedTools`, and failure diagnostics as the source of truth.
 
 Bootstrap the task like this:
 
@@ -38,5 +39,7 @@ Bootstrap the task like this:
 3. Create the minimal files you need so the task parameters become well-defined.
 4. Derive the required parameter values from the project files and the failing behavior.
 5. Call `centian.task_register` with the correct template id and parameter values you derived.
-6. Use the instructions returned by Centian to drive the remaining step lifecycle.
-7. Stop after the task is completed and provide a short summary of the change and which Centian steps passed.
+6. Call `centian.task_complete_onboarding` with a concise project summary, useful artifact map, common commands, and any constraints or open questions.
+7. Call `centian.task_complete_planning` with the required planning artifact, including selected files, test target, lint command, expected failure, and implementation target.
+8. Only after planning has moved the workflow into execution, use `centian.task_start_step` and `centian.task_complete_step` in order.
+9. Stop after the task is completed and provide a short summary of the change and which Centian lifecycle steps passed.

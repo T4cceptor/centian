@@ -5,9 +5,10 @@ CENTIAN_SERVICE := centian
 AGENT_SERVICE := agent
 PROMPT_EXISTING := /agent/prompts/existing_bug_mathlib.md
 PROMPT_PROBLEM := /agent/prompts/problem_score_parentheses.md
+PROMPT_APPROVAL := /agent/prompts/approval_wait_mathlib.md
 GO_E2E := CENTIAN_RUN_TASKVERIFICATION_INTEGRATION=1 GOCACHE=/tmp/go-build go test -v .
 
-.PHONY: build demo-up run-agent run-agent-existing run-agent-problem demo-test demo-test-existing demo-test-problem e2e e2e-existing e2e-problem demo-down clean-artifacts reset-project
+.PHONY: build demo-up run-agent run-agent-existing run-agent-problem run-agent-approval demo-test demo-test-existing demo-test-problem demo-test-approval e2e e2e-existing e2e-problem e2e-approval demo-down clean-artifacts reset-project
 
 build:
 	@mkdir -p "$(CURDIR)/artifacts/logs"
@@ -30,6 +31,10 @@ run-agent-problem:
 	@mkdir -p "$(CURDIR)/artifacts/logs"
 	@PROMPT_PATH="$(PROMPT_PROBLEM)" $(COMPOSE) run --rm $(AGENT_SERVICE)
 
+run-agent-approval:
+	@mkdir -p "$(CURDIR)/artifacts/logs"
+	@PROMPT_PATH="$(PROMPT_APPROVAL)" $(COMPOSE) run --rm $(AGENT_SERVICE)
+
 demo-test:
 	@$(MAKE) e2e-problem
 
@@ -39,6 +44,9 @@ demo-test-existing:
 demo-test-problem:
 	@$(MAKE) e2e-problem
 
+demo-test-approval:
+	@$(MAKE) e2e-approval
+
 e2e:
 	@cd "$(CURDIR)" && $(GO_E2E) -run 'TestTaskVerificationE2E'
 
@@ -47,6 +55,9 @@ e2e-existing:
 
 e2e-problem:
 	@cd "$(CURDIR)" && CENTIAN_TASKVERIFICATION_SCENARIO=problem_only $(GO_E2E) -run 'TestTaskVerificationE2E'
+
+e2e-approval:
+	@cd "$(CURDIR)" && CENTIAN_TASKVERIFICATION_SCENARIO=approval_wait $(GO_E2E) -run 'TestTaskVerificationE2E'
 
 demo-down:
 	@$(COMPOSE) down --remove-orphans
