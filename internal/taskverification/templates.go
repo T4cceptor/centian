@@ -77,7 +77,7 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 }
 
 // CompleteOnboarding validates and persists onboarding context, then advances to planning.
-func (s *Service) CompleteOnboarding(run *RunState, artifact OnboardingArtifact) error {
+func (s *Service) CompleteOnboarding(run *RunState, artifact *OnboardingArtifact) error {
 	if err := validateOnboardingArtifact(artifact); err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (s *Service) CompleteOnboarding(run *RunState, artifact OnboardingArtifact)
 }
 
 // CompletePlanning validates and freezes planning context, then enters execution.
-func (s *Service) CompletePlanning(run *RunState, artifact PlanningArtifact) error {
+func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) error {
 	if err := validatePlanningArtifact(&run.SelectedTemplate, artifact); err != nil {
 		return err
 	}
@@ -160,7 +160,8 @@ func freezeExecutionContract(run *RunState) (Template, []StepState, error) {
 	}
 
 	stepStates := make([]StepState, 0, len(resolved.CompiledWorkflow.ExecutionSteps))
-	for _, step := range resolved.CompiledWorkflow.ExecutionSteps {
+	for idx := range resolved.CompiledWorkflow.ExecutionSteps {
+		step := &resolved.CompiledWorkflow.ExecutionSteps[idx]
 		stepStates = append(stepStates, StepState{
 			ID:                 step.ID,
 			Path:               step.Path,
@@ -476,7 +477,8 @@ func (t *Template) StepSummaries() []StepSummary {
 	}
 
 	summaries := make([]StepSummary, 0, len(t.CompiledWorkflow.ExecutionSteps))
-	for index, step := range t.CompiledWorkflow.ExecutionSteps {
+	for index := range t.CompiledWorkflow.ExecutionSteps {
+		step := &t.CompiledWorkflow.ExecutionSteps[index]
 		summaries = append(summaries, StepSummary{
 			Step:         index + 1,
 			ID:           step.ID,
@@ -669,7 +671,10 @@ func validateDraftParameters(template *Template, parameters map[string]string) e
 	return nil
 }
 
-func validateOnboardingArtifact(artifact OnboardingArtifact) error {
+func validateOnboardingArtifact(artifact *OnboardingArtifact) error {
+	if artifact == nil {
+		return fmt.Errorf("onboarding artifact is required")
+	}
 	if strings.TrimSpace(artifact.ProjectSummary) == "" {
 		return fmt.Errorf("onboarding.projectSummary is required")
 	}
@@ -692,7 +697,10 @@ func validateOnboardingArtifact(artifact OnboardingArtifact) error {
 	return nil
 }
 
-func cloneOnboardingArtifact(artifact OnboardingArtifact) OnboardingArtifact {
+func cloneOnboardingArtifact(artifact *OnboardingArtifact) OnboardingArtifact {
+	if artifact == nil {
+		return OnboardingArtifact{}
+	}
 	cloned := OnboardingArtifact{
 		ProjectSummary: artifact.ProjectSummary,
 		Constraints:    append([]string(nil), artifact.Constraints...),
@@ -709,7 +717,21 @@ func cloneOnboardingArtifact(artifact OnboardingArtifact) OnboardingArtifact {
 	return cloned
 }
 
-func validatePlanningArtifact(template *Template, artifact PlanningArtifact) error {
+//nolint:gocyclo // Planning validation is kept as one entry point with small helpers for readability.
+func validatePlanningArtifact(template *Template, artifact *PlanningArtifact) error {
+	if artifact == nil {
+		return fmt.Errorf("planning artifact is required")
+	}
+	if err := validatePlanningOptionalFields(artifact); err != nil {
+		return err
+	}
+	if err := validatePlanningUniqueFields(artifact); err != nil {
+		return err
+	}
+	return validateRequiredPlanningOutputs(template, artifact)
+}
+
+func validatePlanningOptionalFields(artifact *PlanningArtifact) error {
 	if strings.TrimSpace(artifact.TestTarget) == "" && artifact.TestTarget != "" {
 		return fmt.Errorf("planning.testTarget is required")
 	}
@@ -722,12 +744,17 @@ func validatePlanningArtifact(template *Template, artifact PlanningArtifact) err
 	if strings.TrimSpace(artifact.ImplementationTarget) == "" && artifact.ImplementationTarget != "" {
 		return fmt.Errorf("planning.implementationTarget is required")
 	}
+	return nil
+}
+
+func validatePlanningUniqueFields(artifact *PlanningArtifact) error {
 	if err := validateUniqueTrimmedStrings("planning.selectedFiles", artifact.SelectedFiles); err != nil {
 		return err
 	}
-	if err := validateUniqueTrimmedStrings("planning.invariants", artifact.Invariants); err != nil {
-		return err
-	}
+	return validateUniqueTrimmedStrings("planning.invariants", artifact.Invariants)
+}
+
+func validateRequiredPlanningOutputs(template *Template, artifact *PlanningArtifact) error {
 	requiredOutputs := []string(nil)
 	if template != nil && template.CompiledWorkflow != nil {
 		if planningNode, exists := template.CompiledWorkflow.Nodes[template.CompiledWorkflow.PlanningPath]; exists {
@@ -765,7 +792,10 @@ func validatePlanningArtifact(template *Template, artifact PlanningArtifact) err
 	return nil
 }
 
-func clonePlanningArtifact(artifact PlanningArtifact) PlanningArtifact {
+func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
+	if artifact == nil {
+		return PlanningArtifact{}
+	}
 	return PlanningArtifact{
 		SelectedFiles:        append([]string(nil), artifact.SelectedFiles...),
 		TestTarget:           artifact.TestTarget,

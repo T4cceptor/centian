@@ -10,7 +10,7 @@ import (
 
 // EventStore records task lifecycle events and action-to-task links.
 type EventStore interface {
-	AppendTaskEvent(TaskEvent) error
+	AppendTaskEvent(*TaskEvent) error
 	AppendActionEventTaskContext(ActionEventTaskContext) error
 	TaskEvents() []TaskEvent
 	ActionEventTaskContexts() []ActionEventTaskContext
@@ -31,13 +31,18 @@ func NewInMemoryEventStore() *InMemoryEventStore {
 	}
 }
 
-func (s *InMemoryEventStore) AppendTaskEvent(event TaskEvent) error {
+// AppendTaskEvent stores one task lifecycle event in memory.
+func (s *InMemoryEventStore) AppendTaskEvent(event *TaskEvent) error {
+	if event == nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.taskEvents = append(s.taskEvents, event)
+	s.taskEvents = append(s.taskEvents, *event)
 	return nil
 }
 
+// AppendActionEventTaskContext stores one action-to-task link in memory.
 func (s *InMemoryEventStore) AppendActionEventTaskContext(ctx ActionEventTaskContext) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -45,12 +50,14 @@ func (s *InMemoryEventStore) AppendActionEventTaskContext(ctx ActionEventTaskCon
 	return nil
 }
 
+// TaskEvents returns a copy of all stored lifecycle events.
 func (s *InMemoryEventStore) TaskEvents() []TaskEvent {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]TaskEvent(nil), s.taskEvents...)
 }
 
+// ActionEventTaskContexts returns a copy of all stored action-to-task links.
 func (s *InMemoryEventStore) ActionEventTaskContexts() []ActionEventTaskContext {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -95,7 +102,7 @@ func (s *Service) RecordTaskEvent(run *RunState, sessionID, principalID string, 
 	if node, exists := run.CurrentNode(); exists {
 		nodeKind = node.Kind
 	}
-	return s.EventStore.AppendTaskEvent(TaskEvent{
+	event := &TaskEvent{
 		ID:                   newTaskEventID(),
 		SchemaVersion:        1,
 		CreatedAtUnixMilli:   nowUnixMilli(),
@@ -109,7 +116,8 @@ func (s *Service) RecordTaskEvent(run *RunState, sessionID, principalID string, 
 		Outcome:              outcome,
 		RelatedActionEventID: relatedActionEventID,
 		Payload:              mustMarshalPayload(payload),
-	})
+	}
+	return s.EventStore.AppendTaskEvent(event)
 }
 
 // RecordActionEventTaskContext appends one task snapshot for an action event.

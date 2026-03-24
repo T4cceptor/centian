@@ -11,7 +11,7 @@ import (
 
 func TestStartAndCompleteStepHappyPath(t *testing.T) {
 	dir := t.TempDir()
-	template := mustCompileRuntimeTemplate(t, Template{
+	template := mustCompileRuntimeTemplate(t, &Template{
 		Version: "0.1",
 		Task: Task{
 			ID:          "task",
@@ -44,7 +44,7 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 		},
 	})
 	service := NewService(dir, dir)
-	run := newExecutionReadyRun(template)
+	run := newExecutionReadyRun(&template)
 
 	start, err := service.StartStep(run, 1)
 	assert.NilError(t, err)
@@ -158,7 +158,7 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	err := service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready to plan"})
+	err := service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready to plan"})
 	assert.NilError(t, err)
 
 	_, err = service.StartStep(run, 1)
@@ -171,7 +171,7 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 	err := os.WriteFile(stateFile, []byte("before"), 0o644)
 	assert.NilError(t, err)
 
-	template := mustCompileRuntimeTemplate(t, Template{
+	template := mustCompileRuntimeTemplate(t, &Template{
 		Version: "0.1",
 		Task: Task{
 			ID:          "task",
@@ -204,7 +204,7 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 		},
 	})
 	service := NewService(dir, dir)
-	run := newExecutionReadyRun(template)
+	run := newExecutionReadyRun(&template)
 
 	_, err = service.StartStep(run, 1)
 	assert.NilError(t, err)
@@ -392,7 +392,7 @@ workflow:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusFailed)
 
-	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
 	assert.ErrorContains(t, err, "task is failed")
 
 	err = service.RestartTask(run)
@@ -457,9 +457,9 @@ func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
 	service := NewService(dir, dir)
 	run, err := service.RegisterTask("task", map[string]string{})
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, PlanningArtifact{
+	err = service.CompletePlanning(run, &PlanningArtifact{
 		TestTarget: "pytest -q",
 	})
 	assert.NilError(t, err)
@@ -479,16 +479,17 @@ func newRuntimeShellTestService(t *testing.T, content string) (*Service, *RunSta
 	return service, run
 }
 
-func mustCompileRuntimeTemplate(t *testing.T, template Template) Template {
+func mustCompileRuntimeTemplate(t *testing.T, template *Template) Template {
 	t.Helper()
 	err := template.Validate()
 	assert.NilError(t, err)
-	return template
+	return *template
 }
 
-func newExecutionReadyRun(template Template) *RunState {
+func newExecutionReadyRun(template *Template) *RunState {
 	steps := make([]StepState, 0, len(template.CompiledWorkflow.ExecutionSteps))
-	for _, step := range template.CompiledWorkflow.ExecutionSteps {
+	for idx := range template.CompiledWorkflow.ExecutionSteps {
+		step := &template.CompiledWorkflow.ExecutionSteps[idx]
 		steps = append(steps, StepState{
 			ID:                 step.ID,
 			Path:               step.Path,
@@ -499,12 +500,12 @@ func newExecutionReadyRun(template Template) *RunState {
 	return &RunState{
 		RunID:             newTaskRunID(),
 		TemplateID:        template.Task.ID,
-		SelectedTemplate:  template,
+		SelectedTemplate:  *template,
 		DraftParameters:   map[string]string{},
 		Status:            TaskStatusActive,
 		Phase:             template.CompiledWorkflow.FirstExecutablePath,
 		ExecutionReady:    true,
-		ExecutionTemplate: &template,
+		ExecutionTemplate: template,
 		Steps:             steps,
 	}
 }

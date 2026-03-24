@@ -81,13 +81,12 @@ func attachTaskToolDownstream(
 	t *testing.T,
 	endpoint *CentianEndpoint,
 	session *UpstreamSession,
-	serverName string,
 	toolName string,
 ) *MockDownstreamConnection {
 	t.Helper()
 
 	conn := &MockDownstreamConnection{
-		serverName: serverName,
+		serverName: "server-a",
 		Status:     StatusConnected,
 		cfg:        &config.MCPServerConfig{URL: "http://test"},
 		tools: []*mcp.Tool{
@@ -101,7 +100,7 @@ func attachTaskToolDownstream(
 			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
 		},
 	}
-	session.downstreamConns[serverName] = conn
+	session.downstreamConns["server-a"] = conn
 	endpoint.syncAvailableTools(session)
 	return conn
 }
@@ -442,7 +441,7 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 
 func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T) {
 	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
-	attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+	attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -519,7 +518,7 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 
 func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 	endpoint, session, store := newPersistentTaskToolTestProxy(t, basicTaskTemplate())
-	attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+	attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -748,7 +747,7 @@ workflow:
 
 func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
 	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
-	downstream := attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -774,7 +773,7 @@ func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
 
 func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
 	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
-	downstream := attachTaskToolDownstream(t, endpoint, session, "server-a", "database__query")
+	downstream := attachTaskToolDownstream(t, endpoint, session, "database__query")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -821,7 +820,7 @@ workflow:
         - id: "check_one"
           command: "printf 'ok'"
 `)
-	downstream := attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -851,7 +850,7 @@ workflow:
 func TestWorkflowNodeToolGovernanceMatchesAggregatedCanonicalToolName(t *testing.T) {
 	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
 	endpoint.isAggregatedProxy = true
-	downstream := attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -900,7 +899,7 @@ workflow:
         - id: "check_one"
           command: "printf 'ok'"
 `)
-	downstream := attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()

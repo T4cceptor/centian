@@ -18,7 +18,7 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 		_ = store.Close()
 	})
 
-	err = store.AppendTaskEvent(taskverification.TaskEvent{
+	err = store.AppendTaskEvent(&taskverification.TaskEvent{
 		ID:                 "task-event-1",
 		SchemaVersion:      1,
 		CreatedAtUnixMilli: time.Now().UTC().UnixMilli(),

@@ -44,6 +44,7 @@ type actionEventTaskContextRow struct {
 	CreatedAtUnixMilli int64
 }
 
+// ActionEventRecord is the persisted SQL projection of one MCP action log entry.
 type ActionEventRecord struct {
 	bun.BaseModel      `bun:"table:action_events"`
 	ID                 string `bun:",pk"`
@@ -179,7 +180,10 @@ func (s *Store) bootstrap(ctx context.Context) error {
 }
 
 // AppendTaskEvent persists one task lifecycle event.
-func (s *Store) AppendTaskEvent(event taskverification.TaskEvent) error {
+func (s *Store) AppendTaskEvent(event *taskverification.TaskEvent) error {
+	if event == nil {
+		return nil
+	}
 	row := taskEventRow{
 		ID:                   event.ID,
 		SchemaVersion:        event.SchemaVersion,
@@ -252,7 +256,8 @@ func (s *Store) TaskEvents() []taskverification.TaskEvent {
 		return nil
 	}
 	events := make([]taskverification.TaskEvent, 0, len(rows))
-	for _, row := range rows {
+	for idx := range rows {
+		row := &rows[idx]
 		events = append(events, taskverification.TaskEvent{
 			ID:                   row.ID,
 			SchemaVersion:        row.SchemaVersion,

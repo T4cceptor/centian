@@ -315,7 +315,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 
-	if err := p.server.TaskVerification.CompleteOnboarding(session.taskRun, args.Onboarding); err != nil {
+	if err := p.server.TaskVerification.CompleteOnboarding(session.taskRun, &args.Onboarding); err != nil {
 		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
@@ -340,7 +340,7 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 
-	if err := p.server.TaskVerification.CompletePlanning(session.taskRun, args.Planning); err != nil {
+	if err := p.server.TaskVerification.CompletePlanning(session.taskRun, &args.Planning); err != nil {
 		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
@@ -595,7 +595,8 @@ func frozenContractSummary(run *taskverification.RunState) map[string]any {
 	}
 	if run.ExecutionTemplate != nil && run.ExecutionTemplate.CompiledWorkflow != nil {
 		invariantCount := 0
-		for _, step := range run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps {
+		for idx := range run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps {
+			step := &run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[idx]
 			invariantCount += len(step.Invariants)
 		}
 		summary["invariantCount"] = invariantCount

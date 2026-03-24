@@ -21,6 +21,8 @@ import (
 // single-server proxy endpoints from config.
 
 // NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
+//
+//nolint:gocyclo // Server startup coordinates several subsystems; helpers keep the branches local and explicit.
 func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
 	if globalConfig == nil || globalConfig.Proxy == nil {
 		return nil, fmt.Errorf("proxy settings are required")
@@ -47,23 +49,9 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
 
-	var apiKeyStore *centauth.APIKeyStore
-	if globalConfig.IsAuthEnabled() {
-		loadedStore, err := centauth.LoadDefaultAPIKeys()
-		if err != nil {
-			if errors.Is(err, centauth.ErrAPIKeysNotFound) {
-				return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
-			}
-			return nil, fmt.Errorf("failed to load api keys: %w", err)
-		}
-		apiKeyStore = loadedStore
-		if apiKeyStore.Count() == 0 {
-			common.LogWarn("Auth enabled but no API keys available from %s\n", apiKeyStore.Path())
-		} else {
-			common.LogInfo("Loaded %d API keys from %s\n", apiKeyStore.Count(), apiKeyStore.Path())
-		}
-	} else {
-		common.LogInfo("API key auth disabled via config\n")
+	apiKeyStore, err := loadAPIKeyStore(globalConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	workingDir, err := os.Getwd()
@@ -71,36 +59,9 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		return nil, fmt.Errorf("failed to determine current working directory: %w", err)
 	}
 
-	taskService := taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir)
-
-	var eventStoreCloser interface{ Close() error }
-	if globalConfig.Proxy.EventStorage == nil || globalConfig.Proxy.EventStorage.IsEnabled() {
-		driver := config.DefaultEventStorageDriver
-		if globalConfig.Proxy.EventStorage != nil {
-			driver = globalConfig.Proxy.EventStorage.GetDriver()
-		}
-		if driver != config.DefaultEventStorageDriver {
-			return nil, fmt.Errorf("unsupported event storage driver %q", driver)
-		}
-
-		storePath := ""
-		if globalConfig.Proxy.EventStorage != nil {
-			storePath = globalConfig.Proxy.EventStorage.Path
-		}
-		if storePath == "" {
-			storePath, err = logging.GetDefaultEventStorePath()
-			if err != nil {
-				return nil, fmt.Errorf("failed to determine default event storage path: %w", err)
-			}
-		}
-
-		store, err := persistence.NewSQLiteStore(storePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize event storage: %w", err)
-		}
-		taskService.EventStore = store
-		logger.SetActionEventStore(store)
-		eventStoreCloser = store
+	taskService, eventStoreCloser, err := newTaskVerificationService(globalConfig, workingDir, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	centianServer := &CentianServer{
@@ -123,6 +84,68 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 	})
 
 	return centianServer, nil
+}
+
+func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, error) {
+	if !globalConfig.IsAuthEnabled() {
+		common.LogInfo("API key auth disabled via config\n")
+		return nil, nil
+	}
+
+	apiKeyStore, err := centauth.LoadDefaultAPIKeys()
+	if err != nil {
+		if errors.Is(err, centauth.ErrAPIKeysNotFound) {
+			return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
+		}
+		return nil, fmt.Errorf("failed to load api keys: %w", err)
+	}
+	if apiKeyStore.Count() == 0 {
+		common.LogWarn("Auth enabled but no API keys available from %s\n", apiKeyStore.Path())
+	} else {
+		common.LogInfo("Loaded %d API keys from %s\n", apiKeyStore.Count(), apiKeyStore.Path())
+	}
+	return apiKeyStore, nil
+}
+
+func newTaskVerificationService(
+	globalConfig *config.GlobalConfig,
+	workingDir string,
+	logger *logging.Logger,
+) (*taskverification.Service, interface{ Close() error }, error) {
+	taskService := taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir)
+	if globalConfig.Proxy.EventStorage != nil && !globalConfig.Proxy.EventStorage.IsEnabled() {
+		return taskService, nil, nil
+	}
+
+	storePath, err := resolveEventStorePath(globalConfig.Proxy.EventStorage)
+	if err != nil {
+		return nil, nil, err
+	}
+	store, err := persistence.NewSQLiteStore(storePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
+	}
+	taskService.EventStore = store
+	logger.SetActionEventStore(store)
+	return taskService, store, nil
+}
+
+func resolveEventStorePath(settings *config.EventStorageSettings) (string, error) {
+	driver := config.DefaultEventStorageDriver
+	if settings != nil {
+		driver = settings.GetDriver()
+	}
+	if driver != config.DefaultEventStorageDriver {
+		return "", fmt.Errorf("unsupported event storage driver %q", driver)
+	}
+	if settings != nil && settings.Path != "" {
+		return settings.Path, nil
+	}
+	storePath, err := logging.GetDefaultEventStorePath()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine default event storage path: %w", err)
+	}
+	return storePath, nil
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints.

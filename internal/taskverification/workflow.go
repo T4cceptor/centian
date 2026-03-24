@@ -15,58 +15,17 @@ var supportedPlanningOutputs = map[string]struct{}{
 	"invariants":           {},
 }
 
+//nolint:gocyclo // Workflow compilation is the central normalization pass; helper extraction keeps nested rules contained.
 func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
-	if t == nil {
-		return nil, fmt.Errorf("template is required")
-	}
-	if t.Workflow == nil {
-		return nil, fmt.Errorf("workflow is required")
-	}
-	if t.Workflow.Onboarding == nil {
-		return nil, fmt.Errorf("workflow.onboarding is required")
-	}
-	if t.Workflow.Planning == nil {
-		return nil, fmt.Errorf("workflow.planning is required")
-	}
-	if len(t.Workflow.Execution) == 0 {
-		return nil, fmt.Errorf("workflow.execution must define at least one node")
-	}
-
-	compiled := &CompiledWorkflow{
-		Nodes:          make(map[TaskPhase]WorkflowNode),
-		OnboardingPath: TaskPhaseOnboarding,
-		PlanningPath:   TaskPhasePlanning,
-	}
-
-	addNode := func(node WorkflowNode) error {
-		if _, exists := compiled.Nodes[node.Path]; exists {
-			return fmt.Errorf("duplicate workflow path %q", node.Path)
-		}
-		compiled.Nodes[node.Path] = node
-		return nil
-	}
-
-	if err := addNode(WorkflowNode{
-		Path:         TaskPhaseOnboarding,
-		Kind:         WorkflowNodeKindOnboarding,
-		NextPath:     TaskPhasePlanning,
-		Instructions: t.Workflow.Onboarding.Instructions,
-		AllowedTools: cloneStringSlice(t.Workflow.Onboarding.AllowedTools),
-		Checkpoint:   cloneCheckpoint(t.Workflow.Onboarding.Checkpoint),
-	}); err != nil {
+	if err := validateWorkflowDefinition(t); err != nil {
 		return nil, err
 	}
 
-	planningNode := WorkflowNode{
-		Path:                    TaskPhasePlanning,
-		Kind:                    WorkflowNodeKindPlanning,
-		Instructions:            t.Workflow.Planning.Instructions,
-		AllowedTools:            cloneStringSlice(t.Workflow.Planning.AllowedTools),
-		Checkpoint:              cloneCheckpoint(t.Workflow.Planning.Checkpoint),
-		EditableFields:          cloneStringSlice(t.Workflow.Planning.EditableFields),
-		RequiredPlanningOutputs: cloneStringSlice(t.Workflow.Planning.RequiredOutputs),
+	compiled := newCompiledWorkflow()
+	if err := addCompiledNode(compiled, buildOnboardingNode(t.Workflow.Onboarding)); err != nil {
+		return nil, err
 	}
-	if err := addNode(planningNode); err != nil {
+	if err := addCompiledNode(compiled, buildPlanningNode(t.Workflow.Planning)); err != nil {
 		return nil, err
 	}
 
@@ -136,7 +95,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 				}
 				stepNumber++
 				executionSteps = append(executionSteps, step)
-				if err := addNode(WorkflowNode{
+				if err := addCompiledNode(compiled, WorkflowNode{
 					Path:         path,
 					Kind:         WorkflowNodeKindExecution,
 					ParentPath:   logicalParent,
@@ -154,7 +113,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 				if len(nodeSpec.Checks) > 0 || len(nodeSpec.Invariants) > 0 {
 					return fmt.Errorf("workflow node %q cannot define checks or invariants for kind %q", nodeSpec.ID, kind)
 				}
-				if err := addNode(WorkflowNode{
+				if err := addCompiledNode(compiled, WorkflowNode{
 					Path:         path,
 					Kind:         WorkflowNodeKindWaitingForApproval,
 					ParentPath:   logicalParent,
@@ -187,7 +146,8 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	compiled.FirstExecutablePath = executionSteps[0].Path
 
 	stepByPath := make(map[TaskPhase]int, len(compiled.ExecutionSteps))
-	for index, step := range compiled.ExecutionSteps {
+	for index := range compiled.ExecutionSteps {
+		step := &compiled.ExecutionSteps[index]
 		stepByPath[step.Path] = index
 	}
 
@@ -235,6 +195,64 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 
 func buildExecutionPath(ids []string) TaskPhase {
 	return TaskPhase(strings.Join(append([]string{string(TaskPhaseExecution)}, ids...), "."))
+}
+
+func validateWorkflowDefinition(t *Template) error {
+	if t == nil {
+		return fmt.Errorf("template is required")
+	}
+	if t.Workflow == nil {
+		return fmt.Errorf("workflow is required")
+	}
+	if t.Workflow.Onboarding == nil {
+		return fmt.Errorf("workflow.onboarding is required")
+	}
+	if t.Workflow.Planning == nil {
+		return fmt.Errorf("workflow.planning is required")
+	}
+	if len(t.Workflow.Execution) == 0 {
+		return fmt.Errorf("workflow.execution must define at least one node")
+	}
+	return nil
+}
+
+func newCompiledWorkflow() *CompiledWorkflow {
+	return &CompiledWorkflow{
+		Nodes:          make(map[TaskPhase]WorkflowNode),
+		OnboardingPath: TaskPhaseOnboarding,
+		PlanningPath:   TaskPhasePlanning,
+	}
+}
+
+func addCompiledNode(compiled *CompiledWorkflow, node WorkflowNode) error {
+	if _, exists := compiled.Nodes[node.Path]; exists {
+		return fmt.Errorf("duplicate workflow path %q", node.Path)
+	}
+	compiled.Nodes[node.Path] = node
+	return nil
+}
+
+func buildOnboardingNode(spec *LifecycleNodeSpec) WorkflowNode {
+	return WorkflowNode{
+		Path:         TaskPhaseOnboarding,
+		Kind:         WorkflowNodeKindOnboarding,
+		NextPath:     TaskPhasePlanning,
+		Instructions: spec.Instructions,
+		AllowedTools: cloneStringSlice(spec.AllowedTools),
+		Checkpoint:   cloneCheckpoint(spec.Checkpoint),
+	}
+}
+
+func buildPlanningNode(spec *PlanningNodeSpec) WorkflowNode {
+	return WorkflowNode{
+		Path:                    TaskPhasePlanning,
+		Kind:                    WorkflowNodeKindPlanning,
+		Instructions:            spec.Instructions,
+		AllowedTools:            cloneStringSlice(spec.AllowedTools),
+		Checkpoint:              cloneCheckpoint(spec.Checkpoint),
+		EditableFields:          cloneStringSlice(spec.EditableFields),
+		RequiredPlanningOutputs: cloneStringSlice(spec.RequiredOutputs),
+	}
 }
 
 func buildApprovalPath(ids []string) TaskPhase {
@@ -394,8 +412,8 @@ func cloneCheckpoint(checkpoint *CheckpointHint) *CheckpointHint {
 	if checkpoint == nil {
 		return nil
 	}
-	copy := *checkpoint
-	return &copy
+	cloned := *checkpoint
+	return &cloned
 }
 
 func cloneStringSlice(values []string) []string {

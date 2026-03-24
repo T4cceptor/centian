@@ -142,9 +142,13 @@ type PlanningArtifact struct {
 type WorkflowNodeKind string
 
 const (
-	WorkflowNodeKindOnboarding         WorkflowNodeKind = "onboarding"
-	WorkflowNodeKindPlanning           WorkflowNodeKind = "planning"
-	WorkflowNodeKindExecution          WorkflowNodeKind = "execution"
+	// WorkflowNodeKindOnboarding marks the onboarding workflow node.
+	WorkflowNodeKindOnboarding WorkflowNodeKind = "onboarding"
+	// WorkflowNodeKindPlanning marks the planning workflow node.
+	WorkflowNodeKindPlanning WorkflowNodeKind = "planning"
+	// WorkflowNodeKindExecution marks an executable workflow node.
+	WorkflowNodeKindExecution WorkflowNodeKind = "execution"
+	// WorkflowNodeKindWaitingForApproval marks a pause/approval workflow node.
 	WorkflowNodeKindWaitingForApproval WorkflowNodeKind = "waiting_for_approval"
 )
 
@@ -199,18 +203,25 @@ type StepSummary struct {
 type TaskStatus string
 
 const (
-	TaskStatusActive    TaskStatus = "active"
+	// TaskStatusActive indicates a task run can continue executing.
+	TaskStatusActive TaskStatus = "active"
+	// TaskStatusCompleted indicates a task run finished successfully.
 	TaskStatusCompleted TaskStatus = "completed"
-	TaskStatusFailed    TaskStatus = "failed"
+	// TaskStatusFailed indicates a task run ended in failure.
+	TaskStatusFailed TaskStatus = "failed"
 )
 
 // TaskPhase enumerates the workflow position of a task run.
 type TaskPhase string
 
 const (
-	TaskPhaseOnboarding         TaskPhase = "onboarding"
-	TaskPhasePlanning           TaskPhase = "planning"
-	TaskPhaseExecution          TaskPhase = "execution"
+	// TaskPhaseOnboarding is the onboarding workflow path.
+	TaskPhaseOnboarding TaskPhase = "onboarding"
+	// TaskPhasePlanning is the planning workflow path.
+	TaskPhasePlanning TaskPhase = "planning"
+	// TaskPhaseExecution is the reserved execution root path.
+	TaskPhaseExecution TaskPhase = "execution"
+	// TaskPhaseWaitingForApproval is the reserved approval root path.
 	TaskPhaseWaitingForApproval TaskPhase = "waiting_for_approval"
 )
 
@@ -218,18 +229,25 @@ const (
 type StepStatus string
 
 const (
+	// StepStatusPending indicates the step has not started.
 	StepStatusPending StepStatus = "pending"
-	StepStatusActive  StepStatus = "active"
-	StepStatusPassed  StepStatus = "passed"
-	StepStatusFailed  StepStatus = "failed"
+	// StepStatusActive indicates the step is currently in progress.
+	StepStatusActive StepStatus = "active"
+	// StepStatusPassed indicates the step completed successfully.
+	StepStatusPassed StepStatus = "passed"
+	// StepStatusFailed indicates the step failed verification.
+	StepStatusFailed StepStatus = "failed"
 )
 
 // StepFailureKind classifies the high-level reason a step failed.
 type StepFailureKind string
 
 const (
-	StepFailureKindCheck            StepFailureKind = "check"
-	StepFailureKindInvariant        StepFailureKind = "invariant"
+	// StepFailureKindCheck indicates a failed check or condition.
+	StepFailureKindCheck StepFailureKind = "check"
+	// StepFailureKindInvariant indicates invariant capture or verification failed.
+	StepFailureKindInvariant StepFailureKind = "invariant"
+	// StepFailureKindCommandExecution indicates the command itself failed to execute as expected.
 	StepFailureKindCommandExecution StepFailureKind = "command_execution"
 )
 
@@ -237,10 +255,15 @@ const (
 type StepFailurePhase string
 
 const (
-	StepFailurePhasePrecondition     StepFailurePhase = "precondition"
-	StepFailurePhasePostcondition    StepFailurePhase = "postcondition"
+	// StepFailurePhasePrecondition marks a precondition failure.
+	StepFailurePhasePrecondition StepFailurePhase = "precondition"
+	// StepFailurePhasePostcondition marks a postcondition failure.
+	StepFailurePhasePostcondition StepFailurePhase = "postcondition"
+	// StepFailurePhaseInvariantCapture marks invariant baseline capture failure.
 	StepFailurePhaseInvariantCapture StepFailurePhase = "invariant_capture"
-	StepFailurePhaseInvariantVerify  StepFailurePhase = "invariant_verify"
+	// StepFailurePhaseInvariantVerify marks invariant drift detection failure.
+	StepFailurePhaseInvariantVerify StepFailurePhase = "invariant_verify"
+	// StepFailurePhaseCommandExecution marks an underlying command execution error.
 	StepFailurePhaseCommandExecution StepFailurePhase = "command_execution"
 )
 
@@ -292,13 +315,21 @@ type StepResult struct {
 type TaskEventType string
 
 const (
-	TaskEventTypeRegistered          TaskEventType = "task_registered"
+	// TaskEventTypeRegistered records task registration.
+	TaskEventTypeRegistered TaskEventType = "task_registered"
+	// TaskEventTypeOnboardingCompleted records onboarding completion.
 	TaskEventTypeOnboardingCompleted TaskEventType = "onboarding_completed"
-	TaskEventTypePlanningCompleted   TaskEventType = "planning_completed"
-	TaskEventTypeStepStarted         TaskEventType = "step_started"
-	TaskEventTypeStepCompleted       TaskEventType = "step_completed"
-	TaskEventTypeRestarted           TaskEventType = "task_restarted"
-	TaskEventTypeFailed              TaskEventType = "task_failed"
+	// TaskEventTypePlanningCompleted records planning completion.
+	TaskEventTypePlanningCompleted TaskEventType = "planning_completed"
+	// TaskEventTypeStepStarted records step start.
+	TaskEventTypeStepStarted TaskEventType = "step_started"
+	// TaskEventTypeStepCompleted records step completion.
+	TaskEventTypeStepCompleted TaskEventType = "step_completed"
+	// TaskEventTypeRestarted records task restart.
+	TaskEventTypeRestarted TaskEventType = "task_restarted"
+	// TaskEventTypeFailed records explicit task failure.
+	TaskEventTypeFailed TaskEventType = "task_failed"
+	// TaskEventTypeApprovalWaitEntered records entry into an approval wait node.
 	TaskEventTypeApprovalWaitEntered TaskEventType = "approval_wait_entered"
 )
 
@@ -306,8 +337,10 @@ const (
 type TaskEventOutcome string
 
 const (
+	// TaskEventOutcomeSucceeded indicates the lifecycle event succeeded.
 	TaskEventOutcomeSucceeded TaskEventOutcome = "succeeded"
-	TaskEventOutcomeFailed    TaskEventOutcome = "failed"
+	// TaskEventOutcomeFailed indicates the lifecycle event failed.
+	TaskEventOutcomeFailed TaskEventOutcome = "failed"
 )
 
 // TaskEvent is the append-only lifecycle record for one task run.

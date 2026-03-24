@@ -214,7 +214,7 @@ func (s *Service) runPhaseChecks(run *RunState, step *Step, stepIndex, stepNumbe
 			)
 			details.failedCheckID = check.ID
 			details.summary = fmt.Sprintf("%s: %v", details.summary, err)
-			return failureResult(run, stepIndex, stepNumber, step.ID, details), true
+			return failureResult(run, stepIndex, stepNumber, step.ID, &details), true
 		}
 	}
 	return nil, false
@@ -237,7 +237,7 @@ func (s *Service) captureInvariantBaselines(run *RunState, step *Step, stepIndex
 			)
 			details.failedInvariant = invariant.ID
 			details.summary = fmt.Sprintf("%s: expected exit code 0, got %d", details.summary, result.ExitCode)
-			return nil, failureResult(run, stepIndex, stepNumber, step.ID, details), true
+			return nil, failureResult(run, stepIndex, stepNumber, step.ID, &details), true
 		}
 		baselines[invariant.ID] = result.Stdout
 	}
@@ -268,7 +268,7 @@ func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNum
 	)
 	details.failedCheckID = checkID
 	details.summary = fmt.Sprintf("%s: %v", details.summary, err)
-	return failureResult(run, stepIndex, stepNumber, step.ID, details)
+	return failureResult(run, stepIndex, stepNumber, step.ID, &details)
 }
 
 func (s *Service) invariantExecutionFailure(
@@ -289,7 +289,7 @@ func (s *Service) invariantExecutionFailure(
 	)
 	details.failedInvariant = invariantID
 	details.summary = fmt.Sprintf("%s: %v", details.summary, err)
-	return failureResult(run, stepIndex, stepNumber, step.ID, details)
+	return failureResult(run, stepIndex, stepNumber, step.ID, &details)
 }
 
 func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *commandResult, invariant Invariant) *StepResult {
@@ -303,7 +303,7 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 		)
 		details.failedInvariant = invariant.ID
 		details.summary = fmt.Sprintf("%s: expected exit code 0, got %d", details.summary, result.ExitCode)
-		return failureResult(run, stepIndex, stepNumber, step.ID, details)
+		return failureResult(run, stepIndex, stepNumber, step.ID, &details)
 	}
 	baseline, exists := run.Steps[stepIndex].InvariantBaselines[invariant.ID]
 	if !exists {
@@ -314,7 +314,7 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 			fmt.Sprintf("step %d (%s) invariant %s has no baseline", stepNumber, step.ID, invariant.ID),
 		)
 		details.failedInvariant = invariant.ID
-		return failureResult(run, stepIndex, stepNumber, step.ID, details)
+		return failureResult(run, stepIndex, stepNumber, step.ID, &details)
 	}
 	if baseline != result.Stdout {
 		details := failureDetailsFromCommand(
@@ -330,12 +330,15 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 			truncateOutput(baseline),
 			truncateOutput(result.Stdout),
 		)
-		return failureResult(run, stepIndex, stepNumber, step.ID, details)
+		return failureResult(run, stepIndex, stepNumber, step.ID, &details)
 	}
 	return nil
 }
 
-func failureResult(run *RunState, stepIndex, stepNumber int, stepID string, details stepFailureDetails) *StepResult {
+func failureResult(run *RunState, stepIndex, stepNumber int, stepID string, details *stepFailureDetails) *StepResult {
+	if details == nil {
+		details = &stepFailureDetails{}
+	}
 	message := details.summary
 	run.LastFailureMessage = message
 	result := &StepResult{
