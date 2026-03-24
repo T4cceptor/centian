@@ -442,6 +442,7 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 	if node, exists := run.CurrentNode(); exists {
 		structured["currentNodeKind"] = string(node.Kind)
 		structured["approvalBlocked"] = node.Kind == taskverification.WorkflowNodeKindWaitingForApproval
+		structured["allowedTools"] = append([]string{}, node.AllowedTools...)
 		if node.NextPath != "" {
 			structured["nextNodePath"] = string(node.NextPath)
 		}

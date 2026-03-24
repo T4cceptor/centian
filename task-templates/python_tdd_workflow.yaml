@@ -28,7 +28,13 @@ workflow:
   onboarding:
     instructions: |
       Identify the concrete pytest target, relevant source files, and project commands before planning.
+    tools_allowed:
+      - "shell__*"
+      - "filesystem__*"
   planning:
+    tools_allowed:
+      - "shell__*"
+      - "filesystem__*"
     editable_fields:
       - "parameters.testCommand"
       - "parameters.testTarget"
@@ -44,6 +50,9 @@ workflow:
   execution:
     - id: "establish_failing_baseline"
       name: "Establish failing baseline"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
       instructions: |
         Create or identify the target pytest case so it fails for the intended reason.
         The pass/fail decision for this step comes from `centian.task_complete_step`.
@@ -60,6 +69,9 @@ workflow:
               value: "${expectedError}"
     - id: "implement_solution"
       name: "Implement solution"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
       instructions: |
         Start this step before changing production code.
         Make the implementation pass the selected test, then let Centian verify the step.

@@ -261,6 +261,9 @@ func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamS
 	}
 	ctx = WithCallContext(ctx, callCtx)
 	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
+	if denied, blocked := p.enforceWorkflowNodeToolGovernance(session, callCtx); blocked {
+		return denied, nil
+	}
 
 	// Call processing loop on request
 	if err := p.ProcessCall(callCtx, common.DirectionClientToServer, common.MessageTypeRequest); err != nil {
