@@ -18,6 +18,7 @@ var placeholderPattern = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 type Service struct {
 	TemplateDir string
 	WorkingDir  string
+	EventStore  EventStore
 }
 
 // NewService creates a task verification service rooted at the given directories.
@@ -25,6 +26,7 @@ func NewService(templateDir, workingDir string) *Service {
 	return &Service{
 		TemplateDir: templateDir,
 		WorkingDir:  workingDir,
+		EventStore:  NewInMemoryEventStore(),
 	}
 }
 
@@ -64,6 +66,7 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 	}
 
 	return &RunState{
+		RunID:            newTaskRunID(),
 		TemplateID:       template.Task.ID,
 		SelectedTemplate: *template,
 		DraftParameters:  cloneParameters(parameters),

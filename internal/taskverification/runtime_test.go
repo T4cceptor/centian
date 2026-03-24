@@ -497,6 +497,7 @@ func newExecutionReadyRun(template Template) *RunState {
 		})
 	}
 	return &RunState{
+		RunID:             newTaskRunID(),
 		TemplateID:        template.Task.ID,
 		SelectedTemplate:  template,
 		DraftParameters:   map[string]string{},

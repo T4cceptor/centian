@@ -124,6 +124,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Assert(t, registerResult != nil)
 	registerStructured := registerResult.StructuredContent.(map[string]any)
 	assert.Equal(t, registerStructured["instructions"], "Use Centian validation instead of rebuilding checks manually.")
+	assert.Assert(t, registerStructured["taskRunId"] != "")
 	assert.Equal(t, registerStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseOnboarding))
 	assert.Equal(t, registerStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
@@ -246,6 +247,215 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
 	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+}
+
+func TestTaskLifecycleEventsRecorded(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{"testTarget": "pytest -q"},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRestartTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskFailTool,
+		Arguments: map[string]any{"reason": "stop"},
+	})
+	assert.NilError(t, err)
+
+	events := endpoint.server.TaskVerification.TaskEvents()
+	assert.Equal(t, len(events), 7)
+	assert.DeepEqual(t, []taskverification.TaskEventType{
+		events[0].EventType,
+		events[1].EventType,
+		events[2].EventType,
+		events[3].EventType,
+		events[4].EventType,
+		events[5].EventType,
+		events[6].EventType,
+	}, []taskverification.TaskEventType{
+		taskverification.TaskEventTypeRegistered,
+		taskverification.TaskEventTypeOnboardingCompleted,
+		taskverification.TaskEventTypePlanningCompleted,
+		taskverification.TaskEventTypeStepStarted,
+		taskverification.TaskEventTypeStepCompleted,
+		taskverification.TaskEventTypeRestarted,
+		taskverification.TaskEventTypeFailed,
+	})
+	for _, event := range events {
+		assert.Assert(t, event.TaskRunID != "")
+		assert.Equal(t, event.TemplateID, "task")
+		assert.Equal(t, event.PrincipalID, "principal-1")
+		assert.Assert(t, event.RelatedActionEventID != "")
+	}
+}
+
+func TestTaskCompletePlanningEmitsApprovalWaitEvent(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+workflow:
+  onboarding:
+    tools_allowed: ["shell__*"]
+  planning:
+    tools_allowed: ["shell__*"]
+    required_outputs: ["testTarget"]
+    next: "waiting_for_approval.review_plan"
+  execution:
+    - id: "review_plan"
+      kind: "waiting_for_approval"
+      tools_allowed: ["shell__*"]
+      next: "execution.step_one"
+    - id: "step_one"
+      tools_allowed: ["shell__*"]
+      checks:
+        - id: "check_one"
+          command: "printf 'ok'"
+`)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{"testTarget": "pytest -q"},
+		},
+	})
+	assert.NilError(t, err)
+
+	events := endpoint.server.TaskVerification.TaskEvents()
+	assert.Equal(t, events[len(events)-2].EventType, taskverification.TaskEventTypePlanningCompleted)
+	assert.Equal(t, events[len(events)-1].EventType, taskverification.TaskEventTypeApprovalWaitEntered)
+	assert.Equal(t, events[len(events)-1].PhasePath, taskverification.TaskPhase("waiting_for_approval.review_plan"))
+}
+
+func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{"testTarget": "pytest -q"},
+		},
+	})
+	assert.NilError(t, err)
+
+	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
+	assert.Equal(t, len(contexts), 3)
+	assert.Equal(t, contexts[0].PhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, contexts[1].PhasePath, taskverification.TaskPhasePlanning)
+	assert.Equal(t, contexts[2].PhasePath, taskverification.TaskPhase("execution.step_one"))
+	for _, context := range contexts {
+		assert.Assert(t, context.ActionEventID != "")
+		assert.Assert(t, context.TaskRunID != "")
+	}
+}
+
+func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	attachTaskToolDownstream(t, endpoint, session, "server-a", "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(endpoint.server.TaskVerification.ActionEventTaskContexts()), 0)
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	before := len(endpoint.server.TaskVerification.ActionEventTaskContexts())
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+
+	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
+	assert.Equal(t, len(contexts), before+1)
+	assert.Equal(t, contexts[len(contexts)-1].PhasePath, taskverification.TaskPhaseOnboarding)
 }
 
 func TestTaskCompletePlanningCanEnterApprovalWait(t *testing.T) {

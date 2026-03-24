@@ -1,5 +1,7 @@
 package taskverification
 
+import "encoding/json"
+
 // Template defines one task verification template loaded from YAML.
 type Template struct {
 	Version          string              `yaml:"version" json:"version"`
@@ -252,6 +254,7 @@ type StepState struct {
 
 // RunState stores the mutable session-scoped state of one registered task.
 type RunState struct {
+	RunID              string              `json:"taskRunId"`
 	TemplateID         string              `json:"templateId"`
 	SelectedTemplate   Template            `json:"-"`
 	DraftParameters    map[string]string   `json:"draftParameters"`
@@ -283,4 +286,52 @@ type StepResult struct {
 	ExitCode          *int             `json:"exitCode,omitempty"`
 	StdoutSnippet     string           `json:"stdoutSnippet,omitempty"`
 	StderrSnippet     string           `json:"stderrSnippet,omitempty"`
+}
+
+// TaskEventType identifies one task lifecycle event.
+type TaskEventType string
+
+const (
+	TaskEventTypeRegistered          TaskEventType = "task_registered"
+	TaskEventTypeOnboardingCompleted TaskEventType = "onboarding_completed"
+	TaskEventTypePlanningCompleted   TaskEventType = "planning_completed"
+	TaskEventTypeStepStarted         TaskEventType = "step_started"
+	TaskEventTypeStepCompleted       TaskEventType = "step_completed"
+	TaskEventTypeRestarted           TaskEventType = "task_restarted"
+	TaskEventTypeFailed              TaskEventType = "task_failed"
+	TaskEventTypeApprovalWaitEntered TaskEventType = "approval_wait_entered"
+)
+
+// TaskEventOutcome captures whether a lifecycle operation succeeded.
+type TaskEventOutcome string
+
+const (
+	TaskEventOutcomeSucceeded TaskEventOutcome = "succeeded"
+	TaskEventOutcomeFailed    TaskEventOutcome = "failed"
+)
+
+// TaskEvent is the append-only lifecycle record for one task run.
+type TaskEvent struct {
+	ID                   string           `json:"id"`
+	SchemaVersion        int              `json:"schemaVersion"`
+	CreatedAtUnixMilli   int64            `json:"createdAtUnixMilli"`
+	TaskRunID            string           `json:"taskRunId"`
+	SessionID            string           `json:"sessionId,omitempty"`
+	TemplateID           string           `json:"templateId"`
+	PrincipalID          string           `json:"principalId,omitempty"`
+	PhasePath            TaskPhase        `json:"phasePath"`
+	NodeKind             WorkflowNodeKind `json:"nodeKind,omitempty"`
+	EventType            TaskEventType    `json:"eventType"`
+	Outcome              TaskEventOutcome `json:"outcome"`
+	RelatedActionEventID string           `json:"relatedActionEventId,omitempty"`
+	Payload              json.RawMessage  `json:"payload,omitempty"`
+}
+
+// ActionEventTaskContext associates an action event with the active task snapshot.
+type ActionEventTaskContext struct {
+	ActionEventID      string           `json:"actionEventId"`
+	TaskRunID          string           `json:"taskRunId"`
+	PhasePath          TaskPhase        `json:"phasePath"`
+	NodeKind           WorkflowNodeKind `json:"nodeKind,omitempty"`
+	CreatedAtUnixMilli int64            `json:"createdAtUnixMilli"`
 }

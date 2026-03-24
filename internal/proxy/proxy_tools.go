@@ -7,6 +7,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
+	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -261,6 +262,15 @@ func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamS
 	}
 	ctx = WithCallContext(ctx, callCtx)
 	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
+	session.taskMu.Lock()
+	activeRun := session.taskRun
+	if activeRun != nil && activeRun.Status != taskverification.TaskStatusActive {
+		activeRun = nil
+	}
+	session.taskMu.Unlock()
+	if activeRun != nil {
+		p.recordTaskActionContext(activeRun, callCtx.GetRequestID())
+	}
 	if denied, blocked := p.enforceWorkflowNodeToolGovernance(session, callCtx); blocked {
 		return denied, nil
 	}
