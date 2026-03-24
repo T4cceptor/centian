@@ -138,9 +138,7 @@ steps:
         command: "printf 'ok'"
 `)
 
-	err := service.StartOnboarding(run)
-	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready to plan"})
+	err := service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready to plan"})
 	assert.NilError(t, err)
 
 	_, err = service.StartStep(run, 1)
@@ -265,13 +263,13 @@ steps:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusFailed)
 
-	err = service.StartOnboarding(run)
+	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready"})
 	assert.ErrorContains(t, err, "task is failed")
 
 	err = service.RestartTask(run)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
-	assert.Equal(t, run.Phase, TaskPhaseRegistered)
+	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, !run.ExecutionReady)
 	assert.Assert(t, run.ExecutionTemplate == nil)
 	assert.Equal(t, len(run.Steps), 0)

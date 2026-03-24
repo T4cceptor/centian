@@ -63,7 +63,7 @@ steps:
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
-	assert.Equal(t, run.Phase, TaskPhaseRegistered)
+	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, !run.ExecutionReady)
 	assert.Assert(t, run.ExecutionTemplate == nil)
 	assert.Equal(t, len(run.Steps), 0)
@@ -126,10 +126,6 @@ steps:
 	assert.NilError(t, err)
 	assert.Assert(t, run.Onboarding == nil)
 
-	err = service.StartOnboarding(run)
-	assert.NilError(t, err)
-	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
-
 	artifact := OnboardingArtifact{
 		ProjectSummary: "Small Python project with one pytest target.",
 		ArtifactMap: []OnboardingArtifactRef{
@@ -150,7 +146,7 @@ steps:
 	assert.Equal(t, run.Onboarding.ArtifactMap[0].Path, artifact.ArtifactMap[0].Path)
 }
 
-func TestStartOnboardingIsIdempotent(t *testing.T) {
+func TestRegisterTaskStartsInOnboarding(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
 task:
@@ -166,14 +162,8 @@ steps:
 
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
-
-	err = service.StartOnboarding(run)
-	assert.NilError(t, err)
-	run.Onboarding = &OnboardingArtifact{ProjectSummary: "existing summary"}
-
-	err = service.StartOnboarding(run)
-	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
+	run.Onboarding = &OnboardingArtifact{ProjectSummary: "existing summary"}
 	assert.Assert(t, run.Onboarding != nil)
 	assert.Equal(t, run.Onboarding.ProjectSummary, "existing summary")
 }
@@ -196,6 +186,9 @@ steps:
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready"})
+	assert.NilError(t, err)
+
+	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "ready again"})
 	assert.ErrorContains(t, err, "cannot transition to planning")
 }
 
@@ -214,9 +207,6 @@ steps:
 `, "simple_tdd.yaml")
 
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
-	assert.NilError(t, err)
-
-	err = service.StartOnboarding(run)
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, OnboardingArtifact{})
@@ -241,22 +231,14 @@ steps:
 
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
-
-	err = service.StartOnboarding(run)
-	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, OnboardingArtifact{ProjectSummary: "stored summary"})
 	assert.NilError(t, err)
 
 	err = service.RestartTask(run)
 	assert.NilError(t, err)
-	assert.Equal(t, run.Phase, TaskPhaseRegistered)
-	assert.Assert(t, run.Onboarding != nil)
-	assert.Equal(t, run.Onboarding.ProjectSummary, "stored summary")
-
-	err = service.StartOnboarding(run)
-	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, run.Onboarding != nil)
+	assert.Equal(t, run.Onboarding.ProjectSummary, "stored summary")
 }
 
 func TestInvalidTemplateFailsValidation(t *testing.T) {

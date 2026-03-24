@@ -68,23 +68,17 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 		SelectedTemplate: *template,
 		DraftParameters:  cloneParameters(parameters),
 		Status:           TaskStatusActive,
-		Phase:            TaskPhaseRegistered,
+		Phase:            TaskPhaseOnboarding,
 		ExecutionReady:   false,
 	}, nil
 }
 
-// StartOnboarding enters onboarding or returns the existing onboarding phase.
-func (s *Service) StartOnboarding(run *RunState) error {
-	return transitionTaskPhase(run, TaskPhaseOnboarding, TaskPhaseRegistered, TaskPhaseOnboarding)
-}
-
 // CompleteOnboarding validates and persists onboarding context, then advances to planning.
 func (s *Service) CompleteOnboarding(run *RunState, artifact OnboardingArtifact) error {
-	if err := transitionTaskPhase(run, TaskPhasePlanning, TaskPhaseOnboarding); err != nil {
+	if err := validateOnboardingArtifact(artifact); err != nil {
 		return err
 	}
-	if err := validateOnboardingArtifact(artifact); err != nil {
-		run.Phase = TaskPhaseOnboarding
+	if err := transitionTaskPhase(run, TaskPhasePlanning, TaskPhaseOnboarding); err != nil {
 		return err
 	}
 
@@ -94,14 +88,14 @@ func (s *Service) CompleteOnboarding(run *RunState, artifact OnboardingArtifact)
 	return nil
 }
 
-// RestartTask resets an existing task run back to its registered shell state.
+// RestartTask resets an existing task run back to its onboarding shell state.
 func (s *Service) RestartTask(run *RunState) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
 
 	run.Status = TaskStatusActive
-	run.Phase = TaskPhaseRegistered
+	run.Phase = TaskPhaseOnboarding
 	run.ExecutionReady = false
 	run.ExecutionTemplate = nil
 	run.Steps = nil

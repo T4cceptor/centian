@@ -15,7 +15,6 @@ import (
 const (
 	taskListTemplatesTool      = "centian.task_list_templates"
 	taskRegisterTool           = "centian.task_register"
-	taskStartOnboardingTool    = "centian.task_start_onboarding"
 	taskCompleteOnboardingTool = "centian.task_complete_onboarding"
 	taskStartStepTool          = "centian.task_start_step"
 	taskCompleteStepTool       = "centian.task_complete_step"
@@ -73,16 +72,6 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		},
 	}, p.wrapTaskToolHandler(session, taskRegisterTool, p.handleTaskRegisterTool))
 	session.registeredStaticTools[taskRegisterTool] = struct{}{}
-
-	server.AddTool(&mcp.Tool{
-		Name:        taskStartOnboardingTool,
-		Description: "Enter or resume the onboarding phase for the active task.",
-		InputSchema: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
-		},
-	}, p.wrapTaskToolHandler(session, taskStartOnboardingTool, p.handleTaskStartOnboardingTool))
-	session.registeredStaticTools[taskStartOnboardingTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompleteOnboardingTool,
@@ -278,20 +267,6 @@ func (p *CentianEndpoint) handleTaskRegisterTool(_ context.Context, session *Ups
 	structured := runStructuredContent(run)
 	structured["stepCount"] = len(run.SelectedTemplate.Steps)
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, len(run.SelectedTemplate.Steps)), structured), nil
-}
-
-func (p *CentianEndpoint) handleTaskStartOnboardingTool(_ context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	session.taskMu.Lock()
-	defer session.taskMu.Unlock()
-
-	if err := p.server.TaskVerification.StartOnboarding(session.taskRun); err != nil {
-		return nil, err
-	}
-	structured := runStructuredContent(session.taskRun)
-	if session.taskRun.Onboarding != nil {
-		structured["onboarding"] = session.taskRun.Onboarding
-	}
-	return toolResult("Task onboarding started.", structured), nil
 }
 
 func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(_ context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
