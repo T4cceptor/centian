@@ -416,6 +416,30 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	structured["status"] = string(result.Status)
 	structured["phase"] = string(result.Phase)
 	structured["stepStatus"] = string(result.StepStatus)
+	if result.Summary != "" {
+		structured["summary"] = result.Summary
+	}
+	if result.FailureKind != "" {
+		structured["failureKind"] = string(result.FailureKind)
+	}
+	if result.FailurePhase != "" {
+		structured["failurePhase"] = string(result.FailurePhase)
+	}
+	if result.FailedCheckID != "" {
+		structured["failedCheckId"] = result.FailedCheckID
+	}
+	if result.FailedInvariantID != "" {
+		structured["failedInvariantId"] = result.FailedInvariantID
+	}
+	if result.ExitCode != nil {
+		structured["exitCode"] = *result.ExitCode
+	}
+	if result.StdoutSnippet != "" {
+		structured["stdoutSnippet"] = result.StdoutSnippet
+	}
+	if result.StderrSnippet != "" {
+		structured["stderrSnippet"] = result.StderrSnippet
+	}
 	return toolResult(result.Message, structured)
 }
 
@@ -457,6 +481,7 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 			"lintCommand":          run.Planning.LintCommand,
 			"implementationTarget": run.Planning.ImplementationTarget,
 		}
+		structured["frozenContractSummary"] = frozenContractSummary(run)
 	}
 
 	if !run.ExecutionReady || run.ExecutionTemplate == nil {
@@ -481,4 +506,31 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 	})
 	structured["steps"] = steps
 	return structured
+}
+
+func frozenContractSummary(run *taskverification.RunState) map[string]any {
+	summary := map[string]any{
+		"selectedFiles":        []string{},
+		"testTarget":           "",
+		"implementationTarget": "",
+		"invariantCount":       0,
+	}
+	if run == nil || run.Planning == nil {
+		return summary
+	}
+
+	summary["selectedFiles"] = append([]string{}, run.Planning.SelectedFiles...)
+	summary["testTarget"] = run.Planning.TestTarget
+	summary["implementationTarget"] = run.Planning.ImplementationTarget
+	if strings.TrimSpace(run.Planning.LintCommand) != "" {
+		summary["lintCommand"] = run.Planning.LintCommand
+	}
+	if run.ExecutionTemplate != nil && run.ExecutionTemplate.CompiledWorkflow != nil {
+		invariantCount := 0
+		for _, step := range run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps {
+			invariantCount += len(step.Invariants)
+		}
+		summary["invariantCount"] = invariantCount
+	}
+	return summary
 }

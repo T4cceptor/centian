@@ -17,6 +17,19 @@ type commandResult struct {
 	ExitCode int
 }
 
+const outputSnippetLimit = 240
+
+type stepFailureDetails struct {
+	kind            StepFailureKind
+	phase           StepFailurePhase
+	failedCheckID   string
+	failedInvariant string
+	summary         string
+	exitCode        *int
+	stdoutSnippet   string
+	stderrSnippet   string
+}
+
 // StartStep validates the next step, runs its preconditions, and captures invariant baselines.
 func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) {
 	if err := validateTaskExecutable(run); err != nil {
@@ -36,7 +49,7 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 	}
 
 	step := executionStep(run, stepIndex)
-	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepNumber, "precondition", func(check *Check) []Condition {
+	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, func(check *Check) []Condition {
 		return check.PreConditions
 	}); failed {
 		return result, nil
@@ -53,6 +66,7 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 	return &StepResult{
 		Passed:     true,
 		Message:    fmt.Sprintf("step %d (%s) started", stepNumber, step.ID),
+		Summary:    fmt.Sprintf("step %d (%s) started", stepNumber, step.ID),
 		Step:       stepNumber,
 		StepID:     step.ID,
 		Status:     run.Status,
@@ -82,7 +96,7 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 	}
 
 	step := executionStep(run, stepIndex)
-	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepIndex+1, "postcondition", func(check *Check) []Condition {
+	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, func(check *Check) []Condition {
 		return check.PostConditions
 	}); failed {
 		return result, nil
@@ -106,6 +120,7 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 	return &StepResult{
 		Passed:     true,
 		Message:    message,
+		Summary:    message,
 		Step:       stepIndex + 1,
 		StepID:     step.ID,
 		Status:     run.Status,
@@ -183,17 +198,23 @@ func (s *Service) completePreviousStepIfNeeded(run *RunState, stepIndex int) (bo
 	return false, nil, nil
 }
 
-func (s *Service) runPhaseChecks(run *RunState, step *Step, stepIndex, stepNumber int, phase string, conditions func(check *Check) []Condition) (*StepResult, bool) {
+func (s *Service) runPhaseChecks(run *RunState, step *Step, stepIndex, stepNumber int, phase StepFailurePhase, conditions func(check *Check) []Condition) (*StepResult, bool) {
 	for checkIndex := range step.Checks {
 		check := &step.Checks[checkIndex]
 		result, err := s.runCommand(context.Background(), check.Command)
 		if err != nil {
-			return s.executionFailure(run, step, stepIndex, stepNumber, check.ID, err), true
+			return s.executionFailure(run, step, stepIndex, stepNumber, check.ID, result, err), true
 		}
 		if err := evaluateConditions(conditions(check), result, s.WorkingDir); err != nil {
-			message := fmt.Sprintf("step %d (%s) %s failed for check %s: %v", stepNumber, step.ID, phase, check.ID, err)
-			run.LastFailureMessage = message
-			return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status), true
+			details := failureDetailsFromCommand(
+				StepFailureKindCheck,
+				phase,
+				result,
+				fmt.Sprintf("step %d (%s) %s failed for check %s", stepNumber, step.ID, phase, check.ID),
+			)
+			details.failedCheckID = check.ID
+			details.summary = fmt.Sprintf("%s: %v", details.summary, err)
+			return failureResult(run, stepIndex, stepNumber, step.ID, details), true
 		}
 	}
 	return nil, false
@@ -204,19 +225,19 @@ func (s *Service) captureInvariantBaselines(run *RunState, step *Step, stepIndex
 	for _, invariant := range step.Invariants {
 		result, err := s.runCommand(context.Background(), invariant.Command)
 		if err != nil {
-			return nil, s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, "capture", err), true
+			return nil, s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, StepFailurePhaseInvariantCapture, result, err), true
 		}
 		if result.ExitCode != 0 {
-			message := fmt.Sprintf(
-				"step %d (%s) invariant %s failed to capture baseline: expected exit code 0, got %d",
-				stepNumber,
-				step.ID,
-				invariant.ID,
-				result.ExitCode,
-			)
-			run.LastFailureMessage = message
 			run.Steps[stepIndex].Status = StepStatusFailed
-			return nil, failureResult(message, stepNumber, step.ID, run.Status, run.Phase, StepStatusFailed), true
+			details := failureDetailsFromCommand(
+				StepFailureKindInvariant,
+				StepFailurePhaseInvariantCapture,
+				result,
+				fmt.Sprintf("step %d (%s) invariant %s failed to capture baseline", stepNumber, step.ID, invariant.ID),
+			)
+			details.failedInvariant = invariant.ID
+			details.summary = fmt.Sprintf("%s: expected exit code 0, got %d", details.summary, result.ExitCode)
+			return nil, failureResult(run, stepIndex, stepNumber, step.ID, details), true
 		}
 		baselines[invariant.ID] = result.Stdout
 	}
@@ -228,7 +249,7 @@ func (s *Service) verifyInvariants(run *RunState, step *Step, stepIndex int) (*S
 	for _, invariant := range step.Invariants {
 		result, err := s.runCommand(context.Background(), invariant.Command)
 		if err != nil {
-			return s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, "verify", err), true
+			return s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, StepFailurePhaseInvariantVerify, result, err), true
 		}
 		if failure := verifyInvariantResult(run, step, stepIndex, result, invariant); failure != nil {
 			return failure, true
@@ -237,70 +258,104 @@ func (s *Service) verifyInvariants(run *RunState, step *Step, stepIndex int) (*S
 	return nil, false
 }
 
-func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNumber int, checkID string, err error) *StepResult {
-	message := fmt.Sprintf("step %d (%s) could not execute check %s: %v", stepNumber, step.ID, checkID, err)
-	run.LastFailureMessage = message
+func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNumber int, checkID string, result *commandResult, err error) *StepResult {
 	run.Steps[stepIndex].Status = StepStatusFailed
-	return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, StepStatusFailed)
+	details := failureDetailsFromCommand(
+		StepFailureKindCommandExecution,
+		StepFailurePhaseCommandExecution,
+		result,
+		fmt.Sprintf("step %d (%s) could not execute check %s", stepNumber, step.ID, checkID),
+	)
+	details.failedCheckID = checkID
+	details.summary = fmt.Sprintf("%s: %v", details.summary, err)
+	return failureResult(run, stepIndex, stepNumber, step.ID, details)
 }
 
 func (s *Service) invariantExecutionFailure(
 	run *RunState,
 	step *Step,
 	stepIndex, stepNumber int,
-	invariantID, action string,
+	invariantID string,
+	phase StepFailurePhase,
+	result *commandResult,
 	err error,
 ) *StepResult {
-	message := fmt.Sprintf("step %d (%s) could not %s invariant %s: %v", stepNumber, step.ID, action, invariantID, err)
-	run.LastFailureMessage = message
 	run.Steps[stepIndex].Status = StepStatusFailed
-	return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, StepStatusFailed)
+	details := failureDetailsFromCommand(
+		StepFailureKindCommandExecution,
+		StepFailurePhaseCommandExecution,
+		result,
+		fmt.Sprintf("step %d (%s) could not %s invariant %s", stepNumber, step.ID, phaseActionLabel(phase), invariantID),
+	)
+	details.failedInvariant = invariantID
+	details.summary = fmt.Sprintf("%s: %v", details.summary, err)
+	return failureResult(run, stepIndex, stepNumber, step.ID, details)
 }
 
 func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *commandResult, invariant Invariant) *StepResult {
 	stepNumber := stepIndex + 1
 	if result.ExitCode != 0 {
-		message := fmt.Sprintf(
-			"step %d (%s) invariant %s failed during verification: expected exit code 0, got %d",
-			stepNumber,
-			step.ID,
-			invariant.ID,
-			result.ExitCode,
+		details := failureDetailsFromCommand(
+			StepFailureKindInvariant,
+			StepFailurePhaseInvariantVerify,
+			result,
+			fmt.Sprintf("step %d (%s) invariant %s failed during verification", stepNumber, step.ID, invariant.ID),
 		)
-		run.LastFailureMessage = message
-		return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status)
+		details.failedInvariant = invariant.ID
+		details.summary = fmt.Sprintf("%s: expected exit code 0, got %d", details.summary, result.ExitCode)
+		return failureResult(run, stepIndex, stepNumber, step.ID, details)
 	}
 	baseline, exists := run.Steps[stepIndex].InvariantBaselines[invariant.ID]
 	if !exists {
-		message := fmt.Sprintf("step %d (%s) invariant %s has no baseline", stepNumber, step.ID, invariant.ID)
-		run.LastFailureMessage = message
-		return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status)
+		details := failureDetailsFromCommand(
+			StepFailureKindInvariant,
+			StepFailurePhaseInvariantVerify,
+			result,
+			fmt.Sprintf("step %d (%s) invariant %s has no baseline", stepNumber, step.ID, invariant.ID),
+		)
+		details.failedInvariant = invariant.ID
+		return failureResult(run, stepIndex, stepNumber, step.ID, details)
 	}
 	if baseline != result.Stdout {
-		message := fmt.Sprintf(
-			"step %d (%s) invariant %s changed: expected %q, got %q",
-			stepNumber,
-			step.ID,
-			invariant.ID,
-			baseline,
-			result.Stdout,
+		details := failureDetailsFromCommand(
+			StepFailureKindInvariant,
+			StepFailurePhaseInvariantVerify,
+			result,
+			fmt.Sprintf("step %d (%s) invariant %s changed", stepNumber, step.ID, invariant.ID),
 		)
-		run.LastFailureMessage = message
-		return failureResult(message, stepNumber, step.ID, run.Status, run.Phase, run.Steps[stepIndex].Status)
+		details.failedInvariant = invariant.ID
+		details.summary = fmt.Sprintf(
+			"%s: expected %q, got %q",
+			details.summary,
+			truncateOutput(baseline),
+			truncateOutput(result.Stdout),
+		)
+		return failureResult(run, stepIndex, stepNumber, step.ID, details)
 	}
 	return nil
 }
 
-func failureResult(message string, stepNumber int, stepID string, status TaskStatus, phase TaskPhase, stepStatus StepStatus) *StepResult {
-	return &StepResult{
-		Passed:     false,
-		Message:    message,
-		Step:       stepNumber,
-		StepID:     stepID,
-		Status:     status,
-		Phase:      phase,
-		StepStatus: stepStatus,
+func failureResult(run *RunState, stepIndex, stepNumber int, stepID string, details stepFailureDetails) *StepResult {
+	message := details.summary
+	run.LastFailureMessage = message
+	result := &StepResult{
+		Passed:            false,
+		Message:           message,
+		Summary:           details.summary,
+		Step:              stepNumber,
+		StepID:            stepID,
+		Status:            run.Status,
+		Phase:             run.Phase,
+		StepStatus:        run.Steps[stepIndex].Status,
+		FailureKind:       details.kind,
+		FailurePhase:      details.phase,
+		FailedCheckID:     details.failedCheckID,
+		FailedInvariantID: details.failedInvariant,
+		ExitCode:          details.exitCode,
+		StdoutSnippet:     details.stdoutSnippet,
+		StderrSnippet:     details.stderrSnippet,
 	}
+	return result
 }
 
 func ensureStepCanStart(run *RunState, stepIndex int) error {
@@ -358,7 +413,46 @@ func (s *Service) runCommand(ctx context.Context, command string) (*commandResul
 		result.ExitCode = exitErr.ExitCode()
 		return result, nil
 	}
-	return nil, err
+	return result, err
+}
+
+func failureDetailsFromCommand(kind StepFailureKind, phase StepFailurePhase, result *commandResult, summary string) stepFailureDetails {
+	details := stepFailureDetails{
+		kind:    kind,
+		phase:   phase,
+		summary: summary,
+	}
+	if result == nil {
+		return details
+	}
+	exitCode := result.ExitCode
+	details.exitCode = &exitCode
+	details.stdoutSnippet = truncateOutput(result.Stdout)
+	details.stderrSnippet = truncateOutput(result.Stderr)
+	return details
+}
+
+func truncateOutput(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= outputSnippetLimit {
+		return trimmed
+	}
+	return string(runes[:outputSnippetLimit]) + "..."
+}
+
+func phaseActionLabel(phase StepFailurePhase) string {
+	switch phase {
+	case StepFailurePhaseInvariantCapture:
+		return "capture"
+	case StepFailurePhaseInvariantVerify:
+		return "verify"
+	default:
+		return "execute"
+	}
 }
 
 func evaluateConditions(conditions []Condition, result *commandResult, workingDir string) error {

@@ -222,6 +222,26 @@ const (
 	StepStatusFailed  StepStatus = "failed"
 )
 
+// StepFailureKind classifies the high-level reason a step failed.
+type StepFailureKind string
+
+const (
+	StepFailureKindCheck            StepFailureKind = "check"
+	StepFailureKindInvariant        StepFailureKind = "invariant"
+	StepFailureKindCommandExecution StepFailureKind = "command_execution"
+)
+
+// StepFailurePhase identifies which verification stage produced the failure.
+type StepFailurePhase string
+
+const (
+	StepFailurePhasePrecondition     StepFailurePhase = "precondition"
+	StepFailurePhasePostcondition    StepFailurePhase = "postcondition"
+	StepFailurePhaseInvariantCapture StepFailurePhase = "invariant_capture"
+	StepFailurePhaseInvariantVerify  StepFailurePhase = "invariant_verify"
+	StepFailurePhaseCommandExecution StepFailurePhase = "command_execution"
+)
+
 // StepState stores mutable runtime state for a single step.
 type StepState struct {
 	ID                 string            `json:"id"`
@@ -248,11 +268,19 @@ type RunState struct {
 
 // StepResult is the MCP-facing outcome of starting or completing a step.
 type StepResult struct {
-	Passed     bool       `json:"passed"`
-	Message    string     `json:"message"`
-	Step       int        `json:"step"`
-	StepID     string     `json:"stepId"`
-	Status     TaskStatus `json:"status"`
-	Phase      TaskPhase  `json:"phase"`
-	StepStatus StepStatus `json:"stepStatus"`
+	Passed            bool             `json:"passed"`
+	Message           string           `json:"message"`
+	Step              int              `json:"step"`
+	StepID            string           `json:"stepId"`
+	Status            TaskStatus       `json:"status"`
+	Phase             TaskPhase        `json:"phase"`
+	StepStatus        StepStatus       `json:"stepStatus"`
+	FailureKind       StepFailureKind  `json:"failureKind,omitempty"`
+	FailurePhase      StepFailurePhase `json:"failurePhase,omitempty"`
+	FailedCheckID     string           `json:"failedCheckId,omitempty"`
+	FailedInvariantID string           `json:"failedInvariantId,omitempty"`
+	Summary           string           `json:"summary,omitempty"`
+	ExitCode          *int             `json:"exitCode,omitempty"`
+	StdoutSnippet     string           `json:"stdoutSnippet,omitempty"`
+	StderrSnippet     string           `json:"stderrSnippet,omitempty"`
 }

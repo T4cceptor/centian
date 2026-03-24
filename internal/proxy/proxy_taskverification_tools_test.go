@@ -199,6 +199,13 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.DeepEqual(t, completePlanningStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, completePlanningStructured["executionReady"], true)
 	assert.Assert(t, completePlanningStructured["planningSummary"] != nil)
+	assert.DeepEqual(t, completePlanningStructured["frozenContractSummary"], map[string]any{
+		"selectedFiles":        []any{"tests/test_mathlib.py"},
+		"testTarget":           "python -m pytest -q tests/test_mathlib.py",
+		"implementationTarget": "mathlib.add",
+		"lintCommand":          "ruff check .",
+		"invariantCount":       float64(0),
+	})
 	assert.Assert(t, completePlanningStructured["steps"] != nil)
 
 	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -211,6 +218,9 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	startStepStructured := startStepResult.StructuredContent.(map[string]any)
 	assert.Equal(t, startStepStructured["phase"], "execution.step_one")
 	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
+	assert.Equal(t, startStepStructured["summary"], "step 1 (step_one) started")
+	_, hasFailureKind := startStepStructured["failureKind"]
+	assert.Assert(t, !hasFailureKind)
 
 	restartResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRestartTool,
@@ -349,6 +359,80 @@ func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
 	assert.Assert(t, sessionA.taskRun != nil)
 	assert.Assert(t, sessionB.taskRun != nil)
 	assert.Assert(t, sessionA.taskRun != sessionB.taskRun)
+}
+
+func TestTaskCompleteStepReturnsStructuredDiagnosticsOnFailure(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+workflow:
+  onboarding:
+    tools_allowed: ["shell__*", "filesystem__*"]
+  planning:
+    tools_allowed: ["shell__*", "filesystem__*"]
+    required_outputs: ["testTarget"]
+  execution:
+    - id: "step_one"
+      tools_allowed: ["shell__*", "filesystem__*"]
+      checks:
+        - id: "check_one"
+          command: "printf 'unexpected output for verification'"
+          pre_conditions:
+            - type: stdout_contains
+              value: "unexpected"
+          post_conditions:
+            - type: stdout_contains
+              value: "missing"
+`)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{"testTarget": "pytest -q"},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result.IsError == false)
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["passed"], false)
+	assert.Equal(t, structured["failureKind"], string(taskverification.StepFailureKindCheck))
+	assert.Equal(t, structured["failurePhase"], string(taskverification.StepFailurePhasePostcondition))
+	assert.Equal(t, structured["failedCheckId"], "check_one")
+	assert.Assert(t, structured["stdoutSnippet"] != nil)
+	assert.Assert(t, structured["summary"] != nil)
+	assert.Assert(t, structured["frozenContractSummary"] != nil)
 }
 
 func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
