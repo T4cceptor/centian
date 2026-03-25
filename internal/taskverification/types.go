@@ -345,26 +345,28 @@ const (
 
 // TaskEvent is the append-only lifecycle record for one task run.
 type TaskEvent struct {
-	ID                   string           `json:"id"`
-	SchemaVersion        int              `json:"schemaVersion"`
-	CreatedAtUnixMilli   int64            `json:"createdAtUnixMilli"`
-	TaskRunID            string           `json:"taskRunId"`
-	SessionID            string           `json:"sessionId,omitempty"`
-	TemplateID           string           `json:"templateId"`
-	PrincipalID          string           `json:"principalId,omitempty"`
-	PhasePath            TaskPhase        `json:"phasePath"`
-	NodeKind             WorkflowNodeKind `json:"nodeKind,omitempty"`
-	EventType            TaskEventType    `json:"eventType"`
-	Outcome              TaskEventOutcome `json:"outcome"`
-	RelatedActionEventID string           `json:"relatedActionEventId,omitempty"`
-	Payload              json.RawMessage  `json:"payload,omitempty"`
+	ID                     string           `json:"id"`
+	SchemaVersion          int              `json:"schemaVersion"`
+	CreatedAtUnixMilli     int64            `json:"createdAtUnixMilli"`
+	TaskRunID              string           `json:"taskRunId"`
+	SessionID              string           `json:"sessionId,omitempty"`
+	TemplateID             string           `json:"templateId"`
+	PrincipalID            string           `json:"principalId,omitempty"`
+	PhasePath              TaskPhase        `json:"phasePath"`
+	NodeKind               WorkflowNodeKind `json:"nodeKind,omitempty"`
+	ResultingPhasePath     TaskPhase        `json:"resultingPhasePath"`
+	ResultingNodeKind      WorkflowNodeKind `json:"resultingNodeKind,omitempty"`
+	EventType              TaskEventType    `json:"eventType"`
+	Outcome                TaskEventOutcome `json:"outcome"`
+	RelatedActionRequestID string           `json:"relatedActionRequestId,omitempty"`
+	Payload                json.RawMessage  `json:"payload,omitempty"`
 }
 
 // ActionEventTaskContext associates an action event with the active task snapshot.
 type ActionEventTaskContext struct {
-	ActionEventID      string           `json:"actionEventId"`
-	TaskRunID          string           `json:"taskRunId"`
-	PhasePath          TaskPhase        `json:"phasePath"`
-	NodeKind           WorkflowNodeKind `json:"nodeKind,omitempty"`
-	CreatedAtUnixMilli int64            `json:"createdAtUnixMilli"`
+	RequestID           string           `json:"requestId"`
+	TaskRunID           string           `json:"taskRunId"`
+	InvocationPhasePath TaskPhase        `json:"invocationPhasePath"`
+	InvocationNodeKind  WorkflowNodeKind `json:"invocationNodeKind,omitempty"`
+	CreatedAtUnixMilli  int64            `json:"createdAtUnixMilli"`
 }

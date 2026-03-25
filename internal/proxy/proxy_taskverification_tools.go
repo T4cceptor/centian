@@ -80,27 +80,15 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompleteOnboardingTool,
-		Description: "Persist onboarding context and advance the task into planning.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"onboarding": map[string]any{"type": "object"},
-			},
-			"required": []string{"onboarding"},
-		},
+		Description: "Persist onboarding context and advance the task into planning. For compound shell commands or directory changes later in the workflow, use bash -lc '...'.",
+		InputSchema: taskCompleteOnboardingSchema(),
 	}, p.wrapTaskToolHandler(session, taskCompleteOnboardingTool, p.handleTaskCompleteOnboardingTool))
 	session.registeredStaticTools[taskCompleteOnboardingTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompletePlanningTool,
 		Description: "Persist planning context, freeze the contract, and enter execution.",
-		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"planning": map[string]any{"type": "object"},
-			},
-			"required": []string{"planning"},
-		},
+		InputSchema: taskCompletePlanningSchema(),
 	}, p.wrapTaskToolHandler(session, taskCompletePlanningTool, p.handleTaskCompletePlanningTool))
 	session.registeredStaticTools[taskCompletePlanningTool] = struct{}{}
 
@@ -159,15 +147,22 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 	handler taskToolHandler,
 ) func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		actionEventID := getNewUUIDV7()
-		ctx = withTaskActionEventID(ctx, actionEventID)
+		requestID := getNewUUIDV7()
+		ctx = withTaskActionRequestID(ctx, requestID)
+		session.taskMu.Lock()
+		invocationRun := session.taskRun
+		invocationPhase, invocationNodeKind := taskPhaseSnapshot(invocationRun)
+		session.taskMu.Unlock()
 		result, err := handler(ctx, session, req)
-		p.logTaskToolCall(session, actionEventID, toolName, req, result, err)
+		p.logTaskToolCall(session, requestID, toolName, req, result, err)
 		session.taskMu.Lock()
 		run := session.taskRun
 		session.taskMu.Unlock()
 		if run != nil {
-			p.recordTaskActionContext(run, actionEventID)
+			if invocationRun == nil {
+				invocationPhase, invocationNodeKind = taskPhaseSnapshot(run)
+			}
+			p.recordTaskActionContext(run, requestID, invocationPhase, invocationNodeKind)
 		}
 		return result, err
 	}
@@ -244,6 +239,79 @@ func taskToolResultJSON(result *mcp.CallToolResult, callErr error) json.RawMessa
 	return payload
 }
 
+func taskCompleteOnboardingSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"onboarding": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"projectSummary": map[string]any{"type": "string"},
+					"artifactMap": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"path":  map[string]any{"type": "string"},
+								"kind":  map[string]any{"type": "string"},
+								"notes": map[string]any{"type": "string"},
+							},
+							"required": []string{"path", "kind"},
+						},
+					},
+					"commonCommands": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"command": map[string]any{"type": "string"},
+								"purpose": map[string]any{"type": "string"},
+							},
+							"required": []string{"command", "purpose"},
+						},
+					},
+					"constraints": map[string]any{
+						"type":  "array",
+						"items": map[string]any{"type": "string"},
+					},
+					"openQuestions": map[string]any{
+						"type":  "array",
+						"items": map[string]any{"type": "string"},
+					},
+				},
+				"required": []string{"projectSummary"},
+			},
+		},
+		"required": []string{"onboarding"},
+	}
+}
+
+func taskCompletePlanningSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"planning": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"selectedFiles": map[string]any{
+						"type":  "array",
+						"items": map[string]any{"type": "string"},
+					},
+					"testTarget":           map[string]any{"type": "string"},
+					"lintCommand":          map[string]any{"type": "string"},
+					"expectedFailure":      map[string]any{"type": "string"},
+					"implementationTarget": map[string]any{"type": "string"},
+					"invariants": map[string]any{
+						"type":  "array",
+						"items": map[string]any{"type": "string"},
+					},
+				},
+			},
+		},
+		"required": []string{"planning"},
+	}
+}
+
 func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	templates, err := p.server.TaskVerification.ListTemplates()
 	if err != nil {
@@ -296,7 +364,8 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		return nil, err
 	}
 	session.taskRun = run
-	p.recordTaskEvent(session, run, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), map[string]any{
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(run)
+	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
 		"draftParameters": run.DraftParameters,
 	})
 
@@ -314,14 +383,16 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	if err := p.server.TaskVerification.CompleteOnboarding(session.taskRun, &args.Onboarding); err != nil {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
 		return nil, err
 	}
-	p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), map[string]any{
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
 		"projectSummary": args.Onboarding.ProjectSummary,
 	})
 	structured := runStructuredContent(session.taskRun)
@@ -339,18 +410,20 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	if err := p.server.TaskVerification.CompletePlanning(session.taskRun, &args.Planning); err != nil {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
 		return nil, err
 	}
-	p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), map[string]any{
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
 		"planning": args.Planning,
 	})
 	if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), nil)
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 	}
 	structured := runStructuredContent(session.taskRun)
 	if session.taskRun.Planning != nil {
@@ -367,10 +440,11 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	result, err := p.server.TaskVerification.StartStep(session.taskRun, args.Step)
 	if err != nil {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeStepStarted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepStarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"step":  args.Step,
 			"error": err.Error(),
 		})
@@ -380,7 +454,8 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 	if !result.Passed {
 		outcome = taskverification.TaskEventOutcomeFailed
 	}
-	p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeStepStarted, outcome, taskActionEventIDFromContext(ctx), stepEventPayload(result))
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepStarted, outcome, taskActionRequestIDFromContext(ctx), stepEventPayload(result))
 	return stepToolResult(result, session.taskRun), nil
 }
 
@@ -392,10 +467,11 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	result, err := p.server.TaskVerification.CompleteStep(session.taskRun, args.Step)
 	if err != nil {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeStepCompleted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"step":  args.Step,
 			"error": err.Error(),
 		})
@@ -405,10 +481,11 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 	if !result.Passed {
 		outcome = taskverification.TaskEventOutcomeFailed
 	}
-	p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeStepCompleted, outcome, taskActionEventIDFromContext(ctx), stepEventPayload(result))
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepCompleted, outcome, taskActionRequestIDFromContext(ctx), stepEventPayload(result))
 	if result.Passed {
 		if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-			p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), nil)
+			p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 		}
 	}
 	return stepToolResult(result, session.taskRun), nil
@@ -417,14 +494,16 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	if err := p.server.TaskVerification.RestartTask(session.taskRun); err != nil {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
 		return nil, err
 	}
-	p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), nil)
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 	return toolResult("Task restarted.", runStructuredContent(session.taskRun)), nil
 }
 
@@ -436,15 +515,17 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	if err := p.server.TaskVerification.FailTask(session.taskRun, args.Reason); err != nil {
-		p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeFailed, taskActionEventIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"reason": args.Reason,
 			"error":  err.Error(),
 		})
 		return nil, err
 	}
-	p.recordTaskEvent(session, session.taskRun, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeSucceeded, taskActionEventIDFromContext(ctx), map[string]any{
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
 		"reason": args.Reason,
 	})
 	message := "Task failed."
@@ -531,31 +612,77 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		"lastFailureMessage": run.LastFailureMessage,
 		"explicitFailReason": run.ExplicitFailReason,
 	}
-	if node, exists := run.CurrentNode(); exists {
-		structured["currentNodeKind"] = string(node.Kind)
-		structured["approvalBlocked"] = node.Kind == taskverification.WorkflowNodeKindWaitingForApproval
-		structured["allowedTools"] = append([]string{}, node.AllowedTools...)
-		if node.NextPath != "" {
-			structured["nextNodePath"] = string(node.NextPath)
-		}
-	}
-	if run.Onboarding != nil {
-		structured["onboardingSummary"] = run.Onboarding.ProjectSummary
-	}
-	if run.Planning != nil {
-		structured["planningSummary"] = map[string]any{
-			"selectedFiles":        run.Planning.SelectedFiles,
-			"testTarget":           run.Planning.TestTarget,
-			"lintCommand":          run.Planning.LintCommand,
-			"implementationTarget": run.Planning.ImplementationTarget,
-		}
-		structured["frozenContractSummary"] = frozenContractSummary(run)
-	}
+	addTaskContracts(structured)
+	addCurrentNodeContext(structured, run)
+	addPlanningNodeContext(structured, run)
+	addArtifactSummaries(structured, run)
 
 	if !run.ExecutionReady || run.ExecutionTemplate == nil {
 		return structured
 	}
 
+	structured["steps"] = executionStepsSummary(run)
+	return structured
+}
+
+func addTaskContracts(structured map[string]any) {
+	structured["onboardingContract"] = onboardingContract()
+	structured["planningContract"] = planningContract()
+	structured["shellCommandHint"] = "For compound shell commands or directory changes, use bash -lc '...'."
+}
+
+func addCurrentNodeContext(structured map[string]any, run *taskverification.RunState) {
+	node, exists := run.CurrentNode()
+	if !exists {
+		return
+	}
+	structured["currentNodeKind"] = string(node.Kind)
+	structured["approvalBlocked"] = node.Kind == taskverification.WorkflowNodeKindWaitingForApproval
+	structured["allowedTools"] = append([]string{}, node.AllowedTools...)
+	if len(node.EditableFields) > 0 {
+		structured["planningEditableFields"] = append([]string{}, node.EditableFields...)
+	}
+	if len(node.RequiredPlanningOutputs) > 0 {
+		structured["planningRequiredOutputs"] = append([]string{}, node.RequiredPlanningOutputs...)
+	}
+	if node.NextPath != "" {
+		structured["nextNodePath"] = string(node.NextPath)
+	}
+}
+
+func addPlanningNodeContext(structured map[string]any, run *taskverification.RunState) {
+	if run.SelectedTemplate.CompiledWorkflow == nil {
+		return
+	}
+	planningNode, exists := run.SelectedTemplate.CompiledWorkflow.Nodes[run.SelectedTemplate.CompiledWorkflow.PlanningPath]
+	if !exists {
+		return
+	}
+	if _, present := structured["planningEditableFields"]; !present && len(planningNode.EditableFields) > 0 {
+		structured["planningEditableFields"] = append([]string{}, planningNode.EditableFields...)
+	}
+	if _, present := structured["planningRequiredOutputs"]; !present && len(planningNode.RequiredPlanningOutputs) > 0 {
+		structured["planningRequiredOutputs"] = append([]string{}, planningNode.RequiredPlanningOutputs...)
+	}
+}
+
+func addArtifactSummaries(structured map[string]any, run *taskverification.RunState) {
+	if run.Onboarding != nil {
+		structured["onboardingSummary"] = run.Onboarding.ProjectSummary
+	}
+	if run.Planning == nil {
+		return
+	}
+	structured["planningSummary"] = map[string]any{
+		"selectedFiles":        run.Planning.SelectedFiles,
+		"testTarget":           run.Planning.TestTarget,
+		"lintCommand":          run.Planning.LintCommand,
+		"implementationTarget": run.Planning.ImplementationTarget,
+	}
+	structured["frozenContractSummary"] = frozenContractSummary(run)
+}
+
+func executionStepsSummary(run *taskverification.RunState) []map[string]any {
 	steps := make([]map[string]any, 0, len(run.Steps))
 	for index, step := range run.Steps {
 		templateStep := run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[index]
@@ -572,8 +699,34 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 	sort.Slice(steps, func(i, j int) bool {
 		return steps[i]["step"].(int) < steps[j]["step"].(int)
 	})
-	structured["steps"] = steps
-	return structured
+	return steps
+}
+
+func onboardingContract() map[string]any {
+	return map[string]any{
+		"requiredFields": []string{"projectSummary"},
+		"artifactMapItem": map[string]any{
+			"requiredFields": []string{"path", "kind"},
+			"optionalFields": []string{"notes"},
+		},
+		"commonCommandsItem": map[string]any{
+			"requiredFields": []string{"command", "purpose"},
+		},
+		"optionalFields": []string{"artifactMap", "commonCommands", "constraints", "openQuestions"},
+	}
+}
+
+func planningContract() map[string]any {
+	return map[string]any{
+		"supportedFields": []string{
+			"selectedFiles",
+			"testTarget",
+			"lintCommand",
+			"expectedFailure",
+			"implementationTarget",
+			"invariants",
+		},
+	}
 }
 
 func frozenContractSummary(run *taskverification.RunState) map[string]any {

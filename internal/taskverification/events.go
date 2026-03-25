@@ -94,47 +94,53 @@ func mustMarshalPayload(payload map[string]any) json.RawMessage {
 }
 
 // RecordTaskEvent appends one lifecycle event to the configured store.
-func (s *Service) RecordTaskEvent(run *RunState, sessionID, principalID string, eventType TaskEventType, outcome TaskEventOutcome, relatedActionEventID string, payload map[string]any) error {
+func (s *Service) RecordTaskEvent(
+	run *RunState,
+	sessionID,
+	principalID string,
+	sourcePhase TaskPhase,
+	sourceNodeKind WorkflowNodeKind,
+	resultingPhase TaskPhase,
+	resultingNodeKind WorkflowNodeKind,
+	eventType TaskEventType,
+	outcome TaskEventOutcome,
+	relatedActionRequestID string,
+	payload map[string]any,
+) error {
 	if s == nil || s.EventStore == nil || run == nil {
 		return nil
 	}
-	nodeKind := WorkflowNodeKind("")
-	if node, exists := run.CurrentNode(); exists {
-		nodeKind = node.Kind
-	}
 	event := &TaskEvent{
-		ID:                   newTaskEventID(),
-		SchemaVersion:        1,
-		CreatedAtUnixMilli:   nowUnixMilli(),
-		TaskRunID:            run.RunID,
-		SessionID:            sessionID,
-		TemplateID:           run.TemplateID,
-		PrincipalID:          principalID,
-		PhasePath:            run.Phase,
-		NodeKind:             nodeKind,
-		EventType:            eventType,
-		Outcome:              outcome,
-		RelatedActionEventID: relatedActionEventID,
-		Payload:              mustMarshalPayload(payload),
+		ID:                     newTaskEventID(),
+		SchemaVersion:          1,
+		CreatedAtUnixMilli:     nowUnixMilli(),
+		TaskRunID:              run.RunID,
+		SessionID:              sessionID,
+		TemplateID:             run.TemplateID,
+		PrincipalID:            principalID,
+		PhasePath:              sourcePhase,
+		NodeKind:               sourceNodeKind,
+		ResultingPhasePath:     resultingPhase,
+		ResultingNodeKind:      resultingNodeKind,
+		EventType:              eventType,
+		Outcome:                outcome,
+		RelatedActionRequestID: relatedActionRequestID,
+		Payload:                mustMarshalPayload(payload),
 	}
 	return s.EventStore.AppendTaskEvent(event)
 }
 
 // RecordActionEventTaskContext appends one task snapshot for an action event.
-func (s *Service) RecordActionEventTaskContext(run *RunState, actionEventID string) error {
-	if s == nil || s.EventStore == nil || run == nil || actionEventID == "" {
+func (s *Service) RecordActionEventTaskContext(run *RunState, requestID string, invocationPhase TaskPhase, invocationNodeKind WorkflowNodeKind) error {
+	if s == nil || s.EventStore == nil || run == nil || requestID == "" {
 		return nil
 	}
-	nodeKind := WorkflowNodeKind("")
-	if node, exists := run.CurrentNode(); exists {
-		nodeKind = node.Kind
-	}
 	return s.EventStore.AppendActionEventTaskContext(ActionEventTaskContext{
-		ActionEventID:      actionEventID,
-		TaskRunID:          run.RunID,
-		PhasePath:          run.Phase,
-		NodeKind:           nodeKind,
-		CreatedAtUnixMilli: nowUnixMilli(),
+		RequestID:           requestID,
+		TaskRunID:           run.RunID,
+		InvocationPhasePath: invocationPhase,
+		InvocationNodeKind:  invocationNodeKind,
+		CreatedAtUnixMilli:  nowUnixMilli(),
 	})
 }
 

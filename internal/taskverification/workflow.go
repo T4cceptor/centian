@@ -299,10 +299,7 @@ func validatePlanningEditableFields(t *Template, planning *PlanningNodeSpec) err
 		return nil
 	}
 	seen := make(map[string]struct{}, len(planning.EditableFields))
-	defined := make(map[string]struct{}, len(t.Parameters))
-	for _, parameter := range t.ParameterDefinitions() {
-		defined[parameter.Name] = struct{}{}
-	}
+	defined := parameterNameSet(t)
 	for index, field := range planning.EditableFields {
 		trimmed := strings.TrimSpace(field)
 		if trimmed == "" {
@@ -324,6 +321,25 @@ func validatePlanningEditableFields(t *Template, planning *PlanningNodeSpec) err
 		}
 	}
 	return nil
+}
+
+func parameterNameSet(t *Template) map[string]struct{} {
+	if t == nil {
+		return map[string]struct{}{}
+	}
+
+	defined := make(map[string]struct{}, len(t.Parameters))
+	for _, parameter := range t.Parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name == "" {
+			continue
+		}
+		defined[name] = struct{}{}
+	}
+	for _, name := range t.RequiredParameterNames() {
+		defined[name] = struct{}{}
+	}
+	return defined
 }
 
 func validatePlanningRequiredOutputs(outputs []string) error {

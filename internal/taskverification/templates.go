@@ -659,10 +659,7 @@ func validateDraftParameters(template *Template, parameters map[string]string) e
 		return fmt.Errorf("template is required")
 	}
 
-	defined := make(map[string]struct{}, len(template.ParameterDefinitions()))
-	for _, parameter := range template.ParameterDefinitions() {
-		defined[parameter.Name] = struct{}{}
-	}
+	defined := parameterNameSet(template)
 	for name := range parameters {
 		if _, exists := defined[name]; !exists {
 			return fmt.Errorf("unknown task parameter %q", name)

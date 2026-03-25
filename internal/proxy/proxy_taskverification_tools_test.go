@@ -201,6 +201,10 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, completeOnboardingStructured["phase"], string(taskverification.TaskPhasePlanning))
 	assert.Equal(t, completeOnboardingStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindPlanning))
 	assert.Equal(t, completeOnboardingStructured["nextNodePath"], "execution.step_one")
+	assert.Assert(t, completeOnboardingStructured["onboardingContract"] != nil)
+	assert.Assert(t, completeOnboardingStructured["planningContract"] != nil)
+	assert.DeepEqual(t, completeOnboardingStructured["planningRequiredOutputs"], []any{"testTarget"})
+	assert.Equal(t, completeOnboardingStructured["shellCommandHint"], "For compound shell commands or directory changes, use bash -lc '...'.")
 	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
 	assert.Equal(t, completeOnboardingStructured["onboardingSummary"], "Small test project with one shell validation path.")
 	assert.DeepEqual(t, completeOnboardingStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
@@ -232,6 +236,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, completePlanningStructured["phase"], "execution.step_one")
 	assert.Equal(t, completePlanningStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindExecution))
 	assert.Equal(t, completePlanningStructured["approvalBlocked"], false)
+	assert.DeepEqual(t, completePlanningStructured["planningRequiredOutputs"], []any{"testTarget"})
 	assert.Equal(t, completePlanningStructured["hasPlanning"], true)
 	assert.DeepEqual(t, completePlanningStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, completePlanningStructured["executionReady"], true)
@@ -283,6 +288,100 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
 	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+}
+
+func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, basicTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	result, err := clientSession.ListTools(context.Background(), nil)
+	assert.NilError(t, err)
+
+	byName := make(map[string]*mcp.Tool, len(result.Tools))
+	for _, tool := range result.Tools {
+		if tool == nil {
+			continue
+		}
+		byName[tool.Name] = tool
+	}
+
+	onboardingSchema := byName[taskCompleteOnboardingTool].InputSchema.(map[string]any)
+	onboardingProps := onboardingSchema["properties"].(map[string]any)["onboarding"].(map[string]any)["properties"].(map[string]any)
+	assert.Assert(t, onboardingProps["projectSummary"] != nil)
+	artifactMapItems := onboardingProps["artifactMap"].(map[string]any)["items"].(map[string]any)
+	assert.DeepEqual(t, artifactMapItems["required"], []any{"path", "kind"})
+	commonCommandItems := onboardingProps["commonCommands"].(map[string]any)["items"].(map[string]any)
+	assert.DeepEqual(t, commonCommandItems["required"], []any{"command", "purpose"})
+
+	planningSchema := byName[taskCompletePlanningTool].InputSchema.(map[string]any)
+	planningProps := planningSchema["properties"].(map[string]any)["planning"].(map[string]any)["properties"].(map[string]any)
+	assert.Assert(t, planningProps["selectedFiles"] != nil)
+	assert.Assert(t, planningProps["testTarget"] != nil)
+	assert.Assert(t, planningProps["lintCommand"] != nil)
+	assert.Assert(t, planningProps["expectedFailure"] != nil)
+	assert.Assert(t, planningProps["implementationTarget"] != nil)
+	assert.Assert(t, planningProps["invariants"] != nil)
+}
+
+func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, parameterizedPlanningTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "parameterized_task",
+			"parameters": map[string]any{
+				"testCommand":   "pytest",
+				"expectedError": "boom",
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"projectSummary": "Small project with parameterized planning fields.",
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"testTarget": "tests/test_parameterized.py",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	completePlanningStructured := completePlanningResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completePlanningStructured["phase"], "execution.step_one")
+	assert.Equal(t, completePlanningStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindExecution))
+
+	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	startStepStructured := startStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
+
+	completeStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	completeStepStructured := completeStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completeStepStructured["stepStatus"], string(taskverification.StepStatusPassed))
+	assert.Equal(t, completeStepStructured["status"], string(taskverification.TaskStatusCompleted))
 }
 
 func TestTaskLifecycleEventsRecorded(t *testing.T) {
@@ -357,8 +456,22 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 		assert.Assert(t, event.TaskRunID != "")
 		assert.Equal(t, event.TemplateID, "task")
 		assert.Equal(t, event.PrincipalID, "principal-1")
-		assert.Assert(t, event.RelatedActionEventID != "")
+		assert.Assert(t, event.RelatedActionRequestID != "")
 	}
+	assert.Equal(t, events[0].PhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, events[0].ResultingPhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, events[1].PhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, events[1].ResultingPhasePath, taskverification.TaskPhasePlanning)
+	assert.Equal(t, events[2].PhasePath, taskverification.TaskPhasePlanning)
+	assert.Equal(t, events[2].ResultingPhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, events[3].PhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, events[3].ResultingPhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, events[4].PhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, events[4].ResultingPhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, events[5].PhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, events[5].ResultingPhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, events[6].PhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, events[6].ResultingPhasePath, taskverification.TaskPhaseOnboarding)
 }
 
 func TestTaskCompletePlanningEmitsApprovalWaitEvent(t *testing.T) {
@@ -416,7 +529,8 @@ workflow:
 	events := endpoint.server.TaskVerification.TaskEvents()
 	assert.Equal(t, events[len(events)-2].EventType, taskverification.TaskEventTypePlanningCompleted)
 	assert.Equal(t, events[len(events)-1].EventType, taskverification.TaskEventTypeApprovalWaitEntered)
-	assert.Equal(t, events[len(events)-1].PhasePath, taskverification.TaskPhase("waiting_for_approval.review_plan"))
+	assert.Equal(t, events[len(events)-1].PhasePath, taskverification.TaskPhasePlanning)
+	assert.Equal(t, events[len(events)-1].ResultingPhasePath, taskverification.TaskPhase("waiting_for_approval.review_plan"))
 }
 
 func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
@@ -450,11 +564,11 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 
 	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
 	assert.Equal(t, len(contexts), 3)
-	assert.Equal(t, contexts[0].PhasePath, taskverification.TaskPhaseOnboarding)
-	assert.Equal(t, contexts[1].PhasePath, taskverification.TaskPhasePlanning)
-	assert.Equal(t, contexts[2].PhasePath, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, contexts[0].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, contexts[1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, contexts[2].InvocationPhasePath, taskverification.TaskPhasePlanning)
 	for _, context := range contexts {
-		assert.Assert(t, context.ActionEventID != "")
+		assert.Assert(t, context.RequestID != "")
 		assert.Assert(t, context.TaskRunID != "")
 	}
 }
@@ -491,7 +605,7 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 
 	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
 	assert.Equal(t, len(contexts), before+1)
-	assert.Equal(t, contexts[len(contexts)-1].PhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, contexts[len(contexts)-1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
 }
 
 func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
@@ -531,9 +645,9 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 
 	contexts := store.ActionEventTaskContexts()
 	assert.Equal(t, len(contexts), 2)
-	assert.Equal(t, contexts[0].ActionEventID, actionEvents[1].ID)
+	assert.Equal(t, contexts[0].RequestID, actionEvents[1].RequestID)
 	assert.Equal(t, contexts[0].TaskRunID, taskEvents[0].TaskRunID)
-	assert.Equal(t, contexts[1].PhasePath, taskverification.TaskPhasePlanning)
+	assert.Equal(t, contexts[1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
 }
 
 func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
@@ -560,9 +674,9 @@ func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 	actionEvents := store.ActionEvents()
 	assert.Assert(t, len(actionEvents) >= 1)
 	foundShell := false
-	knownActionIDs := make(map[string]struct{}, len(actionEvents))
+	knownRequestIDs := make(map[string]struct{}, len(actionEvents))
 	for _, actionEvent := range actionEvents {
-		knownActionIDs[actionEvent.ID] = struct{}{}
+		knownRequestIDs[actionEvent.RequestID] = struct{}{}
 		if actionEvent.ToolName == "shell__exec" {
 			foundShell = true
 			assert.Assert(t, actionEvent.OriginalToolName != "")
@@ -573,9 +687,9 @@ func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 
 	contexts := store.ActionEventTaskContexts()
 	assert.Assert(t, len(contexts) >= 2)
-	_, exists := knownActionIDs[contexts[len(contexts)-1].ActionEventID]
+	_, exists := knownRequestIDs[contexts[len(contexts)-1].RequestID]
 	assert.Assert(t, exists)
-	assert.Equal(t, contexts[len(contexts)-1].PhasePath, taskverification.TaskPhaseOnboarding)
+	assert.Equal(t, contexts[len(contexts)-1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
 }
 
 func TestTaskCompletePlanningCanEnterApprovalWait(t *testing.T) {
@@ -1057,6 +1171,40 @@ workflow:
           post_conditions:
             - type: stdout_contains
               value: "ok"
+`
+}
+
+func parameterizedPlanningTaskTemplate() string {
+	return `
+version: "0.1"
+task:
+  id: "parameterized_task"
+  name: "Parameterized Task"
+  description: "Planning editable fields reference declared parameters."
+parameters:
+  - name: "testCommand"
+    description: "Command name"
+  - name: "expectedError"
+    description: "Expected error"
+workflow:
+  onboarding:
+    tools_allowed: ["shell__*", "filesystem__*"]
+  planning:
+    tools_allowed: ["shell__*", "filesystem__*"]
+    editable_fields: ["parameters.testCommand", "parameters.expectedError"]
+    required_outputs: ["testTarget"]
+  execution:
+    - id: "step_one"
+      tools_allowed: ["shell__*", "filesystem__*"]
+      checks:
+        - id: "check_one"
+          command: "printf '%s' '${testCommand}:${expectedError}'"
+          pre_conditions:
+            - type: stdout_contains
+              value: "pytest:boom"
+          post_conditions:
+            - type: stdout_contains
+              value: "pytest:boom"
 `
 }
 

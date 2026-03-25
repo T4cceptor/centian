@@ -26,6 +26,7 @@ Rules:
 - Use only Centian-exposed MCP tools for project access.
 - Use `filesystem___*` tools to inspect and edit files.
 - Use `shell___*` tools only when you need focused local context.
+- For compound shell commands or directory changes, use `bash -lc '...'`.
 - Do not use local container filesystem access as a substitute for project access.
 - Do not call `centian.task_fail` unless recovery is impossible.
 - Prefer `centian.task_complete_step` over manually re-running the full validation flow yourself.

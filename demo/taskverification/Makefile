@@ -8,7 +8,7 @@ PROMPT_PROBLEM := /agent/prompts/problem_score_parentheses.md
 PROMPT_APPROVAL := /agent/prompts/approval_wait_mathlib.md
 GO_E2E := CENTIAN_RUN_TASKVERIFICATION_INTEGRATION=1 GOCACHE=/tmp/go-build go test -v .
 
-.PHONY: build demo-up run-agent run-agent-existing run-agent-problem run-agent-approval demo-test demo-test-existing demo-test-problem demo-test-approval e2e e2e-existing e2e-problem e2e-approval demo-down clean-artifacts reset-project
+.PHONY: build demo-up run-agent run-agent-existing run-agent-problem run-agent-approval demo-test demo-test-existing demo-test-problem demo-test-approval e2e e2e-existing e2e-problem e2e-approval demo-down clean-artifacts reset
 
 build:
 	@mkdir -p "$(CURDIR)/artifacts/logs"
@@ -65,7 +65,7 @@ demo-down:
 clean-artifacts:
 	@find "$(CURDIR)/artifacts" -mindepth 1 -maxdepth 1 ! -name ".gitkeep" -exec rm -rf {} +
 
-reset-project:
+reset:
 	@printf 'def add(a: int, b: int) -> int:\n    return a - b\n' > "$(CURDIR)/project/mathlib.py"
 	@printf 'from mathlib import add\n\n\ndef test_add_two_numbers() -> None:\n    assert add(1, 2) == 3\n' > "$(CURDIR)/project/tests/test_mathlib.py"
 	@rm -f "$(CURDIR)/project/score_parentheses.py"

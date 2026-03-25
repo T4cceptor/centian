@@ -129,6 +129,51 @@ workflow:
 	assert.Equal(t, run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
 }
 
+func TestCompletePlanningAllowsEditableFieldsForResolvedDeclaredParameters(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Simple TDD"
+  description: "Test driven task"
+parameters:
+  - name: "testCommand"
+    description: "Test command."
+  - name: "expectedError"
+    description: "Expected error."
+workflow:
+  onboarding: {}
+  planning:
+    editable_fields: ["parameters.testCommand", "parameters.expectedError"]
+    required_outputs: ["testTarget"]
+  execution:
+    - id: "failing_test"
+      checks:
+        - id: "selected_test_fails"
+          command: "printf '%s' '${testCommand}:${expectedError}'"
+          pre_conditions:
+            - type: stdout_contains
+              value: "pytest:boom"
+          post_conditions:
+            - type: stdout_contains
+              value: "pytest:boom"
+`, "simple_tdd.yaml")
+
+	run, err := service.RegisterTask("simple_tdd", map[string]string{
+		"testCommand":   "pytest",
+		"expectedError": "boom",
+	})
+	assert.NilError(t, err)
+
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	assert.NilError(t, err)
+
+	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "tests/test_thing.py"})
+	assert.NilError(t, err)
+	assert.Equal(t, run.Phase, TaskPhase("execution.failing_test"))
+	assert.Assert(t, run.ExecutionReady)
+}
+
 func TestStartAndCompleteOnboarding(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"

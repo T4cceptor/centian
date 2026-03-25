@@ -6,42 +6,74 @@ import (
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
 
-type taskActionEventIDKey struct{}
+type taskActionRequestIDKey struct{}
 
-func withTaskActionEventID(ctx context.Context, actionEventID string) context.Context {
-	if actionEventID == "" {
+func withTaskActionRequestID(ctx context.Context, requestID string) context.Context {
+	if requestID == "" {
 		return ctx
 	}
-	return context.WithValue(ctx, taskActionEventIDKey{}, actionEventID)
+	return context.WithValue(ctx, taskActionRequestIDKey{}, requestID)
 }
 
-func taskActionEventIDFromContext(ctx context.Context) string {
+func taskActionRequestIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	value, _ := ctx.Value(taskActionEventIDKey{}).(string)
+	value, _ := ctx.Value(taskActionRequestIDKey{}).(string)
 	return value
+}
+
+func taskPhaseSnapshot(run *taskverification.RunState) (taskverification.TaskPhase, taskverification.WorkflowNodeKind) {
+	if run == nil {
+		return "", ""
+	}
+	nodeKind := taskverification.WorkflowNodeKind("")
+	if node, exists := run.CurrentNode(); exists {
+		nodeKind = node.Kind
+	}
+	return run.Phase, nodeKind
 }
 
 func (p *CentianEndpoint) recordTaskEvent(
 	session *UpstreamSession,
 	run *taskverification.RunState,
+	sourcePhase taskverification.TaskPhase,
+	sourceNodeKind taskverification.WorkflowNodeKind,
+	resultingPhase taskverification.TaskPhase,
+	resultingNodeKind taskverification.WorkflowNodeKind,
 	eventType taskverification.TaskEventType,
 	outcome taskverification.TaskEventOutcome,
-	relatedActionEventID string,
+	relatedActionRequestID string,
 	payload map[string]any,
 ) {
 	if p == nil || p.server == nil || p.server.TaskVerification == nil || session == nil || run == nil {
 		return
 	}
-	_ = p.server.TaskVerification.RecordTaskEvent(run, session.id, session.identityKey, eventType, outcome, relatedActionEventID, payload)
+	_ = p.server.TaskVerification.RecordTaskEvent(
+		run,
+		session.id,
+		session.identityKey,
+		sourcePhase,
+		sourceNodeKind,
+		resultingPhase,
+		resultingNodeKind,
+		eventType,
+		outcome,
+		relatedActionRequestID,
+		payload,
+	)
 }
 
-func (p *CentianEndpoint) recordTaskActionContext(run *taskverification.RunState, actionEventID string) {
-	if p == nil || p.server == nil || p.server.TaskVerification == nil || run == nil || actionEventID == "" {
+func (p *CentianEndpoint) recordTaskActionContext(
+	run *taskverification.RunState,
+	requestID string,
+	invocationPhase taskverification.TaskPhase,
+	invocationNodeKind taskverification.WorkflowNodeKind,
+) {
+	if p == nil || p.server == nil || p.server.TaskVerification == nil || run == nil || requestID == "" {
 		return
 	}
-	_ = p.server.TaskVerification.RecordActionEventTaskContext(run, actionEventID)
+	_ = p.server.TaskVerification.RecordActionEventTaskContext(run, requestID, invocationPhase, invocationNodeKind)
 }
 
 func stepEventPayload(result *taskverification.StepResult) map[string]any {

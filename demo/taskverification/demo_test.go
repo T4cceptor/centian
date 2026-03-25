@@ -476,20 +476,21 @@ func assertPersistedEventStore(t *testing.T, logDir string, entries []common.Log
 	assert.Assert(t, len(filteredTaskEvents) > 0)
 	assert.Assert(t, len(filteredContexts) > 0)
 	assertTaskEventSubsequence(t, filteredTaskEvents, scenario.ExpectedTaskEventTypes)
+	assertTaskEventPhaseSemantics(t, filteredTaskEvents)
 
-	actionIDs := make(map[string]struct{}, len(actionEvents))
+	actionRequestIDs := make(map[string]struct{}, len(actionEvents))
 	for idx := range actionEvents {
-		actionIDs[actionEvents[idx].ID] = struct{}{}
+		actionRequestIDs[actionEvents[idx].RequestID] = struct{}{}
 	}
 	for idx := range filteredTaskEvents {
-		if filteredTaskEvents[idx].RelatedActionEventID == "" {
+		if filteredTaskEvents[idx].RelatedActionRequestID == "" {
 			continue
 		}
-		_, exists := actionIDs[filteredTaskEvents[idx].RelatedActionEventID]
+		_, exists := actionRequestIDs[filteredTaskEvents[idx].RelatedActionRequestID]
 		assert.Assert(t, exists)
 	}
 	for idx := range filteredContexts {
-		_, exists := actionIDs[filteredContexts[idx].ActionEventID]
+		_, exists := actionRequestIDs[filteredContexts[idx].RequestID]
 		assert.Assert(t, exists)
 	}
 
@@ -702,6 +703,29 @@ func filterActionEventTaskContextsByRunID(contexts []tv.ActionEventTaskContext, 
 		}
 	}
 	return filtered
+}
+
+func assertTaskEventPhaseSemantics(t *testing.T, events []tv.TaskEvent) {
+	t.Helper()
+
+	for idx := range events {
+		event := events[idx]
+		assert.Assert(t, event.PhasePath != "")
+		assert.Assert(t, event.ResultingPhasePath != "")
+		switch event.EventType {
+		case tv.TaskEventTypeOnboardingCompleted:
+			if event.Outcome == tv.TaskEventOutcomeSucceeded {
+				assert.Equal(t, event.PhasePath, tv.TaskPhaseOnboarding)
+				assert.Equal(t, event.ResultingPhasePath, tv.TaskPhasePlanning)
+			}
+		case tv.TaskEventTypePlanningCompleted:
+			if event.Outcome == tv.TaskEventOutcomeSucceeded {
+				assert.Equal(t, event.PhasePath, tv.TaskPhasePlanning)
+			}
+		case tv.TaskEventTypeApprovalWaitEntered:
+			assert.Assert(t, strings.HasPrefix(string(event.ResultingPhasePath), "waiting_for_approval"))
+		}
+	}
 }
 
 func assertSubsequence(t *testing.T, actual, expected []string) {
