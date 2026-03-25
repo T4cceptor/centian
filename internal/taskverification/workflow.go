@@ -22,10 +22,12 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	}
 
 	compiled := newCompiledWorkflow()
-	if err := addCompiledNode(compiled, buildOnboardingNode(t.Workflow.Onboarding)); err != nil {
+	onboardingNode := buildOnboardingNode(t.Workflow.Onboarding)
+	if err := addCompiledNode(compiled, &onboardingNode); err != nil {
 		return nil, err
 	}
-	if err := addCompiledNode(compiled, buildPlanningNode(t.Workflow.Planning)); err != nil {
+	planningNode := buildPlanningNode(t.Workflow.Planning)
+	if err := addCompiledNode(compiled, &planningNode); err != nil {
 		return nil, err
 	}
 
@@ -95,7 +97,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 				}
 				stepNumber++
 				executionSteps = append(executionSteps, step)
-				if err := addCompiledNode(compiled, WorkflowNode{
+				node := WorkflowNode{
 					Path:         path,
 					Kind:         WorkflowNodeKindExecution,
 					ParentPath:   logicalParent,
@@ -106,14 +108,15 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 					Instructions: nodeSpec.Instructions,
 					AllowedTools: cloneStringSlice(nodeSpec.AllowedTools),
 					Checkpoint:   cloneCheckpoint(nodeSpec.Checkpoint),
-				}); err != nil {
+				}
+				if err := addCompiledNode(compiled, &node); err != nil {
 					return err
 				}
 			} else {
 				if len(nodeSpec.Checks) > 0 || len(nodeSpec.Invariants) > 0 {
 					return fmt.Errorf("workflow node %q cannot define checks or invariants for kind %q", nodeSpec.ID, kind)
 				}
-				if err := addCompiledNode(compiled, WorkflowNode{
+				node := WorkflowNode{
 					Path:         path,
 					Kind:         WorkflowNodeKindWaitingForApproval,
 					ParentPath:   logicalParent,
@@ -122,7 +125,8 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 					Instructions: nodeSpec.Instructions,
 					AllowedTools: cloneStringSlice(nodeSpec.AllowedTools),
 					Checkpoint:   cloneCheckpoint(nodeSpec.Checkpoint),
-				}); err != nil {
+				}
+				if err := addCompiledNode(compiled, &node); err != nil {
 					return err
 				}
 			}
@@ -224,11 +228,14 @@ func newCompiledWorkflow() *CompiledWorkflow {
 	}
 }
 
-func addCompiledNode(compiled *CompiledWorkflow, node WorkflowNode) error {
+func addCompiledNode(compiled *CompiledWorkflow, node *WorkflowNode) error {
+	if node == nil {
+		return fmt.Errorf("workflow node is required")
+	}
 	if _, exists := compiled.Nodes[node.Path]; exists {
 		return fmt.Errorf("duplicate workflow path %q", node.Path)
 	}
-	compiled.Nodes[node.Path] = node
+	compiled.Nodes[node.Path] = *node
 	return nil
 }
 

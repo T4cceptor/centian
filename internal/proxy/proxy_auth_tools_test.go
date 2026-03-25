@@ -33,7 +33,11 @@ func newOAuthToolTestProxy(t *testing.T, enableTestTools bool) (*CentianEndpoint
 		server: &CentianServer{
 			Config: &config.GlobalConfig{
 				Version: "1.0.0",
-				Proxy:   &config.ProxySettings{EnableTestTools: enableTestTools},
+				Proxy: &config.ProxySettings{
+					FeatureFlags: &config.FeatureFlagsSettings{
+						EnableTestTools: enableTestTools,
+					},
+				},
 			},
 			Logger: logger,
 			OAuth:  manager,

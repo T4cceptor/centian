@@ -162,15 +162,15 @@ type OAuthConfig struct {
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Host            string                `json:"host,omitempty"`            // Bind address for the proxy
-	Port            string                `json:"port,omitempty"`            // HTTP proxy port (if enabled)
-	LogLevel        string                `json:"logLevel,omitempty"`        // debug, info, warn, error
-	LogOutput       string                `json:"logOutput,omitempty"`       // file, console, both
-	LogFile         string                `json:"logFile,omitempty"`         // Log file path for internal logger
-	Timeout         int                   `json:"timeout,omitempty"`         // Request timeout in seconds
-	EnableTestTools bool                  `json:"enableTestTools,omitempty"` // Register Centian-owned debug/test tools.
-	Web             *ProxyWebSettings     `json:"web,omitempty"`             // Public web settings for hosted OAuth flows
-	EventStorage    *EventStorageSettings `json:"eventStorage,omitempty"`    // Event persistence settings
+	Host         string                `json:"host,omitempty"`         // Bind address for the proxy
+	Port         string                `json:"port,omitempty"`         // HTTP proxy port (if enabled)
+	LogLevel     string                `json:"logLevel,omitempty"`     // debug, info, warn, error
+	LogOutput    string                `json:"logOutput,omitempty"`    // file, console, both
+	LogFile      string                `json:"logFile,omitempty"`      // Log file path for internal logger
+	Timeout      int                   `json:"timeout,omitempty"`      // Request timeout in seconds
+	FeatureFlags *FeatureFlagsSettings `json:"featureFlags,omitempty"` // Proxy-owned feature toggles
+	Web          *ProxyWebSettings     `json:"web,omitempty"`          // Public web settings for hosted OAuth flows
+	EventStorage *EventStorageSettings `json:"eventStorage,omitempty"` // Event persistence settings
 }
 
 // ProxyWebSettings contains public-facing web settings required for browser-based flows.
@@ -183,6 +183,12 @@ type EventStorageSettings struct {
 	Enabled *bool  `json:"enabled,omitempty"`
 	Driver  string `json:"driver,omitempty"`
 	Path    string `json:"path,omitempty"`
+}
+
+// FeatureFlagsSettings groups proxy-owned feature toggles.
+type FeatureFlagsSettings struct {
+	EnableTestTools  bool `json:"enableTestTools,omitempty"`
+	TaskVerification bool `json:"taskVerification,omitempty"`
 }
 
 // NewDefaultProxySettings creates a new ProxySettings with default values.
@@ -206,6 +212,16 @@ func (e *EventStorageSettings) IsEnabled() bool {
 		return true
 	}
 	return *e.Enabled
+}
+
+// TestToolsEnabled reports whether proxy-owned test tools are enabled. Defaults to false.
+func (p *ProxySettings) TestToolsEnabled() bool {
+	return p != nil && p.FeatureFlags != nil && p.FeatureFlags.EnableTestTools
+}
+
+// TaskVerificationEnabled reports whether taskverification tools are enabled. Defaults to false.
+func (p *ProxySettings) TaskVerificationEnabled() bool {
+	return p != nil && p.FeatureFlags != nil && p.FeatureFlags.TaskVerification
 }
 
 // GetDriver returns the configured event storage driver or the default.

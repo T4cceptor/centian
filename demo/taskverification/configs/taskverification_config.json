@@ -8,7 +8,10 @@
     "timeout": 30,
     "logLevel": "debug",
     "logOutput": "both",
-    "logFile": "/artifacts/centian_internal.log"
+    "logFile": "/artifacts/centian_internal.log",
+    "featureFlags": {
+      "taskVerification": true
+    }
   },
   "gateways": {
     "taskverification": {

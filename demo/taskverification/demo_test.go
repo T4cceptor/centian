@@ -557,7 +557,7 @@ func assertTaskToolResults(t *testing.T, entries []common.LogEntry, expectations
 	for idx := range expectations {
 		expectation := expectations[idx]
 		entry := findToolEntry(t, entries, expectation.ToolName)
-		result := decodeLoggedToolResult(t, entry)
+		result := decodeLoggedToolResult(t, &entry)
 		structured := result.StructuredContent
 
 		assert.Assert(t, structured != nil)
@@ -599,7 +599,7 @@ func assertBlockedProxiedTool(t *testing.T, entries []common.LogEntry, prefix st
 		if !strings.HasPrefix(name, prefix) {
 			continue
 		}
-		result := decodeLoggedToolResult(t, entry)
+		result := decodeLoggedToolResult(t, &entry)
 		if !result.IsError {
 			continue
 		}
@@ -649,9 +649,12 @@ func findToolEntry(t *testing.T, entries []common.LogEntry, toolName string) com
 	return common.LogEntry{}
 }
 
-func decodeLoggedToolResult(t *testing.T, entry common.LogEntry) loggedToolResult {
+func decodeLoggedToolResult(t *testing.T, entry *common.LogEntry) loggedToolResult {
 	t.Helper()
 
+	if entry == nil {
+		t.Fatal("tool result missing: log entry is nil")
+	}
 	if entry.ToolCall == nil || len(entry.ToolCall.Result) == 0 {
 		t.Fatalf("tool result missing for %s", entry.ToolCall.Name)
 	}
@@ -665,7 +668,7 @@ func taskRunIDFromEntries(t *testing.T, entries []common.LogEntry, expectations 
 
 	for idx := range expectations {
 		entry := findToolEntry(t, entries, expectations[idx].ToolName)
-		result := decodeLoggedToolResult(t, entry)
+		result := decodeLoggedToolResult(t, &entry)
 		runID, ok := result.StructuredContent["taskRunId"].(string)
 		if ok && runID != "" {
 			return runID

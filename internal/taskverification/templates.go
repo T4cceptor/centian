@@ -755,38 +755,50 @@ func validatePlanningUniqueFields(artifact *PlanningArtifact) error {
 }
 
 func validateRequiredPlanningOutputs(template *Template, artifact *PlanningArtifact) error {
-	requiredOutputs := []string(nil)
-	if template != nil && template.CompiledWorkflow != nil {
-		if planningNode, exists := template.CompiledWorkflow.Nodes[template.CompiledWorkflow.PlanningPath]; exists {
-			requiredOutputs = append(requiredOutputs, planningNode.RequiredPlanningOutputs...)
+	for _, output := range requiredPlanningOutputs(template) {
+		if err := validateRequiredPlanningOutput(output, artifact); err != nil {
+			return err
 		}
 	}
-	for _, output := range requiredOutputs {
-		switch output {
-		case "selectedFiles":
-			if len(artifact.SelectedFiles) == 0 {
-				return fmt.Errorf("planning.selectedFiles is required")
-			}
-		case "testTarget":
-			if strings.TrimSpace(artifact.TestTarget) == "" {
-				return fmt.Errorf("planning.testTarget is required")
-			}
-		case "lintCommand":
-			if strings.TrimSpace(artifact.LintCommand) == "" {
-				return fmt.Errorf("planning.lintCommand is required")
-			}
-		case "expectedFailure":
-			if strings.TrimSpace(artifact.ExpectedFailure) == "" {
-				return fmt.Errorf("planning.expectedFailure is required")
-			}
-		case "implementationTarget":
-			if strings.TrimSpace(artifact.ImplementationTarget) == "" {
-				return fmt.Errorf("planning.implementationTarget is required")
-			}
-		case "invariants":
-			if len(artifact.Invariants) == 0 {
-				return fmt.Errorf("planning.invariants is required")
-			}
+	return nil
+}
+
+func requiredPlanningOutputs(template *Template) []string {
+	if template == nil || template.CompiledWorkflow == nil {
+		return nil
+	}
+	planningNode, exists := template.CompiledWorkflow.Nodes[template.CompiledWorkflow.PlanningPath]
+	if !exists {
+		return nil
+	}
+	return append([]string(nil), planningNode.RequiredPlanningOutputs...)
+}
+
+func validateRequiredPlanningOutput(output string, artifact *PlanningArtifact) error {
+	switch output {
+	case "selectedFiles":
+		if len(artifact.SelectedFiles) == 0 {
+			return fmt.Errorf("planning.selectedFiles is required")
+		}
+	case "testTarget":
+		if strings.TrimSpace(artifact.TestTarget) == "" {
+			return fmt.Errorf("planning.testTarget is required")
+		}
+	case "lintCommand":
+		if strings.TrimSpace(artifact.LintCommand) == "" {
+			return fmt.Errorf("planning.lintCommand is required")
+		}
+	case "expectedFailure":
+		if strings.TrimSpace(artifact.ExpectedFailure) == "" {
+			return fmt.Errorf("planning.expectedFailure is required")
+		}
+	case "implementationTarget":
+		if strings.TrimSpace(artifact.ImplementationTarget) == "" {
+			return fmt.Errorf("planning.implementationTarget is required")
+		}
+	case "invariants":
+		if len(artifact.Invariants) == 0 {
+			return fmt.Errorf("planning.invariants is required")
 		}
 	}
 	return nil

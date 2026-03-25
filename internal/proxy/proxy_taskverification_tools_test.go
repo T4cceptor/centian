@@ -17,6 +17,10 @@ import (
 )
 
 func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoint, *UpstreamSession) {
+	return newTaskToolTestProxyWithEnabled(t, templateContent, true)
+}
+
+func newTaskToolTestProxyWithEnabled(t *testing.T, templateContent string, enabled bool) (*CentianEndpoint, *UpstreamSession) {
 	t.Helper()
 
 	t.Setenv("HOME", t.TempDir())
@@ -38,7 +42,11 @@ func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoin
 		server: &CentianServer{
 			Config: &config.GlobalConfig{
 				Version: "1.0.0",
-				Proxy:   &config.ProxySettings{},
+				Proxy: &config.ProxySettings{
+					FeatureFlags: &config.FeatureFlagsSettings{
+						TaskVerification: enabled,
+					},
+				},
 			},
 			Logger:           logger,
 			TaskVerification: taskverification.NewService(templateDir, workingDir),
@@ -61,6 +69,15 @@ func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoin
 	err = endpoint.initEventProcessor()
 	assert.NilError(t, err)
 	return endpoint, session
+}
+
+func TestNewUpstreamServerDoesNotRegisterTaskVerificationToolsByDefault(t *testing.T) {
+	_, session := newTaskToolTestProxyWithEnabled(t, basicTaskTemplate(), false)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	assert.DeepEqual(t, listToolNames(t, clientSession), []string{})
 }
 
 func newPersistentTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoint, *UpstreamSession, *persistence.Store) {

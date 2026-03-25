@@ -58,7 +58,15 @@ func (p *CentianEndpoint) testToolsEnabled() bool {
 		p.server != nil &&
 		p.server.Config != nil &&
 		p.server.Config.Proxy != nil &&
-		p.server.Config.Proxy.EnableTestTools
+		p.server.Config.Proxy.TestToolsEnabled()
+}
+
+func (p *CentianEndpoint) taskVerificationToolsEnabled() bool {
+	return p != nil &&
+		p.server != nil &&
+		p.server.Config != nil &&
+		p.server.Config.Proxy != nil &&
+		p.server.Config.Proxy.TaskVerificationEnabled()
 }
 
 func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, server *mcp.Server) {
@@ -70,7 +78,9 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 	}
 	// TODO: this is the wrong spot to add those tools -> we should add those tools not on a specific endpoint
 	// -> we should potentially think about a separate server for this?
-	p.registerTaskVerificationTools(session, server)
+	if p.taskVerificationToolsEnabled() {
+		p.registerTaskVerificationTools(session, server)
+	}
 	if p.hasOAuthDownstreams() {
 		if _, exists := session.registeredStaticTools[authStatusToolName]; !exists {
 			server.AddTool(&mcp.Tool{

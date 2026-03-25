@@ -3,6 +3,7 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -89,6 +90,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, error) {
 	if !globalConfig.IsAuthEnabled() {
 		common.LogInfo("API key auth disabled via config\n")
+		//nolint:nilnil // nil store is the sentinel that downstream auth middleware is disabled.
 		return nil, nil
 	}
 
@@ -107,14 +109,21 @@ func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, 
 	return apiKeyStore, nil
 }
 
+type noopCloser struct{}
+
+// Close implements io.Closer for no-op cleanup paths.
+func (noopCloser) Close() error {
+	return nil
+}
+
 func newTaskVerificationService(
 	globalConfig *config.GlobalConfig,
 	workingDir string,
 	logger *logging.Logger,
-) (*taskverification.Service, interface{ Close() error }, error) {
+) (*taskverification.Service, io.Closer, error) {
 	taskService := taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir)
 	if globalConfig.Proxy.EventStorage != nil && !globalConfig.Proxy.EventStorage.IsEnabled() {
-		return taskService, nil, nil
+		return taskService, noopCloser{}, nil
 	}
 
 	storePath, err := resolveEventStorePath(globalConfig.Proxy.EventStorage)
