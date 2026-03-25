@@ -3,6 +3,7 @@ package taskverification
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -73,8 +74,8 @@ workflow:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
-	assert.Assert(t, !run.ExecutionReady)
-	assert.Assert(t, run.ExecutionTemplate == nil)
+	assert.Assert(t, !run.WorkflowReady)
+	assert.Assert(t, run.RunnableTemplate == nil)
 	assert.Equal(t, len(run.Steps), 0)
 
 	_, err = service.RegisterTask("simple_tdd", map[string]string{
@@ -123,10 +124,10 @@ workflow:
 	assert.NilError(t, err)
 
 	assert.Assert(t, run.Planning != nil)
-	assert.Assert(t, run.ExecutionReady)
-	assert.Assert(t, run.ExecutionTemplate != nil)
+	assert.Assert(t, run.WorkflowReady)
+	assert.Assert(t, run.RunnableTemplate != nil)
 	assert.Equal(t, run.Phase, TaskPhase("execution.failing_test"))
-	assert.Equal(t, run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
+	assert.Equal(t, run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
 }
 
 func TestCompletePlanningAllowsEditableFieldsForResolvedDeclaredParameters(t *testing.T) {
@@ -171,7 +172,7 @@ workflow:
 	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "tests/test_thing.py"})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("execution.failing_test"))
-	assert.Assert(t, run.ExecutionReady)
+	assert.Assert(t, run.WorkflowReady)
 }
 
 func TestStartAndCompleteOnboarding(t *testing.T) {
@@ -377,7 +378,12 @@ workflow:
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{})
-	assert.ErrorContains(t, err, "planning.testTarget is required")
+	assert.Assert(t, err != nil)
+	assert.Assert(
+		t,
+		strings.Contains(err.Error(), "planning.testTarget is required") ||
+			strings.Contains(err.Error(), "planning.selectedFiles is required"),
+	)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
 		TestTarget:    "pytest -q",

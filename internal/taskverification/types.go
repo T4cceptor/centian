@@ -178,7 +178,7 @@ type CompiledWorkflow struct {
 	OnboardingPath      TaskPhase                  `json:"-"`
 	PlanningPath        TaskPhase                  `json:"-"`
 	FirstExecutablePath TaskPhase                  `json:"-"`
-	ExecutionSteps      []Step                     `json:"-"`
+	WorkflowSteps       []Step                     `json:"-"`
 }
 
 // TemplateSummary is the lightweight view returned to MCP clients.
@@ -290,8 +290,8 @@ type RunState struct {
 	Phase              TaskPhase           `json:"phase"`
 	Onboarding         *OnboardingArtifact `json:"onboarding,omitempty"`
 	Planning           *PlanningArtifact   `json:"planning,omitempty"`
-	ExecutionReady     bool                `json:"executionReady"`
-	ExecutionTemplate  *Template           `json:"-"`
+	WorkflowReady      bool                `json:"executionReady"`
+	RunnableTemplate   *Template           `json:"-"`
 	Steps              []StepState         `json:"steps,omitempty"`
 	LastFailureMessage string              `json:"lastFailureMessage,omitempty"`
 	ExplicitFailReason string              `json:"explicitFailReason,omitempty"`

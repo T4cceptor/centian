@@ -11,9 +11,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
-	// TODO: refactor this out of here -
-	// let persistence package ONLY deal with database connection,
-	// then the rest can import it to access the DB
+	// TODO: refactor this out of here so persistence only deals with database access.
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"

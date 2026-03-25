@@ -45,7 +45,7 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 			Description:  template.Task.Description,
 			Instructions: template.Task.Instructions,
 			Parameters:   template.ParameterDefinitions(),
-			StepCount:    len(template.CompiledWorkflow.ExecutionSteps),
+			StepCount:    len(template.CompiledWorkflow.WorkflowSteps),
 			Steps:        template.StepSummaries(),
 		})
 	}
@@ -72,7 +72,7 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 		DraftParameters:  cloneParameters(parameters),
 		Status:           TaskStatusActive,
 		Phase:            template.CompiledWorkflow.OnboardingPath,
-		ExecutionReady:   false,
+		WorkflowReady:    false,
 	}, nil
 }
 
@@ -96,7 +96,7 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 	if err := validatePlanningArtifact(&run.SelectedTemplate, artifact); err != nil {
 		return err
 	}
-	resolved, stepStates, err := freezeExecutionContract(run)
+	resolved, stepStates, err := freezeRunnableContract(run)
 	if err != nil {
 		return err
 	}
@@ -110,8 +110,8 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 
 	artifactCopy := clonePlanningArtifact(artifact)
 	run.Planning = &artifactCopy
-	run.ExecutionReady = true
-	run.ExecutionTemplate = &resolved
+	run.WorkflowReady = true
+	run.RunnableTemplate = &resolved
 	run.Steps = stepStates
 	run.LastFailureMessage = ""
 	return nil
@@ -126,8 +126,8 @@ func (s *Service) RestartTask(run *RunState) error {
 	run.Status = TaskStatusActive
 	run.Phase = run.SelectedTemplate.CompiledWorkflow.OnboardingPath
 	run.Planning = nil
-	run.ExecutionReady = false
-	run.ExecutionTemplate = nil
+	run.WorkflowReady = false
+	run.RunnableTemplate = nil
 	run.Steps = nil
 	run.LastFailureMessage = ""
 	run.ExplicitFailReason = ""
@@ -146,7 +146,7 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	return nil
 }
 
-func freezeExecutionContract(run *RunState) (Template, []StepState, error) {
+func freezeRunnableContract(run *RunState) (Template, []StepState, error) {
 	if run == nil {
 		return Template{}, nil, fmt.Errorf("task is not registered")
 	}
@@ -158,10 +158,16 @@ func freezeExecutionContract(run *RunState) (Template, []StepState, error) {
 	if err != nil {
 		return Template{}, nil, err
 	}
+	return resolved, newWorkflowStepStates(resolved.CompiledWorkflow), nil
+}
 
-	stepStates := make([]StepState, 0, len(resolved.CompiledWorkflow.ExecutionSteps))
-	for idx := range resolved.CompiledWorkflow.ExecutionSteps {
-		step := &resolved.CompiledWorkflow.ExecutionSteps[idx]
+func newWorkflowStepStates(compiled *CompiledWorkflow) []StepState {
+	if compiled == nil || len(compiled.WorkflowSteps) == 0 {
+		return nil
+	}
+	stepStates := make([]StepState, 0, len(compiled.WorkflowSteps))
+	for idx := range compiled.WorkflowSteps {
+		step := &compiled.WorkflowSteps[idx]
 		stepStates = append(stepStates, StepState{
 			ID:                 step.ID,
 			Path:               step.Path,
@@ -169,7 +175,7 @@ func freezeExecutionContract(run *RunState) (Template, []StepState, error) {
 			InvariantBaselines: make(map[string]string),
 		})
 	}
-	return resolved, stepStates, nil
+	return stepStates
 }
 
 func (s *Service) loadTemplateByID(templateID string) (*Template, error) {
@@ -384,45 +390,11 @@ func validateCondition(condition Condition) error {
 	if strings.TrimSpace(condition.Type) == "" {
 		return fmt.Errorf("type is required")
 	}
-	switch condition.Type {
-	case "exit_code":
-		_, err := intFromValue(condition.Value)
-		return err
-	case "exit_code_in":
-		return validateExitCodeInCondition(condition)
-	case "stdout_contains", "stdout_not_contains":
-		if _, ok := condition.Value.(string); !ok {
-			return fmt.Errorf("value must be a string")
-		}
-		return nil
-	case "file_exists", "file_not_exists":
-		if strings.TrimSpace(condition.Path) == "" {
-			return fmt.Errorf("path is required")
-		}
-		return nil
-	case "file_contains", "file_not_contains":
-		if strings.TrimSpace(condition.Path) == "" {
-			return fmt.Errorf("path is required")
-		}
-		if _, ok := condition.Value.(string); !ok {
-			return fmt.Errorf("value must be a string")
-		}
-		return nil
-	default:
+	handler, exists := conditionRegistry[condition.Type]
+	if !exists {
 		return fmt.Errorf("unsupported condition type %q", condition.Type)
 	}
-}
-
-func validateExitCodeInCondition(condition Condition) error {
-	if len(condition.Values) == 0 {
-		return fmt.Errorf("values are required")
-	}
-	for _, value := range condition.Values {
-		if _, err := intFromValue(value); err != nil {
-			return err
-		}
-	}
-	return nil
+	return handler.validate(condition)
 }
 
 // RequiredParameterNames returns the placeholder names referenced by the template.
@@ -472,13 +444,13 @@ func (t *Template) ParameterDefinitions() []TemplateParameter {
 
 // StepSummaries returns step metadata in template order.
 func (t *Template) StepSummaries() []StepSummary {
-	if t == nil || t.CompiledWorkflow == nil || len(t.CompiledWorkflow.ExecutionSteps) == 0 {
+	if t == nil || t.CompiledWorkflow == nil || len(t.CompiledWorkflow.WorkflowSteps) == 0 {
 		return nil
 	}
 
-	summaries := make([]StepSummary, 0, len(t.CompiledWorkflow.ExecutionSteps))
-	for index := range t.CompiledWorkflow.ExecutionSteps {
-		step := &t.CompiledWorkflow.ExecutionSteps[index]
+	summaries := make([]StepSummary, 0, len(t.CompiledWorkflow.WorkflowSteps))
+	for index := range t.CompiledWorkflow.WorkflowSteps {
+		step := &t.CompiledWorkflow.WorkflowSteps[index]
 		summaries = append(summaries, StepSummary{
 			Step:         index + 1,
 			ID:           step.ID,
@@ -719,41 +691,21 @@ func validatePlanningArtifact(template *Template, artifact *PlanningArtifact) er
 	if artifact == nil {
 		return fmt.Errorf("planning artifact is required")
 	}
-	if err := validatePlanningOptionalFields(artifact); err != nil {
+	if err := validatePlanningOutputs(template, artifact); err != nil {
 		return err
 	}
-	if err := validatePlanningUniqueFields(artifact); err != nil {
+	if err := validateUniqueTrimmedStrings("planning.selectedFiles", artifact.SelectedFiles); err != nil {
 		return err
 	}
-	return validateRequiredPlanningOutputs(template, artifact)
-}
-
-func validatePlanningOptionalFields(artifact *PlanningArtifact) error {
-	if strings.TrimSpace(artifact.TestTarget) == "" && artifact.TestTarget != "" {
-		return fmt.Errorf("planning.testTarget is required")
-	}
-	if strings.TrimSpace(artifact.LintCommand) == "" && artifact.LintCommand != "" {
-		return fmt.Errorf("planning.lintCommand is required")
-	}
-	if strings.TrimSpace(artifact.ExpectedFailure) == "" && artifact.ExpectedFailure != "" {
-		return fmt.Errorf("planning.expectedFailure is required")
-	}
-	if strings.TrimSpace(artifact.ImplementationTarget) == "" && artifact.ImplementationTarget != "" {
-		return fmt.Errorf("planning.implementationTarget is required")
+	if err := validateUniqueTrimmedStrings("planning.invariants", artifact.Invariants); err != nil {
+		return err
 	}
 	return nil
 }
 
-func validatePlanningUniqueFields(artifact *PlanningArtifact) error {
-	if err := validateUniqueTrimmedStrings("planning.selectedFiles", artifact.SelectedFiles); err != nil {
-		return err
-	}
-	return validateUniqueTrimmedStrings("planning.invariants", artifact.Invariants)
-}
-
-func validateRequiredPlanningOutputs(template *Template, artifact *PlanningArtifact) error {
-	for _, output := range requiredPlanningOutputs(template) {
-		if err := validateRequiredPlanningOutput(output, artifact); err != nil {
+func validatePlanningOutputs(template *Template, artifact *PlanningArtifact) error {
+	for _, output := range orderedPlanningOutputs(requiredPlanningOutputs(template)) {
+		if err := validatePlanningOutput(output, artifact); err != nil {
 			return err
 		}
 	}
@@ -771,32 +723,89 @@ func requiredPlanningOutputs(template *Template) []string {
 	return append([]string(nil), planningNode.RequiredPlanningOutputs...)
 }
 
-func validateRequiredPlanningOutput(output string, artifact *PlanningArtifact) error {
+func orderedPlanningOutputs(outputs []string) []string {
+	if len(outputs) == 0 {
+		return nil
+	}
+
+	required := make(map[string]struct{}, len(outputs))
+	for _, output := range outputs {
+		trimmed := strings.TrimSpace(output)
+		if trimmed == "" {
+			continue
+		}
+		required[trimmed] = struct{}{}
+	}
+
+	ordered := make([]string, 0, len(required))
+	for _, output := range []string{
+		"testTarget",
+		"selectedFiles",
+		"lintCommand",
+		"expectedFailure",
+		"implementationTarget",
+		"invariants",
+	} {
+		if _, exists := required[output]; !exists {
+			continue
+		}
+		delete(required, output)
+		ordered = append(ordered, output)
+	}
+	for _, output := range outputs {
+		trimmed := strings.TrimSpace(output)
+		if _, exists := required[trimmed]; !exists {
+			continue
+		}
+		delete(required, trimmed)
+		ordered = append(ordered, trimmed)
+	}
+	return ordered
+}
+
+func validatePlanningOutput(output string, artifact *PlanningArtifact) error {
 	switch output {
 	case "selectedFiles":
 		if len(artifact.SelectedFiles) == 0 {
 			return fmt.Errorf("planning.selectedFiles is required")
 		}
-	case "testTarget":
-		if strings.TrimSpace(artifact.TestTarget) == "" {
-			return fmt.Errorf("planning.testTarget is required")
-		}
-	case "lintCommand":
-		if strings.TrimSpace(artifact.LintCommand) == "" {
-			return fmt.Errorf("planning.lintCommand is required")
-		}
-	case "expectedFailure":
-		if strings.TrimSpace(artifact.ExpectedFailure) == "" {
-			return fmt.Errorf("planning.expectedFailure is required")
-		}
-	case "implementationTarget":
-		if strings.TrimSpace(artifact.ImplementationTarget) == "" {
-			return fmt.Errorf("planning.implementationTarget is required")
-		}
+		return nil
 	case "invariants":
 		if len(artifact.Invariants) == 0 {
 			return fmt.Errorf("planning.invariants is required")
 		}
+		return nil
+	case "testTarget":
+	case "lintCommand":
+	case "expectedFailure":
+	case "implementationTarget":
+		return validateNonEmptyPlanningField(output, planningFieldValue(output, artifact))
+	}
+	return nil
+}
+
+func planningFieldValue(output string, artifact *PlanningArtifact) string {
+	switch output {
+	case "testTarget":
+		return artifact.TestTarget
+	case "lintCommand":
+		return artifact.LintCommand
+	case "expectedFailure":
+		return artifact.ExpectedFailure
+	case "implementationTarget":
+		return artifact.ImplementationTarget
+	default:
+		return ""
+	}
+}
+
+func validateNonEmptyPlanningField(output, value string) error {
+	fieldName := "planning." + output
+	if value == "" {
+		return fmt.Errorf("%s is required", fieldName)
+	}
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is required", fieldName)
 	}
 	return nil
 }

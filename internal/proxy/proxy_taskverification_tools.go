@@ -407,7 +407,7 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 	})
 
 	structured := runStructuredContent(run)
-	stepCount := len(run.SelectedTemplate.CompiledWorkflow.ExecutionSteps)
+	stepCount := len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps)
 	structured["stepCount"] = stepCount
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, stepCount), structured), nil
 }
@@ -644,8 +644,8 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		"draftParameters":    run.DraftParameters,
 		"hasOnboarding":      run.Onboarding != nil,
 		"hasPlanning":        run.Planning != nil,
-		"executionReady":     run.ExecutionReady,
-		"stepCount":          len(run.SelectedTemplate.CompiledWorkflow.ExecutionSteps),
+		"executionReady":     run.WorkflowReady,
+		"stepCount":          len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps),
 		"lastFailureMessage": run.LastFailureMessage,
 		"explicitFailReason": run.ExplicitFailReason,
 	}
@@ -654,11 +654,11 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 	addPlanningNodeContext(structured, run)
 	addArtifactSummaries(structured, run)
 
-	if !run.ExecutionReady || run.ExecutionTemplate == nil {
+	if !run.WorkflowReady || run.RunnableTemplate == nil {
 		return structured
 	}
 
-	structured["steps"] = executionStepsSummary(run)
+	structured["steps"] = workflowStepsSummary(run)
 	return structured
 }
 
@@ -719,10 +719,10 @@ func addArtifactSummaries(structured map[string]any, run *taskverification.RunSt
 	structured["frozenContractSummary"] = frozenContractSummary(run)
 }
 
-func executionStepsSummary(run *taskverification.RunState) []map[string]any {
+func workflowStepsSummary(run *taskverification.RunState) []map[string]any {
 	steps := make([]map[string]any, 0, len(run.Steps))
 	for index, step := range run.Steps {
-		templateStep := run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[index]
+		templateStep := run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[index]
 		steps = append(steps, map[string]any{
 			"step":         index + 1,
 			"id":           step.ID,
@@ -783,10 +783,10 @@ func frozenContractSummary(run *taskverification.RunState) map[string]any {
 	if strings.TrimSpace(run.Planning.LintCommand) != "" {
 		summary["lintCommand"] = run.Planning.LintCommand
 	}
-	if run.ExecutionTemplate != nil && run.ExecutionTemplate.CompiledWorkflow != nil {
+	if run.RunnableTemplate != nil && run.RunnableTemplate.CompiledWorkflow != nil {
 		invariantCount := 0
-		for idx := range run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps {
-			step := &run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[idx]
+		for idx := range run.RunnableTemplate.CompiledWorkflow.WorkflowSteps {
+			step := &run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[idx]
 			invariantCount += len(step.Invariants)
 		}
 		summary["invariantCount"] = invariantCount

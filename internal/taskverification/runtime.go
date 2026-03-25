@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -32,10 +31,7 @@ type stepFailureDetails struct {
 
 // StartStep validates the next step, runs its preconditions, and captures invariant baselines.
 func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) {
-	if err := validateTaskExecutable(run); err != nil {
-		return nil, err
-	}
-	stepIndex, err := validateStepRequest(run, stepNumber)
+	stepIndex, step, err := workflowStepRequest(run, stepNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -48,10 +44,7 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		return nil, err
 	}
 
-	step := executionStep(run, stepIndex)
-	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, func(check *Check) []Condition {
-		return check.PreConditions
-	}); failed {
+	if result, failed := s.runStepChecks(run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, preConditionsForCheck); failed {
 		return result, nil
 	}
 	baselines, result, failed := s.captureInvariantBaselines(run, step, stepIndex, stepNumber)
@@ -59,52 +52,54 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		return result, nil
 	}
 
-	run.LastFailureMessage = ""
-	run.Steps[stepIndex].Status = StepStatusActive
-	run.Steps[stepIndex].InvariantBaselines = baselines
-
-	return &StepResult{
-		Passed:     true,
-		Message:    fmt.Sprintf("step %d (%s) started", stepNumber, step.ID),
-		Summary:    fmt.Sprintf("step %d (%s) started", stepNumber, step.ID),
-		Step:       stepNumber,
-		StepID:     step.ID,
-		Status:     run.Status,
-		Phase:      run.Phase,
-		StepStatus: run.Steps[stepIndex].Status,
-	}, nil
+	return startWorkflowStep(run, stepIndex, stepNumber, step.ID, baselines), nil
 }
 
 // CompleteStep runs postconditions and invariant verification for an active step.
 func (s *Service) CompleteStep(run *RunState, stepNumber int) (*StepResult, error) {
-	if err := validateTaskExecutable(run); err != nil {
-		return nil, err
-	}
-	stepIndex, err := validateStepRequest(run, stepNumber)
+	stepIndex, _, err := workflowStepRequest(run, stepNumber)
 	if err != nil {
 		return nil, err
 	}
-	return s.completeStep(run, stepIndex)
+	return s.completeWorkflowStep(run, stepIndex)
 }
 
-func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error) {
-	if err := validateActiveStep(run, stepIndex); err != nil {
+func (s *Service) completeWorkflowStep(run *RunState, stepIndex int) (*StepResult, error) {
+	step, err := activeWorkflowStep(run, stepIndex)
+	if err != nil {
 		return nil, err
 	}
 	if run.Steps[stepIndex].Status != StepStatusActive {
 		return nil, fmt.Errorf("step %d (%s) is not active", stepIndex+1, run.Steps[stepIndex].ID)
 	}
 
-	step := executionStep(run, stepIndex)
-	if result, failed := s.runPhaseChecks(run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, func(check *Check) []Condition {
-		return check.PostConditions
-	}); failed {
+	if result, failed := s.runStepChecks(run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, postConditionsForCheck); failed {
 		return result, nil
 	}
 	if result, failed := s.verifyInvariants(run, step, stepIndex); failed {
 		return result, nil
 	}
 
+	return completeWorkflowStep(run, stepIndex, step), nil
+}
+
+func startWorkflowStep(run *RunState, stepIndex, stepNumber int, stepID string, baselines map[string]string) *StepResult {
+	run.LastFailureMessage = ""
+	run.Steps[stepIndex].Status = StepStatusActive
+	run.Steps[stepIndex].InvariantBaselines = baselines
+	return &StepResult{
+		Passed:     true,
+		Message:    fmt.Sprintf("step %d (%s) started", stepNumber, stepID),
+		Summary:    fmt.Sprintf("step %d (%s) started", stepNumber, stepID),
+		Step:       stepNumber,
+		StepID:     stepID,
+		Status:     run.Status,
+		Phase:      run.Phase,
+		StepStatus: run.Steps[stepIndex].Status,
+	}
+}
+
+func completeWorkflowStep(run *RunState, stepIndex int, step *Step) *StepResult {
 	run.LastFailureMessage = ""
 	run.Steps[stepIndex].Status = StepStatusPassed
 	run.Steps[stepIndex].InvariantBaselines = make(map[string]string)
@@ -126,36 +121,41 @@ func (s *Service) completeStep(run *RunState, stepIndex int) (*StepResult, error
 		Status:     run.Status,
 		Phase:      run.Phase,
 		StepStatus: run.Steps[stepIndex].Status,
-	}, nil
+	}
 }
 
-func validateStepRequest(run *RunState, stepNumber int) (int, error) {
-	if run == nil {
-		return 0, fmt.Errorf("task is not registered")
-	}
-	if run.ExecutionTemplate == nil {
-		return 0, fmt.Errorf("task has no execution contract")
-	}
-	if run.ExecutionTemplate.CompiledWorkflow == nil {
-		return 0, fmt.Errorf("task has no compiled execution workflow")
-	}
-	if stepNumber < 1 || stepNumber > len(run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps) {
-		return 0, fmt.Errorf("step %d is out of range", stepNumber)
-	}
-	return stepNumber - 1, nil
-}
-
-func validateActiveStep(run *RunState, stepIndex int) error {
+func workflowStepRequest(run *RunState, stepNumber int) (int, *Step, error) {
 	if err := validateTaskExecutable(run); err != nil {
-		return err
+		return 0, nil, err
 	}
-	if stepIndex < 0 || stepIndex >= len(run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps) {
-		return fmt.Errorf("step %d is out of range", stepIndex+1)
+	if run == nil {
+		return 0, nil, fmt.Errorf("task is not registered")
 	}
-	if executionStep(run, stepIndex).Path != run.Phase {
-		return fmt.Errorf("task is currently at %s; step %d (%s) is not the active workflow node", run.Phase, stepIndex+1, run.Steps[stepIndex].ID)
+	if run.RunnableTemplate == nil {
+		return 0, nil, fmt.Errorf("task has no execution contract")
 	}
-	return nil
+	if run.RunnableTemplate.CompiledWorkflow == nil {
+		return 0, nil, fmt.Errorf("task has no compiled execution workflow")
+	}
+	if stepNumber < 1 || stepNumber > len(run.RunnableTemplate.CompiledWorkflow.WorkflowSteps) {
+		return 0, nil, fmt.Errorf("step %d is out of range", stepNumber)
+	}
+	stepIndex := stepNumber - 1
+	return stepIndex, workflowStep(run, stepIndex), nil
+}
+
+func activeWorkflowStep(run *RunState, stepIndex int) (*Step, error) {
+	if err := validateTaskExecutable(run); err != nil {
+		return nil, err
+	}
+	if stepIndex < 0 || stepIndex >= len(run.RunnableTemplate.CompiledWorkflow.WorkflowSteps) {
+		return nil, fmt.Errorf("step %d is out of range", stepIndex+1)
+	}
+	step := workflowStep(run, stepIndex)
+	if step.Path != run.Phase {
+		return nil, fmt.Errorf("task is currently at %s; step %d (%s) is not the active workflow node", run.Phase, stepIndex+1, run.Steps[stepIndex].ID)
+	}
+	return step, nil
 }
 
 func validateTaskExecutable(run *RunState) error {
@@ -178,7 +178,7 @@ func validateTaskExecutable(run *RunState) error {
 	if node.Kind != WorkflowNodeKindScaffolding && node.Kind != WorkflowNodeKindExecution {
 		return fmt.Errorf("task is in %s phase; step execution is only allowed in scaffolding or execution nodes", run.Phase)
 	}
-	if !run.ExecutionReady || run.ExecutionTemplate == nil {
+	if !run.WorkflowReady || run.RunnableTemplate == nil {
 		return fmt.Errorf("task has no execution contract")
 	}
 	return nil
@@ -188,7 +188,7 @@ func (s *Service) completePreviousStepIfNeeded(run *RunState, stepIndex int) (bo
 	if stepIndex == 0 || run.Steps[stepIndex-1].Status != StepStatusActive {
 		return false, nil, nil
 	}
-	result, err := s.completeStep(run, stepIndex-1)
+	result, err := s.completeWorkflowStep(run, stepIndex-1)
 	if err != nil {
 		return true, nil, err
 	}
@@ -198,7 +198,7 @@ func (s *Service) completePreviousStepIfNeeded(run *RunState, stepIndex int) (bo
 	return false, nil, nil
 }
 
-func (s *Service) runPhaseChecks(run *RunState, step *Step, stepIndex, stepNumber int, phase StepFailurePhase, conditions func(check *Check) []Condition) (*StepResult, bool) {
+func (s *Service) runStepChecks(run *RunState, step *Step, stepIndex, stepNumber int, phase StepFailurePhase, conditions func(check *Check) []Condition) (*StepResult, bool) {
 	for checkIndex := range step.Checks {
 		check := &step.Checks[checkIndex]
 		result, err := s.runCommand(context.Background(), check.Command)
@@ -218,6 +218,14 @@ func (s *Service) runPhaseChecks(run *RunState, step *Step, stepIndex, stepNumbe
 		}
 	}
 	return nil, false
+}
+
+func preConditionsForCheck(check *Check) []Condition {
+	return check.PreConditions
+}
+
+func postConditionsForCheck(check *Check) []Condition {
+	return check.PostConditions
 }
 
 func (s *Service) captureInvariantBaselines(run *RunState, step *Step, stepIndex, stepNumber int) (map[string]string, *StepResult, bool) {
@@ -365,7 +373,7 @@ func ensureStepCanStart(run *RunState, stepIndex int) error {
 	if stepIndex < 0 || stepIndex >= len(run.Steps) {
 		return fmt.Errorf("step %d is out of range", stepIndex+1)
 	}
-	if executionStep(run, stepIndex).Path != run.Phase {
+	if workflowStep(run, stepIndex).Path != run.Phase {
 		return fmt.Errorf("task is currently at %s; step %d (%s) is not the active workflow node", run.Phase, stepIndex+1, run.Steps[stepIndex].ID)
 	}
 	for previous := 0; previous < stepIndex; previous++ {
@@ -387,8 +395,8 @@ func ensureStepCanStart(run *RunState, stepIndex int) error {
 	}
 }
 
-func executionStep(run *RunState, stepIndex int) *Step {
-	return &run.ExecutionTemplate.CompiledWorkflow.ExecutionSteps[stepIndex]
+func workflowStep(run *RunState, stepIndex int) *Step {
+	return &run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[stepIndex]
 }
 
 func (s *Service) runCommand(ctx context.Context, command string) (*commandResult, error) {
@@ -460,120 +468,13 @@ func phaseActionLabel(phase StepFailurePhase) string {
 
 func evaluateConditions(conditions []Condition, result *commandResult, workingDir string) error {
 	for _, condition := range conditions {
-		if err := evaluateCondition(condition, result, workingDir); err != nil {
+		handler, exists := conditionRegistry[condition.Type]
+		if !exists {
+			return fmt.Errorf("unsupported condition type %q", condition.Type)
+		}
+		if err := handler.evaluate(condition, result, workingDir); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func evaluateCondition(condition Condition, result *commandResult, workingDir string) error {
-	switch condition.Type {
-	case "exit_code":
-		return evaluateExitCodeCondition(condition, result)
-	case "exit_code_in":
-		return evaluateExitCodeInCondition(condition, result)
-	case "stdout_contains":
-		return evaluateStdoutContains(condition.Value.(string), result.Stdout)
-	case "stdout_not_contains":
-		return evaluateStdoutNotContains(condition.Value.(string), result.Stdout)
-	case "file_exists":
-		return evaluateFileExists(condition.Path, workingDir)
-	case "file_not_exists":
-		return evaluateFileNotExists(condition.Path, workingDir)
-	case "file_contains":
-		return evaluateFileContains(condition.Path, condition.Value.(string), workingDir)
-	case "file_not_contains":
-		return evaluateFileNotContains(condition.Path, condition.Value.(string), workingDir)
-	default:
-		return fmt.Errorf("unsupported condition type %q", condition.Type)
-	}
-}
-
-func evaluateExitCodeCondition(condition Condition, result *commandResult) error {
-	expected, err := intFromValue(condition.Value)
-	if err != nil {
-		return err
-	}
-	if result.ExitCode != expected {
-		return fmt.Errorf("expected exit code %d, got %d", expected, result.ExitCode)
-	}
-	return nil
-}
-
-func evaluateExitCodeInCondition(condition Condition, result *commandResult) error {
-	allowed := make([]int, 0, len(condition.Values))
-	for _, value := range condition.Values {
-		exitCode, err := intFromValue(value)
-		if err != nil {
-			return err
-		}
-		allowed = append(allowed, exitCode)
-		if result.ExitCode == exitCode {
-			return nil
-		}
-	}
-	return fmt.Errorf("expected exit code in %v, got %d", allowed, result.ExitCode)
-}
-
-func evaluateStdoutContains(expected, stdout string) error {
-	if !strings.Contains(stdout, expected) {
-		return fmt.Errorf("expected stdout to contain %q", expected)
-	}
-	return nil
-}
-
-func evaluateStdoutNotContains(unexpected, stdout string) error {
-	if strings.Contains(stdout, unexpected) {
-		return fmt.Errorf("expected stdout not to contain %q", unexpected)
-	}
-	return nil
-}
-
-func evaluateFileExists(path, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
-	if _, err := os.Stat(resolvedPath); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("expected file %q to exist", path)
-		}
-		return fmt.Errorf("failed to stat file %q: %w", path, err)
-	}
-	return nil
-}
-
-func evaluateFileNotExists(path, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
-	if _, err := os.Stat(resolvedPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to stat file %q: %w", path, err)
-	}
-	return fmt.Errorf("expected file %q not to exist", path)
-}
-
-func evaluateFileContains(path, expected, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
-	// #nosec G304 -- task verification intentionally reads template-defined files relative to the working directory.
-	content, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		return fmt.Errorf("failed to read file %q: %w", path, err)
-	}
-	if !strings.Contains(string(content), expected) {
-		return fmt.Errorf("expected file %q to contain %q", path, expected)
-	}
-	return nil
-}
-
-func evaluateFileNotContains(path, unexpected, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
-	// #nosec G304 -- task verification intentionally reads template-defined files relative to the working directory.
-	content, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		return fmt.Errorf("failed to read file %q: %w", path, err)
-	}
-	if strings.Contains(string(content), unexpected) {
-		return fmt.Errorf("expected file %q not to contain %q", path, unexpected)
 	}
 	return nil
 }

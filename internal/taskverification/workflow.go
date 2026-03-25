@@ -22,19 +22,14 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	}
 
 	compiled := newCompiledWorkflow()
-	onboardingNode := buildOnboardingNode(t.Workflow.Onboarding)
-	if err := addCompiledNode(compiled, &onboardingNode); err != nil {
-		return nil, err
-	}
-	planningNode := buildPlanningNode(t.Workflow.Planning)
-	if err := addCompiledNode(compiled, &planningNode); err != nil {
+	if err := addCompiledShellNodes(compiled, t.Workflow); err != nil {
 		return nil, err
 	}
 
 	seenIDs := make(map[string]string)
 	declaredNext := make(map[TaskPhase]string)
 	orderedLeafPaths := make([]TaskPhase, 0)
-	executionSteps := make([]Step, 0)
+	workflowSteps := make([]Step, 0)
 	stepNumber := 0
 
 	var compileStepNodes func(
@@ -110,7 +105,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 					return fmt.Errorf("workflow node %q: %w", nodeSpec.ID, err)
 				}
 				stepNumber++
-				executionSteps = append(executionSteps, step)
+				workflowSteps = append(workflowSteps, step)
 				node := WorkflowNode{
 					Path:         path,
 					Kind:         defaultKind,
@@ -173,47 +168,12 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	); err != nil {
 		return nil, err
 	}
-	if len(executionSteps) == 0 {
+	if len(workflowSteps) == 0 {
 		return nil, fmt.Errorf("workflow.execution must define at least one executable node")
 	}
 
-	compiled.ExecutionSteps = executionSteps
-	compiled.FirstExecutablePath = executionSteps[0].Path
-
-	stepByPath := make(map[TaskPhase]int, len(compiled.ExecutionSteps))
-	for index := range compiled.ExecutionSteps {
-		step := &compiled.ExecutionSteps[index]
-		stepByPath[step.Path] = index
-	}
-
-	planningNext := strings.TrimSpace(t.Workflow.Planning.Next)
-	if planningNext == "" {
-		planningNext = string(compiled.FirstExecutablePath)
-	}
-	if err := setNodeNext(compiled.Nodes, TaskPhasePlanning, planningNext); err != nil {
-		return nil, fmt.Errorf("workflow.planning.next: %w", err)
-	}
-
-	for index, path := range orderedLeafPaths {
-		next := ""
-		if explicit, exists := declaredNext[path]; exists {
-			next = explicit
-		} else if index+1 < len(orderedLeafPaths) {
-			next = string(orderedLeafPaths[index+1])
-		}
-		if err := setNodeNext(compiled.Nodes, path, next); err != nil {
-			return nil, fmt.Errorf("workflow node %q next: %w", path, err)
-		}
-		if stepIndex, exists := stepByPath[path]; exists {
-			compiled.ExecutionSteps[stepIndex].NextPath = compiled.Nodes[path].NextPath
-		}
-	}
-
-	for _, path := range orderedLeafPaths {
-		node := compiled.Nodes[path]
-		if node.Kind == WorkflowNodeKindWaitingForApproval && node.NextPath == "" {
-			return nil, fmt.Errorf("workflow node %q cannot be a terminal waiting_for_approval node", path)
-		}
+	if err := finalizeCompiledWorkflow(compiled, workflowSteps, declaredNext, orderedLeafPaths, t.Workflow.Planning); err != nil {
+		return nil, err
 	}
 
 	if err := validatePlanningEditableFields(t, t.Workflow.Planning); err != nil {
@@ -228,16 +188,79 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	return compiled, nil
 }
 
+func addCompiledShellNodes(compiled *CompiledWorkflow, workflow *Workflow) error {
+	onboardingNode := buildOnboardingNode(workflow.Onboarding)
+	if err := addCompiledNode(compiled, &onboardingNode); err != nil {
+		return err
+	}
+	planningNode := buildPlanningNode(workflow.Planning)
+	return addCompiledNode(compiled, &planningNode)
+}
+
+func finalizeCompiledWorkflow(
+	compiled *CompiledWorkflow,
+	workflowSteps []Step,
+	declaredNext map[TaskPhase]string,
+	orderedLeafPaths []TaskPhase,
+	planning *PlanningNodeSpec,
+) error {
+	compiled.WorkflowSteps = workflowSteps
+	compiled.FirstExecutablePath = workflowSteps[0].Path
+
+	stepByPath := make(map[TaskPhase]int, len(compiled.WorkflowSteps))
+	for index := range compiled.WorkflowSteps {
+		stepByPath[compiled.WorkflowSteps[index].Path] = index
+	}
+	if err := wireWorkflowTransitions(compiled, declaredNext, orderedLeafPaths, planning, stepByPath); err != nil {
+		return err
+	}
+	return validateTerminalApprovalNodes(compiled, orderedLeafPaths)
+}
+
+func wireWorkflowTransitions(
+	compiled *CompiledWorkflow,
+	declaredNext map[TaskPhase]string,
+	orderedLeafPaths []TaskPhase,
+	planning *PlanningNodeSpec,
+	stepByPath map[TaskPhase]int,
+) error {
+	planningNext := strings.TrimSpace(planning.Next)
+	if planningNext == "" {
+		planningNext = string(compiled.FirstExecutablePath)
+	}
+	if err := setNodeNext(compiled.Nodes, TaskPhasePlanning, planningNext); err != nil {
+		return fmt.Errorf("workflow.planning.next: %w", err)
+	}
+
+	for index, path := range orderedLeafPaths {
+		next := ""
+		if explicit, exists := declaredNext[path]; exists {
+			next = explicit
+		} else if index+1 < len(orderedLeafPaths) {
+			next = string(orderedLeafPaths[index+1])
+		}
+		if err := setNodeNext(compiled.Nodes, path, next); err != nil {
+			return fmt.Errorf("workflow node %q next: %w", path, err)
+		}
+		if stepIndex, exists := stepByPath[path]; exists {
+			compiled.WorkflowSteps[stepIndex].NextPath = compiled.Nodes[path].NextPath
+		}
+	}
+	return nil
+}
+
+func validateTerminalApprovalNodes(compiled *CompiledWorkflow, orderedLeafPaths []TaskPhase) error {
+	for _, path := range orderedLeafPaths {
+		node := compiled.Nodes[path]
+		if node.Kind == WorkflowNodeKindWaitingForApproval && node.NextPath == "" {
+			return fmt.Errorf("workflow node %q cannot be a terminal waiting_for_approval node", path)
+		}
+	}
+	return nil
+}
+
 func buildWorkflowPath(root TaskPhase, ids []string) TaskPhase {
 	return TaskPhase(strings.Join(append([]string{string(root)}, ids...), "."))
-}
-
-func buildScaffoldingPath(ids []string) TaskPhase {
-	return buildWorkflowPath(TaskPhaseScaffolding, ids)
-}
-
-func buildExecutionPath(ids []string) TaskPhase {
-	return buildWorkflowPath(TaskPhaseExecution, ids)
 }
 
 func validateWorkflowDefinition(t *Template) error {
@@ -516,8 +539,8 @@ func (r *RunState) currentTemplate() *Template {
 	if r == nil {
 		return nil
 	}
-	if r.ExecutionTemplate != nil {
-		return r.ExecutionTemplate
+	if r.RunnableTemplate != nil {
+		return r.RunnableTemplate
 	}
 	return &r.SelectedTemplate
 }

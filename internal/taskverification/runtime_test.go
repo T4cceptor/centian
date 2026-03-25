@@ -44,7 +44,7 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 		},
 	})
 	service := NewService(dir, dir)
-	run := newExecutionReadyRun(&template)
+	run := newWorkflowReadyRun(&template)
 
 	start, err := service.StartStep(run, 1)
 	assert.NilError(t, err)
@@ -249,7 +249,7 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 		},
 	})
 	service := NewService(dir, dir)
-	run := newExecutionReadyRun(&template)
+	run := newWorkflowReadyRun(&template)
 
 	_, err = service.StartStep(run, 1)
 	assert.NilError(t, err)
@@ -444,8 +444,8 @@ workflow:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
-	assert.Assert(t, !run.ExecutionReady)
-	assert.Assert(t, run.ExecutionTemplate == nil)
+	assert.Assert(t, !run.WorkflowReady)
+	assert.Assert(t, run.RunnableTemplate == nil)
 	assert.Equal(t, len(run.Steps), 0)
 }
 
@@ -531,26 +531,16 @@ func mustCompileRuntimeTemplate(t *testing.T, template *Template) Template {
 	return *template
 }
 
-func newExecutionReadyRun(template *Template) *RunState {
-	steps := make([]StepState, 0, len(template.CompiledWorkflow.ExecutionSteps))
-	for idx := range template.CompiledWorkflow.ExecutionSteps {
-		step := &template.CompiledWorkflow.ExecutionSteps[idx]
-		steps = append(steps, StepState{
-			ID:                 step.ID,
-			Path:               step.Path,
-			Status:             StepStatusPending,
-			InvariantBaselines: map[string]string{},
-		})
-	}
+func newWorkflowReadyRun(template *Template) *RunState {
 	return &RunState{
-		RunID:             newTaskRunID(),
-		TemplateID:        template.Task.ID,
-		SelectedTemplate:  *template,
-		DraftParameters:   map[string]string{},
-		Status:            TaskStatusActive,
-		Phase:             template.CompiledWorkflow.FirstExecutablePath,
-		ExecutionReady:    true,
-		ExecutionTemplate: template,
-		Steps:             steps,
+		RunID:            newTaskRunID(),
+		TemplateID:       template.Task.ID,
+		SelectedTemplate: *template,
+		DraftParameters:  map[string]string{},
+		Status:           TaskStatusActive,
+		Phase:            template.CompiledWorkflow.FirstExecutablePath,
+		WorkflowReady:    true,
+		RunnableTemplate: template,
+		Steps:            newWorkflowStepStates(template.CompiledWorkflow),
 	}
 }
