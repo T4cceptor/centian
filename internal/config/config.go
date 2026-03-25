@@ -162,15 +162,16 @@ type OAuthConfig struct {
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Host         string                `json:"host,omitempty"`         // Bind address for the proxy
-	Port         string                `json:"port,omitempty"`         // HTTP proxy port (if enabled)
-	LogLevel     string                `json:"logLevel,omitempty"`     // debug, info, warn, error
-	LogOutput    string                `json:"logOutput,omitempty"`    // file, console, both
-	LogFile      string                `json:"logFile,omitempty"`      // Log file path for internal logger
-	Timeout      int                   `json:"timeout,omitempty"`      // Request timeout in seconds
-	FeatureFlags *FeatureFlagsSettings `json:"featureFlags,omitempty"` // Proxy-owned feature toggles
-	Web          *ProxyWebSettings     `json:"web,omitempty"`          // Public web settings for hosted OAuth flows
-	EventStorage *EventStorageSettings `json:"eventStorage,omitempty"` // Event persistence settings
+	Host              string                `json:"host,omitempty"`              // Bind address for the proxy
+	Port              string                `json:"port,omitempty"`              // HTTP proxy port (if enabled)
+	LogLevel          string                `json:"logLevel,omitempty"`          // debug, info, warn, error
+	LogOutput         string                `json:"logOutput,omitempty"`         // file, console, both
+	LogFile           string                `json:"logFile,omitempty"`           // Log file path for internal logger
+	Timeout           int                   `json:"timeout,omitempty"`           // Request timeout in seconds
+	TaskTemplatesPath string                `json:"taskTemplatesPath,omitempty"` // Override path to taskverification templates
+	FeatureFlags      *FeatureFlagsSettings `json:"featureFlags,omitempty"`      // Proxy-owned feature toggles
+	Web               *ProxyWebSettings     `json:"web,omitempty"`               // Public web settings for hosted OAuth flows
+	EventStorage      *EventStorageSettings `json:"eventStorage,omitempty"`      // Event persistence settings
 }
 
 // ProxyWebSettings contains public-facing web settings required for browser-based flows.
@@ -523,6 +524,7 @@ func validateProxySettings(proxy *ProxySettings) error {
 	}
 
 	proxy.LogFile = strings.TrimSpace(proxy.LogFile)
+	proxy.TaskTemplatesPath = strings.TrimSpace(proxy.TaskTemplatesPath)
 	if proxy.Web != nil {
 		proxy.Web.PublicBaseURL = strings.TrimSpace(proxy.Web.PublicBaseURL)
 	}

@@ -9,6 +9,7 @@
     "logLevel": "debug",
     "logOutput": "both",
     "logFile": "/artifacts/centian_internal.log",
+    "taskTemplatesPath": "/opt/centian/task-templates",
     "featureFlags": {
       "taskVerification": true
     }

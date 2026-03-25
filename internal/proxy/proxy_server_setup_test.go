@@ -241,4 +241,39 @@ func TestNewCentianServer_DefaultEventStorageCreatesSQLiteStore(t *testing.T) {
 	assert.Assert(t, !info.IsDir())
 	assert.Equal(t, filepath.Dir(defaultPath), logDir)
 	assert.Assert(t, server.TaskVerification.EventStore != nil)
+	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "task-templates"))
+}
+
+func TestNewCentianServer_UsesConfiguredTaskTemplatesPath(t *testing.T) {
+	authDisabled := false
+	t.Setenv("HOME", t.TempDir())
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:              "9000",
+			Timeout:           10,
+			TaskTemplatesPath: "custom-templates",
+		},
+		Gateways: map[string]*config.GatewayConfig{},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+
+	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "custom-templates"))
+}
+
+func mustGetwd(t *testing.T) string {
+	t.Helper()
+
+	workingDir, err := os.Getwd()
+	assert.NilError(t, err)
+	return workingDir
 }

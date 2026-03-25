@@ -121,7 +121,8 @@ func newTaskVerificationService(
 	workingDir string,
 	logger *logging.Logger,
 ) (*taskverification.Service, io.Closer, error) {
-	taskService := taskverification.NewService(filepath.Join(workingDir, "task-templates"), workingDir)
+	templateDir := resolveTaskTemplatesPath(globalConfig.Proxy, workingDir)
+	taskService := taskverification.NewService(templateDir, workingDir)
 	if globalConfig.Proxy.EventStorage != nil && !globalConfig.Proxy.EventStorage.IsEnabled() {
 		return taskService, noopCloser{}, nil
 	}
@@ -137,6 +138,17 @@ func newTaskVerificationService(
 	taskService.EventStore = store
 	logger.SetActionEventStore(store)
 	return taskService, store, nil
+}
+
+func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string) string {
+	defaultPath := filepath.Join(workingDir, "task-templates")
+	if settings == nil || settings.TaskTemplatesPath == "" {
+		return defaultPath
+	}
+	if filepath.IsAbs(settings.TaskTemplatesPath) {
+		return settings.TaskTemplatesPath
+	}
+	return filepath.Join(workingDir, settings.TaskTemplatesPath)
 }
 
 func resolveEventStorePath(settings *config.EventStorageSettings) (string, error) {

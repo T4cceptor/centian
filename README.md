@@ -97,6 +97,8 @@ These examples are intended to demonstrate extension patterns and are not produc
 
 For further details, checkout `demo/README.md`.
 
+Taskverification documentation is available in [docs/TASKVERIFICATION.md](/Users/brb/_devspace/centian-cli/docs/TASKVERIFICATION.md).
+
 
 ## Configuration
 
