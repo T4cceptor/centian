@@ -21,9 +21,10 @@ type Task struct {
 
 // Workflow describes the declarative task lifecycle.
 type Workflow struct {
-	Onboarding *LifecycleNodeSpec  `yaml:"onboarding" json:"onboarding"`
-	Planning   *PlanningNodeSpec   `yaml:"planning" json:"planning"`
-	Execution  []ExecutionNodeSpec `yaml:"execution" json:"execution"`
+	Onboarding  *LifecycleNodeSpec  `yaml:"onboarding" json:"onboarding"`
+	Planning    *PlanningNodeSpec   `yaml:"planning" json:"planning"`
+	Scaffolding []ExecutionNodeSpec `yaml:"scaffolding,omitempty" json:"scaffolding,omitempty"`
+	Execution   []ExecutionNodeSpec `yaml:"execution" json:"execution"`
 }
 
 // LifecycleNodeSpec describes a non-execution workflow node.
@@ -146,6 +147,8 @@ const (
 	WorkflowNodeKindOnboarding WorkflowNodeKind = "onboarding"
 	// WorkflowNodeKindPlanning marks the planning workflow node.
 	WorkflowNodeKindPlanning WorkflowNodeKind = "planning"
+	// WorkflowNodeKindScaffolding marks an additive setup workflow node.
+	WorkflowNodeKindScaffolding WorkflowNodeKind = "scaffolding"
 	// WorkflowNodeKindExecution marks an executable workflow node.
 	WorkflowNodeKindExecution WorkflowNodeKind = "execution"
 	// WorkflowNodeKindWaitingForApproval marks a pause/approval workflow node.
@@ -219,6 +222,8 @@ const (
 	TaskPhaseOnboarding TaskPhase = "onboarding"
 	// TaskPhasePlanning is the planning workflow path.
 	TaskPhasePlanning TaskPhase = "planning"
+	// TaskPhaseScaffolding is the reserved scaffolding root path.
+	TaskPhaseScaffolding TaskPhase = "scaffolding"
 	// TaskPhaseExecution is the reserved execution root path.
 	TaskPhaseExecution TaskPhase = "execution"
 	// TaskPhaseWaitingForApproval is the reserved approval root path.

@@ -153,7 +153,15 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 		invocationRun := session.taskRun
 		invocationPhase, invocationNodeKind := taskPhaseSnapshot(invocationRun)
 		session.taskMu.Unlock()
-		result, err := handler(ctx, session, req)
+		var (
+			result *mcp.CallToolResult
+			err    error
+		)
+		if invocationRun == nil && !taskToolAllowedBeforeRegistration(toolName) {
+			result = taskToolRegistrationRequiredResult(toolName)
+		} else {
+			result, err = handler(ctx, session, req)
+		}
 		p.logTaskToolCall(session, requestID, toolName, req, result, err)
 		session.taskMu.Lock()
 		run := session.taskRun
@@ -165,6 +173,35 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 			p.recordTaskActionContext(run, requestID, invocationPhase, invocationNodeKind)
 		}
 		return result, err
+	}
+}
+
+func taskToolAllowedBeforeRegistration(toolName string) bool {
+	switch toolName {
+	case taskListTemplatesTool, taskRegisterTool:
+		return true
+	default:
+		return false
+	}
+}
+
+func taskToolRegistrationRequiredResult(toolName string) *mcp.CallToolResult {
+	message := fmt.Sprintf(
+		"tool %q is not allowed before registering a task; call centian.task_list_templates and centian.task_register first",
+		toolName,
+	)
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: message},
+		},
+		StructuredContent: map[string]any{
+			"error":              message,
+			"requestedTool":      toolName,
+			"reason":             governanceDeniedRegistrationNeeded,
+			"allowedBeforeRun":   []string{taskListTemplatesTool, taskRegisterTool},
+			"registrationNeeded": true,
+		},
 	}
 }
 

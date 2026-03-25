@@ -395,12 +395,12 @@ func validateCondition(condition Condition) error {
 			return fmt.Errorf("value must be a string")
 		}
 		return nil
-	case "file_exists":
+	case "file_exists", "file_not_exists":
 		if strings.TrimSpace(condition.Path) == "" {
 			return fmt.Errorf("path is required")
 		}
 		return nil
-	case "file_contains":
+	case "file_contains", "file_not_contains":
 		if strings.TrimSpace(condition.Path) == "" {
 			return fmt.Errorf("path is required")
 		}

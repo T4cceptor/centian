@@ -5,7 +5,8 @@ Problem:
 - There is an existing bug in `/workspace/project/mathlib.py`.
 - The behavior should be simple integer addition.
 - There is already a pytest file in `/workspace/project/tests/test_mathlib.py`.
-- Your goal is to derive the right task parameters, complete onboarding, complete planning, verify the workflow enters an approval wait, prove proxied tools are blocked there, and then stop.
+- Register the task before using any project-access MCP tool.
+- Your goal is to complete onboarding, complete planning, verify the workflow enters an approval wait, prove proxied tools are blocked there, and then stop.
 
 Rules:
 
@@ -24,10 +25,15 @@ Bootstrap the task like this:
 
 1. Call `centian.task_list_templates`.
 2. Choose the `python_tdd_approval_wait` workflow template.
-3. Derive the required parameter values from the project files and the existing failing behavior.
-4. Call `centian.task_register` with the correct template id and parameter values you derived.
-5. Call `centian.task_complete_onboarding` with a concise project summary, relevant artifact map, and useful commands.
-6. Call `centian.task_complete_planning` with the required planning artifact, including selected files, test target, lint command, expected failure, and implementation target.
-7. Verify the resulting task state is in `waiting_for_approval.review_plan`.
-8. While still in that approval-wait node, intentionally call one proxied tool such as `shell___exec` with a harmless command like `pwd` and verify Centian blocks it.
-9. Stop there and provide a short summary that the task is paused waiting for approval and that the blocked tool behavior was confirmed.
+3. Call `centian.task_register` immediately with these parameters:
+   - `templateId`: `python_tdd_approval_wait`
+   - `testCommand`: `python -m pytest -q`
+   - `testFile`: `tests/test_mathlib.py`
+   - `testTarget`: `tests/test_mathlib.py::test_add_two_numbers`
+   - `lintCommand`: `python -m ruff check .`
+   - `expectedError`: `AssertionError: assert -1 == 3`
+4. Call `centian.task_complete_onboarding` with a concise project summary, relevant artifact map, and useful commands.
+5. Call `centian.task_complete_planning` with the required planning artifact, including selected files, test target, lint command, expected failure, and implementation target.
+6. Verify the resulting task state is in `waiting_for_approval.review_plan`.
+7. While still in that approval-wait node, intentionally call one proxied tool such as `shell___exec` with a harmless command like `pwd` and verify Centian blocks it.
+8. Stop there and provide a short summary that the task is paused waiting for approval and that the blocked tool behavior was confirmed.

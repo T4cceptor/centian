@@ -4,8 +4,9 @@ Problem:
 
 - There is an existing bug in `/workspace/project/mathlib.py`.
 - The behavior should be simple integer addition.
-- There is already a pytest file in `/workspace/project/tests/test_mathlib.py`.
-- Your job is to derive the right task parameters from the project, establish the failing baseline through Centian, then implement the fix.
+- There is already a pytest file in `/workspace/project/tests/test_mathlib.py`, but for this workflow you should create a new focused pytest file for the bug during scaffolding.
+- Register the task before using any project-access MCP tool.
+- Your job is to establish the failing baseline through Centian, then implement the fix.
 
 Rules:
 
@@ -24,9 +25,24 @@ Bootstrap the task like this:
 
 1. Call `centian.task_list_templates`.
 2. Choose the generic Python TDD workflow template.
-3. Derive the required parameter values from the project files and the failing behavior.
-4. Call `centian.task_register` with the correct template id and parameter values you derived.
-5. Call `centian.task_complete_onboarding` with a concise project summary, relevant artifact map, and the commands you discovered.
-6. Call `centian.task_complete_planning` with the required planning artifact, including selected files, test target, lint command, expected failure, and implementation target.
-7. Only after planning has moved the workflow into execution, use `centian.task_start_step` and `centian.task_complete_step` in order.
-8. Stop after the task is completed and provide a short summary of the change and which Centian lifecycle steps passed.
+3. Call `centian.task_register` immediately with these parameters:
+   - `templateId`: `python_tdd_workflow`
+   - `testCommand`: `python -m pytest -q`
+   - `testFile`: `tests/test_mathlib_addition.py`
+   - `testName`: `test_add_two_numbers`
+   - `testTarget`: `tests/test_mathlib_addition.py::test_add_two_numbers`
+   - `lintCommand`: `python -m ruff check .`
+   - `expectedError`: `AssertionError: assert -1 == 3`
+   - `implementationTarget`: `/workspace/project/mathlib.py`
+4. Call `centian.task_complete_onboarding` with a concise project summary, relevant artifact map, and the planned commands.
+5. Call `centian.task_complete_planning` with the required planning artifact, including:
+   - `selectedFiles`: `/workspace/project/mathlib.py` and `/workspace/project/tests/test_mathlib_addition.py`
+   - `testTarget`: `tests/test_mathlib_addition.py::test_add_two_numbers`
+   - `lintCommand`: `python -m ruff check .`
+   - `expectedFailure`: `AssertionError: assert -1 == 3`
+   - `implementationTarget`: `/workspace/project/mathlib.py`
+6. After planning enters `scaffolding`, run all four steps in order.
+7. In scaffolding, create the new focused test file and leave the existing implementation file in place.
+8. In execution step 3, verify the new targeted test fails for the expected reason without extra edits.
+9. In execution step 4, fix `/workspace/project/mathlib.py`, keep the new test file stable, and complete the task.
+10. Stop after the task is completed and provide a short summary of the change and which Centian lifecycle steps passed.

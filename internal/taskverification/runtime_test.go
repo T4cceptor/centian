@@ -96,6 +96,51 @@ workflow:
 	assert.Equal(t, run.Steps[0].Status, StepStatusPending)
 }
 
+func TestScaffoldingStepTransitionsIntoExecution(t *testing.T) {
+	service, run := newRuntimeTestService(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+workflow:
+  onboarding: {}
+  planning:
+    required_outputs: ["testTarget"]
+  scaffolding:
+    - id: "setup_test_file"
+      checks:
+        - id: "file_created"
+          command: "printf 'scaffold'"
+          pre_conditions:
+            - type: file_not_exists
+              path: "generated_test.py"
+          post_conditions:
+            - type: file_exists
+              path: "generated_test.py"
+  execution:
+    - id: "implement_solution"
+      checks:
+        - id: "selected_test_passes"
+          command: "printf 'ok'"
+`)
+
+	assert.Equal(t, run.Phase, TaskPhase("scaffolding.setup_test_file"))
+
+	start, err := service.StartStep(run, 1)
+	assert.NilError(t, err)
+	assert.Assert(t, start.Passed)
+	assert.Equal(t, start.Phase, TaskPhase("scaffolding.setup_test_file"))
+
+	err = os.WriteFile(filepath.Join(service.WorkingDir, "generated_test.py"), []byte("def test_ok(): pass\n"), 0o644)
+	assert.NilError(t, err)
+
+	complete, err := service.CompleteStep(run, 1)
+	assert.NilError(t, err)
+	assert.Assert(t, complete.Passed)
+	assert.Equal(t, run.Phase, TaskPhase("execution.implement_solution"))
+}
+
 func TestStartStepRequiresExecutionNode(t *testing.T) {
 	service, run := newRuntimeShellTestService(t, `
 version: "0.1"
@@ -115,7 +160,7 @@ workflow:
 `)
 
 	_, err := service.StartStep(run, 1)
-	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
 func TestCompleteStepRequiresExecutionNode(t *testing.T) {
@@ -137,7 +182,7 @@ workflow:
 `)
 
 	_, err := service.CompleteStep(run, 1)
-	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
 func TestStartStepFailsInPlanningAfterOnboardingCompletion(t *testing.T) {
@@ -162,7 +207,7 @@ workflow:
 	assert.NilError(t, err)
 
 	_, err = service.StartStep(run, 1)
-	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
 func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
@@ -444,7 +489,7 @@ workflow:
 	assert.Equal(t, run.Phase, TaskPhase("waiting_for_approval.review"))
 
 	_, err = service.StartStep(run, 2)
-	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
 func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {

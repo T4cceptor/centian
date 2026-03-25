@@ -175,8 +175,8 @@ func validateTaskExecutable(run *RunState) error {
 	if !exists {
 		return fmt.Errorf("task is in unknown workflow phase %s", run.Phase)
 	}
-	if node.Kind != WorkflowNodeKindExecution {
-		return fmt.Errorf("task is in %s phase; step execution is only allowed in execution nodes", run.Phase)
+	if node.Kind != WorkflowNodeKindScaffolding && node.Kind != WorkflowNodeKindExecution {
+		return fmt.Errorf("task is in %s phase; step execution is only allowed in scaffolding or execution nodes", run.Phase)
 	}
 	if !run.ExecutionReady || run.ExecutionTemplate == nil {
 		return fmt.Errorf("task has no execution contract")
@@ -479,8 +479,12 @@ func evaluateCondition(condition Condition, result *commandResult, workingDir st
 		return evaluateStdoutNotContains(condition.Value.(string), result.Stdout)
 	case "file_exists":
 		return evaluateFileExists(condition.Path, workingDir)
+	case "file_not_exists":
+		return evaluateFileNotExists(condition.Path, workingDir)
 	case "file_contains":
 		return evaluateFileContains(condition.Path, condition.Value.(string), workingDir)
+	case "file_not_contains":
+		return evaluateFileNotContains(condition.Path, condition.Value.(string), workingDir)
 	default:
 		return fmt.Errorf("unsupported condition type %q", condition.Type)
 	}
@@ -537,6 +541,17 @@ func evaluateFileExists(path, workingDir string) error {
 	return nil
 }
 
+func evaluateFileNotExists(path, workingDir string) error {
+	resolvedPath := resolvePath(workingDir, path)
+	if _, err := os.Stat(resolvedPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to stat file %q: %w", path, err)
+	}
+	return fmt.Errorf("expected file %q not to exist", path)
+}
+
 func evaluateFileContains(path, expected, workingDir string) error {
 	resolvedPath := resolvePath(workingDir, path)
 	// #nosec G304 -- task verification intentionally reads template-defined files relative to the working directory.
@@ -546,6 +561,19 @@ func evaluateFileContains(path, expected, workingDir string) error {
 	}
 	if !strings.Contains(string(content), expected) {
 		return fmt.Errorf("expected file %q to contain %q", path, expected)
+	}
+	return nil
+}
+
+func evaluateFileNotContains(path, unexpected, workingDir string) error {
+	resolvedPath := resolvePath(workingDir, path)
+	// #nosec G304 -- task verification intentionally reads template-defined files relative to the working directory.
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return fmt.Errorf("failed to read file %q: %w", path, err)
+	}
+	if strings.Contains(string(content), unexpected) {
+		return fmt.Errorf("expected file %q not to contain %q", path, unexpected)
 	}
 	return nil
 }

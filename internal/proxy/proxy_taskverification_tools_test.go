@@ -217,7 +217,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 			"step": 1,
 		},
 	})
-	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 
 	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
@@ -580,11 +580,15 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
 
-	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+	preRegisterResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "shell__exec",
 		Arguments: map[string]any{"command": "pwd"},
 	})
 	assert.NilError(t, err)
+	assert.Assert(t, preRegisterResult != nil)
+	assert.Assert(t, preRegisterResult.IsError)
+	preRegisterStructured := preRegisterResult.StructuredContent.(map[string]any)
+	assert.Equal(t, preRegisterStructured["reason"], governanceDeniedRegistrationNeeded)
 	assert.Equal(t, len(endpoint.server.TaskVerification.ActionEventTaskContexts()), 0)
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -762,7 +766,7 @@ workflow:
 			"step": 1,
 		},
 	})
-	assert.ErrorContains(t, err, "step execution is only allowed in execution nodes")
+	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
 func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
@@ -905,6 +909,26 @@ func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
 	assert.Equal(t, downstream.CapturedToolName, "shell__exec")
 }
 
+func TestTaskLifecycleToolsRequireRegistrationFirst(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, basicTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "blocked"},
+		},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, result.IsError)
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["reason"], governanceDeniedRegistrationNeeded)
+	assert.Equal(t, structured["requestedTool"], taskCompleteOnboardingTool)
+}
+
 func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
 	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
 	downstream := attachTaskToolDownstream(t, endpoint, session, "database__query")
@@ -1006,6 +1030,80 @@ func TestWorkflowNodeToolGovernanceMatchesAggregatedCanonicalToolName(t *testing
 	assert.Assert(t, result != nil)
 	assert.Assert(t, !result.IsError)
 	assert.Equal(t, downstream.CapturedToolName, "shell__exec")
+}
+
+func TestWorkflowNodeToolGovernanceAllowsWildcardToolsInScaffolding(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, `
+version: "0.1"
+task:
+  id: "task"
+  name: "Task"
+  description: "desc"
+workflow:
+  onboarding:
+    tools_allowed: ["shell__*"]
+  planning:
+    tools_allowed: ["shell__*"]
+    required_outputs: ["testTarget"]
+  scaffolding:
+    - id: "setup_files"
+      tools_allowed: ["*"]
+      checks:
+        - id: "scaffold_ready"
+          command: "printf 'ready'"
+          pre_conditions:
+            - type: stdout_contains
+              value: "ready"
+          post_conditions:
+            - type: stdout_contains
+              value: "ready"
+  execution:
+    - id: "step_one"
+      tools_allowed: ["shell__*"]
+      checks:
+        - id: "check_one"
+          command: "printf 'ok'"
+`)
+	downstream := attachTaskToolDownstream(t, endpoint, session, "database__query")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+			"parameters": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+		},
+	})
+	assert.NilError(t, err)
+	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{"testTarget": "pytest -q"},
+		},
+	})
+	assert.NilError(t, err)
+	structured := completePlanningResult.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["phase"], "scaffolding.setup_files")
+	assert.Equal(t, structured["currentNodeKind"], string(taskverification.WorkflowNodeKindScaffolding))
+	assert.DeepEqual(t, structured["allowedTools"], []any{"*"})
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "database__query",
+		Arguments: map[string]any{"sql": "select 1"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, !result.IsError)
+	assert.Equal(t, downstream.CapturedToolName, "database__query")
 }
 
 func TestWorkflowNodeToolGovernanceBlocksWaitingForApprovalButKeepsTaskToolsCallable(t *testing.T) {

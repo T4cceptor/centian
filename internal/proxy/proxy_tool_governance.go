@@ -13,6 +13,7 @@ const (
 	governanceDeniedWaitingForApproval = "waiting_for_approval"
 	governanceDeniedNoAllowlist        = "no_allowlist"
 	governanceDeniedNoPatternMatch     = "no_matching_pattern"
+	governanceDeniedRegistrationNeeded = "registration_required"
 )
 
 func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSession, callCtx CallContext) (*mcp.CallToolResult, bool) {
@@ -24,7 +25,13 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 	defer session.taskMu.Unlock()
 
 	run := session.taskRun
-	if run == nil || run.Status != taskverification.TaskStatusActive {
+	if run == nil {
+		if p.server != nil && p.server.Config != nil && p.server.Config.Proxy.TaskVerificationEnabled() {
+			return p.governanceDeniedResult(callCtx, "", "", nil, governanceDeniedRegistrationNeeded), true
+		}
+		return nil, false
+	}
+	if run.Status != taskverification.TaskStatusActive {
 		return nil, false
 	}
 

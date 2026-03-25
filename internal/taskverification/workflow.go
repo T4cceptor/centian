@@ -37,26 +37,40 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	executionSteps := make([]Step, 0)
 	stepNumber := 0
 
-	var compileExecutionNodes func(nodes []ExecutionNodeSpec, ancestorIDs []string, logicalParent TaskPhase) error
-	compileExecutionNodes = func(nodes []ExecutionNodeSpec, ancestorIDs []string, logicalParent TaskPhase) error {
+	var compileStepNodes func(
+		nodes []ExecutionNodeSpec,
+		ancestorIDs []string,
+		logicalParent TaskPhase,
+		rootPath TaskPhase,
+		defaultKind WorkflowNodeKind,
+		location string,
+	) error
+	compileStepNodes = func(
+		nodes []ExecutionNodeSpec,
+		ancestorIDs []string,
+		logicalParent TaskPhase,
+		rootPath TaskPhase,
+		defaultKind WorkflowNodeKind,
+		location string,
+	) error {
 		for index := range nodes {
 			nodeSpec := nodes[index]
 			if strings.TrimSpace(nodeSpec.ID) == "" {
-				return fmt.Errorf("workflow.execution node id is required")
+				return fmt.Errorf("%s node id is required", location)
 			}
 			if previous, exists := seenIDs[nodeSpec.ID]; exists {
 				return fmt.Errorf("duplicate workflow node id %q in %s and %s", nodeSpec.ID, previous, nodeSpec.ID)
 			}
 			kind := nodeSpec.Kind
 			if kind == "" {
-				kind = WorkflowNodeKindExecution
+				kind = defaultKind
 			}
-			if kind != WorkflowNodeKindExecution && kind != WorkflowNodeKindWaitingForApproval {
-				return fmt.Errorf("workflow.execution node %q has unsupported kind %q", nodeSpec.ID, kind)
+			if kind != defaultKind && kind != WorkflowNodeKindWaitingForApproval {
+				return fmt.Errorf("%s node %q has unsupported kind %q", location, nodeSpec.ID, kind)
 			}
 
 			ids := append(append([]string(nil), ancestorIDs...), nodeSpec.ID)
-			logicalPath := buildExecutionPath(ids)
+			logicalPath := buildWorkflowPath(rootPath, ids)
 			path := logicalPath
 			if kind == WorkflowNodeKindWaitingForApproval {
 				path = buildApprovalPath(ids)
@@ -64,7 +78,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 			seenIDs[nodeSpec.ID] = string(path)
 
 			if len(nodeSpec.SubSteps) > 0 {
-				if kind != WorkflowNodeKindExecution {
+				if kind != defaultKind {
 					return fmt.Errorf("workflow node %q cannot define sub_steps for kind %q", nodeSpec.ID, kind)
 				}
 				if len(nodeSpec.Checks) > 0 || len(nodeSpec.Invariants) > 0 {
@@ -73,13 +87,13 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 				if strings.TrimSpace(nodeSpec.Next) != "" {
 					return fmt.Errorf("workflow node %q cannot define next when sub_steps are present", nodeSpec.ID)
 				}
-				if err := compileExecutionNodes(nodeSpec.SubSteps, ids, logicalPath); err != nil {
+				if err := compileStepNodes(nodeSpec.SubSteps, ids, logicalPath, rootPath, defaultKind, location); err != nil {
 					return err
 				}
 				continue
 			}
 
-			if kind == WorkflowNodeKindExecution {
+			if kind == defaultKind {
 				step := Step{
 					ID:           nodeSpec.ID,
 					Path:         path,
@@ -99,7 +113,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 				executionSteps = append(executionSteps, step)
 				node := WorkflowNode{
 					Path:         path,
-					Kind:         WorkflowNodeKindExecution,
+					Kind:         defaultKind,
 					ParentPath:   logicalParent,
 					StepNumber:   stepNumber,
 					StepID:       nodeSpec.ID,
@@ -139,7 +153,24 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 		return nil
 	}
 
-	if err := compileExecutionNodes(t.Workflow.Execution, nil, TaskPhaseExecution); err != nil {
+	if err := compileStepNodes(
+		t.Workflow.Scaffolding,
+		nil,
+		TaskPhaseScaffolding,
+		TaskPhaseScaffolding,
+		WorkflowNodeKindScaffolding,
+		"workflow.scaffolding",
+	); err != nil {
+		return nil, err
+	}
+	if err := compileStepNodes(
+		t.Workflow.Execution,
+		nil,
+		TaskPhaseExecution,
+		TaskPhaseExecution,
+		WorkflowNodeKindExecution,
+		"workflow.execution",
+	); err != nil {
 		return nil, err
 	}
 	if len(executionSteps) == 0 {
@@ -197,8 +228,16 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	return compiled, nil
 }
 
+func buildWorkflowPath(root TaskPhase, ids []string) TaskPhase {
+	return TaskPhase(strings.Join(append([]string{string(root)}, ids...), "."))
+}
+
+func buildScaffoldingPath(ids []string) TaskPhase {
+	return buildWorkflowPath(TaskPhaseScaffolding, ids)
+}
+
 func buildExecutionPath(ids []string) TaskPhase {
-	return TaskPhase(strings.Join(append([]string{string(TaskPhaseExecution)}, ids...), "."))
+	return buildWorkflowPath(TaskPhaseExecution, ids)
 }
 
 func validateWorkflowDefinition(t *Template) error {
@@ -282,7 +321,7 @@ func setNodeNext(nodes map[TaskPhase]WorkflowNode, path TaskPhase, next string) 
 		return fmt.Errorf("unknown workflow node %q", nextPath)
 	}
 	switch target.Kind {
-	case WorkflowNodeKindExecution, WorkflowNodeKindWaitingForApproval:
+	case WorkflowNodeKindScaffolding, WorkflowNodeKindExecution, WorkflowNodeKindWaitingForApproval:
 	default:
 		return fmt.Errorf("workflow node %q cannot target %q", path, nextPath)
 	}
