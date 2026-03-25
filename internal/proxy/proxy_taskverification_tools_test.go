@@ -25,6 +25,7 @@ func newTaskToolTestProxyWithEnabled(t *testing.T, templateContent string, enabl
 
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	taskVerificationEnabled := enabled
 	templateDir := t.TempDir()
 	workingDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(templateDir, "task.yaml"), []byte(templateContent), 0o644)
@@ -43,8 +44,10 @@ func newTaskToolTestProxyWithEnabled(t *testing.T, templateContent string, enabl
 			Config: &config.GlobalConfig{
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					FeatureFlags: &config.FeatureFlagsSettings{
-						TaskVerification: enabled,
+					Capabilities: &config.CapabilitiesSettings{
+						TaskVerification: &config.TaskVerificationCapabilitySettings{
+							Enabled: &taskVerificationEnabled,
+						},
 					},
 				},
 			},

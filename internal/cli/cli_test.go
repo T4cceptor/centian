@@ -56,6 +56,21 @@ func TestInitCommandWorkflow(t *testing.T) {
 	if loadedConfig.Version != "1.0.0" {
 		t.Errorf("Config version incorrect: expected 1.0.0, got %s", loadedConfig.Version)
 	}
+	if loadedConfig.Proxy == nil || loadedConfig.Proxy.Capabilities == nil {
+		t.Fatalf("Expected init to create proxy capabilities")
+	}
+	if loadedConfig.Proxy.Capabilities.TaskVerification == nil || loadedConfig.Proxy.Capabilities.TaskVerification.Enabled == nil {
+		t.Fatalf("Expected init to create task verification capability settings")
+	}
+	if *loadedConfig.Proxy.Capabilities.TaskVerification.Enabled {
+		t.Fatalf("Expected task verification to be disabled by default")
+	}
+	if loadedConfig.Proxy.Capabilities.EventStorage == nil || loadedConfig.Proxy.Capabilities.EventStorage.Enabled == nil {
+		t.Fatalf("Expected init to create event storage capability settings")
+	}
+	if !*loadedConfig.Proxy.Capabilities.EventStorage.Enabled {
+		t.Fatalf("Expected event storage to be enabled by default")
+	}
 
 	t.Log("Init command workflow test completed successfully")
 }

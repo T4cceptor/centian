@@ -123,11 +123,12 @@ func newTaskVerificationService(
 ) (*taskverification.Service, io.Closer, error) {
 	templateDir := resolveTaskTemplatesPath(globalConfig.Proxy, workingDir)
 	taskService := taskverification.NewService(templateDir, workingDir)
-	if globalConfig.Proxy.EventStorage != nil && !globalConfig.Proxy.EventStorage.IsEnabled() {
+	eventStorage := globalConfig.Proxy.EventStorageCapability()
+	if eventStorage != nil && !eventStorage.IsEnabled() {
 		return taskService, noopCloser{}, nil
 	}
 
-	storePath, err := resolveEventStorePath(globalConfig.Proxy.EventStorage)
+	storePath, err := resolveEventStorePath(eventStorage)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,16 +143,20 @@ func newTaskVerificationService(
 
 func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string) string {
 	defaultPath := filepath.Join(workingDir, "task-templates")
-	if settings == nil || settings.TaskTemplatesPath == "" {
+	if settings == nil {
 		return defaultPath
 	}
-	if filepath.IsAbs(settings.TaskTemplatesPath) {
-		return settings.TaskTemplatesPath
+	templatesPath := settings.TaskVerificationCapability().GetTemplatesPath()
+	if templatesPath == "" {
+		return defaultPath
 	}
-	return filepath.Join(workingDir, settings.TaskTemplatesPath)
+	if filepath.IsAbs(templatesPath) {
+		return templatesPath
+	}
+	return filepath.Join(workingDir, templatesPath)
 }
 
-func resolveEventStorePath(settings *config.EventStorageSettings) (string, error) {
+func resolveEventStorePath(settings *config.EventStorageCapabilitySettings) (string, error) {
 	driver := config.DefaultEventStorageDriver
 	if settings != nil {
 		driver = settings.GetDriver()

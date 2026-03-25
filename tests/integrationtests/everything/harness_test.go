@@ -338,6 +338,7 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 	t.Helper()
 
 	authDisabled := false
+	testToolsEnabled := false
 	port := allocateFreePort(t)
 
 	globalConfig := &config.GlobalConfig{
@@ -348,8 +349,10 @@ func startCentianProxyForEverything(t *testing.T, downstream everythingServerCom
 			Host:    "127.0.0.1",
 			Port:    port,
 			Timeout: int(defaultSessionTimeout.Seconds()),
-			FeatureFlags: &config.FeatureFlagsSettings{
-				EnableTestTools: false,
+			Capabilities: &config.CapabilitiesSettings{
+				TestTools: &config.TestToolsCapabilitySettings{
+					Enabled: &testToolsEnabled,
+				},
 			},
 		},
 		Gateways: map[string]*config.GatewayConfig{

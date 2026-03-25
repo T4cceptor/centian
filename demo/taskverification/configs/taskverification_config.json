@@ -9,9 +9,15 @@
     "logLevel": "debug",
     "logOutput": "both",
     "logFile": "/artifacts/centian_internal.log",
-    "taskTemplatesPath": "/opt/centian/task-templates",
-    "featureFlags": {
-      "taskVerification": true
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "/opt/centian/task-templates"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite"
+      }
     }
   },
   "gateways": {

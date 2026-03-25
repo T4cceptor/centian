@@ -252,9 +252,13 @@ func TestNewCentianServer_UsesConfiguredTaskTemplatesPath(t *testing.T) {
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
 		Proxy: &config.ProxySettings{
-			Port:              "9000",
-			Timeout:           10,
-			TaskTemplatesPath: "custom-templates",
+			Port:    "9000",
+			Timeout: 10,
+			Capabilities: &config.CapabilitiesSettings{
+				TaskVerification: &config.TaskVerificationCapabilitySettings{
+					TemplatesPath: "custom-templates",
+				},
+			},
 		},
 		Gateways: map[string]*config.GatewayConfig{},
 	}

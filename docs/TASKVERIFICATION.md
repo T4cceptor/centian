@@ -27,7 +27,7 @@ Taskverification tools are disabled by default. You must opt in explicitly.
 
 ### 1. Enable the feature
 
-Add `proxy.featureFlags.taskVerification` to your Centian config:
+Add `proxy.capabilities.taskVerification` to your Centian config:
 
 ```json
 {
@@ -35,13 +35,15 @@ Add `proxy.featureFlags.taskVerification` to your Centian config:
     "host": "127.0.0.1",
     "port": "8080",
     "timeout": 30,
-    "taskTemplatesPath": "/absolute/path/to/task-templates",
-    "featureFlags": {
-      "taskVerification": true
-    },
-    "eventStorage": {
-      "enabled": true,
-      "driver": "sqlite"
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "/absolute/path/to/task-templates"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite"
+      }
     }
   }
 }
@@ -49,9 +51,9 @@ Add `proxy.featureFlags.taskVerification` to your Centian config:
 
 Notes:
 
-- `taskVerification` controls whether `centian.task_*` tools are exposed.
-- `taskTemplatesPath` overrides where Centian looks for task templates.
-- `eventStorage` is separate from `featureFlags` because it configures persistence, not just a capability toggle.
+- `capabilities.taskVerification.enabled` controls whether `centian.task_*` tools are exposed.
+- `capabilities.taskVerification.templatesPath` overrides where Centian looks for task templates.
+- `capabilities.eventStorage` configures durable task/action event persistence.
 - SQLite is the only implemented runtime backend today.
 
 ### 2. Ensure templates exist
@@ -62,12 +64,12 @@ By default, taskverification loads templates from:
 <current-working-directory>/task-templates
 ```
 
-If `proxy.taskTemplatesPath` is set, Centian uses that directory instead.
+If `proxy.capabilities.taskVerification.templatesPath` is set, Centian uses that directory instead.
 
 That means you can either:
 
 - start Centian in a directory that contains `task-templates/`
-- or point `taskTemplatesPath` at a different template directory explicitly
+- or point `capabilities.taskVerification.templatesPath` at a different template directory explicitly
 
 This repository already includes example templates under [task-templates](/Users/brb/_devspace/centian-cli/task-templates).
 
@@ -276,7 +278,7 @@ Centian still writes JSONL request logs for MCP activity.
 
 ### SQLite event store
 
-When `proxy.eventStorage.enabled` is on, Centian also persists:
+When `proxy.capabilities.eventStorage.enabled` is on, Centian also persists:
 
 - `task_events`
 - `action_events`
@@ -305,36 +307,44 @@ Not persisted today:
 
 ## Configuration Notes
 
-### Feature flags
+### Capabilities
 
 Taskverification is behind:
 
 ```json
 "proxy": {
-  "featureFlags": {
-    "taskVerification": true
+  "capabilities": {
+    "taskVerification": {
+      "enabled": true
+    }
   }
 }
 ```
 
-Other proxy-owned toggles live in the same block, for example:
+Other proxy-owned capabilities live in the same block, for example:
 
 ```json
-"featureFlags": {
-  "enableTestTools": false,
-  "taskVerification": true
+"capabilities": {
+  "testTools": {
+    "enabled": false
+  },
+  "taskVerification": {
+    "enabled": true
+  }
 }
 ```
 
 ### Event storage
 
-Event storage remains a dedicated config block:
+Event storage lives under the same `capabilities` block:
 
 ```json
-"eventStorage": {
-  "enabled": true,
-  "driver": "sqlite",
-  "path": "/path/to/events.sqlite"
+"capabilities": {
+  "eventStorage": {
+    "enabled": true,
+    "driver": "sqlite",
+    "path": "/path/to/events.sqlite"
+  }
 }
 ```
 

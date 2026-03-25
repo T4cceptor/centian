@@ -162,16 +162,14 @@ type OAuthConfig struct {
 // ProxySettings contains proxy-level configuration that affects how the
 // centian proxy operates, including transport method, logging, and timeouts.
 type ProxySettings struct {
-	Host              string                `json:"host,omitempty"`              // Bind address for the proxy
-	Port              string                `json:"port,omitempty"`              // HTTP proxy port (if enabled)
-	LogLevel          string                `json:"logLevel,omitempty"`          // debug, info, warn, error
-	LogOutput         string                `json:"logOutput,omitempty"`         // file, console, both
-	LogFile           string                `json:"logFile,omitempty"`           // Log file path for internal logger
-	Timeout           int                   `json:"timeout,omitempty"`           // Request timeout in seconds
-	TaskTemplatesPath string                `json:"taskTemplatesPath,omitempty"` // Override path to taskverification templates
-	FeatureFlags      *FeatureFlagsSettings `json:"featureFlags,omitempty"`      // Proxy-owned feature toggles
-	Web               *ProxyWebSettings     `json:"web,omitempty"`               // Public web settings for hosted OAuth flows
-	EventStorage      *EventStorageSettings `json:"eventStorage,omitempty"`      // Event persistence settings
+	Host         string                `json:"host,omitempty"`         // Bind address for the proxy
+	Port         string                `json:"port,omitempty"`         // HTTP proxy port (if enabled)
+	LogLevel     string                `json:"logLevel,omitempty"`     // debug, info, warn, error
+	LogOutput    string                `json:"logOutput,omitempty"`    // file, console, both
+	LogFile      string                `json:"logFile,omitempty"`      // Log file path for internal logger
+	Timeout      int                   `json:"timeout,omitempty"`      // Request timeout in seconds
+	Capabilities *CapabilitiesSettings `json:"capabilities,omitempty"` // Optional proxy-owned capabilities
+	Web          *ProxyWebSettings     `json:"web,omitempty"`          // Public web settings for hosted OAuth flows
 }
 
 // ProxyWebSettings contains public-facing web settings required for browser-based flows.
@@ -179,58 +177,130 @@ type ProxyWebSettings struct {
 	PublicBaseURL string `json:"publicBaseUrl,omitempty"`
 }
 
-// EventStorageSettings controls durable storage for task and action events.
-type EventStorageSettings struct {
+// CapabilitiesSettings groups optional proxy-owned capabilities.
+type CapabilitiesSettings struct {
+	TaskVerification *TaskVerificationCapabilitySettings `json:"taskVerification,omitempty"`
+	EventStorage     *EventStorageCapabilitySettings     `json:"eventStorage,omitempty"`
+	TestTools        *TestToolsCapabilitySettings        `json:"testTools,omitempty"`
+}
+
+// TaskVerificationCapabilitySettings controls taskverification capability behavior.
+type TaskVerificationCapabilitySettings struct {
+	Enabled       *bool  `json:"enabled,omitempty"`
+	TemplatesPath string `json:"templatesPath,omitempty"`
+}
+
+// EventStorageCapabilitySettings controls durable storage for task and action events.
+type EventStorageCapabilitySettings struct {
 	Enabled *bool  `json:"enabled,omitempty"`
 	Driver  string `json:"driver,omitempty"`
 	Path    string `json:"path,omitempty"`
 }
 
-// FeatureFlagsSettings groups proxy-owned feature toggles.
-type FeatureFlagsSettings struct {
-	EnableTestTools  bool `json:"enableTestTools,omitempty"`
-	TaskVerification bool `json:"taskVerification,omitempty"`
+// TestToolsCapabilitySettings controls Centian-owned test/debug tools.
+type TestToolsCapabilitySettings struct {
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // NewDefaultProxySettings creates a new ProxySettings with default values.
 func NewDefaultProxySettings() ProxySettings {
+	taskVerificationEnabled := false
+	testToolsEnabled := false
+	eventStorageEnabled := true
 	return ProxySettings{
 		Host:      DefaultProxyHost,
 		Port:      "8080",
 		Timeout:   30,
 		LogLevel:  DefaultProxyLogLevel,
 		LogOutput: DefaultProxyLogOutput,
-		Web:       &ProxyWebSettings{},
-		EventStorage: &EventStorageSettings{
-			Driver: DefaultEventStorageDriver,
+		Capabilities: &CapabilitiesSettings{
+			TaskVerification: &TaskVerificationCapabilitySettings{
+				Enabled: &taskVerificationEnabled,
+			},
+			EventStorage: &EventStorageCapabilitySettings{
+				Enabled: &eventStorageEnabled,
+				Driver:  DefaultEventStorageDriver,
+			},
+			TestTools: &TestToolsCapabilitySettings{
+				Enabled: &testToolsEnabled,
+			},
 		},
+		Web: &ProxyWebSettings{},
 	}
 }
 
 // IsEnabled reports whether event storage is enabled. Defaults to true.
-func (e *EventStorageSettings) IsEnabled() bool {
+func (e *EventStorageCapabilitySettings) IsEnabled() bool {
 	if e == nil || e.Enabled == nil {
 		return true
 	}
 	return *e.Enabled
 }
 
-// TestToolsEnabled reports whether proxy-owned test tools are enabled. Defaults to false.
-func (p *ProxySettings) TestToolsEnabled() bool {
-	return p != nil && p.FeatureFlags != nil && p.FeatureFlags.EnableTestTools
+// IsEnabled reports whether taskverification is enabled. Defaults to false.
+func (t *TaskVerificationCapabilitySettings) IsEnabled() bool {
+	if t == nil || t.Enabled == nil {
+		return false
+	}
+	return *t.Enabled
 }
 
-// TaskVerificationEnabled reports whether taskverification tools are enabled. Defaults to false.
-func (p *ProxySettings) TaskVerificationEnabled() bool {
-	return p != nil && p.FeatureFlags != nil && p.FeatureFlags.TaskVerification
+// IsEnabled reports whether Centian-owned test tools are enabled. Defaults to false.
+func (t *TestToolsCapabilitySettings) IsEnabled() bool {
+	if t == nil || t.Enabled == nil {
+		return false
+	}
+	return *t.Enabled
 }
 
 // GetDriver returns the configured event storage driver or the default.
-func (e *EventStorageSettings) GetDriver() string {
+func (e *EventStorageCapabilitySettings) GetDriver() string {
 	if e == nil || strings.TrimSpace(e.Driver) == "" {
 		return DefaultEventStorageDriver
 	}
 	return strings.TrimSpace(e.Driver)
+}
+
+// GetTemplatesPath returns the configured task template directory override.
+func (t *TaskVerificationCapabilitySettings) GetTemplatesPath() string {
+	if t == nil {
+		return ""
+	}
+	return strings.TrimSpace(t.TemplatesPath)
+}
+
+// TaskVerificationCapability returns the configured taskverification capability block.
+func (p *ProxySettings) TaskVerificationCapability() *TaskVerificationCapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.TaskVerification
+}
+
+// EventStorageCapability returns the configured event storage capability block.
+func (p *ProxySettings) EventStorageCapability() *EventStorageCapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.EventStorage
+}
+
+// TestToolsCapability returns the configured test tools capability block.
+func (p *ProxySettings) TestToolsCapability() *TestToolsCapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.TestTools
+}
+
+// TestToolsEnabled reports whether proxy-owned test tools are enabled. Defaults to false.
+func (p *ProxySettings) TestToolsEnabled() bool {
+	return p != nil && p.TestToolsCapability().IsEnabled()
+}
+
+// TaskVerificationEnabled reports whether taskverification tools are enabled. Defaults to false.
+func (p *ProxySettings) TaskVerificationEnabled() bool {
+	return p != nil && p.TaskVerificationCapability().IsEnabled()
 }
 
 // GatewayConfig represents a logical grouping of HTTP MCP servers.
@@ -524,7 +594,15 @@ func validateProxySettings(proxy *ProxySettings) error {
 	}
 
 	proxy.LogFile = strings.TrimSpace(proxy.LogFile)
-	proxy.TaskTemplatesPath = strings.TrimSpace(proxy.TaskTemplatesPath)
+	if proxy.Capabilities != nil {
+		if proxy.Capabilities.TaskVerification != nil {
+			proxy.Capabilities.TaskVerification.TemplatesPath = strings.TrimSpace(proxy.Capabilities.TaskVerification.TemplatesPath)
+		}
+		if proxy.Capabilities.EventStorage != nil {
+			proxy.Capabilities.EventStorage.Driver = strings.TrimSpace(proxy.Capabilities.EventStorage.Driver)
+			proxy.Capabilities.EventStorage.Path = strings.TrimSpace(proxy.Capabilities.EventStorage.Path)
+		}
+	}
 	if proxy.Web != nil {
 		proxy.Web.PublicBaseURL = strings.TrimSpace(proxy.Web.PublicBaseURL)
 	}
