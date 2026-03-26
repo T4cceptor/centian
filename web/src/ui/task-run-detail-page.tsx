@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
@@ -17,7 +17,7 @@ export function TaskRunDetailPage() {
   const { runID } = useParams();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [expandedPayloads, setExpandedPayloads] = useState<Record<string, boolean>>({});
+  const [selectedEvent, setSelectedEvent] = useState<TaskRunEvent | null>(null);
 
   useEffect(() => {
     if (!runID) {
@@ -28,7 +28,7 @@ export function TaskRunDetailPage() {
 
     const controller = new AbortController();
     setLoadState("loading");
-    setExpandedPayloads({});
+    setSelectedEvent(null);
 
     void fetchTaskRunEvents(runID, controller.signal)
       .then((result) => {
@@ -132,59 +132,75 @@ export function TaskRunDetailPage() {
       </div>
 
       <div className="timeline">
-        {groupedEvents.map((group) => (
+        {groupedEvents.map((group, groupIndex) => (
           <section key={group.key} className="timeline-group" aria-label={group.label}>
             <div className="timeline-group__header">
-              <span className="timeline-group__marker" />
-              <div className="timeline-group__rule" />
+              <span className="timeline-group__sector">
+                Sector {String(groupIndex + 1).padStart(2, "0")}
+              </span>
               <span className="timeline-group__label">{group.label}</span>
+              <div className="timeline-group__rule" />
             </div>
 
             <div className="timeline-group__events">
               {group.events.map((event) => {
-                const expanded = expandedPayloads[event.id] === true;
                 const tone = getEventTone(event);
-                const payloadText = formatPayload(event.payloadJson);
+                const visual = getEventVisuals(event, tone);
+                const title = getEventTitle(event);
+                const statusLabel = getEventStatusLabel(event);
 
                 return (
-                  <article key={event.id} className={`timeline-event timeline-event--${tone}`}>
-                    <div className="timeline-event__meta">
-                      <span className={`timeline-source-badge timeline-source-badge--${event.source}`}>
-                        {event.source}
-                      </span>
+                  <article
+                    key={event.id}
+                    className={`timeline-event timeline-event--${tone}`}
+                    style={visual.style}
+                  >
+                    <div className="timeline-event__timestamp">
                       <time dateTime={new Date(event.createdAtUnixMilli).toISOString()}>
                         {formatTimestamp(event.createdAtUnixMilli)}
                       </time>
                     </div>
 
-                    <div className="timeline-event__body">
-                      <div>
-                        <h3 className="timeline-event__title" data-testid="timeline-event-title">
-                          {getEventTitle(event)}
-                        </h3>
-                        <p className="timeline-event__subtitle">{getEventSubtitle(event)}</p>
-                      </div>
-                      <span className={`timeline-event__status timeline-event__status--${tone}`}>
-                        {getEventStatusLabel(event)}
+                    <div className="timeline-event__marker-column">
+                      <span className="timeline-event__halo" />
+                      <span className="timeline-event__ring" />
+                      <span
+                        className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
+                        aria-hidden="true"
+                      >
+                        <EventGlyph kind={visual.iconKind} />
                       </span>
                     </div>
 
                     <button
                       type="button"
-                      className="timeline-event__toggle"
-                      onClick={() =>
-                        setExpandedPayloads((current) => ({
-                          ...current,
-                          [event.id]: !current[event.id],
-                        }))
-                      }
+                      className="timeline-event__card"
+                      aria-label={`Open event details for ${title}`}
+                      onClick={() => setSelectedEvent(event)}
                     >
-                      {expanded ? "Hide payload" : "Show payload"}
-                    </button>
+                      <div className="timeline-event__connector" />
+                      <div className="timeline-event__content">
+                        <div className="timeline-event__meta">
+                          <span className="timeline-event__channel">{visual.channelLabel}</span>
+                          <span className={`timeline-source-badge timeline-source-badge--${event.source}`}>
+                            {event.source}
+                          </span>
+                          <span className={`timeline-event__status timeline-event__status--${tone}`}>
+                            {statusLabel}
+                          </span>
+                        </div>
 
-                    {expanded ? (
-                      <pre className="timeline-event__payload">{payloadText}</pre>
-                    ) : null}
+                        <div className="timeline-event__body">
+                          <div>
+                            <h3 className="timeline-event__title" data-testid="timeline-event-title">
+                              {title}
+                            </h3>
+                            <p className="timeline-event__subtitle">{getEventSubtitle(event)}</p>
+                          </div>
+                          <span className="timeline-event__details-link">Inspect</span>
+                        </div>
+                      </div>
+                    </button>
                   </article>
                 );
               })}
@@ -192,6 +208,10 @@ export function TaskRunDetailPage() {
           </section>
         ))}
       </div>
+
+      {selectedEvent ? (
+        <TaskRunEventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+      ) : null}
     </div>
   );
 }
@@ -213,6 +233,49 @@ function DetailStateCard({
       <Link className="back-link" to="/tasks">
         Back to task runs
       </Link>
+    </div>
+  );
+}
+
+function TaskRunEventModal({
+  event,
+  onClose,
+}: {
+  event: TaskRunEvent;
+  onClose: () => void;
+}) {
+  const tone = getEventTone(event);
+  const visual = getEventVisuals(event, tone);
+
+  return (
+    <div className="timeline-modal" onClick={onClose}>
+      <div className="timeline-modal__panel" onClick={(eventObject) => eventObject.stopPropagation()}>
+        <div className="timeline-modal__header" style={visual.style}>
+          <div className="timeline-modal__header-main">
+            <span
+              className={`timeline-event__icon timeline-event__icon--${visual.shape} timeline-event__icon--modal`}
+              aria-hidden="true"
+            >
+              <EventGlyph kind={visual.iconKind} />
+            </span>
+            <div>
+              <p className="timeline-modal__eyebrow">{visual.channelLabel}</p>
+              <h3>{getEventTitle(event)}</h3>
+            </div>
+          </div>
+          <button type="button" className="timeline-modal__close" onClick={onClose}>
+            Close
+          </button>
+        </div>
+
+        <div className="timeline-modal__meta">
+          <span>{formatTimestamp(event.createdAtUnixMilli)}</span>
+          <span>{getEventStatusLabel(event)}</span>
+          <span>{getEventSubtitle(event)}</span>
+        </div>
+
+        <pre className="timeline-modal__payload">{formatPayload(event.payloadJson)}</pre>
+      </div>
     </div>
   );
 }
@@ -330,6 +393,110 @@ function getEventStatusLabel(event: TaskRunEvent): string {
     return "ok";
   }
   return event.direction ?? "event";
+}
+
+function getEventVisuals(
+  event: TaskRunEvent,
+  tone: "neutral" | "active" | "completed" | "failed",
+): {
+  channelLabel: string;
+  iconKind: "task" | "filesystem" | "shell" | "server";
+  shape: "hex" | "diamond" | "circle";
+  style: CSSProperties;
+} {
+  let color = "#8ce6d8";
+  let glow = "rgba(140, 230, 216, 0.5)";
+  let background = "rgba(140, 230, 216, 0.08)";
+  let shape: "hex" | "diamond" | "circle" = "hex";
+  let channelLabel = "centian";
+  let iconKind: "task" | "filesystem" | "shell" | "server" = "server";
+
+  if (event.source === "task") {
+    color = "#a78bfa";
+    glow = "rgba(167, 139, 250, 0.55)";
+    background = "rgba(167, 139, 250, 0.08)";
+    channelLabel = "task";
+    iconKind = "task";
+    shape = "hex";
+  } else if (event.serverName === "filesystem") {
+    color = "#34d399";
+    glow = "rgba(52, 211, 153, 0.55)";
+    background = "rgba(52, 211, 153, 0.08)";
+    channelLabel = "filesystem";
+    iconKind = "filesystem";
+    shape = "diamond";
+  } else if (event.serverName === "shell") {
+    color = "#fbbf24";
+    glow = "rgba(251, 191, 36, 0.55)";
+    background = "rgba(251, 191, 36, 0.08)";
+    channelLabel = "shell";
+    iconKind = "shell";
+    shape = "circle";
+  } else if (event.serverName) {
+    color = "#9fc6ff";
+    glow = "rgba(159, 198, 255, 0.52)";
+    background = "rgba(159, 198, 255, 0.08)";
+    channelLabel = event.serverName;
+    shape = "circle";
+  }
+
+  if (tone === "failed") {
+    color = "#ff8c8c";
+    glow = "rgba(255, 140, 140, 0.52)";
+    background = "rgba(255, 140, 140, 0.1)";
+  }
+
+  return {
+    channelLabel,
+    iconKind,
+    shape,
+    style: {
+      "--event-color": color,
+      "--event-glow": glow,
+      "--event-bg": background,
+    } as CSSProperties,
+  };
+}
+
+function EventGlyph({
+  kind,
+}: {
+  kind: "task" | "filesystem" | "shell" | "server";
+}) {
+  if (kind === "task") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M4 5.5h8M4 8h8M4 10.5h5" />
+      </svg>
+    );
+  }
+
+  if (kind === "filesystem") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M2.5 5.5h4l1.2 1.5h5.8v4.5H2.5z" />
+        <path d="M2.5 5.5V4h4l1.2 1.5" />
+      </svg>
+    );
+  }
+
+  if (kind === "shell") {
+    return (
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="m4 5 2.5 2.5L4 10" />
+        <path d="M8 10.5h3.5" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="4" cy="8" r="1.3" />
+      <circle cx="12" cy="5" r="1.3" />
+      <circle cx="12" cy="11" r="1.3" />
+      <path d="M5.2 7.4 10.7 5.6M5.2 8.6l5.5 1.8" />
+    </svg>
+  );
 }
 
 function formatPayload(payload: unknown): string {

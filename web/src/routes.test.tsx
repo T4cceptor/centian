@@ -200,7 +200,7 @@ describe("task run detail", () => {
     });
   });
 
-  it("renders a grouped mixed timeline and toggles payload visibility", async () => {
+  it("renders a grouped mixed timeline and opens modal payload details", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -272,7 +272,7 @@ describe("task run detail", () => {
     ]);
 
     expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
-    await user.click(screen.getAllByRole("button", { name: "Show payload" })[3]);
+    await user.click(screen.getByRole("button", { name: /open event details for response/i }));
     expect(screen.getByText(/"nested": true/)).toBeInTheDocument();
   });
 
