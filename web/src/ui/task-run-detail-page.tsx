@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
@@ -37,7 +37,10 @@ export function TaskRunDetailPage() {
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
+  const [selectedItemID, setSelectedItemID] = useState<string>("");
+  const [detailsWidth, setDetailsWidth] = useState(420);
+  const [draggingResize, setDraggingResize] = useState(false);
+  const previousExpandedWidthRef = useRef(420);
 
   useEffect(() => {
     if (!runID) {
@@ -49,7 +52,7 @@ export function TaskRunDetailPage() {
     const controller = new AbortController();
     setLoadState("loading");
     setCollapsedGroups({});
-    setExpandedEvents({});
+    setSelectedItemID("");
 
     void fetchTaskRunEvents(runID, controller.signal)
       .then((result) => {
@@ -79,6 +82,12 @@ export function TaskRunDetailPage() {
   const timelineItems = useMemo(() => buildTimelineItems(events), [events]);
   const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
+  const flatTimelineItems = useMemo(
+    () => groupedEvents.flatMap((group) => group.items),
+    [groupedEvents],
+  );
+  const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
+  const inspectorVisible = selectedItemID !== "" && selectedItem != null;
   const startedAt = events[0]?.createdAtUnixMilli;
   const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
 
@@ -93,6 +102,30 @@ export function TaskRunDetailPage() {
       return next;
     });
   }, [groupedEvents]);
+
+  useEffect(() => {
+    if (!draggingResize || !inspectorVisible) {
+      return;
+    }
+
+    function handleMouseMove(event: MouseEvent) {
+      const nextWidth = clampDetailsWidth(window.innerWidth - event.clientX - 24);
+      previousExpandedWidthRef.current = nextWidth;
+      setDetailsWidth(nextWidth);
+    }
+
+    function handleMouseUp() {
+      setDraggingResize(false);
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [draggingResize, inspectorVisible]);
 
   if (loadState === "loading") {
     return (
@@ -165,151 +198,220 @@ export function TaskRunDetailPage() {
         </div>
       </div>
 
-      <div className="timeline">
-        {groupedEvents.map((group, groupIndex) => (
-          <section key={group.key} className="timeline-group" aria-label={group.label}>
-            <button
-              type="button"
-              className="timeline-group__toggle"
-              aria-expanded={!collapsedGroups[group.key]}
-              onClick={() =>
-                setCollapsedGroups((current) => ({
-                  ...current,
-                  [group.key]: !current[group.key],
-                }))
-              }
-            >
-              <div className="timeline-group__header">
-                <span className="timeline-group__sector">
-                  Sector {String(groupIndex + 1).padStart(2, "0")}
-                </span>
-                <span className="timeline-group__label">{group.label}</span>
-                <span className="timeline-group__count">{group.items.length} events</span>
-                <div className="timeline-group__rule" />
-                <span className="timeline-group__chevron" aria-hidden="true">
-                  {collapsedGroups[group.key] ? "+" : "-"}
-                </span>
-              </div>
-            </button>
+      <div
+        className="task-run-detail__workspace"
+        style={
+          inspectorVisible
+            ? ({
+                "--task-detail-sidebar-width": `${detailsWidth + 20}px`,
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        <div className="timeline">
+          {groupedEvents.map((group, groupIndex) => (
+            <section key={group.key} className="timeline-group" aria-label={group.label}>
+              <button
+                type="button"
+                className="timeline-group__toggle"
+                aria-expanded={!collapsedGroups[group.key]}
+                onClick={() =>
+                  setCollapsedGroups((current) => ({
+                    ...current,
+                    [group.key]: !current[group.key],
+                  }))
+                }
+              >
+                <div className="timeline-group__header">
+                  <span className="timeline-group__sector">
+                    Sector {String(groupIndex + 1).padStart(2, "0")}
+                  </span>
+                  <span className="timeline-group__label">{group.label}</span>
+                  <span className="timeline-group__count">{group.items.length} events</span>
+                  <div className="timeline-group__rule" />
+                  <span className="timeline-group__chevron" aria-hidden="true">
+                    {collapsedGroups[group.key] ? "+" : "-"}
+                  </span>
+                </div>
+              </button>
 
-            {!collapsedGroups[group.key] ? (
-              <div className="timeline-group__events">
-                {group.items.map((item) => {
-                  const anchorEvent = getTimelineAnchorEvent(item);
-                  const tone = getTimelineItemTone(item);
-                  const visual = getTimelineItemVisuals(item, tone);
-                  const title = getTimelineItemTitle(item);
-                  const subtitle = getTimelineItemSubtitle(item);
-                  const statusLabel = getTimelineItemStatusLabel(item);
-                  const expanded = expandedEvents[item.id] === true;
-                  const exchangeLatency =
-                    item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
-                  const metaLabel =
-                    item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
+              {!collapsedGroups[group.key] ? (
+                <div className="timeline-group__events">
+                  {group.items.map((item) => {
+                    const anchorEvent = getTimelineAnchorEvent(item);
+                    const tone = getTimelineItemTone(item);
+                    const visual = getTimelineItemVisuals(item, tone);
+                    const title = getTimelineItemTitle(item);
+                    const subtitle = getTimelineItemSubtitle(item);
+                    const statusLabel = getTimelineItemStatusLabel(item);
+                    const exchangeLatency =
+                      item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
+                    const metaLabel =
+                      item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
+                    const selected = selectedItem?.id === item.id;
 
-                  return (
-                    <article
-                      key={item.id}
-                      className={`timeline-event timeline-event--${tone}`}
-                      style={visual.style}
-                    >
-                      <div className="timeline-event__timestamp">
-                        <time dateTime={new Date(anchorEvent.createdAtUnixMilli).toISOString()}>
-                          {formatTimestamp(anchorEvent.createdAtUnixMilli)}
-                        </time>
-                      </div>
+                    return (
+                      <article
+                        key={item.id}
+                        className={`timeline-event timeline-event--${tone} ${
+                          selected ? "timeline-event--selected" : ""
+                        }`}
+                        style={visual.style}
+                      >
+                        <div className="timeline-event__timestamp">
+                          <time dateTime={new Date(anchorEvent.createdAtUnixMilli).toISOString()}>
+                            {formatTimestamp(anchorEvent.createdAtUnixMilli)}
+                          </time>
+                        </div>
 
-                      <div className="timeline-event__marker-column">
-                        <span className="timeline-event__halo" />
-                        <span className="timeline-event__ring" />
-                        <span
-                          className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
-                          aria-hidden="true"
-                        >
-                          <EventGlyph kind={visual.iconKind} />
-                        </span>
-                      </div>
-
-                      <div className="timeline-event__card">
-                        <div className="timeline-event__connector" />
-                        <div className="timeline-event__content">
-                          <button
-                            type="button"
-                            className="timeline-event__summary"
-                            aria-expanded={expanded}
-                            aria-label={`Toggle event details for ${title}`}
-                            onClick={() =>
-                              setExpandedEvents((current) => ({
-                                ...current,
-                                [item.id]: !current[item.id],
-                              }))
-                            }
+                        <div className="timeline-event__marker-column">
+                          <span className="timeline-event__halo" />
+                          <span className="timeline-event__ring" />
+                          <span
+                            className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
+                            aria-hidden="true"
                           >
-                            <div className="timeline-event__meta">
-                              <span
-                                className={`timeline-source-badge timeline-source-badge--${item.kind === "task" ? "task" : "exchange"}`}
-                              >
-                                {metaLabel}
-                              </span>
-                              {exchangeLatency != null ? (
-                                <span className="timeline-event__metric">
-                                  {formatLatency(exchangeLatency)}
-                                </span>
-                              ) : null}
-                              <span className={`timeline-event__status timeline-event__status--${tone}`}>
-                                {statusLabel}
-                              </span>
-                            </div>
+                            <EventGlyph kind={visual.iconKind} />
+                          </span>
+                        </div>
 
-                            <div className="timeline-event__body">
-                              <div>
-                                <h3 className="timeline-event__title" data-testid="timeline-event-title">
-                                  {title}
-                                </h3>
-                                {subtitle ? <p className="timeline-event__subtitle">{subtitle}</p> : null}
-                                {item.kind === "task" && item.correlatedExchange ? (
-                                  <p className="timeline-event__linked-action">
-                                    {getLinkedExchangeLabel(item.correlatedExchange)}
-                                  </p>
+                        <div className="timeline-event__card">
+                          <div className="timeline-event__connector" />
+                          <div className="timeline-event__content">
+                            <button
+                              type="button"
+                              className="timeline-event__summary"
+                              aria-pressed={selected}
+                              aria-label={`Show event details for ${title}`}
+                              onClick={() => {
+                                setSelectedItemID(item.id);
+                              }}
+                            >
+                              <div className="timeline-event__meta">
+                                <span
+                                  className={`timeline-source-badge timeline-source-badge--${item.kind === "task" ? "task" : "exchange"}`}
+                                >
+                                  {metaLabel}
+                                </span>
+                                {exchangeLatency != null ? (
+                                  <span className="timeline-event__metric">
+                                    {formatLatency(exchangeLatency)}
+                                  </span>
                                 ) : null}
+                                <span className={`timeline-event__status timeline-event__status--${tone}`}>
+                                  {statusLabel}
+                                </span>
+                              </div>
+
+                              <div className="timeline-event__body">
+                                <div>
+                                  <h3 className="timeline-event__title" data-testid="timeline-event-title">
+                                    {title}
+                                  </h3>
+                                  {subtitle ? <p className="timeline-event__subtitle">{subtitle}</p> : null}
+                                  {item.kind === "task" && item.correlatedExchange ? (
+                                    <p className="timeline-event__linked-action">
+                                      {getLinkedExchangeLabel(item.correlatedExchange)}
+                                    </p>
+                                  ) : null}
                               </div>
                               <span className="timeline-event__details-link">
-                                {expanded ? "Hide" : "JSON"}
+                                {selected && inspectorVisible ? "Inspecting" : "Inspect"}
                               </span>
                             </div>
                           </button>
-
-                          {expanded ? (
-                            <div className="timeline-event__details">
-                              {item.kind === "task" ? (
-                                <>
-                                  <PayloadSection
-                                    label="Task Event"
-                                    event={item.task}
-                                    statusLabel={statusLabel}
-                                  />
-                                  {item.correlatedExchange ? (
-                                    <ExchangeDetails
-                                      exchange={item.correlatedExchange}
-                                      prefixLabel="Centian"
-                                    />
-                                  ) : null}
-                                </>
-                              ) : (
-                                <ExchangeDetails exchange={item.exchange} />
-                              )}
-                            </div>
-                          ) : null}
+                          </div>
                         </div>
-                      </div>
-                    </article>
-                  );
-                })}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
+          ))}
+        </div>
+
+        {inspectorVisible ? (
+          <aside className="task-detail-panel" style={{ width: detailsWidth }}>
+            <button
+              type="button"
+              className="task-detail-panel__resize-handle"
+              aria-label="Resize detail panel"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                setDraggingResize(true);
+              }}
+            />
+            <div className="task-detail-panel__surface">
+              <div className="task-detail-panel__header">
+                <button
+                  type="button"
+                  className="task-detail-panel__collapse"
+                  aria-label="Hide detail panel"
+                  onClick={() => {
+                    previousExpandedWidthRef.current = detailsWidth;
+                    setSelectedItemID("");
+                  }}
+                >
+                  ×
+                </button>
+
+                <div className="task-detail-panel__header-copy">
+                  <p className="state-card__eyebrow">Inspector</p>
+                  <h3>{selectedItem ? getTimelineItemTitle(selectedItem) : "No event selected"}</h3>
+                </div>
               </div>
-            ) : null}
-          </section>
-        ))}
+
+              <div className="task-detail-panel__body">
+                {selectedItem ? <DetailInspector item={selectedItem} /> : null}
+              </div>
+            </div>
+          </aside>
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+function DetailInspector({ item }: { item: TimelineItem }) {
+  const tone = getTimelineItemTone(item);
+  const statusLabel = getTimelineItemStatusLabel(item);
+  const anchorEvent = getTimelineAnchorEvent(item);
+  const subtitle = getTimelineItemSubtitle(item);
+  const metaLabel = item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
+  const exchangeLatency = item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
+
+  return (
+    <div className="task-detail-panel__content">
+      <div className="task-detail-panel__summary">
+        <div>
+          <p className="task-detail-panel__kicker">{metaLabel}</p>
+          <h4 className="task-detail-panel__title">{getTimelineItemTitle(item)}</h4>
+          {subtitle ? <p className="task-detail-panel__subtitle">{subtitle}</p> : null}
+        </div>
+        <div className="task-detail-panel__badges">
+          {exchangeLatency != null ? (
+            <span className="timeline-event__metric">{formatLatency(exchangeLatency)}</span>
+          ) : null}
+          <span className={`timeline-event__status timeline-event__status--${tone}`}>{statusLabel}</span>
+        </div>
+      </div>
+
+      <div className="task-detail-panel__meta">
+        <span>{formatTimestamp(anchorEvent.createdAtUnixMilli)}</span>
+        <span>{item.kind === "task" ? "task lifecycle" : "mcp exchange"}</span>
+      </div>
+
+      {item.kind === "task" ? (
+        <>
+          <PayloadSection label="Task Event" event={item.task} statusLabel={statusLabel} />
+          {item.correlatedExchange ? (
+            <ExchangeDetails exchange={item.correlatedExchange} prefixLabel="Centian" />
+          ) : null}
+        </>
+      ) : (
+        <ExchangeDetails exchange={item.exchange} />
+      )}
     </div>
   );
 }
@@ -347,7 +449,7 @@ function ExchangeDetails({
   const responseStatus = getExchangeStatusLabel(exchange);
 
   return (
-    <>
+    <div className="task-detail-panel__exchange">
       {exchange.request ? (
         <PayloadSection
           label={`${prefixLabel ? `${prefixLabel} ` : ""}Request`}
@@ -362,8 +464,12 @@ function ExchangeDetails({
           statusLabel={responseStatus}
         />
       ) : null}
-    </>
+    </div>
   );
+}
+
+function clampDetailsWidth(value: number): number {
+  return Math.min(680, Math.max(320, Math.round(value)));
 }
 
 function DetailStateCard({

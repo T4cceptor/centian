@@ -227,7 +227,7 @@ describe("task run detail", () => {
     });
   });
 
-  it("renders grouped mixed timeline exchanges and expands inline payload details", async () => {
+  it("renders grouped mixed timeline exchanges and shows selected details in the side inspector", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -326,7 +326,6 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
     expect(screen.getByText("Onboarding")).toBeInTheDocument();
-    expect(screen.getByText("Task Registered")).toBeInTheDocument();
     expect(screen.getByText("execute_command")).toBeInTheDocument();
     expect(screen.getByText("300ms")).toBeInTheDocument();
 
@@ -335,18 +334,19 @@ describe("task run detail", () => {
     expect(screen.queryByText("Request · execute_command")).not.toBeInTheDocument();
     expect(screen.queryByText("centian.task_complete_step")).not.toBeInTheDocument();
 
-    expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /toggle event details for execute_command/i }));
+    expect(screen.queryByText("Inspector")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /show event details for execute_command/i }));
     expect(screen.getAllByText("Request")).toHaveLength(2);
     expect(screen.getAllByText("Response")).toHaveLength(2);
     expect(screen.getByText(/"command": "pwd"/)).toBeInTheDocument();
     expect(screen.getByText(/"output": "\/workspace\/project"/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /toggle event details for step completed/i }));
+    await user.click(screen.getByRole("button", { name: /show event details for step completed/i }));
     expect(screen.getAllByText("Centian Request")).toHaveLength(2);
     expect(screen.getAllByText("Centian Response")).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: /toggle event details for edit_file/i }));
+    expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /show event details for edit_file/i }));
     expect(screen.getByText(/"nested": true/)).toBeInTheDocument();
 
     const onboardingSection = screen.getByLabelText("Onboarding");
@@ -461,9 +461,40 @@ describe("task run detail", () => {
     expect(titles).toEqual(["Task Registered", "create_directory"]);
     expect(screen.getByText("300ms")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /toggle event details for create_directory/i }));
+    await user.click(screen.getByRole("button", { name: /show event details for create_directory/i }));
     expect(screen.getAllByText("Request")).toHaveLength(2);
     expect(screen.getAllByText("Response")).toHaveLength(2);
+  });
+
+  it("collapses and re-expands the side inspector", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(screen.queryByText("Inspector")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show event details for task registered/i }));
+    expect(screen.getByText("Inspector")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide detail panel" }));
+    expect(screen.queryByText("Inspector")).not.toBeInTheDocument();
   });
 
   it("keeps onboarding and planning completion events in their source phase", async () => {
@@ -547,13 +578,14 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
-    expect(screen.getByText("Task Registered")).toBeInTheDocument();
+    const onboardingSection = screen.getByLabelText("Onboarding");
+    expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /sector 01 onboarding 1 events/i }));
-    expect(screen.queryByText("Task Registered")).not.toBeInTheDocument();
+    expect(within(onboardingSection).queryByText("Task Registered")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /sector 01 onboarding 1 events/i }));
-    expect(screen.getByText("Task Registered")).toBeInTheDocument();
+    expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
   });
 
   it("renders a not-found state for 404 responses", async () => {

@@ -285,6 +285,13 @@ code,
   gap: 20px;
 }
 
+.task-run-detail__workspace {
+  position: relative;
+  min-width: 0;
+  padding-right: var(--task-detail-sidebar-width, 0);
+  transition: padding-right 140ms ease;
+}
+
 .task-run-detail__header,
 .task-run-detail__summary,
 .timeline-group__header,
@@ -341,6 +348,7 @@ code,
 .timeline {
   display: grid;
   gap: 22px;
+  min-width: 0;
 }
 
 .timeline-group {
@@ -522,6 +530,13 @@ code,
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
   transform: translateY(-1px);
   outline: none;
+}
+
+.timeline-event--selected .timeline-event__content {
+  border-color: color-mix(in srgb, var(--event-color) 56%, white 10%);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px color-mix(in srgb, var(--event-color) 20%, transparent);
 }
 
 .timeline-event__connector {
@@ -707,6 +722,156 @@ code,
   font-size: 0.82rem;
 }
 
+.task-detail-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: stretch;
+  height: 100vh;
+  max-height: 100vh;
+  z-index: 20;
+}
+
+.task-detail-panel__resize-handle {
+  width: 12px;
+  margin-right: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(4, 10, 16, 0.9);
+  cursor: col-resize;
+  position: relative;
+}
+
+.task-detail-panel__resize-handle::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 5px;
+  width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(140, 230, 216, 0.08), rgba(140, 230, 216, 0.42), rgba(140, 230, 216, 0.08));
+}
+
+.task-detail-panel__surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--panel-border);
+  border-right: 0;
+  border-radius: 18px 0 0 18px;
+  background:
+    linear-gradient(180deg, rgba(12, 24, 36, 0.96), rgba(6, 13, 20, 0.96));
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.task-detail-panel__header {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid rgba(140, 230, 216, 0.12);
+}
+
+.task-detail-panel__collapse {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 230, 216, 0.24);
+  background: rgba(8, 18, 28, 0.82);
+  color: var(--accent);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+
+.task-detail-panel__header-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.task-detail-panel__header-copy h3,
+.task-detail-panel__title {
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.task-detail-panel__body {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 16px 18px;
+}
+
+.task-detail-panel__content {
+  display: grid;
+  gap: 16px;
+}
+
+.task-detail-panel__summary,
+.task-detail-panel__badges,
+.task-detail-panel__meta {
+  display: flex;
+}
+
+.task-detail-panel__summary {
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+
+.task-detail-panel__badges {
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.task-detail-panel__kicker {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.task-detail-panel__subtitle {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+}
+
+.task-detail-panel__meta {
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.task-detail-panel__exchange {
+  display: grid;
+  gap: 14px;
+}
+
+.task-detail-panel .timeline-event__payload-section {
+  min-width: 0;
+}
+
+.task-detail-panel .timeline-event__payload {
+  max-height: 560px;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -722,7 +887,8 @@ code,
   .task-run-list__toolbar,
   .task-run-detail__header,
   .task-run-detail__header-actions,
-  .timeline-event__body {
+  .timeline-event__body,
+  .task-detail-panel__summary {
     align-items: start;
     flex-direction: column;
   }
@@ -756,6 +922,21 @@ code,
   .timeline-event__connector {
     display: none;
   }
+
+  .task-run-detail__workspace {
+    padding-right: 0;
+  }
+
+  .task-detail-panel {
+    position: static;
+    width: 100% !important;
+    height: auto;
+    max-height: none;
+  }
+
+  .task-detail-panel__resize-handle {
+    display: none;
+  }
 }
 
 @media (max-width: 640px) {
@@ -776,4 +957,5 @@ code,
     align-items: start;
     flex-direction: column;
   }
+
 }
