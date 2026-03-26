@@ -387,9 +387,11 @@ export function SciFiTimeline({
 
         {/* Server legend */}
         <div style={{ display: "flex", gap: 24, marginBottom: 16, paddingLeft: 120 }}>
+          {/* TODO: icons/symbols need to be dynamic so it becomes usable for other MCP servers too */}
+          {/* TODO: replace the Object.entries here with a search function for CMP servers */}
           {Object.entries({ centian: "hexagon", shell: "circle", filesystem: "diamond" }).map(([srv]) => (
             <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: KNOWN_COLORS[srv].color, opacity: 0.7, letterSpacing: "0.1em", fontFamily: "'Share Tech Mono', 'Courier New', monospace" }}>
-              <NodeShape server={srv} size={10} color={KNOWN_COLORS[srv].color} />
+              <NodeShape server={srv} size={10} color={getColorToken(srv).color} />
               <span>{srv}</span>
             </div>
           ))}
