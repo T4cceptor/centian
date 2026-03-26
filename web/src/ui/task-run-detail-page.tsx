@@ -177,14 +177,9 @@ export function TaskRunDetailPage() {
             <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
             <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
           </p>
-          {/* <h2>
-            
-            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
-            <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
-          </h2> */}
         </div>
         <div className="task-run-detail__header-actions">
-          <Link className="back-link" to="/tasks">
+          <Link className="back-link" style={{fontFamily:"inter"}} to="/tasks">
             Back to task runs
           </Link>
         </div>
