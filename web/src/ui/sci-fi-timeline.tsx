@@ -24,7 +24,7 @@ const SCI_FI_STYLES = `
     50%       { transform: scale(1.65); opacity: 0.06; }
   }
 
-  .sci-node { cursor: pointer; transition: transform 0.18s cubic-bezier(.34,1.56,.64,1); }
+  .sci-node { cursor: pointer; transition: transform 0.18s cubic-bezier(.34,1.56,.64,1); transform-origin: 102px center; }
   .sci-node:hover { transform: scale(1.08); }
   .sci-node:hover .sci-outer  { animation: breathe 1.1s ease-in-out infinite !important; opacity: 0.38 !important; }
   .sci-node:hover .sci-tag    { border-color: rgba(255,255,255,0.14) !important; background: rgba(255,255,255,0.04) !important; }
