@@ -52,3 +52,20 @@ export function humanizeIdentifier(value: string): string {
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(" ");
 }
+
+export function formatTaskRunId(value: string): string {
+  if (!value) {
+    return "TR";
+  }
+
+  const match = /^tr_\d{13}_([a-z0-9]{10})$/.exec(value);
+  if (match) {
+    return `TR · ${match[1]}`;
+  }
+
+  if (value.length <= 16) {
+    return value;
+  }
+
+  return `${value.slice(0, 8)}…${value.slice(-6)}`;
+}

@@ -1,4 +1,4 @@
-export type TaskRunUIStatus = "active" | "completed" | "failed";
+export type TaskRunUIStatus = "active" | "success" | "failed";
 
 export function getTaskRunUIStatus(status: string, endedAt?: number): TaskRunUIStatus {
   if (endedAt == null) {
@@ -7,5 +7,5 @@ export function getTaskRunUIStatus(status: string, endedAt?: number): TaskRunUIS
   if (status === "failed") {
     return "failed";
   }
-  return "completed";
+  return "success";
 }

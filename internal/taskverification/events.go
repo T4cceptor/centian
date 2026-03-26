@@ -87,6 +87,24 @@ func mustMarshalPayload(payload map[string]any) json.RawMessage {
 	return encoded
 }
 
+func augmentTaskEventPayload(run *RunState, payload map[string]any) map[string]any {
+	if run == nil || run.Status == "" {
+		return payload
+	}
+
+	if payload == nil {
+		payload = make(map[string]any, 1)
+	} else {
+		cloned := make(map[string]any, len(payload)+1)
+		for key, value := range payload {
+			cloned[key] = value
+		}
+		payload = cloned
+	}
+	payload["status"] = string(run.Status)
+	return payload
+}
+
 // RecordTaskEvent appends one lifecycle event to the configured store.
 func (s *Service) RecordTaskEvent(
 	run *RunState,
@@ -119,7 +137,7 @@ func (s *Service) RecordTaskEvent(
 		EventType:              eventType,
 		Outcome:                outcome,
 		RelatedActionRequestID: relatedActionRequestID,
-		Payload:                mustMarshalPayload(payload),
+		Payload:                mustMarshalPayload(augmentTaskEventPayload(run, payload)),
 	}
 	return s.EventStore.AppendTaskEvent(event)
 }

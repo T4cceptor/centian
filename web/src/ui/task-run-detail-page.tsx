@@ -10,7 +10,13 @@ type LoadState = "loading" | "ready" | "invalid" | "not-found" | "error";
 type TimelineGroup = {
   key: string;
   label: string;
-  events: TaskRunEvent[];
+  items: TimelineItem[];
+};
+
+type TimelineItem = {
+  id: string;
+  primary: TaskRunEvent;
+  correlatedAction?: TaskRunEvent;
 };
 
 export function TaskRunDetailPage() {
@@ -57,7 +63,8 @@ export function TaskRunDetailPage() {
     return () => controller.abort();
   }, [runID]);
 
-  const groupedEvents = useMemo(() => groupEventsByPhase(events), [events]);
+  const timelineItems = useMemo(() => mergeCentianTaskActionEvents(events), [events]);
+  const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
   const startedAt = events[0]?.createdAtUnixMilli;
   const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
@@ -164,7 +171,7 @@ export function TaskRunDetailPage() {
                   Sector {String(groupIndex + 1).padStart(2, "0")}
                 </span>
                 <span className="timeline-group__label">{group.label}</span>
-                <span className="timeline-group__count">{group.events.length} events</span>
+                <span className="timeline-group__count">{group.items.length} events</span>
                 <div className="timeline-group__rule" />
                 <span className="timeline-group__chevron" aria-hidden="true">
                   {collapsedGroups[group.key] ? "+" : "-"}
@@ -174,7 +181,8 @@ export function TaskRunDetailPage() {
 
             {!collapsedGroups[group.key] ? (
               <div className="timeline-group__events">
-                {group.events.map((event) => {
+                {group.items.map((item) => {
+                  const event = item.primary;
                   const tone = getEventTone(event);
                   const visual = getEventVisuals(event, tone);
                   const title = getEventTitle(event);
@@ -235,6 +243,11 @@ export function TaskRunDetailPage() {
                                   {title}
                                 </h3>
                                 <p className="timeline-event__subtitle">{getEventSubtitle(event)}</p>
+                                {item.correlatedAction ? (
+                                  <p className="timeline-event__linked-action">
+                                    Centian MCP · {getActionLabel(item.correlatedAction)}
+                                  </p>
+                                ) : null}
                               </div>
                               <span className="timeline-event__details-link">
                                 {expanded ? "Hide" : "JSON"}
@@ -248,7 +261,20 @@ export function TaskRunDetailPage() {
                                 <span>{formatTimestamp(event.createdAtUnixMilli)}</span>
                                 <span>{statusLabel}</span>
                               </div>
+                              <p className="timeline-event__payload-label">Task event</p>
                               <pre className="timeline-event__payload">{formatPayload(event.payloadJson)}</pre>
+                              {item.correlatedAction ? (
+                                <>
+                                  <div className="timeline-event__details-meta">
+                                    <span>Centian MCP</span>
+                                    <span>{getActionLabel(item.correlatedAction)}</span>
+                                  </div>
+                                  <p className="timeline-event__payload-label">MCP event</p>
+                                  <pre className="timeline-event__payload">
+                                    {formatPayload(item.correlatedAction.payloadJson)}
+                                  </pre>
+                                </>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
@@ -286,11 +312,52 @@ function DetailStateCard({
   );
 }
 
-function groupEventsByPhase(events: TaskRunEvent[]): TimelineGroup[] {
+function mergeCentianTaskActionEvents(events: TaskRunEvent[]): TimelineItem[] {
+  const pairedRequestIDs = new Set(
+    events
+      .filter((event) => event.source === "task" && typeof event.relatedActionRequestId === "string")
+      .map((event) => event.relatedActionRequestId as string),
+  );
+  const centianActionsByRequestID = new Map<string, TaskRunEvent>();
+  for (const event of events) {
+    if (isCollapsibleCentianAction(event) && event.requestId) {
+      centianActionsByRequestID.set(event.requestId, event);
+    }
+  }
+
+  const items: TimelineItem[] = [];
+  for (const event of events) {
+    if (event.source === "task") {
+      items.push({
+        id: event.id,
+        primary: event,
+        correlatedAction:
+          event.relatedActionRequestId != null
+            ? centianActionsByRequestID.get(event.relatedActionRequestId)
+            : undefined,
+      });
+      continue;
+    }
+
+    if (isCollapsibleCentianAction(event) && event.requestId && pairedRequestIDs.has(event.requestId)) {
+      continue;
+    }
+
+    items.push({
+      id: event.id,
+      primary: event,
+    });
+  }
+
+  return items;
+}
+
+function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
   const groups: TimelineGroup[] = [];
   let lastKnownPhase = "";
 
-  for (const event of events) {
+  for (const item of items) {
+    const event = item.primary;
     const effectivePhase = getGroupingPhase(event, lastKnownPhase);
     lastKnownPhase = effectivePhase;
 
@@ -299,15 +366,19 @@ function groupEventsByPhase(events: TaskRunEvent[]): TimelineGroup[] {
       groups.push({
         key: effectivePhase,
         label: humanizePhase(effectivePhase),
-        events: [event],
+        items: [item],
       });
       continue;
     }
 
-    existingGroup.events.push(event);
+    existingGroup.items.push(item);
   }
 
   return groups;
+}
+
+function isCollapsibleCentianAction(event: TaskRunEvent): boolean {
+  return event.source === "action" && event.serverName === "centian";
 }
 
 function getGroupingPhase(event: TaskRunEvent, lastKnownPhase: string): string {
@@ -325,6 +396,8 @@ function shouldStickToCurrentPhase(event: TaskRunEvent): boolean {
 
   const payloadStatus = readPayloadStatus(event.payloadJson);
   return (
+    event.eventType === "onboarding_completed" ||
+    event.eventType === "planning_completed" ||
     event.eventType === "step_completed" ||
     event.eventType === "task_completed" ||
     event.eventType === "task_failed" ||
@@ -345,7 +418,7 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
       return "failed";
     }
     if (payloadStatus === "completed") {
-      return "completed";
+      return "success";
     }
     return "active";
   }
@@ -388,6 +461,16 @@ function getEventSubtitle(event: TaskRunEvent): string {
     return parts.join(" · ");
   }
   return humanizeIdentifier(event.messageType ?? "unknown");
+}
+
+function getActionLabel(event: TaskRunEvent): string {
+  if (event.toolName) {
+    return event.toolName;
+  }
+  if (event.messageType) {
+    return humanizeIdentifier(event.messageType);
+  }
+  return event.requestId ?? "unknown";
 }
 
 function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" | "failed" {

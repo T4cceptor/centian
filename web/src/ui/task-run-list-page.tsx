@@ -2,10 +2,19 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
-import { formatDuration, formatTimestamp, humanizePhase } from "./format";
+import { formatDuration, formatTaskRunId, formatTimestamp, humanizePhase } from "./format";
 import { getTaskRunUIStatus } from "./task-run-status";
 
 type LoadState = "loading" | "ready" | "error";
+
+function getTaskRunDisplayPhase(run: TaskRunSummary): string {
+  const uiStatus = getTaskRunUIStatus(run.status, run.endedAt);
+  if (uiStatus === "success") {
+    return "Completed";
+  }
+
+  return humanizePhase(run.currentPhase);
+}
 
 export function TaskRunListPage() {
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
@@ -108,14 +117,16 @@ export function TaskRunListPage() {
                 className="task-run-row"
                 to={`/tasks/${run.runId}`}
               >
-                <span className="task-run-row__run">
-                  <strong>{run.runId}</strong>
+                <span className="task-run-row__run" title={run.runId}>
+                  <strong>{formatTaskRunId(run.runId)}</strong>
                 </span>
-                <span>{run.templateId}</span>
-                <span>
+                <span className="task-run-row__template" title={run.templateId}>
+                  {run.templateId}
+                </span>
+                <span className="task-run-row__status">
                   <span className={`status-badge status-badge--${uiStatus}`}>{uiStatus}</span>
                 </span>
-                <span>{humanizePhase(run.currentPhase)}</span>
+                <span>{getTaskRunDisplayPhase(run)}</span>
                 <span>{formatTimestamp(run.startedAt)}</span>
                 <span>{formatDuration(run.startedAt, run.endedAt, now)}</span>
                 <span>{run.eventCount}</span>

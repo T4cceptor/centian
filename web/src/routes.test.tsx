@@ -96,7 +96,7 @@ describe("task run list", () => {
     expect(await screen.findByText("Task run feed unavailable")).toBeInTheDocument();
   });
 
-  it("maps active completed and failed status badges", async () => {
+  it("maps active success and failed status badges", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse([
@@ -139,8 +139,35 @@ describe("task run list", () => {
     renderApp();
 
     expect(await screen.findByText("active")).toBeInTheDocument();
-    expect(screen.getByText("completed")).toBeInTheDocument();
+    expect(screen.getByText("success")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
+  });
+
+  it("uses endedAt for finished run duration instead of current time", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            runId: "tr_1742947200124_0000000002",
+            templateId: "completed_task",
+            startedAt: 1_000,
+            endedAt: 11_000,
+            status: "succeeded",
+            currentPhase: "execution.done",
+            taskEventCount: 2,
+            actionEventCount: 1,
+            eventCount: 3,
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp();
+
+    expect(await screen.findByText("completed_task")).toBeInTheDocument();
+    expect(screen.getByText("10s")).toBeInTheDocument();
+    expect(screen.getByText("success")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
   });
 
   it("navigates to the detail route when a row is clicked", async () => {
@@ -234,6 +261,7 @@ describe("task run detail", () => {
             createdAtUnixMilli: 1742947202123,
             eventType: "step_completed",
             outcome: "succeeded",
+            relatedActionRequestId: "req_1742947202123_0000000005",
             phasePath: "onboarding",
             resultingPhasePath: "execution.implement_fix",
             nodeKind: "planning",
@@ -242,7 +270,19 @@ describe("task run detail", () => {
           },
           {
             source: "action",
-            id: "ae_1742947200126_0000000004",
+            id: "ae_1742947200126_0000000005",
+            createdAtUnixMilli: 1742947202500,
+            requestId: "req_1742947202123_0000000005",
+            direction: "request",
+            toolName: "centian.task_complete_step",
+            serverName: "centian",
+            gateway: "taskverification",
+            transport: "http",
+            payloadJson: { step: 1 },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200127_0000000004",
             createdAtUnixMilli: 1742947203123,
             direction: "response",
             toolName: "edit_file",
@@ -269,6 +309,7 @@ describe("task run detail", () => {
       "Step Completed",
       "Response · edit_file",
     ]);
+    expect(screen.queryByText("Request · centian.task_complete_step")).not.toBeInTheDocument();
 
     expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /toggle event details for response/i }));
@@ -276,6 +317,55 @@ describe("task run detail", () => {
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Step Completed")).toBeInTheDocument();
+  });
+
+  it("keeps onboarding and planning completion events in their source phase", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "onboarding_completed",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "planning",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "scaffolding.step_1",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200125_0000000003",
+            createdAtUnixMilli: 1742947202123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "scaffolding.step_1",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+
+    const onboardingSection = screen.getByLabelText("Onboarding");
+    expect(within(onboardingSection).getByText("Onboarding Completed")).toBeInTheDocument();
+
+    const planningSection = screen.getByLabelText("Planning");
+    expect(within(planningSection).getByText("Planning Completed")).toBeInTheDocument();
   });
 
   it("collapses and expands phase sections", async () => {
