@@ -899,6 +899,7 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
   }
 
   const nestedKeys = [
+    "tool_call",
     "arguments",
     "args",
     "params",
