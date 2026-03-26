@@ -3,23 +3,24 @@ import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
 import { formatTimestamp, humanizeIdentifier, humanizePhase } from "./format";
+import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
 type LoadState = "loading" | "ready" | "invalid" | "not-found" | "error";
 
-type TimelineGroup = {
+export type TimelineGroup = {
   key: string;
   label: string;
   items: TimelineItem[];
 };
 
-type TimelineExchange = {
+export type TimelineExchange = {
   requestId?: string;
   request?: TaskRunEvent;
   response?: TaskRunEvent;
 };
 
-type TimelineItem =
+export type TimelineItem =
   | {
       id: string;
       kind: "task";
@@ -199,156 +200,21 @@ export function TaskRunDetailPage() {
       </div>
 
       <div className="task-run-detail__workspace">
-        <div className="timeline">
-          {groupedEvents.map((group, groupIndex) => (
-            <section key={group.key} className="timeline-group" aria-label={group.label}>
-              <button
-                type="button"
-                className="timeline-group__toggle"
-                aria-expanded={!collapsedGroups[group.key]}
-                onClick={() =>
-                  setCollapsedGroups((current) => ({
-                    ...current,
-                    [group.key]: !current[group.key],
-                  }))
-                }
-              >
-                <div className="timeline-group__header">
-                  <span className="timeline-group__sector">
-                    Sector {String(groupIndex + 1).padStart(2, "0")}
-                  </span>
-                  <span className="timeline-group__label">{group.label}</span>
-                  <span className="timeline-group__count">{group.items.length} events</span>
-                  <div className="timeline-group__rule" />
-                  <span className="timeline-group__chevron" aria-hidden="true">
-                    {collapsedGroups[group.key] ? "+" : "-"}
-                  </span>
-                </div>
-              </button>
-
-              {!collapsedGroups[group.key] ? (
-                <div className="timeline-group__events">
-                  {group.items.map((item) => {
-                    const anchorEvent = getTimelineAnchorEvent(item);
-                    const tone = getTimelineItemTone(item);
-                    const visual = getTimelineItemVisuals(item, tone);
-                    const title = getTimelineItemTitle(item);
-                    const subtitle = getTimelineItemSubtitle(item);
-                    const headerLabel = getTimelineItemHeaderLabel(item);
-                    const exchangeLatency =
-                      item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
-                    const metaLabel =
-                      item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
-                    const selected = selectedItem?.id === item.id;
-                    const alertLabel = getTimelineItemAlertLabel(item);
-                    const showSourceBadge = item.kind === "task";
-                    const serverAccent =
-                      item.kind === "exchange" ? getServerAccentColor(getExchangeServerLabel(item.exchange)) : undefined;
-                    const serverDisplay =
-                      item.kind === "exchange" ? getExchangeServerLabel(item.exchange) : undefined;
-
-                    return (
-                      <article
-                        key={item.id}
-                        className={`timeline-event timeline-event--${tone} ${
-                          selected ? "timeline-event--selected" : ""
-                        }`}
-                        style={visual.style}
-                      >
-                        <div className="timeline-event__timestamp">
-                          <time dateTime={new Date(anchorEvent.createdAtUnixMilli).toISOString()}>
-                            {formatTraceTimestamp(anchorEvent.createdAtUnixMilli)}
-                          </time>
-                        </div>
-
-                        <div className="timeline-event__marker-column">
-                          <span className="timeline-event__halo" />
-                          <span className="timeline-event__ring" />
-                          <span
-                            className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
-                            aria-hidden="true"
-                          >
-                            <EventGlyph kind={visual.iconKind} />
-                          </span>
-                        </div>
-
-                        <div className="timeline-event__card">
-                          <div className="timeline-event__connector" />
-                          <div className="timeline-event__content">
-                            <button
-                              type="button"
-                              className="timeline-event__summary"
-                              aria-pressed={selected}
-                              aria-label={`Show event details for ${title}`}
-                              onClick={() => {
-                                setSelectedItemID(item.id);
-                              }}
-                            >
-                              <div className="timeline-event__body">
-                                <div className="timeline-event__main">
-                                  <div className="timeline-event__meta">
-                                    <div className="timeline-event__headline">
-                                      {showSourceBadge ? (
-                                        <span className="timeline-source-badge timeline-source-badge--task">
-                                          {metaLabel}
-                                        </span>
-                                      ) : null}
-                                      <h3 className="timeline-event__title" data-testid="timeline-event-title">
-                                        {showSourceBadge ? (
-                                          headerLabel
-                                        ) : (
-                                          <>
-                                            <span
-                                              className="timeline-event__server-dot"
-                                              style={
-                                                {
-                                                  "--timeline-server-color": serverAccent,
-                                                } as CSSProperties
-                                              }
-                                              aria-hidden="true"
-                                            />
-                                            <span
-                                              className="timeline-event__server-name"
-                                              style={{ color: serverAccent } as CSSProperties}
-                                            >
-                                              {serverDisplay}
-                                            </span>
-                                            <span className="timeline-event__title-separator" aria-hidden="true">
-                                              {" - "}
-                                            </span>
-                                            <span className="timeline-event__tool-name">{title}</span>
-                                          </>
-                                        )}
-                                      </h3>
-                                      {alertLabel ? (
-                                        <span className={`timeline-event__status timeline-event__status--${tone}`}>
-                                          {alertLabel}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    {exchangeLatency != null ? (
-                                      <span className="timeline-event__metric">{formatLatency(exchangeLatency)}</span>
-                                    ) : null}
-                                  </div>
-                                  {subtitle ? <p className="timeline-event__subtitle">{subtitle}</p> : null}
-                                  {item.kind === "task" && item.correlatedExchange ? (
-                                    <p className="timeline-event__linked-action">
-                                      {getLinkedExchangeLabel(item.correlatedExchange, item.task)}
-                                    </p>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </button>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </section>
-          ))}
-        </div>
+        <SciFiTimeline
+          groups={groupedEvents}
+          collapsedGroups={collapsedGroups}
+          onToggleGroup={(key) =>
+            setCollapsedGroups((current) => ({
+              ...current,
+              [key]: !current[key],
+            }))
+          }
+          onSelectItem={setSelectedItemID}
+          selectedItemId={selectedItemID}
+          startedAt={startedAt}
+          lastSeenAt={lastSeenAt}
+          events={events}
+        />
 
         {inspectorVisible ? (
           <aside
@@ -701,7 +567,7 @@ function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
   return groups;
 }
 
-function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
+export function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
   if (item.kind === "task") {
     return item.task;
   }
@@ -709,7 +575,7 @@ function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
   return item.exchange.request ?? item.exchange.response ?? item.exchange.request!;
 }
 
-function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "completed" | "failed" {
+export function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "completed" | "failed" {
   if (item.kind === "task") {
     return getEventTone(item.task);
   }
@@ -717,7 +583,7 @@ function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "comple
   return getExchangeTone(item.exchange);
 }
 
-function getTimelineItemTitle(item: TimelineItem): string {
+export function getTimelineItemTitle(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventTitle(item.task);
   }
@@ -725,15 +591,8 @@ function getTimelineItemTitle(item: TimelineItem): string {
   return getExchangeTitle(item.exchange);
 }
 
-function getTimelineItemHeaderLabel(item: TimelineItem): string {
-  if (item.kind === "task") {
-    return getEventTitle(item.task);
-  }
 
-  return `${getExchangeServerLabel(item.exchange)} - ${getExchangeTitle(item.exchange)}`;
-}
-
-function getTimelineItemSubtitle(item: TimelineItem): string {
+export function getTimelineItemSubtitle(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventSubtitle(item.task);
   }
@@ -741,7 +600,7 @@ function getTimelineItemSubtitle(item: TimelineItem): string {
   return getExchangeSubtitle(item.exchange);
 }
 
-function getTimelineItemStatusLabel(item: TimelineItem): string {
+export function getTimelineItemStatusLabel(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventStatusLabel(item.task);
   }
@@ -749,7 +608,7 @@ function getTimelineItemStatusLabel(item: TimelineItem): string {
   return getExchangeStatusLabel(item.exchange);
 }
 
-function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
+export function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
   const tone = getTimelineItemTone(item);
   if (tone === "failed") {
     return "error";
@@ -758,22 +617,6 @@ function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
   return undefined;
 }
 
-function getTimelineItemVisuals(
-  item: TimelineItem,
-  tone: "neutral" | "active" | "completed" | "failed",
-): {
-  channelLabel: string;
-  iconKind: "task" | "filesystem" | "shell" | "server";
-  shape: "hex" | "diamond" | "circle";
-  style: CSSProperties;
-} {
-  if (item.kind === "task") {
-    return getEventVisuals(item.task, tone);
-  }
-
-  const representative = item.exchange.response ?? item.exchange.request;
-  return getEventVisuals(representative ?? item.exchange.request!, tone);
-}
 
 function isCollapsibleCentianExchange(exchange: TimelineExchange): boolean {
   return getExchangeServerName(exchange) === "centian";
@@ -914,7 +757,7 @@ function getExchangeStatusLabel(exchange: TimelineExchange): string {
   return "completed";
 }
 
-function getExchangeLatency(exchange: TimelineExchange): number | undefined {
+export function getExchangeLatency(exchange: TimelineExchange): number | undefined {
   if (!exchange.request || !exchange.response) {
     return undefined;
   }
@@ -922,7 +765,7 @@ function getExchangeLatency(exchange: TimelineExchange): number | undefined {
   return Math.max(0, exchange.response.createdAtUnixMilli - exchange.request.createdAtUnixMilli);
 }
 
-function formatLatency(durationMs: number): string {
+export function formatLatency(durationMs: number): string {
   if (durationMs < 1000) {
     return `${durationMs}ms`;
   }
@@ -930,7 +773,7 @@ function formatLatency(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
 }
 
-function formatTraceTimestamp(timestamp: number): string {
+export function formatTraceTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
@@ -939,19 +782,14 @@ function formatTraceTimestamp(timestamp: number): string {
   return `${hours}:${minutes}:${seconds}.${milliseconds}`;
 }
 
-function getExchangeServerName(exchange: TimelineExchange): string {
+export function getExchangeServerName(exchange: TimelineExchange): string {
   return exchange.request?.serverName ?? exchange.response?.serverName ?? "mcp";
 }
 
-function getExchangeServerLabel(exchange: TimelineExchange): string {
+export function getExchangeServerLabel(exchange: TimelineExchange): string {
   return getExchangeServerName(exchange);
 }
 
-function getLinkedExchangeLabel(exchange: TimelineExchange, relatedTask?: TaskRunEvent): string {
-  const stepName = relatedTask ? getTaskStepDisplayName(relatedTask) : "";
-  const exchangeLabel = stepName || getExchangeTitle(exchange);
-  return `Centian MCP · ${exchangeLabel} · ${getExchangeStatusLabel(exchange)}`;
-}
 
 function readPayloadObject(payload: unknown): Record<string, unknown> | undefined {
   if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
@@ -1143,7 +981,7 @@ function formatTaskPhaseLine(event: TaskRunEvent): string {
   return to || from;
 }
 
-function getServerAccentColor(serverName: string): string {
+export function getServerAccentColor(serverName: string): string {
   const palette = [
     "#a78bfa",
     "#fbbf24",
@@ -1196,109 +1034,7 @@ function getEventStatusLabel(event: TaskRunEvent): string {
   return event.direction ?? "event";
 }
 
-function getEventVisuals(
-  event: TaskRunEvent,
-  tone: "neutral" | "active" | "completed" | "failed",
-): {
-  channelLabel: string;
-  iconKind: "task" | "filesystem" | "shell" | "server";
-  shape: "hex" | "diamond" | "circle";
-  style: CSSProperties;
-} {
-  let color = "#8ce6d8";
-  let glow = "rgba(140, 230, 216, 0.5)";
-  let background = "rgba(140, 230, 216, 0.08)";
-  let shape: "hex" | "diamond" | "circle" = "hex";
-  let channelLabel = "centian";
-  let iconKind: "task" | "filesystem" | "shell" | "server" = "server";
 
-  if (event.source === "task") {
-    color = "#a78bfa";
-    glow = "rgba(167, 139, 250, 0.55)";
-    background = "rgba(167, 139, 250, 0.08)";
-    channelLabel = "task";
-    iconKind = "task";
-    shape = "hex";
-  } else if (event.serverName === "filesystem") {
-    color = "#34d399";
-    glow = "rgba(52, 211, 153, 0.55)";
-    background = "rgba(52, 211, 153, 0.08)";
-    channelLabel = "filesystem";
-    iconKind = "filesystem";
-    shape = "diamond";
-  } else if (event.serverName === "shell") {
-    color = "#fbbf24";
-    glow = "rgba(251, 191, 36, 0.55)";
-    background = "rgba(251, 191, 36, 0.08)";
-    channelLabel = "shell";
-    iconKind = "shell";
-    shape = "circle";
-  } else if (event.serverName) {
-    color = "#9fc6ff";
-    glow = "rgba(159, 198, 255, 0.52)";
-    background = "rgba(159, 198, 255, 0.08)";
-    channelLabel = event.serverName;
-    shape = "circle";
-  }
-
-  if (tone === "failed") {
-    color = "#ff8c8c";
-    glow = "rgba(255, 140, 140, 0.52)";
-    background = "rgba(255, 140, 140, 0.1)";
-  }
-
-  return {
-    channelLabel,
-    iconKind,
-    shape,
-    style: {
-      "--event-color": color,
-      "--event-glow": glow,
-      "--event-bg": background,
-    } as CSSProperties,
-  };
-}
-
-function EventGlyph({
-  kind,
-}: {
-  kind: "task" | "filesystem" | "shell" | "server";
-}) {
-  if (kind === "task") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M4 5.5h8M4 8h8M4 10.5h5" />
-      </svg>
-    );
-  }
-
-  if (kind === "filesystem") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M2.5 5.5h4l1.2 1.5h5.8v4.5H2.5z" />
-        <path d="M2.5 5.5V4h4l1.2 1.5" />
-      </svg>
-    );
-  }
-
-  if (kind === "shell") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="m4 5 2.5 2.5L4 10" />
-        <path d="M8 10.5h3.5" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="4" cy="8" r="1.3" />
-      <circle cx="12" cy="5" r="1.3" />
-      <circle cx="12" cy="11" r="1.3" />
-      <path d="M5.2 7.4 10.7 5.6M5.2 8.6l5.5 1.8" />
-    </svg>
-  );
-}
 
 function formatPayload(payload: unknown): string {
   if (payload == null) {
