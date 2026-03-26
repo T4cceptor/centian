@@ -325,12 +325,16 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
-    expect(screen.getByText("Onboarding")).toBeInTheDocument();
-    expect(screen.getByText("execute_command")).toBeInTheDocument();
+    expect(screen.getByLabelText("Onboarding")).toBeInTheDocument();
     expect(screen.getByText("300ms")).toBeInTheDocument();
 
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
-    expect(titles).toEqual(["Task Registered", "execute_command", "Step Completed", "edit_file"]);
+    expect(titles).toEqual([
+      "Task Registered",
+      "shell - execute_command",
+      "Step Completed · Onboarding",
+      "filesystem - edit_file",
+    ]);
     expect(screen.queryByText("Request · execute_command")).not.toBeInTheDocument();
     expect(screen.queryByText("centian.task_complete_step")).not.toBeInTheDocument();
 
@@ -350,10 +354,11 @@ describe("task run detail", () => {
     expect(screen.getByText(/"nested": true/)).toBeInTheDocument();
 
     const onboardingSection = screen.getByLabelText("Onboarding");
-    expect(within(onboardingSection).getByText("Step Completed")).toBeInTheDocument();
+    expect(within(onboardingSection).getByText("Step Completed · Onboarding")).toBeInTheDocument();
   });
 
   it("renders request-only exchanges as pending and orphan responses from response state", async () => {
+    const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse([
@@ -396,10 +401,15 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
-    expect(screen.getByText("execute_command")).toBeInTheDocument();
-    expect(screen.getByText("pending")).toBeInTheDocument();
-    expect(screen.getByText("edit_file")).toBeInTheDocument();
-    expect(screen.getByText("failed")).toBeInTheDocument();
+    const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
+    expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
+    expect(screen.getByText("error")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show event details for execute_command/i }));
+    expect(screen.getAllByText("pending")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: /show event details for edit_file/i }));
+    expect(screen.getAllByText("failed")).toHaveLength(2);
   });
 
   it("pairs persisted MCP direction values into one exchange card", async () => {
@@ -458,7 +468,7 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
-    expect(titles).toEqual(["Task Registered", "create_directory"]);
+    expect(titles).toEqual(["Task Registered", "filesystem - create_directory"]);
     expect(screen.getByText("300ms")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for create_directory/i }));

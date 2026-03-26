@@ -38,9 +38,9 @@ export function TaskRunDetailPage() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedItemID, setSelectedItemID] = useState<string>("");
-  const [detailsWidth, setDetailsWidth] = useState(420);
+  const [detailsWidth, setDetailsWidth] = useState(() => getDefaultDetailsWidth());
   const [draggingResize, setDraggingResize] = useState(false);
-  const previousExpandedWidthRef = useRef(420);
+  const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
 
   useEffect(() => {
     if (!runID) {
@@ -198,16 +198,7 @@ export function TaskRunDetailPage() {
         </div>
       </div>
 
-      <div
-        className="task-run-detail__workspace"
-        style={
-          inspectorVisible
-            ? ({
-                "--task-detail-sidebar-width": `${detailsWidth + 20}px`,
-              } as CSSProperties)
-            : undefined
-        }
-      >
+      <div className="task-run-detail__workspace">
         <div className="timeline">
           {groupedEvents.map((group, groupIndex) => (
             <section key={group.key} className="timeline-group" aria-label={group.label}>
@@ -243,12 +234,16 @@ export function TaskRunDetailPage() {
                     const visual = getTimelineItemVisuals(item, tone);
                     const title = getTimelineItemTitle(item);
                     const subtitle = getTimelineItemSubtitle(item);
-                    const statusLabel = getTimelineItemStatusLabel(item);
+                    const headerLabel = getTimelineItemHeaderLabel(item);
                     const exchangeLatency =
                       item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
                     const metaLabel =
                       item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
                     const selected = selectedItem?.id === item.id;
+                    const alertLabel = getTimelineItemAlertLabel(item);
+                    const showSourceBadge = item.kind === "task";
+                    const serverAccent =
+                      item.kind === "exchange" ? getServerAccentColor(getExchangeServerLabel(item.exchange)) : undefined;
 
                     return (
                       <article
@@ -287,39 +282,50 @@ export function TaskRunDetailPage() {
                                 setSelectedItemID(item.id);
                               }}
                             >
-                              <div className="timeline-event__meta">
-                                <span
-                                  className={`timeline-source-badge timeline-source-badge--${item.kind === "task" ? "task" : "exchange"}`}
-                                >
-                                  {metaLabel}
-                                </span>
-                                {exchangeLatency != null ? (
-                                  <span className="timeline-event__metric">
-                                    {formatLatency(exchangeLatency)}
-                                  </span>
-                                ) : null}
-                                <span className={`timeline-event__status timeline-event__status--${tone}`}>
-                                  {statusLabel}
-                                </span>
-                              </div>
-
                               <div className="timeline-event__body">
-                                <div>
-                                  <h3 className="timeline-event__title" data-testid="timeline-event-title">
-                                    {title}
-                                  </h3>
+                                <div className="timeline-event__main">
+                                  <div className="timeline-event__meta">
+                                    <div className="timeline-event__headline">
+                                      {showSourceBadge ? (
+                                        <span className="timeline-source-badge timeline-source-badge--task">
+                                          {metaLabel}
+                                        </span>
+                                      ) : null}
+                                      <h3 className="timeline-event__title" data-testid="timeline-event-title">
+                                        {showSourceBadge ? (
+                                          headerLabel
+                                        ) : (
+                                          <>
+                                            <span
+                                              className="timeline-event__server-name"
+                                              style={{ color: serverAccent } as CSSProperties}
+                                            >
+                                              {metaLabel}
+                                            </span>
+                                            <span className="timeline-event__title-separator"> - </span>
+                                            <span className="timeline-event__tool-name">{title}</span>
+                                          </>
+                                        )}
+                                      </h3>
+                                      {alertLabel ? (
+                                        <span className={`timeline-event__status timeline-event__status--${tone}`}>
+                                          {alertLabel}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {exchangeLatency != null ? (
+                                      <span className="timeline-event__metric">{formatLatency(exchangeLatency)}</span>
+                                    ) : null}
+                                  </div>
                                   {subtitle ? <p className="timeline-event__subtitle">{subtitle}</p> : null}
                                   {item.kind === "task" && item.correlatedExchange ? (
                                     <p className="timeline-event__linked-action">
-                                      {getLinkedExchangeLabel(item.correlatedExchange)}
+                                      {getLinkedExchangeLabel(item.correlatedExchange, item.task)}
                                     </p>
                                   ) : null}
+                                </div>
                               </div>
-                              <span className="timeline-event__details-link">
-                                {selected && inspectorVisible ? "Inspecting" : "Inspect"}
-                              </span>
-                            </div>
-                          </button>
+                            </button>
                           </div>
                         </div>
                       </article>
@@ -332,7 +338,14 @@ export function TaskRunDetailPage() {
         </div>
 
         {inspectorVisible ? (
-          <aside className="task-detail-panel" style={{ width: detailsWidth }}>
+          <aside
+            className="task-detail-panel"
+            style={
+              {
+                "--task-detail-panel-width": `${detailsWidth}px`,
+              } as CSSProperties
+            }
+          >
             <button
               type="button"
               className="task-detail-panel__resize-handle"
@@ -469,7 +482,15 @@ function ExchangeDetails({
 }
 
 function clampDetailsWidth(value: number): number {
-  return Math.min(680, Math.max(320, Math.round(value)));
+  return Math.min(1080, Math.max(320, Math.round(value)));
+}
+
+function getDefaultDetailsWidth(): number {
+  if (typeof window === "undefined") {
+    return 640;
+  }
+
+  return clampDetailsWidth(window.innerWidth * 0.4);
 }
 
 function DetailStateCard({
@@ -691,6 +712,14 @@ function getTimelineItemTitle(item: TimelineItem): string {
   return getExchangeTitle(item.exchange);
 }
 
+function getTimelineItemHeaderLabel(item: TimelineItem): string {
+  if (item.kind === "task") {
+    return getEventTitle(item.task);
+  }
+
+  return `${getExchangeServerLabel(item.exchange)} - ${getExchangeTitle(item.exchange)}`;
+}
+
 function getTimelineItemSubtitle(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventSubtitle(item.task);
@@ -705,6 +734,15 @@ function getTimelineItemStatusLabel(item: TimelineItem): string {
   }
 
   return getExchangeStatusLabel(item.exchange);
+}
+
+function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
+  const tone = getTimelineItemTone(item);
+  if (tone === "failed") {
+    return "error";
+  }
+
+  return undefined;
 }
 
 function getTimelineItemVisuals(
@@ -785,20 +823,27 @@ function readPayloadStatus(payload: unknown): string | undefined {
 
 function getEventTitle(event: TaskRunEvent): string {
   if (event.source === "task") {
+    const stepName = getTaskStepDisplayName(event);
+    if (event.eventType === "step_started") {
+      return stepName ? `Step Started · ${stepName}` : "Step Started";
+    }
+    if (event.eventType === "step_completed") {
+      return stepName ? `Step Completed · ${stepName}` : "Step Completed";
+    }
     return humanizeIdentifier(event.eventType ?? "task_event");
   }
 
   if (event.toolName) {
-    return `${humanizeIdentifier(event.direction ?? "action")} · ${event.toolName}`;
+    return event.toolName;
   }
   return humanizeIdentifier(event.messageType ?? "action_event");
 }
 
 function getEventSubtitle(event: TaskRunEvent): string {
   if (event.source === "task") {
-    const parts = [event.nodeKind, event.resultingNodeKind].filter(Boolean);
-    if (parts.length > 0) {
-      return parts.join(" → ");
+    const phaseLine = formatTaskPhaseLine(event);
+    if (phaseLine) {
+      return phaseLine;
     }
     return humanizePhase(event.resultingPhasePath ?? event.phasePath ?? "unknown");
   }
@@ -822,40 +867,9 @@ function getExchangeTitle(exchange: TimelineExchange): string {
 
 function getExchangeSubtitle(exchange: TimelineExchange): string {
   const requestPayload = readPayloadObject(exchange.request?.payloadJson);
-  if (requestPayload) {
-    if (typeof requestPayload.command === "string" && requestPayload.command.trim() !== "") {
-      return truncateText(requestPayload.command, 72);
-    }
-
-    if (typeof requestPayload.path === "string" && requestPayload.path.trim() !== "") {
-      return summarizePath(requestPayload.path);
-    }
-
-    if (Array.isArray(requestPayload.paths) && requestPayload.paths.length > 0) {
-      return requestPayload.paths
-        .filter((path): path is string => typeof path === "string" && path.trim() !== "")
-        .slice(0, 3)
-        .map((path) => summarizePath(path))
-        .join(" · ");
-    }
-
-    if (typeof requestPayload.step === "number") {
-      return `Step ${requestPayload.step}`;
-    }
-
-    if (typeof requestPayload.templateId === "string" && requestPayload.templateId.trim() !== "") {
-      return requestPayload.templateId;
-    }
-  }
-
-  const gateway = exchange.request?.gateway ?? exchange.response?.gateway;
-  const transport = exchange.request?.transport ?? exchange.response?.transport;
-  const serverName = getExchangeServerName(exchange);
-  if (gateway && gateway !== serverName) {
-    return gateway;
-  }
-  if (transport) {
-    return transport.toUpperCase();
+  const preview = extractPayloadPreview(requestPayload);
+  if (preview) {
+    return preview;
   }
 
   return "";
@@ -911,8 +925,10 @@ function getExchangeServerLabel(exchange: TimelineExchange): string {
   return getExchangeServerName(exchange);
 }
 
-function getLinkedExchangeLabel(exchange: TimelineExchange): string {
-  return `Centian MCP · ${getExchangeTitle(exchange)} · ${getExchangeStatusLabel(exchange)}`;
+function getLinkedExchangeLabel(exchange: TimelineExchange, relatedTask?: TaskRunEvent): string {
+  const stepName = relatedTask ? getTaskStepDisplayName(relatedTask) : "";
+  const exchangeLabel = stepName || getExchangeTitle(exchange);
+  return `Centian MCP · ${exchangeLabel} · ${getExchangeStatusLabel(exchange)}`;
 }
 
 function readPayloadObject(payload: unknown): Record<string, unknown> | undefined {
@@ -937,6 +953,192 @@ function truncateText(value: string, maxLength: number): string {
   }
 
   return `${value.slice(0, maxLength - 1)}…`;
+}
+
+function extractPayloadPreview(payload: unknown, depth = 0): string {
+  if (depth > 3 || payload == null) {
+    return "";
+  }
+
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (trimmed === "") {
+      return "";
+    }
+    return truncateText(trimmed, 88);
+  }
+
+  if (typeof payload === "number") {
+    return `${payload}`;
+  }
+
+  if (Array.isArray(payload)) {
+    const textItems = payload
+      .filter((item): item is string => typeof item === "string" && item.trim() !== "")
+      .slice(0, 3)
+      .map((item) => formatPreviewString(item));
+    if (textItems.length > 0) {
+      return truncateText(textItems.join(" · "), 88);
+    }
+
+    for (const item of payload) {
+      const preview = extractPayloadPreview(item, depth + 1);
+      if (preview) {
+        return preview;
+      }
+    }
+
+    return "";
+  }
+
+  if (typeof payload !== "object") {
+    return "";
+  }
+
+  const record = payload as Record<string, unknown>;
+
+  const prioritizedKeys = [
+    "command",
+    "cmd",
+    "path",
+    "filePath",
+    "file_path",
+    "targetPath",
+    "target_path",
+    "directory",
+    "cwd",
+    "templateId",
+    "template_id",
+    "projectSummary",
+    "project_summary",
+    "input",
+    "message",
+  ];
+
+  for (const key of prioritizedKeys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      return truncateText(formatPreviewString(value), 88);
+    }
+  }
+
+  const listKeys = ["paths", "files", "filePaths", "file_paths"];
+  for (const key of listKeys) {
+    const value = record[key];
+    if (!Array.isArray(value)) {
+      continue;
+    }
+
+    const items = value
+      .filter((item): item is string => typeof item === "string" && item.trim() !== "")
+      .slice(0, 3)
+      .map((item) => formatPreviewString(item));
+    if (items.length > 0) {
+      return truncateText(items.join(" · "), 88);
+    }
+  }
+
+  if (typeof record.step === "number") {
+    return `step ${record.step}`;
+  }
+
+  const nestedKeys = [
+    "arguments",
+    "args",
+    "params",
+    "parameters",
+    "request",
+    "payload",
+    "draftParameters",
+    "draft_parameters",
+  ];
+  for (const key of nestedKeys) {
+    const preview = extractPayloadPreview(record[key], depth + 1);
+    if (preview) {
+      return preview;
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    const preview = extractPayloadPreview(value, depth + 1);
+    if (preview) {
+      return preview;
+    }
+  }
+
+  return "";
+}
+
+function formatPreviewString(value: string): string {
+  if (value.includes("/")) {
+    return summarizePath(value);
+  }
+
+  return value;
+}
+
+function getTaskStepDisplayName(event: TaskRunEvent): string {
+  const payload = readPayloadObject(event.payloadJson);
+  const payloadCandidates = [
+    payload?.stepName,
+    payload?.step_name,
+    payload?.stepTitle,
+    payload?.step_title,
+  ];
+
+  for (const candidate of payloadCandidates) {
+    if (typeof candidate === "string" && candidate.trim() !== "") {
+      return humanizePhase(candidate);
+    }
+  }
+
+  const phaseCandidates =
+    event.eventType === "step_started"
+      ? [event.resultingPhasePath, event.phasePath]
+      : [event.phasePath, event.resultingPhasePath];
+
+  for (const candidate of phaseCandidates) {
+    if (typeof candidate === "string" && candidate.trim() !== "") {
+      return humanizePhase(candidate);
+    }
+  }
+
+  if (typeof payload?.step === "number") {
+    return `Step ${payload.step}`;
+  }
+
+  return "";
+}
+
+function formatTaskPhaseLine(event: TaskRunEvent): string {
+  const from = event.phasePath ? humanizePhase(event.phasePath) : "";
+  const to = event.resultingPhasePath ? humanizePhase(event.resultingPhasePath) : "";
+
+  if (from && to && from !== to) {
+    return `${from} → ${to}`;
+  }
+
+  return to || from;
+}
+
+function getServerAccentColor(serverName: string): string {
+  const palette = [
+    "#a78bfa",
+    "#fbbf24",
+    "#34d399",
+    "#60a5fa",
+    "#fb7185",
+    "#22d3ee",
+    "#f97316",
+    "#4ade80",
+  ];
+
+  let hash = 0;
+  for (let index = 0; index < serverName.length; index += 1) {
+    hash = (hash * 31 + serverName.charCodeAt(index)) >>> 0;
+  }
+
+  return palette[hash % palette.length];
 }
 
 function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" | "failed" {
