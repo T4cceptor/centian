@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
-import { formatTimestamp, humanizeIdentifier, humanizePhase } from "./format";
+import { formatTimestamp, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
@@ -89,8 +89,6 @@ export function TaskRunDetailPage() {
   );
   const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
   const inspectorVisible = selectedItemID !== "" && selectedItem != null;
-  const startedAt = events[0]?.createdAtUnixMilli;
-  const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
 
   useEffect(() => {
     setCollapsedGroups((current) => {
@@ -173,31 +171,18 @@ export function TaskRunDetailPage() {
       <header className="task-run-detail__header">
         <div className="task-run-detail__title-block">
           <p className="state-card__eyebrow">Run Detail</p>
-          <h2>Task run timeline</h2>
-          <code className="task-run-detail__run-id">{runID}</code>
+          <h2>
+            {formatTaskRunId(runID ?? "")}
+            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
+            <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
+          </h2>
         </div>
         <div className="task-run-detail__header-actions">
-          <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
           <Link className="back-link" to="/tasks">
             Back to task runs
           </Link>
         </div>
       </header>
-
-      <div className="task-run-detail__summary">
-        <div className="task-run-summary-card">
-          <span className="task-run-summary-card__label">Started</span>
-          <strong>{startedAt ? formatTimestamp(startedAt) : "Unknown"}</strong>
-        </div>
-        <div className="task-run-summary-card">
-          <span className="task-run-summary-card__label">Last activity</span>
-          <strong>{lastSeenAt ? formatTimestamp(lastSeenAt) : "Unknown"}</strong>
-        </div>
-        <div className="task-run-summary-card">
-          <span className="task-run-summary-card__label">Events</span>
-          <strong>{events.length}</strong>
-        </div>
-      </div>
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -211,8 +196,6 @@ export function TaskRunDetailPage() {
           }
           onSelectItem={setSelectedItemID}
           selectedItemId={selectedItemID}
-          startedAt={startedAt}
-          lastSeenAt={lastSeenAt}
           events={events}
         />
 

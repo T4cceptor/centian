@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-
 import type { TaskRunEvent } from "../api/task-runs";
 import {
   formatLatency,
@@ -350,8 +348,6 @@ export function SciFiTimeline({
   onToggleGroup,
   onSelectItem,
   selectedItemId,
-  startedAt,
-  lastSeenAt,
   events,
 }: {
   groups: TimelineGroup[];
@@ -359,24 +355,8 @@ export function SciFiTimeline({
   onToggleGroup: (key: string) => void;
   onSelectItem: (id: string) => void;
   selectedItemId: string;
-  startedAt: number | undefined;
-  lastSeenAt: number | undefined;
   events: TaskRunEvent[];
 }) {
-  const t0 = startedAt ?? 0;
-  const totalMs = Math.max(1, (lastSeenAt ?? 0) - t0);
-
-  const stats = useMemo(() => {
-    let errCount = 0;
-    const totalItems = groups.reduce((sum, g) => sum + g.items.length, 0);
-    for (const group of groups) {
-      for (const item of group.items) {
-        if (getTimelineItemTone(item) === "failed") errCount++;
-      }
-    }
-    return { errCount, totalItems };
-  }, [groups]);
-
   const hasCompleted = events.length > 0 && events.some(
     (e) => e.source === "task" && (e.eventType === "task_completed" || (e.payloadJson as { status?: string } | null)?.status === "completed")
   );
@@ -405,43 +385,14 @@ export function SciFiTimeline({
       {/* Content */}
       <div style={{ position: "relative", zIndex: 1, padding: "24px 24px 80px", overflowY: "auto", height: "100%" }}>
 
-        {/* ── Header HUD ── */}
-        <div style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
-            <div style={{ width: 24, height: 24, borderTop: "1px solid #a78bfa44", borderLeft: "1px solid #a78bfa44" }} />
-            <div style={{ width: 24, height: 24, borderTop: "1px solid #a78bfa44", borderRight: "1px solid #a78bfa44" }} />
-          </div>
-
-          <div style={{ textAlign: "left", paddingLeft: 120 }}>
-            <div style={{ fontSize: 11, color: "#3d4a6a", letterSpacing: "0.35em", marginBottom: 10 }}>
-              CENTIAN TRACE SYSTEM · SESSION LOG ACTIVE
+        {/* Server legend */}
+        <div style={{ display: "flex", gap: 24, marginBottom: 16, paddingLeft: 120 }}>
+          {Object.entries({ centian: "hexagon", shell: "circle", filesystem: "diamond" }).map(([srv]) => (
+            <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: KNOWN_COLORS[srv].color, opacity: 0.7, letterSpacing: "0.1em", fontFamily: "'Share Tech Mono', 'Courier New', monospace" }}>
+              <NodeShape server={srv} size={10} color={KNOWN_COLORS[srv].color} />
+              <span>{srv}</span>
             </div>
-            <div style={{ fontSize: 11, color: "#3d4a6a", letterSpacing: "0.15em" }}>
-              {startedAt ? formatTraceTimestamp(startedAt) : "—"}
-              <span style={{ margin: "0 12px", color: "#1a2540" }}>·</span>
-              {(totalMs / 1000).toFixed(1)}s
-              <span style={{ margin: "0 12px", color: "#1a2540" }}>·</span>
-              {stats.totalItems} calls
-              {stats.errCount > 0 && (
-                <>
-                  <span style={{ margin: "0 12px", color: "#1a2540" }}>·</span>
-                  <span style={{ color: "#f87171" }}>{stats.errCount} err</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Server legend */}
-          <div style={{ display: "flex", justifyContent: "flex-start", gap: 24, marginTop: 18, paddingLeft: 120 }}>
-            {Object.entries({ centian: "hexagon", shell: "circle", filesystem: "diamond" }).map(([srv]) => (
-              <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: KNOWN_COLORS[srv].color, opacity: 0.7, letterSpacing: "0.1em" }}>
-                <NodeShape server={srv} size={10} color={KNOWN_COLORS[srv].color} />
-                <span>{srv}</span>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ marginTop: 18, height: 1, background: "linear-gradient(to right, transparent, #a78bfa33, transparent)" }} />
+          ))}
         </div>
 
         {/* ── Timeline ── */}
