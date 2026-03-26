@@ -227,7 +227,7 @@ describe("task run detail", () => {
     });
   });
 
-  it("renders a grouped mixed timeline and expands inline payload details", async () => {
+  it("renders grouped mixed timeline exchanges and expands inline payload details", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -248,12 +248,26 @@ describe("task run detail", () => {
             source: "action",
             id: "ae_1742947200124_0000000002",
             createdAtUnixMilli: 1742947201123,
+            requestId: "req_1742947201123_0000000002",
             direction: "request",
             toolName: "execute_command",
             serverName: "shell",
             gateway: "taskverification",
             transport: "http",
             payloadJson: { command: "pwd" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000008",
+            createdAtUnixMilli: 1742947201423,
+            requestId: "req_1742947201123_0000000002",
+            direction: "response",
+            toolName: "execute_command",
+            success: true,
+            serverName: "shell",
+            gateway: "taskverification",
+            transport: "http",
+            payloadJson: { output: "/workspace/project" },
           },
           {
             source: "task",
@@ -282,6 +296,19 @@ describe("task run detail", () => {
           },
           {
             source: "action",
+            id: "ae_1742947200126_0000000006",
+            createdAtUnixMilli: 1742947202600,
+            requestId: "req_1742947202123_0000000005",
+            direction: "response",
+            toolName: "centian.task_complete_step",
+            success: true,
+            serverName: "centian",
+            gateway: "taskverification",
+            transport: "http",
+            payloadJson: { completed: true },
+          },
+          {
+            source: "action",
             id: "ae_1742947200127_0000000004",
             createdAtUnixMilli: 1742947203123,
             direction: "response",
@@ -300,23 +327,143 @@ describe("task run detail", () => {
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
     expect(screen.getByText("Onboarding")).toBeInTheDocument();
     expect(screen.getByText("Task Registered")).toBeInTheDocument();
-    expect(screen.getByText("Request · execute_command")).toBeInTheDocument();
+    expect(screen.getByText("execute_command")).toBeInTheDocument();
+    expect(screen.getByText("300ms")).toBeInTheDocument();
 
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
-    expect(titles).toEqual([
-      "Task Registered",
-      "Request · execute_command",
-      "Step Completed",
-      "Response · edit_file",
-    ]);
-    expect(screen.queryByText("Request · centian.task_complete_step")).not.toBeInTheDocument();
+    expect(titles).toEqual(["Task Registered", "execute_command", "Step Completed", "edit_file"]);
+    expect(screen.queryByText("Request · execute_command")).not.toBeInTheDocument();
+    expect(screen.queryByText("centian.task_complete_step")).not.toBeInTheDocument();
 
     expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /toggle event details for response/i }));
+    await user.click(screen.getByRole("button", { name: /toggle event details for execute_command/i }));
+    expect(screen.getAllByText("Request")).toHaveLength(2);
+    expect(screen.getAllByText("Response")).toHaveLength(2);
+    expect(screen.getByText(/"command": "pwd"/)).toBeInTheDocument();
+    expect(screen.getByText(/"output": "\/workspace\/project"/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /toggle event details for step completed/i }));
+    expect(screen.getAllByText("Centian Request")).toHaveLength(2);
+    expect(screen.getAllByText("Centian Response")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: /toggle event details for edit_file/i }));
     expect(screen.getByText(/"nested": true/)).toBeInTheDocument();
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Step Completed")).toBeInTheDocument();
+  });
+
+  it("renders request-only exchanges as pending and orphan responses from response state", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            requestId: "req_1742947201123_0000000002",
+            direction: "request",
+            toolName: "execute_command",
+            serverName: "shell",
+            payloadJson: { command: "pwd" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200125_0000000003",
+            createdAtUnixMilli: 1742947202123,
+            requestId: "req_1742947202123_0000000003",
+            direction: "response",
+            toolName: "edit_file",
+            success: false,
+            isError: true,
+            serverName: "filesystem",
+            payloadJson: { message: "write failed" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(screen.getByText("execute_command")).toBeInTheDocument();
+    expect(screen.getByText("pending")).toBeInTheDocument();
+    expect(screen.getByText("edit_file")).toBeInTheDocument();
+    expect(screen.getByText("failed")).toBeInTheDocument();
+  });
+
+  it("pairs persisted MCP direction values into one exchange card", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            requestId: "req_1742947201123_0000000002",
+            direction: "[CLIENT -> SERVER]",
+            messageType: "request",
+            toolName: "create_directory",
+            serverName: "filesystem",
+            payloadJson: {
+              request_id: "req_1742947201123_0000000002",
+              direction: "[CLIENT -> SERVER]",
+              message_type: "request",
+              path: "/workspace/project/tmp",
+            },
+          },
+          {
+            source: "action",
+            id: "ae_1742947201124_0000000003",
+            createdAtUnixMilli: 1742947201423,
+            requestId: "req_1742947201123_0000000002",
+            direction: "[SERVER -> CLIENT]",
+            messageType: "response",
+            toolName: "create_directory",
+            serverName: "filesystem",
+            success: true,
+            payloadJson: {
+              request_id: "req_1742947201123_0000000002",
+              direction: "[SERVER -> CLIENT]",
+              message_type: "response",
+              success: true,
+            },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
+    expect(titles).toEqual(["Task Registered", "create_directory"]);
+    expect(screen.getByText("300ms")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /toggle event details for create_directory/i }));
+    expect(screen.getAllByText("Request")).toHaveLength(2);
+    expect(screen.getAllByText("Response")).toHaveLength(2);
   });
 
   it("keeps onboarding and planning completion events in their source phase", async () => {

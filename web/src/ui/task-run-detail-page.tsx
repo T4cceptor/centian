@@ -13,11 +13,24 @@ type TimelineGroup = {
   items: TimelineItem[];
 };
 
-type TimelineItem = {
-  id: string;
-  primary: TaskRunEvent;
-  correlatedAction?: TaskRunEvent;
+type TimelineExchange = {
+  requestId?: string;
+  request?: TaskRunEvent;
+  response?: TaskRunEvent;
 };
+
+type TimelineItem =
+  | {
+      id: string;
+      kind: "task";
+      task: TaskRunEvent;
+      correlatedExchange?: TimelineExchange;
+    }
+  | {
+      id: string;
+      kind: "exchange";
+      exchange: TimelineExchange;
+    };
 
 export function TaskRunDetailPage() {
   const { runID } = useParams();
@@ -63,7 +76,7 @@ export function TaskRunDetailPage() {
     return () => controller.abort();
   }, [runID]);
 
-  const timelineItems = useMemo(() => mergeCentianTaskActionEvents(events), [events]);
+  const timelineItems = useMemo(() => buildTimelineItems(events), [events]);
   const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
   const startedAt = events[0]?.createdAtUnixMilli;
@@ -182,22 +195,27 @@ export function TaskRunDetailPage() {
             {!collapsedGroups[group.key] ? (
               <div className="timeline-group__events">
                 {group.items.map((item) => {
-                  const event = item.primary;
-                  const tone = getEventTone(event);
-                  const visual = getEventVisuals(event, tone);
-                  const title = getEventTitle(event);
-                  const statusLabel = getEventStatusLabel(event);
-                  const expanded = expandedEvents[event.id] === true;
+                  const anchorEvent = getTimelineAnchorEvent(item);
+                  const tone = getTimelineItemTone(item);
+                  const visual = getTimelineItemVisuals(item, tone);
+                  const title = getTimelineItemTitle(item);
+                  const subtitle = getTimelineItemSubtitle(item);
+                  const statusLabel = getTimelineItemStatusLabel(item);
+                  const expanded = expandedEvents[item.id] === true;
+                  const exchangeLatency =
+                    item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
+                  const metaLabel =
+                    item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
 
                   return (
                     <article
-                      key={event.id}
+                      key={item.id}
                       className={`timeline-event timeline-event--${tone}`}
                       style={visual.style}
                     >
                       <div className="timeline-event__timestamp">
-                        <time dateTime={new Date(event.createdAtUnixMilli).toISOString()}>
-                          {formatTimestamp(event.createdAtUnixMilli)}
+                        <time dateTime={new Date(anchorEvent.createdAtUnixMilli).toISOString()}>
+                          {formatTimestamp(anchorEvent.createdAtUnixMilli)}
                         </time>
                       </div>
 
@@ -223,15 +241,21 @@ export function TaskRunDetailPage() {
                             onClick={() =>
                               setExpandedEvents((current) => ({
                                 ...current,
-                                [event.id]: !current[event.id],
+                                [item.id]: !current[item.id],
                               }))
                             }
                           >
                             <div className="timeline-event__meta">
-                              <span className="timeline-event__channel">{visual.channelLabel}</span>
-                              <span className={`timeline-source-badge timeline-source-badge--${event.source}`}>
-                                {event.source}
+                              <span
+                                className={`timeline-source-badge timeline-source-badge--${item.kind === "task" ? "task" : "exchange"}`}
+                              >
+                                {metaLabel}
                               </span>
+                              {exchangeLatency != null ? (
+                                <span className="timeline-event__metric">
+                                  {formatLatency(exchangeLatency)}
+                                </span>
+                              ) : null}
                               <span className={`timeline-event__status timeline-event__status--${tone}`}>
                                 {statusLabel}
                               </span>
@@ -242,10 +266,10 @@ export function TaskRunDetailPage() {
                                 <h3 className="timeline-event__title" data-testid="timeline-event-title">
                                   {title}
                                 </h3>
-                                <p className="timeline-event__subtitle">{getEventSubtitle(event)}</p>
-                                {item.correlatedAction ? (
+                                {subtitle ? <p className="timeline-event__subtitle">{subtitle}</p> : null}
+                                {item.kind === "task" && item.correlatedExchange ? (
                                   <p className="timeline-event__linked-action">
-                                    Centian MCP · {getActionLabel(item.correlatedAction)}
+                                    {getLinkedExchangeLabel(item.correlatedExchange)}
                                   </p>
                                 ) : null}
                               </div>
@@ -257,24 +281,23 @@ export function TaskRunDetailPage() {
 
                           {expanded ? (
                             <div className="timeline-event__details">
-                              <div className="timeline-event__details-meta">
-                                <span>{formatTimestamp(event.createdAtUnixMilli)}</span>
-                                <span>{statusLabel}</span>
-                              </div>
-                              <p className="timeline-event__payload-label">Task event</p>
-                              <pre className="timeline-event__payload">{formatPayload(event.payloadJson)}</pre>
-                              {item.correlatedAction ? (
+                              {item.kind === "task" ? (
                                 <>
-                                  <div className="timeline-event__details-meta">
-                                    <span>Centian MCP</span>
-                                    <span>{getActionLabel(item.correlatedAction)}</span>
-                                  </div>
-                                  <p className="timeline-event__payload-label">MCP event</p>
-                                  <pre className="timeline-event__payload">
-                                    {formatPayload(item.correlatedAction.payloadJson)}
-                                  </pre>
+                                  <PayloadSection
+                                    label="Task Event"
+                                    event={item.task}
+                                    statusLabel={statusLabel}
+                                  />
+                                  {item.correlatedExchange ? (
+                                    <ExchangeDetails
+                                      exchange={item.correlatedExchange}
+                                      prefixLabel="Centian"
+                                    />
+                                  ) : null}
                                 </>
-                              ) : null}
+                              ) : (
+                                <ExchangeDetails exchange={item.exchange} />
+                              )}
                             </div>
                           ) : null}
                         </div>
@@ -288,6 +311,58 @@ export function TaskRunDetailPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+function PayloadSection({
+  label,
+  event,
+  statusLabel,
+}: {
+  label: string;
+  event: TaskRunEvent;
+  statusLabel?: string;
+}) {
+  return (
+    <section className="timeline-event__payload-section">
+      <div className="timeline-event__details-meta">
+        <span>{label}</span>
+        <span>{formatTimestamp(event.createdAtUnixMilli)}</span>
+        {statusLabel ? <span>{statusLabel}</span> : null}
+      </div>
+      <p className="timeline-event__payload-label">{label}</p>
+      <pre className="timeline-event__payload">{formatPayload(event.payloadJson)}</pre>
+    </section>
+  );
+}
+
+function ExchangeDetails({
+  exchange,
+  prefixLabel,
+}: {
+  exchange: TimelineExchange;
+  prefixLabel?: string;
+}) {
+  const requestStatus = exchange.response == null ? "pending" : "sent";
+  const responseStatus = getExchangeStatusLabel(exchange);
+
+  return (
+    <>
+      {exchange.request ? (
+        <PayloadSection
+          label={`${prefixLabel ? `${prefixLabel} ` : ""}Request`}
+          event={exchange.request}
+          statusLabel={requestStatus}
+        />
+      ) : null}
+      {exchange.response ? (
+        <PayloadSection
+          label={`${prefixLabel ? `${prefixLabel} ` : ""}Response`}
+          event={exchange.response}
+          statusLabel={responseStatus}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -312,44 +387,153 @@ function DetailStateCard({
   );
 }
 
-function mergeCentianTaskActionEvents(events: TaskRunEvent[]): TimelineItem[] {
-  const pairedRequestIDs = new Set(
-    events
-      .filter((event) => event.source === "task" && typeof event.relatedActionRequestId === "string")
-      .map((event) => event.relatedActionRequestId as string),
-  );
-  const centianActionsByRequestID = new Map<string, TaskRunEvent>();
-  for (const event of events) {
-    if (isCollapsibleCentianAction(event) && event.requestId) {
-      centianActionsByRequestID.set(event.requestId, event);
-    }
-  }
+function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
+  const rawItems: TimelineItem[] = [];
+  const pendingExchanges = new Map<string, TimelineExchange>();
 
-  const items: TimelineItem[] = [];
   for (const event of events) {
     if (event.source === "task") {
-      items.push({
+      rawItems.push({
         id: event.id,
-        primary: event,
-        correlatedAction:
-          event.relatedActionRequestId != null
-            ? centianActionsByRequestID.get(event.relatedActionRequestId)
-            : undefined,
+        kind: "task",
+        task: event,
       });
       continue;
     }
 
-    if (isCollapsibleCentianAction(event) && event.requestId && pairedRequestIDs.has(event.requestId)) {
+    const exchange = createSingletonExchange(event);
+    const requestId = getExchangeRequestID(event);
+    if (!requestId) {
+      rawItems.push({
+        id: event.id,
+        kind: "exchange",
+        exchange,
+      });
       continue;
     }
 
-    items.push({
+    if (isRequestAction(event)) {
+      rawItems.push({
+        id: event.id,
+        kind: "exchange",
+        exchange,
+      });
+      pendingExchanges.set(requestId, exchange);
+      continue;
+    }
+
+    if (isResponseAction(event)) {
+      const pending = pendingExchanges.get(requestId);
+      if (pending && pending.response == null) {
+        pending.response = event;
+        continue;
+      }
+    }
+
+    rawItems.push({
       id: event.id,
-      primary: event,
+      kind: "exchange",
+      exchange,
     });
   }
 
+  const centianExchangesByRequestID = new Map<string, TimelineExchange>();
+  for (const item of rawItems) {
+    if (
+      item.kind === "exchange" &&
+      item.exchange.requestId &&
+      isCollapsibleCentianExchange(item.exchange)
+    ) {
+      centianExchangesByRequestID.set(item.exchange.requestId, item.exchange);
+    }
+  }
+
+  const hiddenExchangeRequestIDs = new Set<string>();
+  const items: TimelineItem[] = [];
+  for (const item of rawItems) {
+    if (item.kind === "task") {
+      const correlatedExchange =
+        item.task.relatedActionRequestId != null
+          ? centianExchangesByRequestID.get(item.task.relatedActionRequestId)
+          : undefined;
+      if (correlatedExchange?.requestId) {
+        hiddenExchangeRequestIDs.add(correlatedExchange.requestId);
+      }
+      items.push(
+        correlatedExchange
+          ? {
+              ...item,
+              correlatedExchange,
+            }
+          : item,
+      );
+      continue;
+    }
+
+    if (
+      item.exchange.requestId &&
+      hiddenExchangeRequestIDs.has(item.exchange.requestId) &&
+      isCollapsibleCentianExchange(item.exchange)
+    ) {
+      continue;
+    }
+
+    items.push(item);
+  }
+
   return items;
+}
+
+function createSingletonExchange(event: TaskRunEvent): TimelineExchange {
+  const requestId = getExchangeRequestID(event);
+  if (isRequestAction(event)) {
+    return {
+      requestId,
+      request: event,
+    };
+  }
+
+  return {
+    requestId,
+    response: event,
+  };
+}
+
+function isRequestAction(event: TaskRunEvent): boolean {
+  if (event.source !== "action") {
+    return false;
+  }
+
+  return (
+    event.messageType === "request" ||
+    event.direction === "request" ||
+    event.direction === "[CLIENT -> SERVER]"
+  );
+}
+
+function isResponseAction(event: TaskRunEvent): boolean {
+  if (event.source !== "action") {
+    return false;
+  }
+
+  return (
+    event.messageType === "response" ||
+    event.direction === "response" ||
+    event.direction === "[SERVER -> CLIENT]" ||
+    event.direction === "[CENTIAN -> CLIENT]"
+  );
+}
+
+function getExchangeRequestID(event: TaskRunEvent): string | undefined {
+  if (event.requestId && event.requestId.trim() !== "") {
+    return event.requestId;
+  }
+
+  const payload = readPayloadObject(event.payloadJson);
+  const payloadRequestID = payload?.request_id;
+  return typeof payloadRequestID === "string" && payloadRequestID.trim() !== ""
+    ? payloadRequestID
+    : undefined;
 }
 
 function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
@@ -357,7 +541,7 @@ function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
   let lastKnownPhase = "";
 
   for (const item of items) {
-    const event = item.primary;
+    const event = getTimelineAnchorEvent(item);
     const effectivePhase = getGroupingPhase(event, lastKnownPhase);
     lastKnownPhase = effectivePhase;
 
@@ -377,8 +561,65 @@ function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
   return groups;
 }
 
-function isCollapsibleCentianAction(event: TaskRunEvent): boolean {
-  return event.source === "action" && event.serverName === "centian";
+function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
+  if (item.kind === "task") {
+    return item.task;
+  }
+
+  return item.exchange.request ?? item.exchange.response ?? item.exchange.request!;
+}
+
+function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "completed" | "failed" {
+  if (item.kind === "task") {
+    return getEventTone(item.task);
+  }
+
+  return getExchangeTone(item.exchange);
+}
+
+function getTimelineItemTitle(item: TimelineItem): string {
+  if (item.kind === "task") {
+    return getEventTitle(item.task);
+  }
+
+  return getExchangeTitle(item.exchange);
+}
+
+function getTimelineItemSubtitle(item: TimelineItem): string {
+  if (item.kind === "task") {
+    return getEventSubtitle(item.task);
+  }
+
+  return getExchangeSubtitle(item.exchange);
+}
+
+function getTimelineItemStatusLabel(item: TimelineItem): string {
+  if (item.kind === "task") {
+    return getEventStatusLabel(item.task);
+  }
+
+  return getExchangeStatusLabel(item.exchange);
+}
+
+function getTimelineItemVisuals(
+  item: TimelineItem,
+  tone: "neutral" | "active" | "completed" | "failed",
+): {
+  channelLabel: string;
+  iconKind: "task" | "filesystem" | "shell" | "server";
+  shape: "hex" | "diamond" | "circle";
+  style: CSSProperties;
+} {
+  if (item.kind === "task") {
+    return getEventVisuals(item.task, tone);
+  }
+
+  const representative = item.exchange.response ?? item.exchange.request;
+  return getEventVisuals(representative ?? item.exchange.request!, tone);
+}
+
+function isCollapsibleCentianExchange(exchange: TimelineExchange): boolean {
+  return getExchangeServerName(exchange) === "centian";
 }
 
 function getGroupingPhase(event: TaskRunEvent, lastKnownPhase: string): string {
@@ -463,14 +704,133 @@ function getEventSubtitle(event: TaskRunEvent): string {
   return humanizeIdentifier(event.messageType ?? "unknown");
 }
 
-function getActionLabel(event: TaskRunEvent): string {
-  if (event.toolName) {
-    return event.toolName;
+function getExchangeTitle(exchange: TimelineExchange): string {
+  const toolName = exchange.request?.toolName ?? exchange.response?.toolName;
+  if (toolName) {
+    return toolName;
   }
-  if (event.messageType) {
-    return humanizeIdentifier(event.messageType);
+
+  const messageType = exchange.request?.messageType ?? exchange.response?.messageType;
+  return humanizeIdentifier(messageType ?? "mcp_exchange");
+}
+
+function getExchangeSubtitle(exchange: TimelineExchange): string {
+  const requestPayload = readPayloadObject(exchange.request?.payloadJson);
+  if (requestPayload) {
+    if (typeof requestPayload.command === "string" && requestPayload.command.trim() !== "") {
+      return truncateText(requestPayload.command, 72);
+    }
+
+    if (typeof requestPayload.path === "string" && requestPayload.path.trim() !== "") {
+      return summarizePath(requestPayload.path);
+    }
+
+    if (Array.isArray(requestPayload.paths) && requestPayload.paths.length > 0) {
+      return requestPayload.paths
+        .filter((path): path is string => typeof path === "string" && path.trim() !== "")
+        .slice(0, 3)
+        .map((path) => summarizePath(path))
+        .join(" · ");
+    }
+
+    if (typeof requestPayload.step === "number") {
+      return `Step ${requestPayload.step}`;
+    }
+
+    if (typeof requestPayload.templateId === "string" && requestPayload.templateId.trim() !== "") {
+      return requestPayload.templateId;
+    }
   }
-  return event.requestId ?? "unknown";
+
+  const gateway = exchange.request?.gateway ?? exchange.response?.gateway;
+  const transport = exchange.request?.transport ?? exchange.response?.transport;
+  const serverName = getExchangeServerName(exchange);
+  if (gateway && gateway !== serverName) {
+    return gateway;
+  }
+  if (transport) {
+    return transport.toUpperCase();
+  }
+
+  return "";
+}
+
+function getExchangeTone(exchange: TimelineExchange): "neutral" | "active" | "completed" | "failed" {
+  const response = exchange.response;
+  if (response) {
+    if (response.isError === true || response.success === false) {
+      return "failed";
+    }
+    return "completed";
+  }
+
+  return "active";
+}
+
+function getExchangeStatusLabel(exchange: TimelineExchange): string {
+  const response = exchange.response;
+  if (!response) {
+    return "pending";
+  }
+  if (response.isError === true || response.success === false) {
+    return "failed";
+  }
+  if (response.success === true) {
+    return "success";
+  }
+  return "completed";
+}
+
+function getExchangeLatency(exchange: TimelineExchange): number | undefined {
+  if (!exchange.request || !exchange.response) {
+    return undefined;
+  }
+
+  return Math.max(0, exchange.response.createdAtUnixMilli - exchange.request.createdAtUnixMilli);
+}
+
+function formatLatency(durationMs: number): string {
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  }
+
+  return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
+}
+
+function getExchangeServerName(exchange: TimelineExchange): string {
+  return exchange.request?.serverName ?? exchange.response?.serverName ?? "mcp";
+}
+
+function getExchangeServerLabel(exchange: TimelineExchange): string {
+  return getExchangeServerName(exchange);
+}
+
+function getLinkedExchangeLabel(exchange: TimelineExchange): string {
+  return `Centian MCP · ${getExchangeTitle(exchange)} · ${getExchangeStatusLabel(exchange)}`;
+}
+
+function readPayloadObject(payload: unknown): Record<string, unknown> | undefined {
+  if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
+    return undefined;
+  }
+
+  return payload as Record<string, unknown>;
+}
+
+function summarizePath(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length === 0) {
+    return path;
+  }
+  return segments.slice(-2).join("/");
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 1)}…`;
 }
 
 function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" | "failed" {

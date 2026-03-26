@@ -608,6 +608,11 @@ code,
   background: rgba(159, 198, 255, 0.08);
 }
 
+.timeline-source-badge--exchange {
+  color: color-mix(in srgb, var(--event-color) 92%, white 8%);
+  background: color-mix(in srgb, var(--event-bg) 90%, transparent);
+}
+
 .timeline-event__body {
   justify-content: space-between;
   align-items: center;
@@ -621,6 +626,7 @@ code,
   font-family: "Inter", "Segoe UI", sans-serif;
   font-size: 0.95rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .timeline-event__subtitle {
@@ -646,10 +652,22 @@ code,
   margin-bottom: 8px;
 }
 
+.timeline-event__payload-section + .timeline-event__payload-section {
+  margin-top: 14px;
+}
+
 .timeline-event__status {
   flex-shrink: 0;
   font-size: 0.62rem;
   letter-spacing: 0.12em;
+}
+
+.timeline-event__metric {
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .timeline-event__status--active {
