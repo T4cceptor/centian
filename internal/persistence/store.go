@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/identifiers"
+
 	// TODO: refactor this out of here so persistence only deals with database access.
 	"github.com/T4cceptor/centian/internal/taskverification"
-	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/sqliteshim"
@@ -697,8 +698,5 @@ func isTerminalTaskEvent(eventType string, payload json.RawMessage) bool {
 }
 
 func newActionEventRowID() string {
-	if id, err := uuid.NewV7(); err == nil {
-		return id.String()
-	}
-	return "actionevent_" + time.Now().UTC().Format("20060102150405.000000000")
+	return identifiers.New(identifiers.KindActionEvent)
 }

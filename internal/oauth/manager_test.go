@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"gotest.tools/assert"
 )
 
@@ -30,6 +31,7 @@ func TestEnsurePendingReplacesOlderFlowForBinding(t *testing.T) {
 
 	first, err := manager.CreatePending(binding, "client-id", "client-secret", metadata, "verifier-1")
 	assert.NilError(t, err)
+	assert.Assert(t, identifiers.IsKind(first.ID, identifiers.KindOAuthPending))
 	first.Status = PendingStatusFailed
 
 	second, reused, err := manager.EnsurePending(binding, "client-id", "client-secret", metadata)
@@ -83,6 +85,7 @@ func TestManagerHandleStartAndStatus(t *testing.T) {
 	}
 	pending, err := manager.CreatePending(Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}, "client-id", "client-secret", metadata, "verifier")
 	assert.NilError(t, err)
+	assert.Assert(t, identifiers.IsKind(pending.ID, identifiers.KindOAuthPending))
 	authURL, err := url.Parse(pending.AuthURL)
 	assert.NilError(t, err)
 	assert.Equal(t, authURL.Query().Get("code_challenge_method"), "S256")
@@ -142,6 +145,7 @@ func TestManagerHandleCallbackSuccessAndErrors(t *testing.T) {
 
 	failedPending, err := manager.CreatePending(Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}, "client-id", "client-secret", metadata, "verifier-1")
 	assert.NilError(t, err)
+	assert.Assert(t, identifiers.IsKind(failedPending.ID, identifiers.KindOAuthPending))
 	errorReq := httptest.NewRequest(http.MethodGet, "/oauth/callback?state="+failedPending.State+"&error=denied", http.NoBody)
 	errorRec := httptest.NewRecorder()
 	mux.ServeHTTP(errorRec, errorReq)
@@ -151,6 +155,7 @@ func TestManagerHandleCallbackSuccessAndErrors(t *testing.T) {
 
 	successPending, err := manager.CreatePending(Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}, "client-id", "client-secret", metadata, "verifier-2")
 	assert.NilError(t, err)
+	assert.Assert(t, identifiers.IsKind(successPending.ID, identifiers.KindOAuthPending))
 	successReq := httptest.NewRequest(http.MethodGet, "/oauth/callback?state="+successPending.State+"&code=auth-code", http.NoBody)
 	successRec := httptest.NewRecorder()
 	mux.ServeHTTP(successRec, successReq)

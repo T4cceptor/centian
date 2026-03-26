@@ -9,6 +9,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/logging"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskverification"
@@ -453,10 +454,11 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 		taskverification.TaskEventTypeFailed,
 	})
 	for _, event := range events {
-		assert.Assert(t, event.TaskRunID != "")
+		assert.Assert(t, identifiers.IsKind(event.ID, identifiers.KindTaskEvent))
+		assert.Assert(t, identifiers.IsKind(event.TaskRunID, identifiers.KindTaskRun))
 		assert.Equal(t, event.TemplateID, "task")
 		assert.Equal(t, event.PrincipalID, "principal-1")
-		assert.Assert(t, event.RelatedActionRequestID != "")
+		assert.Assert(t, identifiers.IsKind(event.RelatedActionRequestID, identifiers.KindRequest))
 	}
 	assert.Equal(t, events[0].PhasePath, taskverification.TaskPhaseOnboarding)
 	assert.Equal(t, events[0].ResultingPhasePath, taskverification.TaskPhaseOnboarding)

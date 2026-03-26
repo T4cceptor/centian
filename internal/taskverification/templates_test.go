@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"gotest.tools/assert"
 )
 
@@ -237,6 +238,7 @@ workflow:
 
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
+	assert.Assert(t, identifiers.IsKind(run.RunID, identifiers.KindTaskRun))
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	run.Onboarding = &OnboardingArtifact{ProjectSummary: "existing summary"}
 	assert.Assert(t, run.Onboarding != nil)

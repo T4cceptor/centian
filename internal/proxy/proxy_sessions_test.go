@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -38,6 +39,14 @@ func TestDeriveDownstreamClientState(t *testing.T) {
 		captured.capabilities,
 		captured.roots,
 	))
+}
+
+func TestGetSessionIDGeneratesCanonicalSessionIDsForNewPosts(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/server-a", http.NoBody)
+
+	sessionID := getSessionID(request)
+
+	assert.Assert(t, identifiers.IsKind(sessionID, identifiers.KindSession))
 }
 
 func TestGetOrCreateServerForRequest_SessionAndIdentityGuards(t *testing.T) {

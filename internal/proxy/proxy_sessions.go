@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -34,7 +35,7 @@ func getSessionID(r *http.Request) string {
 		sessionID = r.Header.Get("Mcp-Session-Id")
 	}
 	if sessionID == "" && r != nil && r.Method == http.MethodPost {
-		sessionID = "csid-" + getNewUUIDV7()
+		sessionID = identifiers.New(identifiers.KindSession)
 	}
 	return sessionID
 }

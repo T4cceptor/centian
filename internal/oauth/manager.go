@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"golang.org/x/oauth2"
 )
 
@@ -229,14 +230,11 @@ func (m *Manager) CreatePending(binding Binding, clientID, clientSecret string, 
 	if metadata == nil {
 		return nil, fmt.Errorf("oauth metadata is required")
 	}
-	id, err := randomToken(16)
-	if err != nil {
-		return nil, err
-	}
 	state, err := randomToken(24)
 	if err != nil {
 		return nil, err
 	}
+	id := identifiers.New(identifiers.KindOAuthPending)
 	redirectURL := m.publicBaseURL + "/oauth/callback"
 	cfg := oauth2.Config{
 		ClientID:     clientID,

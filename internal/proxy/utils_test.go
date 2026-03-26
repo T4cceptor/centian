@@ -1,46 +1,25 @@
 package proxy
 
 import (
-	"errors"
 	"net/http"
-	"strings"
 	"testing"
 
-	"github.com/google/uuid"
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"gotest.tools/assert"
 )
 
 func TestGetNewUUIDV7(t *testing.T) {
-	// Given: a UUID generator
-	// When: generating a new ID
 	id := getNewUUIDV7()
 
-	// Then: the ID is non-empty
-	assert.Assert(t, id != "")
-}
-
-func TestGetNewUUIDV7_FallbackOnUUIDError(t *testing.T) {
-	originalGenerator := newUUIDV7
-	newUUIDV7 = func() (uuid.UUID, error) {
-		return uuid.UUID{}, errors.New("forced failure")
-	}
-	t.Cleanup(func() {
-		newUUIDV7 = originalGenerator
-	})
-
-	id := getNewUUIDV7()
-	assert.Assert(t, strings.HasPrefix(id, "req_"))
+	assert.Assert(t, identifiers.IsKind(id, identifiers.KindRequest))
 }
 
 func TestGetServerID(t *testing.T) {
-	// Given: server names
-	// When: generating server IDs
 	withName := getServerID("my-server")
 	defaultName := getServerID("")
 
-	// Then: IDs contain expected prefixes
-	assert.Assert(t, strings.HasPrefix(withName, "my-server_"))
-	assert.Assert(t, strings.HasPrefix(defaultName, "centian_server_"))
+	assert.Assert(t, identifiers.IsKind(withName, identifiers.KindServer))
+	assert.Assert(t, identifiers.IsKind(defaultName, identifiers.KindServer))
 }
 
 func TestGetEndpointString(t *testing.T) {

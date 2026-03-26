@@ -4,10 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
-	"github.com/google/uuid"
+	"github.com/T4cceptor/centian/internal/identifiers"
 )
 
 // NamespaceSeparator is used to create tool names in an aggregated proxy server.
@@ -80,27 +79,13 @@ func headerNameInList(headerName string, candidates []string) bool {
 	return false
 }
 
-var newUUIDV7 = uuid.NewV7
-
 func getNewUUIDV7() string {
-	result := ""
-	if id, err := newUUIDV7(); err == nil {
-		result = id.String()
-	}
-	if result == "" {
-		result = fmt.Sprintf("req_%d", time.Now().UnixMicro())
-	}
-	return result
+	return identifiers.New(identifiers.KindRequest)
 }
 
-// getServerID returns a new serverID using the server name.
-func getServerID(serverName string) string {
-	serverStr := "centian_server"
-	if serverName != "" {
-		serverStr = serverName
-	}
-	timestamp := time.Now().UnixNano()
-	return fmt.Sprintf("%s_%d", serverStr, timestamp)
+// getServerID returns a canonical internal server ID.
+func getServerID(_ string) string {
+	return identifiers.New(identifiers.KindServer)
 }
 
 // getEndpointString returns a new endpoint path for the given gatewayName and mcpServerName.

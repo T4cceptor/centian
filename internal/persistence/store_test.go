@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"gotest.tools/assert"
@@ -112,6 +113,8 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 	assert.Equal(t, actionEvents[0].ToolName, "shell__exec")
 	assert.Equal(t, actionEvents[0].PrincipalID, "principal-1")
 	assert.Assert(t, actionEvents[0].ID != actionEvents[1].ID)
+	assert.Assert(t, identifiers.IsKind(actionEvents[0].ID, identifiers.KindActionEvent))
+	assert.Assert(t, identifiers.IsKind(actionEvents[1].ID, identifiers.KindActionEvent))
 	assert.Equal(t, actionEvents[0].Direction, string(common.DirectionClientToServer))
 	assert.Equal(t, actionEvents[0].MessageType, string(common.MessageTypeRequest))
 	assert.Equal(t, actionEvents[1].Direction, string(common.DirectionServerToClient))

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/T4cceptor/centian/internal/identifiers"
 )
 
 // EventStore records task lifecycle events and action-to-task links.
@@ -65,17 +65,11 @@ func (s *InMemoryEventStore) ActionEventTaskContexts() []ActionEventTaskContext 
 }
 
 func newTaskRunID() string {
-	if id, err := uuid.NewV7(); err == nil {
-		return id.String()
-	}
-	return "taskrun_" + time.Now().UTC().Format("20060102150405.000000000")
+	return identifiers.New(identifiers.KindTaskRun)
 }
 
 func newTaskEventID() string {
-	if id, err := uuid.NewV7(); err == nil {
-		return id.String()
-	}
-	return "taskevent_" + time.Now().UTC().Format("20060102150405.000000000")
+	return identifiers.New(identifiers.KindTaskEvent)
 }
 
 func nowUnixMilli() int64 {
