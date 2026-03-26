@@ -13,12 +13,55 @@ export type TaskRunSummary = {
   eventCount: number;
 };
 
-export async function fetchTaskRuns(signal?: AbortSignal): Promise<TaskRunSummary[]> {
-  const response = await fetch("/api/task-runs", { signal });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch task runs (${response.status})`);
-  }
+export type TaskRunEvent = {
+  source: "task" | "action";
+  id: string;
+  createdAtUnixMilli: number;
+  payloadJson?: unknown;
+  eventType?: string;
+  outcome?: string;
+  relatedActionRequestId?: string;
+  phasePath?: string;
+  nodeKind?: string;
+  resultingPhasePath?: string;
+  resultingNodeKind?: string;
+  requestId?: string;
+  direction?: string;
+  messageType?: string;
+  toolName?: string;
+  originalToolName?: string;
+  success?: boolean;
+  isError?: boolean;
+  transport?: string;
+  gateway?: string;
+  serverName?: string;
+  endpoint?: string;
+};
 
-  const runs = (await response.json()) as TaskRunSummary[];
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message?: string) {
+    super(message ?? `Request failed (${status})`);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+async function requestJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    throw new ApiError(response.status);
+  }
+  return (await response.json()) as T;
+}
+
+export async function fetchTaskRuns(signal?: AbortSignal): Promise<TaskRunSummary[]> {
+  const runs = await requestJSON<TaskRunSummary[]>("/api/task-runs", signal);
   return Array.isArray(runs) ? runs : [];
+}
+
+export async function fetchTaskRunEvents(runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {
+  const events = await requestJSON<TaskRunEvent[]>(`/api/task-runs/${runID}/events`, signal);
+  return Array.isArray(events) ? events : [];
 }

@@ -7,10 +7,10 @@ import { AppRoutes } from "./routes";
 
 const originalFetch = globalThis.fetch;
 
-function createFetchResponse(body: unknown, ok: boolean = true): Response {
+function createFetchResponse(body: unknown, status: number = 200): Response {
   return {
-    ok,
-    status: ok ? 200 : 500,
+    ok: status >= 200 && status < 300,
+    status,
     json: async () => body,
   } as Response;
 }
@@ -143,10 +143,11 @@ describe("task run list", () => {
     expect(screen.getByText("failed")).toBeInTheDocument();
   });
 
-  it("navigates to the placeholder detail route when a row is clicked", async () => {
+  it("navigates to the detail route when a row is clicked", async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn(() =>
-      Promise.resolve(
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
         createFetchResponse([
           {
             runId: "tr_1742947200123_0000000001",
@@ -159,23 +160,169 @@ describe("task run list", () => {
             eventCount: 5,
           },
         ]),
-      ),
-    ) as typeof fetch;
+      )
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "planning.review",
+            resultingPhasePath: "planning.review",
+            nodeKind: "planning",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ) as typeof fetch;
 
     renderApp();
 
     await user.click(await screen.findByRole("link", { name: /tr_1742947200123_0000000001/i }));
 
-    expect(await screen.findByText("Task run detail view")).toBeInTheDocument();
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
     expect(screen.getByText(/tr_1742947200123_0000000001/i)).toBeInTheDocument();
   });
 });
 
-describe("task run detail placeholder", () => {
-  it("renders the selected run id on the detail route", async () => {
+describe("task run detail", () => {
+  it("shows a loading state before the event api resolves", async () => {
+    const pending = deferred<Response>();
+    globalThis.fetch = vi.fn(() => pending.promise) as typeof fetch;
+
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run detail view")).toBeInTheDocument();
-    expect(screen.getByText(/tr_1742947200123_0000000001/i)).toBeInTheDocument();
+    expect(screen.getByTestId("task-run-detail-loading")).toBeInTheDocument();
+    pending.resolve(createFetchResponse([]));
+    await waitFor(() => {
+      expect(screen.getByText("Task run timeline")).toBeInTheDocument();
+    });
+  });
+
+  it("renders a grouped mixed timeline and toggles payload visibility", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            nodeKind: "onboarding",
+            resultingNodeKind: "onboarding",
+            payloadJson: { status: "active", templateId: "python_tdd_demo" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            direction: "request",
+            toolName: "execute_command",
+            serverName: "shell",
+            gateway: "taskverification",
+            transport: "http",
+            payloadJson: { command: "pwd" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200125_0000000003",
+            createdAtUnixMilli: 1742947202123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "execution.implement_fix",
+            nodeKind: "planning",
+            resultingNodeKind: "execution",
+            payloadJson: { status: "active", step: 1 },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200126_0000000004",
+            createdAtUnixMilli: 1742947203123,
+            direction: "response",
+            toolName: "edit_file",
+            success: true,
+            serverName: "filesystem",
+            transport: "http",
+            payloadJson: { nested: true },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(screen.getByText("Onboarding")).toBeInTheDocument();
+    expect(screen.getByText("Execution / Implement Fix")).toBeInTheDocument();
+    expect(screen.getByText("Task Registered")).toBeInTheDocument();
+    expect(screen.getByText("Request · execute_command")).toBeInTheDocument();
+
+    const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
+    expect(titles).toEqual([
+      "Task Registered",
+      "Request · execute_command",
+      "Step Started",
+      "Response · edit_file",
+    ]);
+
+    expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Show payload" })[3]);
+    expect(screen.getByText(/"nested": true/)).toBeInTheDocument();
+  });
+
+  it("renders a not-found state for 404 responses", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(createFetchResponse({ error: "missing" }, 404))) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run not found")).toBeInTheDocument();
+  });
+
+  it("renders an invalid-run state for 400 responses", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(createFetchResponse({ error: "invalid" }, 400))) as typeof fetch;
+
+    renderApp(["/tasks/not-a-run-id"]);
+
+    expect(await screen.findByText("Invalid task run id")).toBeInTheDocument();
+  });
+
+  it("renders a generic error state for network or server failures", async () => {
+    globalThis.fetch = vi.fn(() => Promise.reject(new Error("boom"))) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task timeline unavailable")).toBeInTheDocument();
+  });
+
+  it("navigates back to the task list", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "planning.review",
+            resultingPhasePath: "planning.review",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(createFetchResponse([])) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    await user.click(await screen.findByRole("link", { name: "Back to task runs" }));
+    expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
   });
 });

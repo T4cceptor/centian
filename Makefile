@@ -4,6 +4,7 @@ BUILD_DIR=build
 MAIN_PATH=./cmd/main.go
 LOG_DIR=$(HOME)/.centian/logs
 WEB_DIR=web
+UI_DIST_DIR=internal/ui/dist
 
 # Release bump (defaults to patch, can be set via `make release minor`)
 BUMP ?= patch
@@ -19,13 +20,13 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test test-integration test-everything test-realworld test-taskverification test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-test web-preview web-clean check-main-branch tag-release release major minor patch
+.PHONY: help build clean test test-integration test-everything test-realworld test-taskverification test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s", $$1, $$2}'
 
-build: ## Build the MCP proxy binary
+build: web-stage ## Build the MCP proxy binary
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
@@ -138,6 +139,12 @@ web-build: ## Build the frontend app
 	@echo "Building frontend app..."
 	cd $(WEB_DIR) && npm run build
 
+web-stage: web-build ## Stage frontend assets for Go embedding
+	@echo "Staging frontend assets for embedding..."
+	@mkdir -p $(UI_DIST_DIR)
+	@find $(UI_DIST_DIR) -mindepth 1 ! -name '.keep' -exec rm -rf {} +
+	@cp -R $(WEB_DIR)/dist/. $(UI_DIST_DIR)/
+
 web-test: ## Run frontend tests
 	@echo "Running frontend tests..."
 	cd $(WEB_DIR) && npm test
@@ -153,6 +160,8 @@ web-clean: ## Clean frontend build and generated config artifacts
 	@rm -f $(WEB_DIR)/*.tsbuildinfo
 	@rm -f $(WEB_DIR)/*.js
 	@rm -f $(WEB_DIR)/*.d.ts
+	@mkdir -p $(UI_DIST_DIR)
+	@find $(UI_DIST_DIR) -mindepth 1 ! -name '.keep' -exec rm -rf {} +
 
 install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."

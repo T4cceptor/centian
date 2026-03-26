@@ -261,6 +261,219 @@ code,
   gap: 14px;
 }
 
+.task-run-detail {
+  display: grid;
+  gap: 20px;
+}
+
+.task-run-detail__header,
+.task-run-detail__summary,
+.timeline-group__header,
+.timeline-event__meta,
+.timeline-event__body,
+.task-run-detail__header-actions {
+  display: flex;
+}
+
+.task-run-detail__header {
+  justify-content: space-between;
+  align-items: start;
+  gap: 18px;
+}
+
+.task-run-detail__title-block {
+  display: grid;
+  gap: 8px;
+}
+
+.task-run-detail__run-id {
+  color: var(--accent-strong);
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.task-run-detail__header-actions {
+  align-items: center;
+  gap: 12px;
+}
+
+.task-run-detail__summary {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.task-run-summary-card {
+  min-width: 170px;
+  padding: 14px 16px;
+  border: 1px solid rgba(140, 230, 216, 0.14);
+  border-radius: 14px;
+  background: rgba(7, 16, 24, 0.72);
+}
+
+.task-run-summary-card__label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.timeline {
+  display: grid;
+  gap: 20px;
+}
+
+.timeline-group {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-group__header {
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-group__marker {
+  width: 10px;
+  height: 10px;
+  border: 1px solid rgba(140, 230, 216, 0.6);
+  transform: rotate(45deg);
+  background: rgba(140, 230, 216, 0.1);
+}
+
+.timeline-group__rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(140, 230, 216, 0.36), transparent);
+}
+
+.timeline-group__label {
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.timeline-group__events {
+  display: grid;
+  gap: 12px;
+}
+
+.timeline-event {
+  padding: 16px 18px;
+  border: 1px solid rgba(140, 230, 216, 0.14);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(9, 18, 28, 0.78), rgba(6, 13, 20, 0.92));
+}
+
+.timeline-event--active {
+  border-color: rgba(244, 210, 122, 0.22);
+}
+
+.timeline-event--completed {
+  border-color: rgba(156, 240, 165, 0.22);
+}
+
+.timeline-event--failed {
+  border-color: rgba(255, 140, 140, 0.3);
+}
+
+.timeline-event__meta {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.timeline-source-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.timeline-source-badge--task {
+  color: var(--accent);
+  background: rgba(140, 230, 216, 0.08);
+}
+
+.timeline-source-badge--action {
+  color: #9fc6ff;
+  background: rgba(159, 198, 255, 0.08);
+}
+
+.timeline-event__body {
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+
+.timeline-event__title {
+  margin: 0 0 6px;
+  color: var(--accent-strong);
+  font-family: "IBM Plex Serif", Georgia, serif;
+  font-size: 1.05rem;
+}
+
+.timeline-event__subtitle {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.timeline-event__status {
+  flex-shrink: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.timeline-event__status--active {
+  color: var(--accent-warning);
+}
+
+.timeline-event__status--completed {
+  color: var(--accent-success);
+}
+
+.timeline-event__status--failed {
+  color: var(--accent-danger);
+}
+
+.timeline-event__status--neutral {
+  color: var(--text-muted);
+}
+
+.timeline-event__toggle {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.timeline-event__payload {
+  margin: 12px 0 0;
+  padding: 14px;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: rgba(4, 9, 15, 0.88);
+  border: 1px solid rgba(140, 230, 216, 0.1);
+  color: #d7fff7;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -273,7 +486,10 @@ code,
 
 @media (max-width: 980px) {
   .app-header,
-  .task-run-list__toolbar {
+  .task-run-list__toolbar,
+  .task-run-detail__header,
+  .task-run-detail__header-actions,
+  .timeline-event__body {
     align-items: start;
     flex-direction: column;
   }
@@ -303,5 +519,9 @@ code,
 
   .task-run-row {
     grid-template-columns: 1fr;
+  }
+
+  .timeline-event {
+    padding: 14px;
   }
 }

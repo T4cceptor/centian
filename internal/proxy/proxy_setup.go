@@ -17,6 +17,7 @@ import (
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskverification"
+	centui "github.com/T4cceptor/centian/internal/ui"
 )
 
 // This file creates the Centian HTTP server and registers gateway and
@@ -190,6 +191,7 @@ func (c *CentianServer) Setup() error {
 		c.OAuth = manager
 		c.OAuth.RegisterRoutes(c.Mux)
 	}
+	centui.NewHandler().RegisterRoutes(c.Mux)
 	if c.PersistenceStore != nil {
 		centapi.NewHandler(c.PersistenceStore).RegisterRoutes(c.Mux)
 	}

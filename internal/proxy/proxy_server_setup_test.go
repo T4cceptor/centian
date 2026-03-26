@@ -85,6 +85,17 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	apiEventsHandler, apiEventsPattern := proxy.Mux.Handler(apiEventsReq)
 	assert.Assert(t, apiEventsHandler != nil)
 	assert.Equal(t, apiEventsPattern, "GET /api/task-runs/{runID}/events")
+
+	// Then: UI routes are registered for the embedded frontend
+	uiIndexReq, _ := http.NewRequest(http.MethodGet, "http://example.com/ui", http.NoBody)
+	uiIndexHandler, uiIndexPattern := proxy.Mux.Handler(uiIndexReq)
+	assert.Assert(t, uiIndexHandler != nil)
+	assert.Equal(t, uiIndexPattern, "GET /ui")
+
+	uiTasksReq, _ := http.NewRequest(http.MethodGet, "http://example.com/ui/tasks", http.NoBody)
+	uiTasksHandler, uiTasksPattern := proxy.Mux.Handler(uiTasksReq)
+	assert.Assert(t, uiTasksHandler != nil)
+	assert.Equal(t, uiTasksPattern, "GET /ui/")
 }
 
 func TestInitEventProcessor_GatewayProcessorsAppliedToAggregatedEndpoint(t *testing.T) {
@@ -294,6 +305,12 @@ func TestCentianServerSetup_OmitsAPIRoutesWhenEventStorageDisabled(t *testing.T)
 	apiEventsReq, _ := http.NewRequest(http.MethodGet, "http://example.com/api/task-runs/"+validRunID+"/events", http.NoBody)
 	_, apiEventsPattern := proxy.Mux.Handler(apiEventsReq)
 	assert.Equal(t, apiEventsPattern, "")
+
+	// Then: the embedded UI is still available
+	uiIndexReq, _ := http.NewRequest(http.MethodGet, "http://example.com/ui", http.NoBody)
+	uiIndexHandler, uiIndexPattern := proxy.Mux.Handler(uiIndexReq)
+	assert.Assert(t, uiIndexHandler != nil)
+	assert.Equal(t, uiIndexPattern, "GET /ui")
 }
 
 func TestNewCentianServer_UsesConfiguredTaskTemplatesPath(t *testing.T) {

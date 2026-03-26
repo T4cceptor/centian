@@ -39,3 +39,16 @@ export function humanizePhase(phasePath: string): string {
     )
     .join(" / ");
 }
+
+export function humanizeIdentifier(value: string): string {
+  if (!value) {
+    return "Unknown";
+  }
+
+  return value
+    .replace(/[._-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
