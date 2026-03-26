@@ -414,7 +414,7 @@ code,
 
 .timeline-event {
   display: grid;
-  grid-template-columns: 92px 48px minmax(0, 1fr);
+  grid-template-columns: 76px 44px minmax(0, 1fr);
   align-items: center;
   gap: 0;
   min-height: 50px;
@@ -424,11 +424,11 @@ code,
 }
 
 .timeline-event__timestamp {
-  padding-right: 10px;
-  color: #88a0bf;
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.03em;
+  padding-right: 0;
+  color: #1e2a42;
+  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
   text-align: right;
 }
 
@@ -437,7 +437,7 @@ code,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
+  width: 44px;
   height: 50px;
 }
 
@@ -447,17 +447,17 @@ code,
 }
 
 .timeline-event__halo {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   background: var(--event-bg);
-  opacity: 0.26;
+  opacity: 0.15;
   box-shadow: 0 0 24px var(--event-glow);
 }
 
 .timeline-event__ring {
   width: 24px;
   height: 24px;
-  border: 1px solid color-mix(in srgb, var(--event-color) 46%, transparent);
+  border: 1px solid color-mix(in srgb, var(--event-color) 34%, transparent);
   box-shadow: 0 0 12px var(--event-glow);
 }
 
@@ -524,21 +524,19 @@ code,
 
 .timeline-event__card:hover .timeline-event__content,
 .timeline-event__content:focus-within {
-  border-color: color-mix(in srgb, var(--event-color) 34%, transparent);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  border-color: color-mix(in srgb, var(--event-color) 18%, transparent);
+  background: color-mix(in srgb, var(--event-bg) 28%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--event-color) 6%, transparent);
   transform: translateY(-1px);
   outline: none;
 }
 
 .timeline-event--selected .timeline-event__content {
-  border-color: color-mix(in srgb, var(--event-color) 56%, white 10%);
+  border-color: color-mix(in srgb, var(--event-color) 30%, transparent);
   box-shadow:
-    0 18px 34px rgba(0, 0, 0, 0.34),
-    0 0 0 1px color-mix(in srgb, var(--event-color) 28%, transparent),
-    0 0 26px color-mix(in srgb, var(--event-color) 20%, transparent),
-    inset 0 0 0 1px color-mix(in srgb, var(--event-color) 20%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--event-bg) 28%, rgba(7, 16, 24, 0.94)), rgba(5, 11, 18, 0.96));
+    0 0 0 1px color-mix(in srgb, var(--event-color) 14%, transparent),
+    0 0 18px color-mix(in srgb, var(--event-color) 12%, transparent);
+  background: color-mix(in srgb, var(--event-bg) 34%, transparent);
 }
 
 .timeline-event__connector {
@@ -546,18 +544,19 @@ code,
   flex-shrink: 0;
   align-self: center;
   height: 1px;
-  background: linear-gradient(90deg, var(--event-color), color-mix(in srgb, var(--event-color) 24%, transparent));
-  opacity: 0.42;
+  background: linear-gradient(90deg, var(--event-color), color-mix(in srgb, var(--event-color) 27%, transparent));
+  opacity: 0.2;
 }
 
 .timeline-event__content {
   flex: 1;
   min-width: 0;
-  padding: 7px 11px 7px 9px;
-  border: 1px solid color-mix(in srgb, var(--event-color) 18%, transparent);
+  max-width: 340px;
+  padding: 5px 12px 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--event-color) 10%, transparent);
   border-left: 2px solid color-mix(in srgb, var(--event-color) 60%, transparent);
-  border-radius: 0 10px 10px 0;
-  background: linear-gradient(180deg, rgba(7, 16, 24, 0.8), rgba(5, 11, 18, 0.94));
+  border-radius: 0 4px 4px 0;
+  background: transparent;
   transition:
     border-color 140ms ease,
     box-shadow 140ms ease,
@@ -584,9 +583,9 @@ code,
 .timeline-event__meta {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 7px;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   min-width: 0;
 }
 
@@ -596,19 +595,31 @@ code,
   gap: 7px;
   min-width: 0;
   flex: 1;
+  flex-wrap: nowrap;
 }
 
+.timeline-event__server-dot,
 .timeline-event__server-name,
 .timeline-event__status {
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   text-transform: uppercase;
+}
+
+.timeline-event__server-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--timeline-server-color, var(--event-color));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--timeline-server-color, var(--event-color)) 60%, transparent);
 }
 
 .timeline-event__server-name {
   flex-shrink: 0;
-  font-size: 0.7rem;
+  font-size: 0.56rem;
   letter-spacing: 0.12em;
   white-space: nowrap;
+  opacity: 0.75;
 }
 
 .timeline-source-badge {
@@ -651,39 +662,41 @@ code,
 .timeline-event__title {
   margin: 0;
   color: var(--accent-strong);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.76rem;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.2;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   min-width: 0;
 }
 
 .timeline-event__title-separator {
-  margin-right: 6px;
   color: #5a6f89;
 }
 
 .timeline-event__tool-name {
-  color: #d8e8ff;
+  color: #8ba4c8;
 }
 
 .timeline-event__subtitle {
   margin: 0;
-  color: #7f99b0;
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.68rem;
+  color: #2a3d5e;
+  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
   line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 290px;
 }
 
 .timeline-event__linked-action,
 .timeline-event__payload-label {
   margin: 2px 0 0;
   color: var(--text-muted);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.6rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -699,18 +712,24 @@ code,
 
 .timeline-event__status {
   flex-shrink: 0;
-  font-size: 0.58rem;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  font-size: 0.5rem;
   letter-spacing: 0.1em;
 }
 
 .timeline-event__metric {
   align-self: flex-start;
-  color: var(--text-muted);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.58rem;
+  color: #1e2a42;
+  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.56rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+  margin-left: auto;
+  padding-right: 2px;
 }
 
 .timeline-event__status--active {

@@ -244,6 +244,8 @@ export function TaskRunDetailPage() {
                     const showSourceBadge = item.kind === "task";
                     const serverAccent =
                       item.kind === "exchange" ? getServerAccentColor(getExchangeServerLabel(item.exchange)) : undefined;
+                    const serverDisplay =
+                      item.kind === "exchange" ? getExchangeServerLabel(item.exchange) : undefined;
 
                     return (
                       <article
@@ -255,7 +257,7 @@ export function TaskRunDetailPage() {
                       >
                         <div className="timeline-event__timestamp">
                           <time dateTime={new Date(anchorEvent.createdAtUnixMilli).toISOString()}>
-                            {formatTimestamp(anchorEvent.createdAtUnixMilli)}
+                            {formatTraceTimestamp(anchorEvent.createdAtUnixMilli)}
                           </time>
                         </div>
 
@@ -297,12 +299,23 @@ export function TaskRunDetailPage() {
                                         ) : (
                                           <>
                                             <span
+                                              className="timeline-event__server-dot"
+                                              style={
+                                                {
+                                                  "--timeline-server-color": serverAccent,
+                                                } as CSSProperties
+                                              }
+                                              aria-hidden="true"
+                                            />
+                                            <span
                                               className="timeline-event__server-name"
                                               style={{ color: serverAccent } as CSSProperties}
                                             >
-                                              {metaLabel}
+                                              {serverDisplay}
                                             </span>
-                                            <span className="timeline-event__title-separator"> - </span>
+                                            <span className="timeline-event__title-separator" aria-hidden="true">
+                                              {" - "}
+                                            </span>
                                             <span className="timeline-event__tool-name">{title}</span>
                                           </>
                                         )}
@@ -915,6 +928,15 @@ function formatLatency(durationMs: number): string {
   }
 
   return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
+}
+
+function formatTraceTimestamp(timestamp: number): string {
+  const date = new Date(timestamp);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  const milliseconds = String(date.getMilliseconds()).padStart(3, "0");
+  return `${hours}:${minutes}:${seconds}.${milliseconds}`;
 }
 
 function getExchangeServerName(exchange: TimelineExchange): string {
