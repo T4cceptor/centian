@@ -285,7 +285,7 @@ function SciFiEventNode({
           background: "transparent",
           transition: "all 0.18s",
           flex: 1,
-          maxWidth: 400,
+          maxWidth: 520,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
             {/* Server dot */}
@@ -332,7 +332,7 @@ function SciFiEventNode({
               fontFamily: "'Share Tech Mono', 'Courier New', monospace",
               fontSize: 11, color: "#4a6a8e", marginTop: 3,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              maxWidth: 340,
+              maxWidth: 460,
             }}>
               {subtitle}
             </div>
@@ -403,7 +403,7 @@ export function SciFiTimeline({
       }} />
 
       {/* Content */}
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "24px 24px 80px", overflowY: "auto", height: "100%" }}>
+      <div style={{ position: "relative", zIndex: 1, padding: "24px 24px 80px", overflowY: "auto", height: "100%" }}>
 
         {/* ── Header HUD ── */}
         <div style={{ marginBottom: 28 }}>
@@ -412,7 +412,7 @@ export function SciFiTimeline({
             <div style={{ width: 24, height: 24, borderTop: "1px solid #a78bfa44", borderRight: "1px solid #a78bfa44" }} />
           </div>
 
-          <div style={{ textAlign: "center" }}>
+          <div style={{ textAlign: "left", paddingLeft: 120 }}>
             <div style={{ fontSize: 11, color: "#3d4a6a", letterSpacing: "0.35em", marginBottom: 10 }}>
               CENTIAN TRACE SYSTEM · SESSION LOG ACTIVE
             </div>
@@ -432,7 +432,7 @@ export function SciFiTimeline({
           </div>
 
           {/* Server legend */}
-          <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 18 }}>
+          <div style={{ display: "flex", justifyContent: "flex-start", gap: 24, marginTop: 18, paddingLeft: 120 }}>
             {Object.entries({ centian: "hexagon", shell: "circle", filesystem: "diamond" }).map(([srv]) => (
               <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: KNOWN_COLORS[srv].color, opacity: 0.7, letterSpacing: "0.1em" }}>
                 <NodeShape server={srv} size={10} color={KNOWN_COLORS[srv].color} />
