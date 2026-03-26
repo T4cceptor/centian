@@ -828,10 +828,6 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
     return truncateText(trimmed, 88);
   }
 
-  if (typeof payload === "number") {
-    return `${payload}`;
-  }
-
   if (Array.isArray(payload)) {
     const textItems = payload
       .filter((item): item is string => typeof item === "string" && item.trim() !== "")

@@ -21,43 +21,9 @@ const SCI_FI_STYLES = `
 
   .ctv * { box-sizing: border-box; }
 
-  @keyframes travel {
-    0%   { top: -60px; opacity: 0; }
-    6%   { opacity: 0.9; }
-    94%  { opacity: 0.6; }
-    100% { top: calc(100% + 60px); opacity: 0; }
-  }
   @keyframes breathe {
     0%, 100% { transform: scale(1);    opacity: 0.2; }
     50%       { transform: scale(1.65); opacity: 0.06; }
-  }
-  @keyframes pop-in {
-    from { opacity: 0; transform: scale(0.94) translateY(12px); }
-    to   { opacity: 1; transform: scale(1)    translateY(0px); }
-  }
-  @keyframes sector-scan {
-    0%   { transform: translateX(-100%); opacity: 0; }
-    20%  { opacity: 0.6; }
-    80%  { opacity: 0.6; }
-    100% { transform: translateX(100%); opacity: 0; }
-  }
-  @keyframes blink-cursor {
-    0%, 100% { opacity: 1; } 50% { opacity: 0; }
-  }
-  @keyframes flicker {
-    0%, 95%, 100% { opacity: 1; }
-    96% { opacity: 0.6; }
-    97% { opacity: 1; }
-    98% { opacity: 0.5; }
-    99% { opacity: 0.9; }
-  }
-  @keyframes halo-spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-  @keyframes status-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
   }
 
   .sci-node { cursor: pointer; transition: transform 0.18s cubic-bezier(.34,1.56,.64,1); }
@@ -65,7 +31,7 @@ const SCI_FI_STYLES = `
   .sci-node:hover .sci-outer  { animation: breathe 1.1s ease-in-out infinite !important; opacity: 0.38 !important; }
   .sci-node:hover .sci-tag    { border-color: rgba(255,255,255,0.14) !important; background: rgba(255,255,255,0.04) !important; }
   .sci-node:hover .sci-conn   { opacity: 0.55 !important; width: 24px !important; }
-  .sci-node:hover .sci-ts     { color: #4a6080 !important; }
+  .sci-node:hover .sci-ts     { color: #5a7a9a !important; }
   .sci-node--selected .sci-tag { border-color: rgba(255,255,255,0.2) !important; background: rgba(255,255,255,0.06) !important; }
 
   .grid-bg {
@@ -136,22 +102,6 @@ function NodeShape({ server, size, color }: { server: string; size: number; colo
   return <div style={{ width: size, height: size, borderRadius: "50%", background: color }} />;
 }
 
-// ── Pulse traveler on the timeline line ─────────────────────────────────
-function PulseTracer({ color }: { color: string }) {
-  return (
-    <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 2, height: "100%", pointerEvents: "none", overflow: "hidden" }}>
-      <div style={{
-        position: "absolute", left: "50%", transform: "translateX(-50%)",
-        width: 6, height: 60,
-        background: `linear-gradient(to bottom, transparent, ${color}, transparent)`,
-        boxShadow: `0 0 12px ${color}`,
-        animation: "travel 6s ease-in-out infinite",
-        animationDelay: "1s",
-      }} />
-    </div>
-  );
-}
-
 // ── Derive group status from its items ──────────────────────────────────
 function deriveGroupStatus(group: TimelineGroup): string {
   const items = group.items;
@@ -198,15 +148,9 @@ function SciFiSectorDivider({
         cursor: "pointer", textAlign: "left",
       }}
     >
-      {/* Full-width horizontal rule with glow */}
+      {/* Full-width horizontal rule */}
       <div style={{ position: "relative", height: 1, background: `linear-gradient(to right, transparent, ${accentColor}44, ${accentColor}22, transparent)`, marginBottom: 8 }}>
         <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to right, transparent, ${accentColor}, transparent)`, opacity: 0.15 }} />
-        <div style={{
-          position: "absolute", inset: 0,
-          background: `linear-gradient(to right, transparent, ${accentColor}, transparent)`,
-          animation: "sector-scan 4s ease-in-out infinite",
-          animationDelay: `${groupIndex * 1.3}s`,
-        }} />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -218,22 +162,21 @@ function SciFiSectorDivider({
           opacity: 0.7,
         }} />
 
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 10, color: accentColor, letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.8 }}>
+        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 11, color: accentColor, letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.8 }}>
           SECTOR {String(groupIndex + 1).padStart(2, "0")}
         </span>
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 11, color: "#4a5f80", letterSpacing: "0.08em" }}>
+        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 12, color: "#6a8ab0", letterSpacing: "0.08em" }}>
           {group.label}
         </span>
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 9, color: "#2d3a5a", opacity: 0.6 }}>
+        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 10, color: "#3d4a6a", opacity: 0.7 }}>
           {group.items.length} events
         </span>
         <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${accentColor}20, transparent)` }} />
         <span style={{
-          fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 9,
+          fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 10,
           color: statusColor, letterSpacing: "0.15em", textTransform: "uppercase",
           padding: "2px 8px", border: `1px solid ${statusColor}40`,
           borderRadius: 2, background: `${statusColor}0d`,
-          animation: status === "active" ? "status-pulse 2s ease-in-out infinite" : "none",
         }}>
           {collapsed ? "+" : "−"} {status}
         </span>
@@ -286,9 +229,9 @@ function SciFiEventNode({
     >
       {/* Timestamp */}
       <div className="sci-ts" style={{
-        width: 76, textAlign: "right", paddingRight: 0, flexShrink: 0,
+        width: 80, textAlign: "right", paddingRight: 0, flexShrink: 0,
         fontFamily: "'Share Tech Mono', 'Courier New', monospace",
-        fontSize: 10, color: "#1e2a42", letterSpacing: "0.02em",
+        fontSize: 11, color: "#3a5070", letterSpacing: "0.02em",
         transition: "color 0.2s",
       }}>
         {formatTraceTimestamp(anchorEvent.createdAtUnixMilli)}
@@ -338,11 +281,11 @@ function SciFiEventNode({
           border: `1px solid ${vc.color}18`,
           borderLeft: `2px solid ${vc.color}99`,
           borderRadius: "0 4px 4px 0",
-          padding: "5px 12px 5px 10px",
+          padding: "6px 14px 6px 12px",
           background: "transparent",
           transition: "all 0.18s",
           flex: 1,
-          maxWidth: 340,
+          maxWidth: 400,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
             {/* Server dot */}
@@ -354,8 +297,8 @@ function SciFiEventNode({
             {/* Server name */}
             <span style={{
               fontFamily: "'Share Tech Mono', 'Courier New', monospace",
-              fontSize: 9, color: vc.color, letterSpacing: "0.12em",
-              textTransform: "uppercase", opacity: 0.75, flexShrink: 0,
+              fontSize: 10, color: vc.color, letterSpacing: "0.12em",
+              textTransform: "uppercase", opacity: 0.8, flexShrink: 0,
             }}>
               {item.kind === "task" ? "task" : serverName}
             </span>
@@ -364,7 +307,7 @@ function SciFiEventNode({
               data-testid="timeline-event-title"
               style={{
                 fontFamily: "'Share Tech Mono', 'Courier New', monospace",
-                fontSize: 12, color: "#8ba4c8", fontWeight: "normal",
+                fontSize: 13, color: "#b0c8e8", fontWeight: "normal",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}
             >
@@ -372,13 +315,13 @@ function SciFiEventNode({
             </span>
             {/* Error badge */}
             {tone === "failed" && alertLabel && (
-              <span style={{ fontSize: 8, color: "#f87171", background: "#f871710d", border: "1px solid #f8717133", padding: "1px 5px", borderRadius: 2, letterSpacing: "0.12em", flexShrink: 0, textTransform: "uppercase" }}>
+              <span style={{ fontSize: 9, color: "#f87171", background: "#f871710d", border: "1px solid #f8717133", padding: "1px 6px", borderRadius: 2, letterSpacing: "0.12em", flexShrink: 0, textTransform: "uppercase" }}>
                 {alertLabel}
               </span>
             )}
             {/* Duration */}
             {exchangeLatency != null && exchangeLatency > 0 && (
-              <span style={{ fontFamily: "monospace", fontSize: 9, color: "#1e2a42", marginLeft: "auto", flexShrink: 0, paddingRight: 2 }}>
+              <span style={{ fontFamily: "monospace", fontSize: 10, color: "#3a5070", marginLeft: "auto", flexShrink: 0, paddingRight: 2 }}>
                 {formatLatency(exchangeLatency)}
               </span>
             )}
@@ -387,9 +330,9 @@ function SciFiEventNode({
           {subtitle ? (
             <div style={{
               fontFamily: "'Share Tech Mono', 'Courier New', monospace",
-              fontSize: 10, color: "#2a3d5e", marginTop: 3,
+              fontSize: 11, color: "#4a6a8e", marginTop: 3,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              maxWidth: 290,
+              maxWidth: 340,
             }}>
               {subtitle}
             </div>
@@ -470,10 +413,10 @@ export function SciFiTimeline({
           </div>
 
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 10, color: "#2d3a5a", letterSpacing: "0.35em", marginBottom: 10, animation: "flicker 8s ease-in-out infinite" }}>
+            <div style={{ fontSize: 11, color: "#3d4a6a", letterSpacing: "0.35em", marginBottom: 10 }}>
               CENTIAN TRACE SYSTEM · SESSION LOG ACTIVE
             </div>
-            <div style={{ fontSize: 10, color: "#2d3a5a", letterSpacing: "0.15em" }}>
+            <div style={{ fontSize: 11, color: "#3d4a6a", letterSpacing: "0.15em" }}>
               {startedAt ? formatTraceTimestamp(startedAt) : "—"}
               <span style={{ margin: "0 12px", color: "#1a2540" }}>·</span>
               {(totalMs / 1000).toFixed(1)}s
@@ -491,7 +434,7 @@ export function SciFiTimeline({
           {/* Server legend */}
           <div style={{ display: "flex", justifyContent: "center", gap: 24, marginTop: 18 }}>
             {Object.entries({ centian: "hexagon", shell: "circle", filesystem: "diamond" }).map(([srv]) => (
-              <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 9, color: KNOWN_COLORS[srv].color, opacity: 0.6, letterSpacing: "0.1em" }}>
+              <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: KNOWN_COLORS[srv].color, opacity: 0.7, letterSpacing: "0.1em" }}>
                 <NodeShape server={srv} size={10} color={KNOWN_COLORS[srv].color} />
                 <span>{srv}</span>
               </div>
@@ -518,11 +461,6 @@ export function SciFiTimeline({
             boxShadow: "0 0 8px rgba(167,139,250,0.08)",
             zIndex: 1,
           }} />
-          {/* Animated pulse tracer */}
-          <div style={{ position: "absolute", left: 116, top: 0, bottom: 0, width: 6, pointerEvents: "none", overflow: "hidden", zIndex: 2 }}>
-            <PulseTracer color="#a78bfa" />
-          </div>
-
           {/* Groups */}
           {groups.map((group, groupIndex) => (
             <section key={group.key} aria-label={group.label}>
