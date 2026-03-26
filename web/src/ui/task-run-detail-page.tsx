@@ -170,12 +170,18 @@ export function TaskRunDetailPage() {
     <div className="task-run-detail">
       <header className="task-run-detail__header">
         <div className="task-run-detail__title-block">
-          <p className="state-card__eyebrow">Run Detail</p>
-          <h2>
+          <p className="state-card__eyebrow">
+            Run Detail
+            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
             {formatTaskRunId(runID ?? "")}
             <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
             <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
-          </h2>
+          </p>
+          {/* <h2>
+            
+            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
+            <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
+          </h2> */}
         </div>
         <div className="task-run-detail__header-actions">
           <Link className="back-link" to="/tasks">
