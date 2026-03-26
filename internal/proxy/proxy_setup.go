@@ -191,10 +191,7 @@ func (c *CentianServer) Setup() error {
 		c.OAuth = manager
 		c.OAuth.RegisterRoutes(c.Mux)
 	}
-	centui.NewHandler().RegisterRoutes(c.Mux)
-	if c.PersistenceStore != nil {
-		centapi.NewHandler(c.PersistenceStore).RegisterRoutes(c.Mux)
-	}
+	c.registerOptionalHTTPRoutes()
 
 	for gatewayName, gatewayConfig := range c.Config.Gateways {
 		endpoint, err := getEndpointString(gatewayName, "")
@@ -228,6 +225,17 @@ func (c *CentianServer) Setup() error {
 		}
 	}
 	return nil
+}
+
+func (c *CentianServer) registerOptionalHTTPRoutes() {
+	if c == nil || c.PersistenceStore == nil {
+		return
+	}
+
+	centapi.NewHandler(c.PersistenceStore).RegisterRoutes(c.Mux)
+	if c.Config != nil && c.Config.Proxy != nil && c.Config.Proxy.UIEnabled() {
+		centui.NewHandler().RegisterRoutes(c.Mux)
+	}
 }
 
 // Close releases endpoint-owned resources such as pooled downstream sessions.

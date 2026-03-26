@@ -71,6 +71,12 @@ func TestInitCommandWorkflow(t *testing.T) {
 	if !*loadedConfig.Proxy.Capabilities.EventStorage.Enabled {
 		t.Fatalf("Expected event storage to be enabled by default")
 	}
+	if loadedConfig.Proxy.Capabilities.UI == nil || loadedConfig.Proxy.Capabilities.UI.Enabled == nil {
+		t.Fatalf("Expected init to create ui capability settings")
+	}
+	if *loadedConfig.Proxy.Capabilities.UI.Enabled {
+		t.Fatalf("Expected ui to be disabled by default")
+	}
 
 	t.Log("Init command workflow test completed successfully")
 }

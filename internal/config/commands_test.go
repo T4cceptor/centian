@@ -114,6 +114,9 @@ func TestInitConfig_CreatesDefaultConfig(t *testing.T) {
 	assert.Assert(t, config.Proxy.Capabilities.TestTools != nil)
 	assert.Assert(t, config.Proxy.Capabilities.TestTools.Enabled != nil)
 	assert.Equal(t, false, *config.Proxy.Capabilities.TestTools.Enabled)
+	assert.Assert(t, config.Proxy.Capabilities.UI != nil)
+	assert.Assert(t, config.Proxy.Capabilities.UI.Enabled != nil)
+	assert.Equal(t, false, *config.Proxy.Capabilities.UI.Enabled)
 
 	data, err := os.ReadFile(configPath)
 	assert.NilError(t, err)

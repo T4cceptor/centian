@@ -17,6 +17,9 @@
       "eventStorage": {
         "enabled": true,
         "driver": "sqlite"
+      },
+      "ui": {
+        "enabled": true
       }
     }
   },

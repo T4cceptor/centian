@@ -30,6 +30,7 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	authDisabled := false
 	enabled := true
 	disabled := false
+	uiEnabled := true
 	globalConfig := &config.GlobalConfig{
 		Name:        "Test",
 		Version:     "1.0.0",
@@ -37,6 +38,11 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 		Proxy: &config.ProxySettings{
 			Port:    "9000",
 			Timeout: 10,
+			Capabilities: &config.CapabilitiesSettings{
+				UI: &config.UICapabilitySettings{
+					Enabled: &uiEnabled,
+				},
+			},
 		},
 		Gateways: map[string]*config.GatewayConfig{
 			"gateway": {
@@ -272,6 +278,7 @@ func TestCentianServerSetup_OmitsAPIRoutesWhenEventStorageDisabled(t *testing.T)
 	// Given: a config with event storage disabled
 	authDisabled := false
 	eventStorageEnabled := false
+	uiEnabled := true
 	globalConfig := &config.GlobalConfig{
 		Name:        "Test",
 		Version:     "1.0.0",
@@ -282,6 +289,9 @@ func TestCentianServerSetup_OmitsAPIRoutesWhenEventStorageDisabled(t *testing.T)
 			Capabilities: &config.CapabilitiesSettings{
 				EventStorage: &config.EventStorageCapabilitySettings{
 					Enabled: &eventStorageEnabled,
+				},
+				UI: &config.UICapabilitySettings{
+					Enabled: &uiEnabled,
 				},
 			},
 		},
@@ -306,11 +316,46 @@ func TestCentianServerSetup_OmitsAPIRoutesWhenEventStorageDisabled(t *testing.T)
 	_, apiEventsPattern := proxy.Mux.Handler(apiEventsReq)
 	assert.Equal(t, apiEventsPattern, "")
 
-	// Then: the embedded UI is still available
+	// Then: the embedded UI is not registered without persistence backing it
 	uiIndexReq, _ := http.NewRequest(http.MethodGet, "http://example.com/ui", http.NoBody)
-	uiIndexHandler, uiIndexPattern := proxy.Mux.Handler(uiIndexReq)
-	assert.Assert(t, uiIndexHandler != nil)
-	assert.Equal(t, uiIndexPattern, "GET /ui")
+	_, uiIndexPattern := proxy.Mux.Handler(uiIndexReq)
+	assert.Equal(t, uiIndexPattern, "")
+}
+
+func TestCentianServerSetup_OmitsUIRoutesWhenUIDisabled(t *testing.T) {
+	authDisabled := false
+	uiEnabled := false
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+			Capabilities: &config.CapabilitiesSettings{
+				UI: &config.UICapabilitySettings{
+					Enabled: &uiEnabled,
+				},
+			},
+		},
+		Gateways: map[string]*config.GatewayConfig{},
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	proxy, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+
+	err = proxy.Setup()
+	assert.NilError(t, err)
+
+	apiListReq, _ := http.NewRequest(http.MethodGet, "http://example.com/api/task-runs", http.NoBody)
+	apiListHandler, apiListPattern := proxy.Mux.Handler(apiListReq)
+	assert.Assert(t, apiListHandler != nil)
+	assert.Equal(t, apiListPattern, "GET /api/task-runs")
+
+	uiIndexReq, _ := http.NewRequest(http.MethodGet, "http://example.com/ui", http.NoBody)
+	_, uiIndexPattern := proxy.Mux.Handler(uiIndexReq)
+	assert.Equal(t, uiIndexPattern, "")
 }
 
 func TestNewCentianServer_UsesConfiguredTaskTemplatesPath(t *testing.T) {

@@ -182,6 +182,7 @@ type CapabilitiesSettings struct {
 	TaskVerification *TaskVerificationCapabilitySettings `json:"taskVerification,omitempty"`
 	EventStorage     *EventStorageCapabilitySettings     `json:"eventStorage,omitempty"`
 	TestTools        *TestToolsCapabilitySettings        `json:"testTools,omitempty"`
+	UI               *UICapabilitySettings               `json:"ui,omitempty"`
 }
 
 // TaskVerificationCapabilitySettings controls taskverification capability behavior.
@@ -202,11 +203,17 @@ type TestToolsCapabilitySettings struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
+// UICapabilitySettings controls whether the embedded web UI is exposed.
+type UICapabilitySettings struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 // NewDefaultProxySettings creates a new ProxySettings with default values.
 func NewDefaultProxySettings() ProxySettings {
 	taskVerificationEnabled := false
 	testToolsEnabled := false
 	eventStorageEnabled := true
+	uiEnabled := false
 	return ProxySettings{
 		Host:      DefaultProxyHost,
 		Port:      "8080",
@@ -223,6 +230,9 @@ func NewDefaultProxySettings() ProxySettings {
 			},
 			TestTools: &TestToolsCapabilitySettings{
 				Enabled: &testToolsEnabled,
+			},
+			UI: &UICapabilitySettings{
+				Enabled: &uiEnabled,
 			},
 		},
 		Web: &ProxyWebSettings{},
@@ -251,6 +261,14 @@ func (t *TestToolsCapabilitySettings) IsEnabled() bool {
 		return false
 	}
 	return *t.Enabled
+}
+
+// IsEnabled reports whether the embedded UI is enabled. Defaults to false.
+func (u *UICapabilitySettings) IsEnabled() bool {
+	if u == nil || u.Enabled == nil {
+		return false
+	}
+	return *u.Enabled
 }
 
 // GetDriver returns the configured event storage driver or the default.
@@ -293,6 +311,14 @@ func (p *ProxySettings) TestToolsCapability() *TestToolsCapabilitySettings {
 	return p.Capabilities.TestTools
 }
 
+// UICapability returns the configured embedded UI capability block.
+func (p *ProxySettings) UICapability() *UICapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.UI
+}
+
 // TestToolsEnabled reports whether proxy-owned test tools are enabled. Defaults to false.
 func (p *ProxySettings) TestToolsEnabled() bool {
 	return p != nil && p.TestToolsCapability().IsEnabled()
@@ -301,6 +327,11 @@ func (p *ProxySettings) TestToolsEnabled() bool {
 // TaskVerificationEnabled reports whether taskverification tools are enabled. Defaults to false.
 func (p *ProxySettings) TaskVerificationEnabled() bool {
 	return p != nil && p.TaskVerificationCapability().IsEnabled()
+}
+
+// UIEnabled reports whether the embedded UI should be served. Defaults to false.
+func (p *ProxySettings) UIEnabled() bool {
+	return p != nil && p.UICapability().IsEnabled()
 }
 
 // GatewayConfig represents a logical grouping of HTTP MCP servers.
