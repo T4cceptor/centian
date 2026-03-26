@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
-import { formatTimestamp, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
+import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
@@ -90,6 +90,30 @@ export function TaskRunDetailPage() {
   const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
   const inspectorVisible = selectedItemID !== "" && selectedItem != null;
 
+  const runStats = useMemo(() => {
+    const startedAt = events[0]?.createdAtUnixMilli;
+    const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
+
+    const serverCounts: Record<string, number> = {};
+    let errorCount = 0;
+    for (const item of flatTimelineItems) {
+      if (item.kind === "exchange") {
+        const server = getExchangeServerName(item.exchange);
+        serverCounts[server] = (serverCounts[server] ?? 0) + 1;
+        const resp = item.exchange.response;
+        if (resp && (resp.isError === true || resp.success === false)) {
+          errorCount++;
+        }
+      } else if (item.kind === "task") {
+        if (item.task.outcome === "failed" || item.task.eventType === "task_failed") {
+          errorCount++;
+        }
+      }
+    }
+
+    return { startedAt, lastSeenAt, serverCounts, errorCount, totalEvents: events.length };
+  }, [events, flatTimelineItems]);
+
   useEffect(() => {
     setCollapsedGroups((current) => {
       const next = { ...current };
@@ -171,7 +195,7 @@ export function TaskRunDetailPage() {
       <header className="task-run-detail__header">
         <div className="task-run-detail__title-block">
           <p className="state-card__eyebrow">
-            Run Detail
+            <span>Run Detail</span>
             <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
             {formatTaskRunId(runID ?? "")}
             <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
@@ -184,6 +208,8 @@ export function TaskRunDetailPage() {
           </Link>
         </div>
       </header>
+
+      <RunMetadataBar stats={runStats} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -373,6 +399,111 @@ function DetailStateCard({
       <Link className="back-link" to="/tasks">
         Back to task runs
       </Link>
+    </div>
+  );
+}
+
+type RunStats = {
+  startedAt: number | undefined;
+  lastSeenAt: number | undefined;
+  serverCounts: Record<string, number>;
+  errorCount: number;
+  totalEvents: number;
+};
+
+function RunMetadataBar({ stats }: { stats: RunStats }) {
+  const now = Date.now();
+  const cellStyle: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  };
+  const labelStyle: CSSProperties = {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+    color: "#5a7a9a",
+  };
+  const valueStyle: CSSProperties = {
+    fontSize: 13,
+    color: "#c8daf0",
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 24,
+        padding: "10px 20px",
+        background: "linear-gradient(135deg, rgba(10,14,30,0.7), rgba(15,22,42,0.5))",
+        borderBottom: "1px solid rgba(100,140,200,0.1)",
+        fontFamily: "'Inter', system-ui, sans-serif",
+        alignItems: "flex-start",
+      }}
+    >
+      {stats.startedAt != null && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Started</span>
+          <span style={valueStyle}>{formatTimestamp(stats.startedAt)}</span>
+        </div>
+      )}
+
+      {stats.startedAt != null && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Duration</span>
+          <span style={valueStyle}>
+            {formatDuration(stats.startedAt, stats.lastSeenAt, now)}
+          </span>
+        </div>
+      )}
+
+      <div style={cellStyle}>
+        <span style={labelStyle}>Events</span>
+        <span style={valueStyle}>{stats.totalEvents}</span>
+      </div>
+
+      {Object.keys(stats.serverCounts).length > 0 && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Calls</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 1 }}>
+            {Object.entries(stats.serverCounts).map(([server, count]) => (
+              <span
+                key={server}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontSize: 12,
+                  color: "#c8daf0",
+                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: getServerAccentColor(server),
+                    flexShrink: 0,
+                  }}
+                />
+                {server}
+                <span style={{ color: "#5a7a9a", marginLeft: 1 }}>{count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {stats.errorCount > 0 && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Errors</span>
+          <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
+        </div>
+      )}
     </div>
   );
 }
