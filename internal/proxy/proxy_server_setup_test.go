@@ -73,6 +73,18 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	disabledReq, _ := http.NewRequest(http.MethodPost, "http://example.com/mcp/gateway/disabled", http.NoBody)
 	_, disabledPattern := proxy.Mux.Handler(disabledReq)
 	assert.Equal(t, disabledPattern, "")
+
+	// Then: task run API endpoints are registered when persistence is enabled
+	apiListReq, _ := http.NewRequest(http.MethodGet, "http://example.com/api/task-runs", http.NoBody)
+	apiListHandler, apiListPattern := proxy.Mux.Handler(apiListReq)
+	assert.Assert(t, apiListHandler != nil)
+	assert.Equal(t, apiListPattern, "GET /api/task-runs")
+
+	validRunID := "tr_1742947200123_0000000001"
+	apiEventsReq, _ := http.NewRequest(http.MethodGet, "http://example.com/api/task-runs/"+validRunID+"/events", http.NoBody)
+	apiEventsHandler, apiEventsPattern := proxy.Mux.Handler(apiEventsReq)
+	assert.Assert(t, apiEventsHandler != nil)
+	assert.Equal(t, apiEventsPattern, "GET /api/task-runs/{runID}/events")
 }
 
 func TestInitEventProcessor_GatewayProcessorsAppliedToAggregatedEndpoint(t *testing.T) {
@@ -241,7 +253,47 @@ func TestNewCentianServer_DefaultEventStorageCreatesSQLiteStore(t *testing.T) {
 	assert.Assert(t, !info.IsDir())
 	assert.Equal(t, filepath.Dir(defaultPath), logDir)
 	assert.Assert(t, server.TaskVerification.EventStore != nil)
+	assert.Assert(t, server.PersistenceStore != nil)
 	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "task-templates"))
+}
+
+func TestCentianServerSetup_OmitsAPIRoutesWhenEventStorageDisabled(t *testing.T) {
+	// Given: a config with event storage disabled
+	authDisabled := false
+	eventStorageEnabled := false
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+			Capabilities: &config.CapabilitiesSettings{
+				EventStorage: &config.EventStorageCapabilitySettings{
+					Enabled: &eventStorageEnabled,
+				},
+			},
+		},
+		Gateways: map[string]*config.GatewayConfig{},
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	proxy, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+
+	// When: setting up the proxy
+	err = proxy.Setup()
+	assert.NilError(t, err)
+
+	// Then: the task run API routes are not registered
+	apiListReq, _ := http.NewRequest(http.MethodGet, "http://example.com/api/task-runs", http.NoBody)
+	_, apiListPattern := proxy.Mux.Handler(apiListReq)
+	assert.Equal(t, apiListPattern, "")
+
+	validRunID := "tr_1742947200123_0000000001"
+	apiEventsReq, _ := http.NewRequest(http.MethodGet, "http://example.com/api/task-runs/"+validRunID+"/events", http.NoBody)
+	_, apiEventsPattern := proxy.Mux.Handler(apiEventsReq)
+	assert.Equal(t, apiEventsPattern, "")
 }
 
 func TestNewCentianServer_UsesConfiguredTaskTemplatesPath(t *testing.T) {

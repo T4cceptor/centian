@@ -13,6 +13,7 @@ import (
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
+	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -36,6 +37,7 @@ type CentianServer struct {
 	APIKeys          *centauth.APIKeyStore
 	AuthHeader       string
 	OAuth            *centoauth.Manager
+	PersistenceStore *persistence.Store
 	TaskVerification *taskverification.Service
 	eventStoreCloser io.Closer
 }

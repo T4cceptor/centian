@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	centapi "github.com/T4cceptor/centian/internal/api"
 	centauth "github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
@@ -60,7 +61,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		return nil, fmt.Errorf("failed to determine current working directory: %w", err)
 	}
 
-	taskService, eventStoreCloser, err := newTaskVerificationService(globalConfig, workingDir, logger)
+	taskService, persistenceStore, eventStoreCloser, err := newTaskVerificationService(globalConfig, workingDir, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +76,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		Endpoints:        []*CentianEndpoint{},
 		APIKeys:          apiKeyStore,
 		AuthHeader:       globalConfig.GetAuthHeader(),
+		PersistenceStore: persistenceStore,
 		TaskVerification: taskService,
 		eventStoreCloser: eventStoreCloser,
 	}
@@ -120,25 +122,25 @@ func newTaskVerificationService(
 	globalConfig *config.GlobalConfig,
 	workingDir string,
 	logger *logging.Logger,
-) (*taskverification.Service, io.Closer, error) {
+) (*taskverification.Service, *persistence.Store, io.Closer, error) {
 	templateDir := resolveTaskTemplatesPath(globalConfig.Proxy, workingDir)
 	taskService := taskverification.NewService(templateDir, workingDir)
 	eventStorage := globalConfig.Proxy.EventStorageCapability()
 	if eventStorage != nil && !eventStorage.IsEnabled() {
-		return taskService, noopCloser{}, nil
+		return taskService, nil, noopCloser{}, nil
 	}
 
 	storePath, err := resolveEventStorePath(eventStorage)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	store, err := persistence.NewSQLiteStore(storePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
 	}
 	taskService.EventStore = store
 	logger.SetActionEventStore(store)
-	return taskService, store, nil
+	return taskService, store, store, nil
 }
 
 func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string) string {
@@ -187,6 +189,9 @@ func (c *CentianServer) Setup() error {
 		}
 		c.OAuth = manager
 		c.OAuth.RegisterRoutes(c.Mux)
+	}
+	if c.PersistenceStore != nil {
+		centapi.NewHandler(c.PersistenceStore).RegisterRoutes(c.Mux)
 	}
 
 	for gatewayName, gatewayConfig := range c.Config.Gateways {
