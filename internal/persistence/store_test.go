@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
@@ -195,4 +196,411 @@ func TestNewSQLiteStoreResetsOldSchema(t *testing.T) {
 	err = store.AppendActionEvent(responseEntry)
 	assert.NilError(t, err)
 	assert.Equal(t, len(store.ActionEventsByRequestID("action-2")), 2)
+}
+
+func TestListTaskRunsAggregatesSummaries(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	// Given: three task runs with active, completed, and failed terminal states.
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-active-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_000,
+		TaskRunID:          "run-active",
+		SessionID:          "session-active",
+		TemplateID:         "template-active",
+		PrincipalID:        "principal-active",
+		PhasePath:          taskverification.TaskPhaseOnboarding,
+		NodeKind:           taskverification.WorkflowNodeKindOnboarding,
+		ResultingPhasePath: taskverification.TaskPhasePlanning,
+		ResultingNodeKind:  taskverification.WorkflowNodeKindPlanning,
+		EventType:          taskverification.TaskEventTypeOnboardingCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-active-2",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_100,
+		TaskRunID:          "run-active",
+		SessionID:          "session-active",
+		TemplateID:         "template-active",
+		PrincipalID:        "principal-active",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-completed-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 2_000,
+		TaskRunID:          "run-completed",
+		SessionID:          "session-completed",
+		TemplateID:         "template-completed",
+		PrincipalID:        "principal-completed",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhaseExecution,
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-completed-2b",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 2_100,
+		TaskRunID:          "run-completed",
+		SessionID:          "session-completed",
+		TemplateID:         "template-completed",
+		PrincipalID:        "principal-completed",
+		PhasePath:          taskverification.TaskPhaseExecution,
+		NodeKind:           taskverification.WorkflowNodeKindExecution,
+		ResultingPhasePath: taskverification.TaskPhaseExecution,
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypeStepCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"completed"}`),
+	})
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-completed-2a",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 2_100,
+		TaskRunID:          "run-completed",
+		SessionID:          "session-completed",
+		TemplateID:         "template-completed",
+		PrincipalID:        "principal-completed",
+		PhasePath:          taskverification.TaskPhaseExecution,
+		NodeKind:           taskverification.WorkflowNodeKindExecution,
+		ResultingPhasePath: taskverification.TaskPhase("execution.older"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypeStepCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-failed-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_500,
+		TaskRunID:          "run-failed",
+		SessionID:          "session-failed",
+		TemplateID:         "template-failed",
+		PrincipalID:        "principal-failed",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-failed-2",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_800,
+		TaskRunID:          "run-failed",
+		SessionID:          "session-failed",
+		TemplateID:         "template-failed",
+		PrincipalID:        "principal-failed",
+		PhasePath:          taskverification.TaskPhase("execution.step_one"),
+		NodeKind:           taskverification.WorkflowNodeKindExecution,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypeFailed,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"reason":"stuck"}`),
+	})
+
+	seedActionContext(t, store, taskverification.ActionEventTaskContext{
+		RequestID:           "request-active",
+		TaskRunID:           "run-active",
+		InvocationPhasePath: taskverification.TaskPhasePlanning,
+		InvocationNodeKind:  taskverification.WorkflowNodeKindPlanning,
+		CreatedAtUnixMilli:  1_105,
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 "action-active-1",
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 1_106,
+		RequestID:          "request-active",
+		SessionID:          "session-active",
+		PrincipalID:        "principal-active",
+		Transport:          "http",
+		Direction:          string(common.DirectionClientToServer),
+		MessageType:        string(common.MessageTypeRequest),
+		Gateway:            "gw",
+		ServerName:         "server-a",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "shell__exec",
+		OriginalToolName:   "shell__exec",
+		Success:            true,
+		IsError:            false,
+		PayloadJSON:        json.RawMessage(`{"request":"active"}`),
+	})
+
+	seedActionContext(t, store, taskverification.ActionEventTaskContext{
+		RequestID:           "request-completed",
+		TaskRunID:           "run-completed",
+		InvocationPhasePath: taskverification.TaskPhaseExecution,
+		InvocationNodeKind:  taskverification.WorkflowNodeKindExecution,
+		CreatedAtUnixMilli:  2_050,
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 "action-completed-1",
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 2_060,
+		RequestID:          "request-completed",
+		SessionID:          "session-completed",
+		PrincipalID:        "principal-completed",
+		Transport:          "http",
+		Direction:          string(common.DirectionClientToServer),
+		MessageType:        string(common.MessageTypeRequest),
+		Gateway:            "gw",
+		ServerName:         "server-a",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "shell__exec",
+		OriginalToolName:   "shell__exec",
+		Success:            true,
+		IsError:            false,
+		PayloadJSON:        json.RawMessage(`{"request":"completed"}`),
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 "action-completed-2",
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 2_070,
+		RequestID:          "request-completed",
+		SessionID:          "session-completed",
+		PrincipalID:        "principal-completed",
+		Transport:          "http",
+		Direction:          string(common.DirectionServerToClient),
+		MessageType:        string(common.MessageTypeResponse),
+		Gateway:            "gw",
+		ServerName:         "server-a",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "shell__exec",
+		OriginalToolName:   "shell__exec",
+		Success:            true,
+		IsError:            false,
+		PayloadJSON:        json.RawMessage(`{"response":"completed"}`),
+	})
+	seedActionContext(t, store, taskverification.ActionEventTaskContext{
+		RequestID:           "request-missing-action",
+		TaskRunID:           "run-completed",
+		InvocationPhasePath: taskverification.TaskPhaseExecution,
+		InvocationNodeKind:  taskverification.WorkflowNodeKindExecution,
+		CreatedAtUnixMilli:  2_080,
+	})
+
+	// When: task run summaries are queried.
+	summaries, err := store.ListTaskRuns(context.Background())
+	assert.NilError(t, err)
+
+	// Then: runs are ordered newest-first with aggregated fields populated.
+	assert.Equal(t, len(summaries), 3)
+	assert.Equal(t, summaries[0].RunID, "run-completed")
+	assert.Equal(t, summaries[1].RunID, "run-failed")
+	assert.Equal(t, summaries[2].RunID, "run-active")
+
+	assert.Equal(t, summaries[0].TemplateID, "template-completed")
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskEventOutcomeSucceeded))
+	assert.Equal(t, summaries[0].CurrentPhase, string(taskverification.TaskPhaseExecution))
+	assert.Equal(t, summaries[0].CurrentNodeKind, string(taskverification.WorkflowNodeKindExecution))
+	assert.Equal(t, summaries[0].TaskEventCount, 3)
+	assert.Equal(t, summaries[0].ActionEventCount, 2)
+	assert.Equal(t, summaries[0].EventCount, 5)
+	assert.Assert(t, summaries[0].EndedAt != nil)
+	assert.Equal(t, *summaries[0].EndedAt, int64(2_100))
+
+	assert.Equal(t, summaries[1].Status, string(taskverification.TaskEventOutcomeSucceeded))
+	assert.Equal(t, summaries[1].TaskEventCount, 2)
+	assert.Equal(t, summaries[1].ActionEventCount, 0)
+	assert.Assert(t, summaries[1].EndedAt != nil)
+	assert.Equal(t, *summaries[1].EndedAt, int64(1_800))
+
+	assert.Equal(t, summaries[2].Status, string(taskverification.TaskEventOutcomeSucceeded))
+	assert.Equal(t, summaries[2].CurrentPhase, "execution.step_one")
+	assert.Equal(t, summaries[2].TaskEventCount, 2)
+	assert.Equal(t, summaries[2].ActionEventCount, 1)
+	assert.Equal(t, summaries[2].EventCount, 3)
+	assert.Assert(t, summaries[2].EndedAt == nil)
+}
+
+func TestGetTaskRunEventsReturnsUnifiedChronologicalTimeline(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	// Given: one run with task events, action events, and tied timestamps.
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                     "task-1",
+		SchemaVersion:          1,
+		CreatedAtUnixMilli:     1_000,
+		TaskRunID:              "run-1",
+		SessionID:              "session-1",
+		TemplateID:             "template-1",
+		PrincipalID:            "principal-1",
+		PhasePath:              taskverification.TaskPhaseOnboarding,
+		NodeKind:               taskverification.WorkflowNodeKindOnboarding,
+		ResultingPhasePath:     taskverification.TaskPhasePlanning,
+		ResultingNodeKind:      taskverification.WorkflowNodeKindPlanning,
+		EventType:              taskverification.TaskEventTypeRegistered,
+		Outcome:                taskverification.TaskEventOutcomeSucceeded,
+		RelatedActionRequestID: "request-1",
+		Payload:                json.RawMessage(`{"status":"active"}`),
+	})
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                     "task-2",
+		SchemaVersion:          1,
+		CreatedAtUnixMilli:     1_050,
+		TaskRunID:              "run-1",
+		SessionID:              "session-1",
+		TemplateID:             "template-1",
+		PrincipalID:            "principal-1",
+		PhasePath:              taskverification.TaskPhasePlanning,
+		NodeKind:               taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath:     taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:      taskverification.WorkflowNodeKindExecution,
+		EventType:              taskverification.TaskEventTypePlanningCompleted,
+		Outcome:                taskverification.TaskEventOutcomeSucceeded,
+		RelatedActionRequestID: "request-2",
+		Payload:                json.RawMessage(`{"status":"active"}`),
+	})
+	seedActionContext(t, store, taskverification.ActionEventTaskContext{
+		RequestID:           "request-1",
+		TaskRunID:           "run-1",
+		InvocationPhasePath: taskverification.TaskPhaseOnboarding,
+		InvocationNodeKind:  taskverification.WorkflowNodeKindOnboarding,
+		CreatedAtUnixMilli:  1_001,
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 "action-a",
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 1_025,
+		RequestID:          "request-1",
+		SessionID:          "session-1",
+		PrincipalID:        "principal-1",
+		Transport:          "http",
+		Direction:          string(common.DirectionClientToServer),
+		MessageType:        string(common.MessageTypeRequest),
+		Gateway:            "gw",
+		ServerName:         "server-a",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "shell__exec",
+		OriginalToolName:   "shell__exec",
+		Success:            true,
+		IsError:            false,
+		PayloadJSON:        json.RawMessage(`{"arguments":{"command":"pwd"}}`),
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 "action-b",
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 1_050,
+		RequestID:          "request-1",
+		SessionID:          "session-1",
+		PrincipalID:        "principal-1",
+		Transport:          "http",
+		Direction:          string(common.DirectionServerToClient),
+		MessageType:        string(common.MessageTypeResponse),
+		Gateway:            "gw",
+		ServerName:         "server-a",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "shell__exec",
+		OriginalToolName:   "shell__exec",
+		Success:            false,
+		IsError:            true,
+		PayloadJSON:        json.RawMessage(`{"error":"failed"}`),
+	})
+
+	// When: the unified timeline is queried.
+	events, err := store.GetTaskRunEvents(context.Background(), "run-1")
+	assert.NilError(t, err)
+
+	// Then: task and action rows are returned in chronological order with stable tie ordering.
+	assert.Equal(t, len(events), 4)
+	assert.Equal(t, events[0].Source, TaskRunEventSourceTask)
+	assert.Equal(t, events[0].ID, "task-1")
+	assert.Equal(t, events[0].EventType, string(taskverification.TaskEventTypeRegistered))
+	assert.Equal(t, events[0].RelatedActionRequestID, "request-1")
+
+	assert.Equal(t, events[1].Source, TaskRunEventSourceAction)
+	assert.Equal(t, events[1].ID, "action-a")
+	assert.Equal(t, events[1].RequestID, "request-1")
+	assert.Equal(t, events[1].Direction, string(common.DirectionClientToServer))
+	assert.Equal(t, events[1].MessageType, string(common.MessageTypeRequest))
+	assert.Assert(t, events[1].Success != nil)
+	assert.Equal(t, *events[1].Success, true)
+
+	assert.Equal(t, events[2].ID, "action-b")
+	assert.Equal(t, events[3].ID, "task-2")
+	assert.Equal(t, events[2].CreatedAtUnixMilli, int64(1_050))
+	assert.Equal(t, events[3].CreatedAtUnixMilli, int64(1_050))
+	assert.Assert(t, events[2].IsError != nil)
+	assert.Equal(t, *events[2].IsError, true)
+	assert.Equal(t, events[3].Source, TaskRunEventSourceTask)
+	assert.Equal(t, events[3].ResultingPhasePath, "execution.step_one")
+}
+
+func TestGetTaskRunEventsReturnsTaskOnlyAndEmptyForUnknownRun(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	// Given: one run with task events only.
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "task-only-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_000,
+		TaskRunID:          "task-only",
+		SessionID:          "session-1",
+		TemplateID:         "template-1",
+		PrincipalID:        "principal-1",
+		PhasePath:          taskverification.TaskPhaseOnboarding,
+		NodeKind:           taskverification.WorkflowNodeKindOnboarding,
+		ResultingPhasePath: taskverification.TaskPhasePlanning,
+		ResultingNodeKind:  taskverification.WorkflowNodeKindPlanning,
+		EventType:          taskverification.TaskEventTypeRegistered,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+
+	// When: events are queried for the known and unknown run ids.
+	taskOnlyEvents, err := store.GetTaskRunEvents(context.Background(), "task-only")
+	assert.NilError(t, err)
+	missingEvents, err := store.GetTaskRunEvents(context.Background(), "missing-run")
+	assert.NilError(t, err)
+
+	// Then: the known run returns task events only and the missing run is empty.
+	assert.Equal(t, len(taskOnlyEvents), 1)
+	assert.Equal(t, taskOnlyEvents[0].Source, TaskRunEventSourceTask)
+	assert.Equal(t, len(missingEvents), 0)
+}
+
+func seedTaskEvent(t *testing.T, store *Store, event *taskverification.TaskEvent) {
+	t.Helper()
+	assert.NilError(t, store.AppendTaskEvent(event))
+}
+
+func seedActionContext(t *testing.T, store *Store, ctx taskverification.ActionEventTaskContext) {
+	t.Helper()
+	assert.NilError(t, store.AppendActionEventTaskContext(ctx))
+}
+
+func seedActionEvent(t *testing.T, store *Store, event *ActionEventRecord) {
+	t.Helper()
+	_, err := store.DB().NewInsert().Model(event).Exec(context.Background())
+	assert.NilError(t, err)
 }

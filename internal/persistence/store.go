@@ -21,6 +21,60 @@ import (
 
 const schemaVersion = 3
 
+// TaskRunSummary is the aggregated view of one persisted task run.
+type TaskRunSummary struct {
+	RunID            string `json:"runId"`
+	TemplateID       string `json:"templateId"`
+	PrincipalID      string `json:"principalId,omitempty"`
+	SessionID        string `json:"sessionId,omitempty"`
+	StartedAt        int64  `json:"startedAt"`
+	EndedAt          *int64 `json:"endedAt,omitempty"`
+	Status           string `json:"status"`
+	CurrentPhase     string `json:"currentPhase"`
+	CurrentNodeKind  string `json:"currentNodeKind,omitempty"`
+	TaskEventCount   int    `json:"taskEventCount"`
+	ActionEventCount int    `json:"actionEventCount"`
+	EventCount       int    `json:"eventCount"`
+}
+
+// TaskRunEventSource identifies where one timeline row originated.
+type TaskRunEventSource string
+
+const (
+	// TaskRunEventSourceTask marks a task lifecycle event.
+	TaskRunEventSourceTask TaskRunEventSource = "task"
+	// TaskRunEventSourceAction marks an MCP action event.
+	TaskRunEventSourceAction TaskRunEventSource = "action"
+)
+
+// TaskRunEvent is the unified task timeline projection used by the UI.
+type TaskRunEvent struct {
+	Source             TaskRunEventSource `json:"source"`
+	ID                 string             `json:"id"`
+	CreatedAtUnixMilli int64              `json:"createdAtUnixMilli"`
+	PayloadJSON        json.RawMessage    `json:"payloadJson,omitempty"`
+
+	EventType              string `json:"eventType,omitempty"`
+	Outcome                string `json:"outcome,omitempty"`
+	RelatedActionRequestID string `json:"relatedActionRequestId,omitempty"`
+	PhasePath              string `json:"phasePath,omitempty"`
+	NodeKind               string `json:"nodeKind,omitempty"`
+	ResultingPhasePath     string `json:"resultingPhasePath,omitempty"`
+	ResultingNodeKind      string `json:"resultingNodeKind,omitempty"`
+
+	RequestID        string `json:"requestId,omitempty"`
+	Direction        string `json:"direction,omitempty"`
+	MessageType      string `json:"messageType,omitempty"`
+	ToolName         string `json:"toolName,omitempty"`
+	OriginalToolName string `json:"originalToolName,omitempty"`
+	Success          *bool  `json:"success,omitempty"`
+	IsError          *bool  `json:"isError,omitempty"`
+	Transport        string `json:"transport,omitempty"`
+	Gateway          string `json:"gateway,omitempty"`
+	ServerName       string `json:"serverName,omitempty"`
+	Endpoint         string `json:"endpoint,omitempty"`
+}
+
 type taskEventRow struct {
 	bun.BaseModel          `bun:"table:task_events"`
 	ID                     string `bun:",pk"`
@@ -75,6 +129,47 @@ type schemaVersionRow struct {
 	bun.BaseModel `bun:"table:event_store_schema"`
 	Name          string `bun:",pk"`
 	Version       int
+}
+
+type taskRunSummaryRow struct {
+	RunID              string
+	TemplateID         string
+	PrincipalID        string
+	SessionID          string
+	StartedAt          int64
+	LatestEventAt      int64
+	Status             string
+	CurrentPhase       string
+	CurrentNodeKind    string
+	TaskEventCount     int
+	ActionEventCount   int
+	LatestEventType    string
+	LatestEventPayload json.RawMessage
+}
+
+type taskRunEventRow struct {
+	Source                 string
+	ID                     string
+	CreatedAtUnixMilli     int64
+	PayloadJSON            json.RawMessage
+	EventType              sql.NullString
+	Outcome                sql.NullString
+	RelatedActionRequestID sql.NullString
+	PhasePath              sql.NullString
+	NodeKind               sql.NullString
+	ResultingPhasePath     sql.NullString
+	ResultingNodeKind      sql.NullString
+	RequestID              sql.NullString
+	Direction              sql.NullString
+	MessageType            sql.NullString
+	ToolName               sql.NullString
+	OriginalToolName       sql.NullString
+	Success                sql.NullBool
+	IsError                sql.NullBool
+	Transport              sql.NullString
+	Gateway                sql.NullString
+	ServerName             sql.NullString
+	Endpoint               sql.NullString
 }
 
 // Store persists task and action events to SQLite using Bun.
@@ -299,6 +394,178 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 	return err
 }
 
+// ListTaskRuns returns aggregated task run summaries ordered by start time descending.
+func (s *Store) ListTaskRuns(ctx context.Context) ([]TaskRunSummary, error) {
+	rows := make([]taskRunSummaryRow, 0)
+	query := `
+WITH task_agg AS (
+	SELECT
+		task_run_id,
+		MIN(created_at_unix_milli) AS started_at,
+		COUNT(*) AS task_event_count
+	FROM task_events
+	GROUP BY task_run_id
+),
+latest_task AS (
+	SELECT te.*
+	FROM task_events te
+	WHERE te.id = (
+		SELECT te2.id
+		FROM task_events te2
+		WHERE te2.task_run_id = te.task_run_id
+		ORDER BY te2.created_at_unix_milli DESC, te2.id DESC
+		LIMIT 1
+	)
+),
+action_counts AS (
+	SELECT
+		ctx.task_run_id,
+		COUNT(ae.id) AS action_event_count
+	FROM action_event_task_context ctx
+	JOIN action_events ae ON ae.request_id = ctx.request_id
+	GROUP BY ctx.task_run_id
+)
+SELECT
+	agg.task_run_id AS run_id,
+	latest.template_id,
+	latest.principal_id,
+	latest.session_id,
+	agg.started_at,
+	latest.created_at_unix_milli AS latest_event_at,
+	latest.outcome AS status,
+	latest.resulting_phase_path AS current_phase,
+	latest.resulting_node_kind AS current_node_kind,
+	agg.task_event_count,
+	COALESCE(action_counts.action_event_count, 0) AS action_event_count,
+	latest.event_type AS latest_event_type,
+	latest.payload_json AS latest_event_payload
+FROM task_agg agg
+JOIN latest_task latest ON latest.task_run_id = agg.task_run_id
+LEFT JOIN action_counts ON action_counts.task_run_id = agg.task_run_id
+ORDER BY agg.started_at DESC, agg.task_run_id DESC
+`
+	if err := s.db.NewRaw(query).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+
+	summaries := make([]TaskRunSummary, 0, len(rows))
+	for idx := range rows {
+		row := rows[idx]
+		summary := TaskRunSummary{
+			RunID:            row.RunID,
+			TemplateID:       row.TemplateID,
+			PrincipalID:      row.PrincipalID,
+			SessionID:        row.SessionID,
+			StartedAt:        row.StartedAt,
+			Status:           row.Status,
+			CurrentPhase:     row.CurrentPhase,
+			CurrentNodeKind:  row.CurrentNodeKind,
+			TaskEventCount:   row.TaskEventCount,
+			ActionEventCount: row.ActionEventCount,
+			EventCount:       row.TaskEventCount + row.ActionEventCount,
+		}
+		if isTerminalTaskEvent(row.LatestEventType, row.LatestEventPayload) {
+			endedAt := row.LatestEventAt
+			summary.EndedAt = &endedAt
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
+}
+
+// GetTaskRunEvents returns the unified task/action timeline for one run.
+func (s *Store) GetTaskRunEvents(ctx context.Context, runID string) ([]TaskRunEvent, error) {
+	rows := make([]taskRunEventRow, 0)
+	query := `
+SELECT
+	'task' AS source,
+	te.id,
+	te.created_at_unix_milli,
+	te.payload_json,
+	te.event_type,
+	te.outcome,
+	te.related_action_request_id,
+	te.phase_path,
+	te.node_kind,
+	te.resulting_phase_path,
+	te.resulting_node_kind,
+	NULL AS request_id,
+	NULL AS direction,
+	NULL AS message_type,
+	NULL AS tool_name,
+	NULL AS original_tool_name,
+	NULL AS success,
+	NULL AS is_error,
+	NULL AS transport,
+	NULL AS gateway,
+	NULL AS server_name,
+	NULL AS endpoint
+FROM task_events te
+WHERE te.task_run_id = ?
+UNION ALL
+SELECT
+	'action' AS source,
+	ae.id,
+	ae.created_at_unix_milli,
+	ae.payload_json,
+	NULL AS event_type,
+	NULL AS outcome,
+	NULL AS related_action_request_id,
+	NULL AS phase_path,
+	NULL AS node_kind,
+	NULL AS resulting_phase_path,
+	NULL AS resulting_node_kind,
+	ae.request_id,
+	ae.direction,
+	ae.message_type,
+	ae.tool_name,
+	ae.original_tool_name,
+	ae.success,
+	ae.is_error,
+	ae.transport,
+	ae.gateway,
+	ae.server_name,
+	ae.endpoint
+FROM action_event_task_context ctx
+JOIN action_events ae ON ae.request_id = ctx.request_id
+WHERE ctx.task_run_id = ?
+ORDER BY created_at_unix_milli ASC, id ASC
+`
+	if err := s.db.NewRaw(query, runID, runID).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+
+	events := make([]TaskRunEvent, 0, len(rows))
+	for idx := range rows {
+		row := rows[idx]
+		events = append(events, TaskRunEvent{
+			Source:                 TaskRunEventSource(row.Source),
+			ID:                     row.ID,
+			CreatedAtUnixMilli:     row.CreatedAtUnixMilli,
+			PayloadJSON:            row.PayloadJSON,
+			EventType:              nullStringValue(row.EventType),
+			Outcome:                nullStringValue(row.Outcome),
+			RelatedActionRequestID: nullStringValue(row.RelatedActionRequestID),
+			PhasePath:              nullStringValue(row.PhasePath),
+			NodeKind:               nullStringValue(row.NodeKind),
+			ResultingPhasePath:     nullStringValue(row.ResultingPhasePath),
+			ResultingNodeKind:      nullStringValue(row.ResultingNodeKind),
+			RequestID:              nullStringValue(row.RequestID),
+			Direction:              nullStringValue(row.Direction),
+			MessageType:            nullStringValue(row.MessageType),
+			ToolName:               nullStringValue(row.ToolName),
+			OriginalToolName:       nullStringValue(row.OriginalToolName),
+			Success:                nullBoolPointer(row.Success),
+			IsError:                nullBoolPointer(row.IsError),
+			Transport:              nullStringValue(row.Transport),
+			Gateway:                nullStringValue(row.Gateway),
+			ServerName:             nullStringValue(row.ServerName),
+			Endpoint:               nullStringValue(row.Endpoint),
+		})
+	}
+	return events, nil
+}
+
 // TaskEvents returns all persisted task lifecycle events ordered by timestamp.
 func (s *Store) TaskEvents() []taskverification.TaskEvent {
 	rows := make([]taskEventRow, 0)
@@ -396,6 +663,37 @@ func TouchTimestamp(ts time.Time) time.Time {
 		return time.Now().UTC()
 	}
 	return ts.UTC()
+}
+
+func nullStringValue(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
+func nullBoolPointer(value sql.NullBool) *bool {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Bool
+	return &result
+}
+
+func isTerminalTaskEvent(eventType string, payload json.RawMessage) bool {
+	if eventType == string(taskverification.TaskEventTypeFailed) {
+		return true
+	}
+	if len(payload) == 0 {
+		return false
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return false
+	}
+	status, _ := body["status"].(string)
+	return status == string(taskverification.TaskStatusCompleted) || status == string(taskverification.TaskStatusFailed)
 }
 
 func newActionEventRowID() string {
