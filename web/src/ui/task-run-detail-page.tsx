@@ -17,7 +17,8 @@ export function TaskRunDetailPage() {
   const { runID } = useParams();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [selectedEvent, setSelectedEvent] = useState<TaskRunEvent | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!runID) {
@@ -28,7 +29,8 @@ export function TaskRunDetailPage() {
 
     const controller = new AbortController();
     setLoadState("loading");
-    setSelectedEvent(null);
+    setCollapsedGroups({});
+    setExpandedEvents({});
 
     void fetchTaskRunEvents(runID, controller.signal)
       .then((result) => {
@@ -59,6 +61,18 @@ export function TaskRunDetailPage() {
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
   const startedAt = events[0]?.createdAtUnixMilli;
   const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
+
+  useEffect(() => {
+    setCollapsedGroups((current) => {
+      const next = { ...current };
+      for (const group of groupedEvents) {
+        if (!(group.key in next)) {
+          next[group.key] = false;
+        }
+      }
+      return next;
+    });
+  }, [groupedEvents]);
 
   if (loadState === "loading") {
     return (
@@ -134,84 +148,119 @@ export function TaskRunDetailPage() {
       <div className="timeline">
         {groupedEvents.map((group, groupIndex) => (
           <section key={group.key} className="timeline-group" aria-label={group.label}>
-            <div className="timeline-group__header">
-              <span className="timeline-group__sector">
-                Sector {String(groupIndex + 1).padStart(2, "0")}
-              </span>
-              <span className="timeline-group__label">{group.label}</span>
-              <div className="timeline-group__rule" />
-            </div>
+            <button
+              type="button"
+              className="timeline-group__toggle"
+              aria-expanded={!collapsedGroups[group.key]}
+              onClick={() =>
+                setCollapsedGroups((current) => ({
+                  ...current,
+                  [group.key]: !current[group.key],
+                }))
+              }
+            >
+              <div className="timeline-group__header">
+                <span className="timeline-group__sector">
+                  Sector {String(groupIndex + 1).padStart(2, "0")}
+                </span>
+                <span className="timeline-group__label">{group.label}</span>
+                <span className="timeline-group__count">{group.events.length} events</span>
+                <div className="timeline-group__rule" />
+                <span className="timeline-group__chevron" aria-hidden="true">
+                  {collapsedGroups[group.key] ? "+" : "-"}
+                </span>
+              </div>
+            </button>
 
-            <div className="timeline-group__events">
-              {group.events.map((event) => {
-                const tone = getEventTone(event);
-                const visual = getEventVisuals(event, tone);
-                const title = getEventTitle(event);
-                const statusLabel = getEventStatusLabel(event);
+            {!collapsedGroups[group.key] ? (
+              <div className="timeline-group__events">
+                {group.events.map((event) => {
+                  const tone = getEventTone(event);
+                  const visual = getEventVisuals(event, tone);
+                  const title = getEventTitle(event);
+                  const statusLabel = getEventStatusLabel(event);
+                  const expanded = expandedEvents[event.id] === true;
 
-                return (
-                  <article
-                    key={event.id}
-                    className={`timeline-event timeline-event--${tone}`}
-                    style={visual.style}
-                  >
-                    <div className="timeline-event__timestamp">
-                      <time dateTime={new Date(event.createdAtUnixMilli).toISOString()}>
-                        {formatTimestamp(event.createdAtUnixMilli)}
-                      </time>
-                    </div>
-
-                    <div className="timeline-event__marker-column">
-                      <span className="timeline-event__halo" />
-                      <span className="timeline-event__ring" />
-                      <span
-                        className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
-                        aria-hidden="true"
-                      >
-                        <EventGlyph kind={visual.iconKind} />
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="timeline-event__card"
-                      aria-label={`Open event details for ${title}`}
-                      onClick={() => setSelectedEvent(event)}
+                  return (
+                    <article
+                      key={event.id}
+                      className={`timeline-event timeline-event--${tone}`}
+                      style={visual.style}
                     >
-                      <div className="timeline-event__connector" />
-                      <div className="timeline-event__content">
-                        <div className="timeline-event__meta">
-                          <span className="timeline-event__channel">{visual.channelLabel}</span>
-                          <span className={`timeline-source-badge timeline-source-badge--${event.source}`}>
-                            {event.source}
-                          </span>
-                          <span className={`timeline-event__status timeline-event__status--${tone}`}>
-                            {statusLabel}
-                          </span>
-                        </div>
+                      <div className="timeline-event__timestamp">
+                        <time dateTime={new Date(event.createdAtUnixMilli).toISOString()}>
+                          {formatTimestamp(event.createdAtUnixMilli)}
+                        </time>
+                      </div>
 
-                        <div className="timeline-event__body">
-                          <div>
-                            <h3 className="timeline-event__title" data-testid="timeline-event-title">
-                              {title}
-                            </h3>
-                            <p className="timeline-event__subtitle">{getEventSubtitle(event)}</p>
-                          </div>
-                          <span className="timeline-event__details-link">Inspect</span>
+                      <div className="timeline-event__marker-column">
+                        <span className="timeline-event__halo" />
+                        <span className="timeline-event__ring" />
+                        <span
+                          className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
+                          aria-hidden="true"
+                        >
+                          <EventGlyph kind={visual.iconKind} />
+                        </span>
+                      </div>
+
+                      <div className="timeline-event__card">
+                        <div className="timeline-event__connector" />
+                        <div className="timeline-event__content">
+                          <button
+                            type="button"
+                            className="timeline-event__summary"
+                            aria-expanded={expanded}
+                            aria-label={`Toggle event details for ${title}`}
+                            onClick={() =>
+                              setExpandedEvents((current) => ({
+                                ...current,
+                                [event.id]: !current[event.id],
+                              }))
+                            }
+                          >
+                            <div className="timeline-event__meta">
+                              <span className="timeline-event__channel">{visual.channelLabel}</span>
+                              <span className={`timeline-source-badge timeline-source-badge--${event.source}`}>
+                                {event.source}
+                              </span>
+                              <span className={`timeline-event__status timeline-event__status--${tone}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+
+                            <div className="timeline-event__body">
+                              <div>
+                                <h3 className="timeline-event__title" data-testid="timeline-event-title">
+                                  {title}
+                                </h3>
+                                <p className="timeline-event__subtitle">{getEventSubtitle(event)}</p>
+                              </div>
+                              <span className="timeline-event__details-link">
+                                {expanded ? "Hide" : "JSON"}
+                              </span>
+                            </div>
+                          </button>
+
+                          {expanded ? (
+                            <div className="timeline-event__details">
+                              <div className="timeline-event__details-meta">
+                                <span>{formatTimestamp(event.createdAtUnixMilli)}</span>
+                                <span>{statusLabel}</span>
+                              </div>
+                              <pre className="timeline-event__payload">{formatPayload(event.payloadJson)}</pre>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
           </section>
         ))}
       </div>
-
-      {selectedEvent ? (
-        <TaskRunEventModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
-      ) : null}
     </div>
   );
 }
@@ -237,56 +286,12 @@ function DetailStateCard({
   );
 }
 
-function TaskRunEventModal({
-  event,
-  onClose,
-}: {
-  event: TaskRunEvent;
-  onClose: () => void;
-}) {
-  const tone = getEventTone(event);
-  const visual = getEventVisuals(event, tone);
-
-  return (
-    <div className="timeline-modal" onClick={onClose}>
-      <div className="timeline-modal__panel" onClick={(eventObject) => eventObject.stopPropagation()}>
-        <div className="timeline-modal__header" style={visual.style}>
-          <div className="timeline-modal__header-main">
-            <span
-              className={`timeline-event__icon timeline-event__icon--${visual.shape} timeline-event__icon--modal`}
-              aria-hidden="true"
-            >
-              <EventGlyph kind={visual.iconKind} />
-            </span>
-            <div>
-              <p className="timeline-modal__eyebrow">{visual.channelLabel}</p>
-              <h3>{getEventTitle(event)}</h3>
-            </div>
-          </div>
-          <button type="button" className="timeline-modal__close" onClick={onClose}>
-            Close
-          </button>
-        </div>
-
-        <div className="timeline-modal__meta">
-          <span>{formatTimestamp(event.createdAtUnixMilli)}</span>
-          <span>{getEventStatusLabel(event)}</span>
-          <span>{getEventSubtitle(event)}</span>
-        </div>
-
-        <pre className="timeline-modal__payload">{formatPayload(event.payloadJson)}</pre>
-      </div>
-    </div>
-  );
-}
-
 function groupEventsByPhase(events: TaskRunEvent[]): TimelineGroup[] {
   const groups: TimelineGroup[] = [];
   let lastKnownPhase = "";
 
   for (const event of events) {
-    const effectivePhase =
-      event.resultingPhasePath || event.phasePath || lastKnownPhase || "unknown";
+    const effectivePhase = getGroupingPhase(event, lastKnownPhase);
     lastKnownPhase = effectivePhase;
 
     const existingGroup = groups.length > 0 ? groups[groups.length - 1] : undefined;
@@ -303,6 +308,29 @@ function groupEventsByPhase(events: TaskRunEvent[]): TimelineGroup[] {
   }
 
   return groups;
+}
+
+function getGroupingPhase(event: TaskRunEvent, lastKnownPhase: string): string {
+  if (event.source === "task" && shouldStickToCurrentPhase(event) && event.phasePath) {
+    return event.phasePath;
+  }
+
+  return event.resultingPhasePath || event.phasePath || lastKnownPhase || "unknown";
+}
+
+function shouldStickToCurrentPhase(event: TaskRunEvent): boolean {
+  if (event.source !== "task") {
+    return false;
+  }
+
+  const payloadStatus = readPayloadStatus(event.payloadJson);
+  return (
+    event.eventType === "step_completed" ||
+    event.eventType === "task_completed" ||
+    event.eventType === "task_failed" ||
+    payloadStatus === "completed" ||
+    payloadStatus === "failed"
+  );
 }
 
 function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -200,7 +200,7 @@ describe("task run detail", () => {
     });
   });
 
-  it("renders a grouped mixed timeline and opens modal payload details", async () => {
+  it("renders a grouped mixed timeline and expands inline payload details", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -232,7 +232,7 @@ describe("task run detail", () => {
             source: "task",
             id: "te_1742947200125_0000000003",
             createdAtUnixMilli: 1742947202123,
-            eventType: "step_started",
+            eventType: "step_completed",
             outcome: "succeeded",
             phasePath: "onboarding",
             resultingPhasePath: "execution.implement_fix",
@@ -259,7 +259,6 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
     expect(screen.getByText("Onboarding")).toBeInTheDocument();
-    expect(screen.getByText("Execution / Implement Fix")).toBeInTheDocument();
     expect(screen.getByText("Task Registered")).toBeInTheDocument();
     expect(screen.getByText("Request · execute_command")).toBeInTheDocument();
 
@@ -267,13 +266,57 @@ describe("task run detail", () => {
     expect(titles).toEqual([
       "Task Registered",
       "Request · execute_command",
-      "Step Started",
+      "Step Completed",
       "Response · edit_file",
     ]);
 
     expect(screen.queryByText(/"nested": true/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /open event details for response/i }));
+    await user.click(screen.getByRole("button", { name: /toggle event details for response/i }));
     expect(screen.getByText(/"nested": true/)).toBeInTheDocument();
+
+    const onboardingSection = screen.getByLabelText("Onboarding");
+    expect(within(onboardingSection).getByText("Step Completed")).toBeInTheDocument();
+  });
+
+  it("collapses and expands phase sections", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "planning",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(screen.getByText("Task Registered")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /sector 01 onboarding 1 events/i }));
+    expect(screen.queryByText("Task Registered")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /sector 01 onboarding 1 events/i }));
+    expect(screen.getByText("Task Registered")).toBeInTheDocument();
   });
 
   it("renders a not-found state for 404 responses", async () => {

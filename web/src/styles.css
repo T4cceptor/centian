@@ -1,6 +1,8 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
 :root {
   color-scheme: dark;
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: "Inter", "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
   background:
@@ -100,7 +102,7 @@ code,
 .state-card h2,
 .task-run-list__toolbar h2 {
   margin: 0;
-  font-family: "IBM Plex Serif", Georgia, serif;
+  font-family: "Inter", "Segoe UI", sans-serif;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -329,6 +331,15 @@ code,
   gap: 10px;
 }
 
+.timeline-group__toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .timeline-group__header {
   align-items: center;
   gap: 14px;
@@ -356,6 +367,21 @@ code,
   color: var(--accent);
   font-size: 0.76rem;
   letter-spacing: 0.18em;
+}
+
+.timeline-group__count {
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.timeline-group__chevron {
+  color: var(--accent);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .timeline-group__events {
@@ -398,16 +424,16 @@ code,
 }
 
 .timeline-event__halo {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   background: var(--event-bg);
   opacity: 0.26;
   box-shadow: 0 0 24px var(--event-glow);
 }
 
 .timeline-event__ring {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border: 1px solid color-mix(in srgb, var(--event-color) 46%, transparent);
   box-shadow: 0 0 12px var(--event-glow);
 }
@@ -418,16 +444,16 @@ code,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   background: var(--event-color);
   box-shadow: 0 0 10px var(--event-glow);
   color: rgba(4, 9, 15, 0.96);
 }
 
 .timeline-event__icon svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   stroke: currentColor;
   stroke-width: 1.5;
   fill: none;
@@ -460,16 +486,21 @@ code,
   display: flex;
   align-items: stretch;
   min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
   color: inherit;
 }
 
+.timeline-event__summary {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .timeline-event__card:hover .timeline-event__content,
-.timeline-event__card:focus-visible .timeline-event__content {
+.timeline-event__content:focus-within {
   border-color: color-mix(in srgb, var(--event-color) 34%, transparent);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
   transform: translateY(-1px);
@@ -497,6 +528,23 @@ code,
     border-color 140ms ease,
     box-shadow 140ms ease,
     transform 140ms ease;
+}
+
+.timeline-event__details {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--event-color) 16%, transparent);
+}
+
+.timeline-event__details-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
 }
 
 .timeline-event__meta {
@@ -553,9 +601,9 @@ code,
 .timeline-event__title {
   margin: 0 0 4px;
   color: var(--accent-strong);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.94rem;
-  font-weight: 500;
+  font-family: "Inter", "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .timeline-event__subtitle {
@@ -596,86 +644,10 @@ code,
   letter-spacing: 0.16em;
 }
 
-.timeline-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(1, 4, 10, 0.84);
-  backdrop-filter: blur(6px);
-}
-
-.timeline-modal__panel {
-  width: min(760px, 100%);
-  max-height: 80vh;
-  overflow: hidden;
-  border-radius: 14px;
-  border: 1px solid rgba(140, 230, 216, 0.2);
-  background: linear-gradient(180deg, rgba(7, 15, 24, 0.98), rgba(4, 9, 15, 0.98));
-  box-shadow: 0 28px 120px rgba(0, 0, 0, 0.48);
-}
-
-.timeline-modal__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 16px 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--event-color) 20%, transparent);
-  background: linear-gradient(135deg, var(--event-bg), transparent 80%);
-}
-
-.timeline-modal__header-main {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.timeline-modal__eyebrow {
-  margin: 0 0 4px;
-  color: var(--event-color);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.timeline-modal__header h3 {
+.timeline-event__payload {
   margin: 0;
-  color: var(--accent-strong);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 1rem;
-}
-
-.timeline-modal__close {
-  border: 1px solid rgba(140, 230, 216, 0.18);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--accent);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-
-.timeline-modal__meta {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 18px 0;
-  color: var(--text-muted);
-  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.72rem;
-}
-
-.timeline-modal__payload {
-  margin: 12px 18px 18px;
   padding: 16px;
-  max-height: calc(80vh - 130px);
+  max-height: 360px;
   overflow-x: auto;
   overflow-y: auto;
   border-radius: 12px;
@@ -735,11 +707,6 @@ code,
   .timeline-event__connector {
     display: none;
   }
-
-  .timeline-modal__header {
-    align-items: start;
-    flex-direction: column;
-  }
 }
 
 @media (max-width: 640px) {
@@ -759,13 +726,5 @@ code,
   .timeline-group__header {
     align-items: start;
     flex-direction: column;
-  }
-
-  .timeline-modal {
-    padding: 12px;
-  }
-
-  .timeline-modal__payload {
-    margin: 12px;
   }
 }
