@@ -1,6 +1,6 @@
 # Centian - the MCP Proxy
 
-Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextprotocol.io/)) proxy that adds **processing hooks**, **gateway aggregation**, and **structured logging** to MCP server traffic.
+Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextprotocol.io/)) proxy that adds **processing hooks**, **gateway aggregation**, **workflow-driven task verification**, and **structured logging** to MCP server traffic.
 
 <p align="center">
   <img src="docs/images/centian_simple_diag.png" alt="Centian Proxy Diagram" width="100%">
@@ -11,12 +11,14 @@ Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextproto
 
 - **Programmable tool-call processing** – inspect, modify, block, or enrich proxied `tools/call` requests and results with processor scripts.
 - **Unified gateway for multiple servers** – expose many downstream MCP servers through one clean endpoint (DRY config).
+- **Workflow-driven taskverification** – expose `centian.task_*` tools for onboarding, planning, execution, and approval-gated task flows.
 - **Structured logging & visibility** – capture MCP events for debugging, auditing, and analysis.
+- **Built-in task run explorer** – persist task/action timelines and inspect them through the API or embedded UI.
 - **Fast setup via auto‑discovery** – import existing MCP configs from common tools to get started quickly.
 
 ## Quick Start
 
-Note: if you do not already have a MCP setup locally you can also look into the next section Demo.
+Note: if you do not already have an MCP setup locally you can also look into the next section Demo.
 
 1) **Install**
 
@@ -43,7 +45,7 @@ This does the following:
 * Creates an API key to authenticate at the centian proxy
 * Displays MCP client configurations including API key header
     * NOTE: the API key is only shown ONCE, afterwards its hashed, so be sure to copy it here
-    * Alernatively you can create another API key using `centian auth new-key`
+    * Alternatively you can create another API key using `centian auth new-key`
 
 3) **Start the proxy**
 
@@ -80,9 +82,10 @@ Example:
 
 ## Demo
 
-The `demo/` folder contains two isolated walkthroughs:
+The `demo/` folder contains three walkthroughs:
 - `demo/logging_demo/` for OpenTelemetry span export on MCP tool calls.
 - `demo/modification_demo/` for regex-based redaction of sensitive response values.
+- `demo/taskverification/` for workflow-driven task execution with persisted timelines and approval waits.
 
 Quick local setup:
 
@@ -95,9 +98,36 @@ Then run either `make demo-logging-up` or `make demo-modification-up`.
 
 These examples are intended to demonstrate extension patterns and are not production-hardened security/monitoring implementations.
 
-For further details, checkout `demo/README.md`.
+For further details, check out `demo/README.md`.
+
+The taskverification demo has its own setup and run flow documented in [demo/taskverification/README.md](/Users/brb/_devspace/centian-cli/demo/taskverification/README.md).
 
 Taskverification documentation is available in [docs/TASKVERIFICATION.md](/Users/brb/_devspace/centian-cli/docs/TASKVERIFICATION.md).
+
+## Taskverification
+
+Centian can expose a workflow-driven task runtime on top of the normal MCP proxy surface.
+When `proxy.capabilities.taskVerification.enabled` is true, Centian adds `centian.task_*` tools that guide an agent through:
+
+- template selection and task registration
+- onboarding and planning artifacts
+- step-by-step execution with checks and invariants
+- approval-wait nodes that block downstream tool usage
+
+When event storage is enabled, Centian also persists lifecycle and MCP action history and exposes:
+
+- `GET /api/task-runs`
+- `GET /api/task-runs/{runID}/events`
+
+When `proxy.capabilities.ui.enabled` is true, Centian serves an embedded read-only UI under `/ui`, including:
+
+- `/ui/tasks`
+- `/ui/tasks/:runID`
+
+See:
+
+- [docs/TASKVERIFICATION.md](/Users/brb/_devspace/centian-cli/docs/TASKVERIFICATION.md)
+- [demo/taskverification/README.md](/Users/brb/_devspace/centian-cli/demo/taskverification/README.md)
 
 
 ## Configuration
@@ -406,6 +436,24 @@ make test-coverage  # Runs test coverage report
 make lint           # Run linting
 make dev            # Clean, fmt, vet, test, build
 ```
+
+## Contributing
+
+Centian is still evolving, and contributions are useful across the proxy, processor, OAuth, taskverification, and UI surfaces.
+
+Good contribution areas include:
+
+- new processors and policy examples
+- taskverification templates and demo scenarios
+- docs, onboarding, and configuration clarity
+- UI polish around task runs and observability
+- bug fixes, tests, and performance work
+
+To contribute:
+
+- read [CONTRIBUTING.md](/Users/brb/_devspace/centian-cli/CONTRIBUTING.md)
+- follow [CODE_OF_CONDUCT.md](/Users/brb/_devspace/centian-cli/CODE_OF_CONDUCT.md)
+- report security issues through [SECURITY.md](/Users/brb/_devspace/centian-cli/SECURITY.md)
 
 ## License
 
