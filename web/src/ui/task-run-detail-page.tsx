@@ -465,7 +465,7 @@ function RunMetadataBar({ stats }: { stats: RunStats }) {
         <span style={valueStyle}>{stats.totalEvents}</span>
       </div>
 
-      {Object.keys(stats.serverCounts).length > 0 && (
+      {/* {Object.keys(stats.serverCounts).length > 0 && (
         <div style={cellStyle}>
           <span style={labelStyle}>Calls</span>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 1 }}>
@@ -496,7 +496,7 @@ function RunMetadataBar({ stats }: { stats: RunStats }) {
             ))}
           </div>
         </div>
-      )}
+      )} */}
 
       {stats.errorCount > 0 && (
         <div style={cellStyle}>

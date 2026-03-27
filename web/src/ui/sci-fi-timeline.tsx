@@ -85,8 +85,53 @@ function getItemColorToken(item: TimelineItem): ColorToken {
   return getColorToken(serverName);
 }
 
+type MCPServerLegendEntry = {
+  name: string;
+  eventCount: number;
+};
+
+function getMCPServerLegendEntries(groups: TimelineGroup[], events: TaskRunEvent[]): MCPServerLegendEntry[] {
+  const serverCounts = new Map<string, number>();
+
+  for (const group of groups) {
+    for (const item of group.items) {
+      if (item.kind !== "exchange") {
+        continue;
+      }
+
+      const name = getExchangeServerName(item.exchange).trim();
+      if (!name || name === "centian") {
+        continue;
+      }
+
+      serverCounts.set(name, (serverCounts.get(name) ?? 0) + 1);
+    }
+  }
+
+  let centianRequestCount = 0;
+  for (const event of events) {
+    if (
+      event.source === "action" &&
+      event.serverName === "centian" &&
+      (event.messageType === "request" ||
+        event.direction === "request" ||
+        event.direction === "[CLIENT -> SERVER]")
+    ) {
+      centianRequestCount += 1;
+    }
+  }
+
+  if (centianRequestCount > 0) {
+    serverCounts.set("centian", centianRequestCount);
+  }
+
+  return [...serverCounts.entries()].map(([name, eventCount]) => ({ name, eventCount }));
+}
+
 // ── Shape ───────────────────────────────────────────────────────────────
 function NodeShape({ server, size, color }: { server: string; size: number; color: string }) {
+  // TODO: in the future it would be best if we can find some kind of 
+  // function that creates the same shape for a server name every time
   if (server === "centian" || server === "task") {
     return (
       <div style={{ width: size, height: size, clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", background: color }} />
@@ -166,7 +211,7 @@ function SciFiSectorDivider({
         <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 12, color: "#6a8ab0", letterSpacing: "0.08em" }}>
           {group.label}
         </span>
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 10, color: "#3d4a6a", opacity: 0.7 }}>
+        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 12, color: "#3d4a6a", opacity: 0.7 }}>
           {group.items.length} events
         </span>
         <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${accentColor}20, transparent)` }} />
@@ -357,6 +402,7 @@ export function SciFiTimeline({
   selectedItemId: string;
   events: TaskRunEvent[];
 }) {
+  const serverLegendEntries = getMCPServerLegendEntries(groups, events);
   const hasCompleted = events.length > 0 && events.some(
     (e) => e.source === "task" && (e.eventType === "task_completed" || (e.payloadJson as { status?: string } | null)?.status === "completed")
   );
@@ -386,16 +432,18 @@ export function SciFiTimeline({
       <div style={{ position: "relative", zIndex: 1, padding: "24px 24px 80px", overflowY: "auto", height: "100%" }}>
 
         {/* Server legend */}
-        <div style={{ display: "flex", gap: 24, marginBottom: 16, paddingLeft: 120 }}>
-          {/* TODO: icons/symbols need to be dynamic so it becomes usable for other MCP servers too */}
-          {/* TODO: replace the Object.entries here with a search function for CMP servers */}
-          {Object.entries({ centian: "hexagon", shell: "circle", filesystem: "diamond" }).map(([srv]) => (
-            <div key={srv} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: KNOWN_COLORS[srv].color, opacity: 0.7, letterSpacing: "0.1em", fontFamily: "'Share Tech Mono', 'Courier New', monospace" }}>
-              <NodeShape server={srv} size={10} color={getColorToken(srv).color} />
-              <span>{srv}</span>
-            </div>
-          ))}
-        </div>
+        {serverLegendEntries.length > 0 && (
+          <div style={{ display: "flex", gap: 24, marginBottom: 16, paddingLeft: 120 }}>
+            {serverLegendEntries.map(({ name, eventCount }) => (
+              <div key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: getColorToken(name).color, opacity: 0.7, letterSpacing: "0.1em", fontFamily: "'Share Tech Mono', 'Courier New', monospace" }}>
+                <NodeShape server={name} size={10} color={getColorToken(name).color} />
+                <span>{name}</span>
+                <span >({eventCount})</span>
+                {/* {style={{ color: "#536785", opacity: 0.85 }}} */}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ── Timeline ── */}
         <div style={{ position: "relative" }}>
