@@ -5,8 +5,10 @@ import { fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
 import { formatDuration, formatTaskRunId, formatTimestamp, humanizePhase } from "./format";
 import { getTaskRunUIStatus } from "./task-run-status";
 
+// Tracks the high-level fetch state for the list view.
 type LoadState = "loading" | "ready" | "error";
 
+// Prefers a final "Completed" label once a run has fully succeeded.
 function getTaskRunDisplayPhase(run: TaskRunSummary): string {
   const uiStatus = getTaskRunUIStatus(run.status, run.endedAt);
   if (uiStatus === "success") {
@@ -16,6 +18,7 @@ function getTaskRunDisplayPhase(run: TaskRunSummary): string {
   return humanizePhase(run.currentPhase);
 }
 
+// Shows the live task run index, including loading, empty, and error states.
 export function TaskRunListPage() {
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -27,6 +30,7 @@ export function TaskRunListPage() {
     setLoadState("loading");
     setErrorMessage("");
 
+    // Abort in-flight fetches when the page unmounts so stale responses do not win.
     void fetchTaskRuns(controller.signal)
       .then((result) => {
         setRuns(result);
@@ -49,6 +53,7 @@ export function TaskRunListPage() {
       return;
     }
 
+    // Refresh the clock only while at least one run is active so durations keep ticking.
     const timer = window.setInterval(() => {
       setNow(Date.now());
     }, 1000);

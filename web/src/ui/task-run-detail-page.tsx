@@ -2,24 +2,29 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
-import { formatTimestamp, humanizeIdentifier, humanizePhase } from "./format";
+import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
+import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
+// Tracks the fetch state for the detail page.
 type LoadState = "loading" | "ready" | "invalid" | "not-found" | "error";
 
-type TimelineGroup = {
+// Represents one rendered phase section in the timeline.
+export type TimelineGroup = {
   key: string;
   label: string;
   items: TimelineItem[];
 };
 
-type TimelineExchange = {
+// Pairs request and response action events into a single exchange row.
+export type TimelineExchange = {
   requestId?: string;
   request?: TaskRunEvent;
   response?: TaskRunEvent;
 };
 
-type TimelineItem =
+// Normalizes task lifecycle events and MCP exchanges into a single timeline model.
+export type TimelineItem =
   | {
       id: string;
       kind: "task";
@@ -32,6 +37,7 @@ type TimelineItem =
       exchange: TimelineExchange;
     };
 
+// Loads a single run, groups its events into timeline sections, and drives the inspector UI.
 export function TaskRunDetailPage() {
   const { runID } = useParams();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
@@ -54,6 +60,7 @@ export function TaskRunDetailPage() {
     setCollapsedGroups({});
     setSelectedItemID("");
 
+    // Reset view state when the route changes and ignore responses from aborted requests.
     void fetchTaskRunEvents(runID, controller.signal)
       .then((result) => {
         setEvents(result);
@@ -88,10 +95,34 @@ export function TaskRunDetailPage() {
   );
   const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
   const inspectorVisible = selectedItemID !== "" && selectedItem != null;
-  const startedAt = events[0]?.createdAtUnixMilli;
-  const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
+
+  const runStats = useMemo(() => {
+    const startedAt = events[0]?.createdAtUnixMilli;
+    const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
+
+    const serverCounts: Record<string, number> = {};
+    let errorCount = 0;
+    // Aggregate lightweight summary stats directly from the flattened render model.
+    for (const item of flatTimelineItems) {
+      if (item.kind === "exchange") {
+        const server = getExchangeServerName(item.exchange);
+        serverCounts[server] = (serverCounts[server] ?? 0) + 1;
+        const resp = item.exchange.response;
+        if (resp && (resp.isError === true || resp.success === false)) {
+          errorCount++;
+        }
+      } else if (item.kind === "task") {
+        if (item.task.outcome === "failed" || item.task.eventType === "task_failed") {
+          errorCount++;
+        }
+      }
+    }
+
+    return { startedAt, lastSeenAt, serverCounts, errorCount, totalEvents: events.length };
+  }, [events, flatTimelineItems]);
 
   useEffect(() => {
+    // Preserve existing collapse choices while seeding new groups as expanded.
     setCollapsedGroups((current) => {
       const next = { ...current };
       for (const group of groupedEvents) {
@@ -108,6 +139,7 @@ export function TaskRunDetailPage() {
       return;
     }
 
+    // Resize is driven from the viewport edge so the panel width feels anchored to the right side.
     function handleMouseMove(event: MouseEvent) {
       const nextWidth = clampDetailsWidth(window.innerWidth - event.clientX - 24);
       previousExpandedWidthRef.current = nextWidth;
@@ -171,184 +203,37 @@ export function TaskRunDetailPage() {
     <div className="task-run-detail">
       <header className="task-run-detail__header">
         <div className="task-run-detail__title-block">
-          <p className="state-card__eyebrow">Run Detail</p>
-          <h2>Task run timeline</h2>
-          <code className="task-run-detail__run-id">{runID}</code>
+          <p className="state-card__eyebrow">
+            <span>Run Detail</span>
+            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
+            {formatTaskRunId(runID ?? "")}
+            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
+            <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
+          </p>
         </div>
         <div className="task-run-detail__header-actions">
-          <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
-          <Link className="back-link" to="/tasks">
+          <Link className="back-link" style={{fontFamily:"inter"}} to="/tasks">
             Back to task runs
           </Link>
         </div>
       </header>
 
-      <div className="task-run-detail__summary">
-        <div className="task-run-summary-card">
-          <span className="task-run-summary-card__label">Started</span>
-          <strong>{startedAt ? formatTimestamp(startedAt) : "Unknown"}</strong>
-        </div>
-        <div className="task-run-summary-card">
-          <span className="task-run-summary-card__label">Last activity</span>
-          <strong>{lastSeenAt ? formatTimestamp(lastSeenAt) : "Unknown"}</strong>
-        </div>
-        <div className="task-run-summary-card">
-          <span className="task-run-summary-card__label">Events</span>
-          <strong>{events.length}</strong>
-        </div>
-      </div>
+      <RunMetadataBar stats={runStats} />
 
       <div className="task-run-detail__workspace">
-        <div className="timeline">
-          {groupedEvents.map((group, groupIndex) => (
-            <section key={group.key} className="timeline-group" aria-label={group.label}>
-              <button
-                type="button"
-                className="timeline-group__toggle"
-                aria-expanded={!collapsedGroups[group.key]}
-                onClick={() =>
-                  setCollapsedGroups((current) => ({
-                    ...current,
-                    [group.key]: !current[group.key],
-                  }))
-                }
-              >
-                <div className="timeline-group__header">
-                  <span className="timeline-group__sector">
-                    Sector {String(groupIndex + 1).padStart(2, "0")}
-                  </span>
-                  <span className="timeline-group__label">{group.label}</span>
-                  <span className="timeline-group__count">{group.items.length} events</span>
-                  <div className="timeline-group__rule" />
-                  <span className="timeline-group__chevron" aria-hidden="true">
-                    {collapsedGroups[group.key] ? "+" : "-"}
-                  </span>
-                </div>
-              </button>
-
-              {!collapsedGroups[group.key] ? (
-                <div className="timeline-group__events">
-                  {group.items.map((item) => {
-                    const anchorEvent = getTimelineAnchorEvent(item);
-                    const tone = getTimelineItemTone(item);
-                    const visual = getTimelineItemVisuals(item, tone);
-                    const title = getTimelineItemTitle(item);
-                    const subtitle = getTimelineItemSubtitle(item);
-                    const headerLabel = getTimelineItemHeaderLabel(item);
-                    const exchangeLatency =
-                      item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
-                    const metaLabel =
-                      item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
-                    const selected = selectedItem?.id === item.id;
-                    const alertLabel = getTimelineItemAlertLabel(item);
-                    const showSourceBadge = item.kind === "task";
-                    const serverAccent =
-                      item.kind === "exchange" ? getServerAccentColor(getExchangeServerLabel(item.exchange)) : undefined;
-                    const serverDisplay =
-                      item.kind === "exchange" ? getExchangeServerLabel(item.exchange) : undefined;
-
-                    return (
-                      <article
-                        key={item.id}
-                        className={`timeline-event timeline-event--${tone} ${
-                          selected ? "timeline-event--selected" : ""
-                        }`}
-                        style={visual.style}
-                      >
-                        <div className="timeline-event__timestamp">
-                          <time dateTime={new Date(anchorEvent.createdAtUnixMilli).toISOString()}>
-                            {formatTraceTimestamp(anchorEvent.createdAtUnixMilli)}
-                          </time>
-                        </div>
-
-                        <div className="timeline-event__marker-column">
-                          <span className="timeline-event__halo" />
-                          <span className="timeline-event__ring" />
-                          <span
-                            className={`timeline-event__icon timeline-event__icon--${visual.shape}`}
-                            aria-hidden="true"
-                          >
-                            <EventGlyph kind={visual.iconKind} />
-                          </span>
-                        </div>
-
-                        <div className="timeline-event__card">
-                          <div className="timeline-event__connector" />
-                          <div className="timeline-event__content">
-                            <button
-                              type="button"
-                              className="timeline-event__summary"
-                              aria-pressed={selected}
-                              aria-label={`Show event details for ${title}`}
-                              onClick={() => {
-                                setSelectedItemID(item.id);
-                              }}
-                            >
-                              <div className="timeline-event__body">
-                                <div className="timeline-event__main">
-                                  <div className="timeline-event__meta">
-                                    <div className="timeline-event__headline">
-                                      {showSourceBadge ? (
-                                        <span className="timeline-source-badge timeline-source-badge--task">
-                                          {metaLabel}
-                                        </span>
-                                      ) : null}
-                                      <h3 className="timeline-event__title" data-testid="timeline-event-title">
-                                        {showSourceBadge ? (
-                                          headerLabel
-                                        ) : (
-                                          <>
-                                            <span
-                                              className="timeline-event__server-dot"
-                                              style={
-                                                {
-                                                  "--timeline-server-color": serverAccent,
-                                                } as CSSProperties
-                                              }
-                                              aria-hidden="true"
-                                            />
-                                            <span
-                                              className="timeline-event__server-name"
-                                              style={{ color: serverAccent } as CSSProperties}
-                                            >
-                                              {serverDisplay}
-                                            </span>
-                                            <span className="timeline-event__title-separator" aria-hidden="true">
-                                              {" - "}
-                                            </span>
-                                            <span className="timeline-event__tool-name">{title}</span>
-                                          </>
-                                        )}
-                                      </h3>
-                                      {alertLabel ? (
-                                        <span className={`timeline-event__status timeline-event__status--${tone}`}>
-                                          {alertLabel}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    {exchangeLatency != null ? (
-                                      <span className="timeline-event__metric">{formatLatency(exchangeLatency)}</span>
-                                    ) : null}
-                                  </div>
-                                  {subtitle ? <p className="timeline-event__subtitle">{subtitle}</p> : null}
-                                  {item.kind === "task" && item.correlatedExchange ? (
-                                    <p className="timeline-event__linked-action">
-                                      {getLinkedExchangeLabel(item.correlatedExchange, item.task)}
-                                    </p>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </button>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </section>
-          ))}
-        </div>
+        <SciFiTimeline
+          groups={groupedEvents}
+          collapsedGroups={collapsedGroups}
+          onToggleGroup={(key) =>
+            setCollapsedGroups((current) => ({
+              ...current,
+              [key]: !current[key],
+            }))
+          }
+          onSelectItem={setSelectedItemID}
+          selectedItemId={selectedItemID}
+          events={events}
+        />
 
         {inspectorVisible ? (
           <aside
@@ -399,6 +284,7 @@ export function TaskRunDetailPage() {
   );
 }
 
+// Shows the selected timeline item along with its payloads and derived metadata.
 function DetailInspector({ item }: { item: TimelineItem }) {
   const tone = getTimelineItemTone(item);
   const statusLabel = getTimelineItemStatusLabel(item);
@@ -442,6 +328,7 @@ function DetailInspector({ item }: { item: TimelineItem }) {
   );
 }
 
+// Renders a labeled JSON payload block for either a task event or an exchange message.
 function PayloadSection({
   label,
   event,
@@ -464,6 +351,7 @@ function PayloadSection({
   );
 }
 
+// Displays the request/response halves of an MCP exchange using the shared payload renderer.
 function ExchangeDetails({
   exchange,
   prefixLabel,
@@ -494,10 +382,12 @@ function ExchangeDetails({
   );
 }
 
+// Keeps the inspector width within a usable range on small and large screens.
 function clampDetailsWidth(value: number): number {
   return Math.min(1080, Math.max(320, Math.round(value)));
 }
 
+// Chooses the initial inspector width from the viewport when running in the browser.
 function getDefaultDetailsWidth(): number {
   if (typeof window === "undefined") {
     return 640;
@@ -506,6 +396,7 @@ function getDefaultDetailsWidth(): number {
   return clampDetailsWidth(window.innerWidth * 0.4);
 }
 
+// Reusable empty/error state card for detail page fetch failures.
 function DetailStateCard({
   eyebrow,
   title,
@@ -527,6 +418,115 @@ function DetailStateCard({
   );
 }
 
+// Summary numbers shown above the timeline.
+type RunStats = {
+  startedAt: number | undefined;
+  lastSeenAt: number | undefined;
+  serverCounts: Record<string, number>;
+  errorCount: number;
+  totalEvents: number;
+};
+
+// Displays the headline metrics for the selected run.
+function RunMetadataBar({ stats }: { stats: RunStats }) {
+  const now = Date.now();
+  // Shared inline styles keep the compact metadata row visually consistent.
+  const cellStyle: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  };
+  const labelStyle: CSSProperties = {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+    color: "#5a7a9a",
+  };
+  const valueStyle: CSSProperties = {
+    fontSize: 13,
+    color: "#c8daf0",
+    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 24,
+        padding: "10px 20px",
+        background: "linear-gradient(135deg, rgba(10,14,30,0.7), rgba(15,22,42,0.5))",
+        borderBottom: "1px solid rgba(100,140,200,0.1)",
+        fontFamily: "'Inter', system-ui, sans-serif",
+        alignItems: "flex-start",
+      }}
+    >
+      {stats.startedAt != null && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Started</span>
+          <span style={valueStyle}>{formatTimestamp(stats.startedAt)}</span>
+        </div>
+      )}
+
+      {stats.startedAt != null && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Duration</span>
+          <span style={valueStyle}>
+            {formatDuration(stats.startedAt, stats.lastSeenAt, now)}
+          </span>
+        </div>
+      )}
+
+      <div style={cellStyle}>
+        <span style={labelStyle}>Events</span>
+        <span style={valueStyle}>{stats.totalEvents}</span>
+      </div>
+
+      {/* {Object.keys(stats.serverCounts).length > 0 && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Calls</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 1 }}>
+            {Object.entries(stats.serverCounts).map(([server, count]) => (
+              <span
+                key={server}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  fontSize: 12,
+                  color: "#c8daf0",
+                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: getServerAccentColor(server),
+                    flexShrink: 0,
+                  }}
+                />
+                {server}
+                <span style={{ color: "#5a7a9a", marginLeft: 1 }}>{count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )} */}
+
+      {stats.errorCount > 0 && (
+        <div style={cellStyle}>
+          <span style={labelStyle}>Errors</span>
+          <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Converts the raw event stream into timeline rows, merging request/response pairs where possible.
 function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   const rawItems: TimelineItem[] = [];
   const pendingExchanges = new Map<string, TimelineExchange>();
@@ -592,6 +592,7 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   const items: TimelineItem[] = [];
   for (const item of rawItems) {
     if (item.kind === "task") {
+      // Fold matching Centian exchanges into task rows so the timeline stays compact.
       const correlatedExchange =
         item.task.relatedActionRequestId != null
           ? centianExchangesByRequestID.get(item.task.relatedActionRequestId)
@@ -624,6 +625,7 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   return items;
 }
 
+// Wraps a single action event so it can later be paired with its counterpart.
 function createSingletonExchange(event: TaskRunEvent): TimelineExchange {
   const requestId = getExchangeRequestID(event);
   if (isRequestAction(event)) {
@@ -639,6 +641,7 @@ function createSingletonExchange(event: TaskRunEvent): TimelineExchange {
   };
 }
 
+// Detects request-direction action events across the variants emitted by the backend.
 function isRequestAction(event: TaskRunEvent): boolean {
   if (event.source !== "action") {
     return false;
@@ -651,6 +654,7 @@ function isRequestAction(event: TaskRunEvent): boolean {
   );
 }
 
+// Detects response-direction action events across legacy and current direction labels.
 function isResponseAction(event: TaskRunEvent): boolean {
   if (event.source !== "action") {
     return false;
@@ -664,6 +668,7 @@ function isResponseAction(event: TaskRunEvent): boolean {
   );
 }
 
+// Resolves the request id from either the normalized field or the raw payload body.
 function getExchangeRequestID(event: TaskRunEvent): string | undefined {
   if (event.requestId && event.requestId.trim() !== "") {
     return event.requestId;
@@ -676,6 +681,7 @@ function getExchangeRequestID(event: TaskRunEvent): string | undefined {
     : undefined;
 }
 
+// Buckets timeline items into contiguous phase groups for the sectored timeline layout.
 function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
   const groups: TimelineGroup[] = [];
   let lastKnownPhase = "";
@@ -701,7 +707,8 @@ function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
   return groups;
 }
 
-function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
+// Picks the event that should drive labels and timestamps for a mixed timeline item.
+export function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
   if (item.kind === "task") {
     return item.task;
   }
@@ -709,7 +716,8 @@ function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
   return item.exchange.request ?? item.exchange.response ?? item.exchange.request!;
 }
 
-function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "completed" | "failed" {
+// Maps a normalized timeline item to its visual tone.
+export function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "completed" | "failed" {
   if (item.kind === "task") {
     return getEventTone(item.task);
   }
@@ -717,7 +725,8 @@ function getTimelineItemTone(item: TimelineItem): "neutral" | "active" | "comple
   return getExchangeTone(item.exchange);
 }
 
-function getTimelineItemTitle(item: TimelineItem): string {
+// Builds the primary label shown for a timeline item.
+export function getTimelineItemTitle(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventTitle(item.task);
   }
@@ -725,15 +734,8 @@ function getTimelineItemTitle(item: TimelineItem): string {
   return getExchangeTitle(item.exchange);
 }
 
-function getTimelineItemHeaderLabel(item: TimelineItem): string {
-  if (item.kind === "task") {
-    return getEventTitle(item.task);
-  }
-
-  return `${getExchangeServerLabel(item.exchange)} - ${getExchangeTitle(item.exchange)}`;
-}
-
-function getTimelineItemSubtitle(item: TimelineItem): string {
+// Builds the secondary line shown underneath the main timeline label.
+export function getTimelineItemSubtitle(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventSubtitle(item.task);
   }
@@ -741,7 +743,8 @@ function getTimelineItemSubtitle(item: TimelineItem): string {
   return getExchangeSubtitle(item.exchange);
 }
 
-function getTimelineItemStatusLabel(item: TimelineItem): string {
+// Produces the status badge text used in the inspector.
+export function getTimelineItemStatusLabel(item: TimelineItem): string {
   if (item.kind === "task") {
     return getEventStatusLabel(item.task);
   }
@@ -749,7 +752,8 @@ function getTimelineItemStatusLabel(item: TimelineItem): string {
   return getExchangeStatusLabel(item.exchange);
 }
 
-function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
+// Flags failed items with a short alert marker for the compact timeline rows.
+export function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
   const tone = getTimelineItemTone(item);
   if (tone === "failed") {
     return "error";
@@ -758,27 +762,12 @@ function getTimelineItemAlertLabel(item: TimelineItem): string | undefined {
   return undefined;
 }
 
-function getTimelineItemVisuals(
-  item: TimelineItem,
-  tone: "neutral" | "active" | "completed" | "failed",
-): {
-  channelLabel: string;
-  iconKind: "task" | "filesystem" | "shell" | "server";
-  shape: "hex" | "diamond" | "circle";
-  style: CSSProperties;
-} {
-  if (item.kind === "task") {
-    return getEventVisuals(item.task, tone);
-  }
-
-  const representative = item.exchange.response ?? item.exchange.request;
-  return getEventVisuals(representative ?? item.exchange.request!, tone);
-}
-
+// Centian request/response pairs can be hidden when they already appear inside a task event.
 function isCollapsibleCentianExchange(exchange: TimelineExchange): boolean {
   return getExchangeServerName(exchange) === "centian";
 }
 
+// Chooses the phase bucket for an item, carrying the previous phase forward when needed.
 function getGroupingPhase(event: TaskRunEvent, lastKnownPhase: string): string {
   if (event.source === "task" && shouldStickToCurrentPhase(event) && event.phasePath) {
     return event.phasePath;
@@ -787,6 +776,7 @@ function getGroupingPhase(event: TaskRunEvent, lastKnownPhase: string): string {
   return event.resultingPhasePath || event.phasePath || lastKnownPhase || "unknown";
 }
 
+// Completed lifecycle events should remain grouped under the phase they just finished.
 function shouldStickToCurrentPhase(event: TaskRunEvent): boolean {
   if (event.source !== "task") {
     return false;
@@ -804,6 +794,7 @@ function shouldStickToCurrentPhase(event: TaskRunEvent): boolean {
   );
 }
 
+// Derives the header badge status from the latest task lifecycle event, with action failures as fallback.
 function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
@@ -825,6 +816,7 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
   return latestActionFailed ? "failed" : "active";
 }
 
+// Reads a best-effort status field from arbitrary payload objects.
 function readPayloadStatus(payload: unknown): string | undefined {
   if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
     return undefined;
@@ -834,6 +826,7 @@ function readPayloadStatus(payload: unknown): string | undefined {
   return typeof candidate === "string" ? candidate : undefined;
 }
 
+// Creates the title line for any single raw event.
 function getEventTitle(event: TaskRunEvent): string {
   if (event.source === "task") {
     const stepName = getTaskStepDisplayName(event);
@@ -852,6 +845,7 @@ function getEventTitle(event: TaskRunEvent): string {
   return humanizeIdentifier(event.messageType ?? "action_event");
 }
 
+// Creates the subtitle line for a raw event using the most relevant context available.
 function getEventSubtitle(event: TaskRunEvent): string {
   if (event.source === "task") {
     const phaseLine = formatTaskPhaseLine(event);
@@ -868,6 +862,7 @@ function getEventSubtitle(event: TaskRunEvent): string {
   return humanizeIdentifier(event.messageType ?? "unknown");
 }
 
+// Uses the tool name as the primary label for an exchange whenever available.
 function getExchangeTitle(exchange: TimelineExchange): string {
   const toolName = exchange.request?.toolName ?? exchange.response?.toolName;
   if (toolName) {
@@ -878,6 +873,7 @@ function getExchangeTitle(exchange: TimelineExchange): string {
   return humanizeIdentifier(messageType ?? "mcp_exchange");
 }
 
+// Pulls a short preview from the request payload for the compact timeline row.
 function getExchangeSubtitle(exchange: TimelineExchange): string {
   const requestPayload = readPayloadObject(exchange.request?.payloadJson);
   const preview = extractPayloadPreview(requestPayload);
@@ -888,6 +884,7 @@ function getExchangeSubtitle(exchange: TimelineExchange): string {
   return "";
 }
 
+// Collapses exchange completion into the same tone vocabulary used by task events.
 function getExchangeTone(exchange: TimelineExchange): "neutral" | "active" | "completed" | "failed" {
   const response = exchange.response;
   if (response) {
@@ -900,6 +897,7 @@ function getExchangeTone(exchange: TimelineExchange): "neutral" | "active" | "co
   return "active";
 }
 
+// Converts exchange success/error flags into human-readable status text.
 function getExchangeStatusLabel(exchange: TimelineExchange): string {
   const response = exchange.response;
   if (!response) {
@@ -914,7 +912,8 @@ function getExchangeStatusLabel(exchange: TimelineExchange): string {
   return "completed";
 }
 
-function getExchangeLatency(exchange: TimelineExchange): number | undefined {
+// Measures request/response latency when both halves of the exchange exist.
+export function getExchangeLatency(exchange: TimelineExchange): number | undefined {
   if (!exchange.request || !exchange.response) {
     return undefined;
   }
@@ -922,7 +921,8 @@ function getExchangeLatency(exchange: TimelineExchange): number | undefined {
   return Math.max(0, exchange.response.createdAtUnixMilli - exchange.request.createdAtUnixMilli);
 }
 
-function formatLatency(durationMs: number): string {
+// Formats latency for badges in milliseconds or seconds depending on size.
+export function formatLatency(durationMs: number): string {
   if (durationMs < 1000) {
     return `${durationMs}ms`;
   }
@@ -930,7 +930,8 @@ function formatLatency(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
 }
 
-function formatTraceTimestamp(timestamp: number): string {
+// Renders the denser timestamp format used in the timeline rail.
+export function formatTraceTimestamp(timestamp: number): string {
   const date = new Date(timestamp);
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");
@@ -939,20 +940,17 @@ function formatTraceTimestamp(timestamp: number): string {
   return `${hours}:${minutes}:${seconds}.${milliseconds}`;
 }
 
-function getExchangeServerName(exchange: TimelineExchange): string {
+// Returns the most specific server name attached to an exchange.
+export function getExchangeServerName(exchange: TimelineExchange): string {
   return exchange.request?.serverName ?? exchange.response?.serverName ?? "mcp";
 }
 
-function getExchangeServerLabel(exchange: TimelineExchange): string {
+// Keeps the exchange label API separate in case display names diverge later.
+export function getExchangeServerLabel(exchange: TimelineExchange): string {
   return getExchangeServerName(exchange);
 }
 
-function getLinkedExchangeLabel(exchange: TimelineExchange, relatedTask?: TaskRunEvent): string {
-  const stepName = relatedTask ? getTaskStepDisplayName(relatedTask) : "";
-  const exchangeLabel = stepName || getExchangeTitle(exchange);
-  return `Centian MCP · ${exchangeLabel} · ${getExchangeStatusLabel(exchange)}`;
-}
-
+// Narrows unknown payloads to plain object records for the preview helpers below.
 function readPayloadObject(payload: unknown): Record<string, unknown> | undefined {
   if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
     return undefined;
@@ -961,6 +959,7 @@ function readPayloadObject(payload: unknown): Record<string, unknown> | undefine
   return payload as Record<string, unknown>;
 }
 
+// Keeps path-like previews short by showing only the trailing segments.
 function summarizePath(path: string): string {
   const segments = path.split("/").filter(Boolean);
   if (segments.length === 0) {
@@ -969,6 +968,7 @@ function summarizePath(path: string): string {
   return segments.slice(-2).join("/");
 }
 
+// Truncates long preview text while preserving room for the ellipsis.
 function truncateText(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;
@@ -977,6 +977,7 @@ function truncateText(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1)}…`;
 }
 
+// Walks a payload tree to find a concise summary string for timeline subtitles.
 function extractPayloadPreview(payload: unknown, depth = 0): string {
   if (depth > 3 || payload == null) {
     return "";
@@ -988,10 +989,6 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
       return "";
     }
     return truncateText(trimmed, 88);
-  }
-
-  if (typeof payload === "number") {
-    return `${payload}`;
   }
 
   if (Array.isArray(payload)) {
@@ -1019,6 +1016,7 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
 
   const record = payload as Record<string, unknown>;
 
+  // Prefer the fields operators usually care about first, then fall back to deeper inspection.
   const prioritizedKeys = [
     "command",
     "cmd",
@@ -1064,7 +1062,9 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
     return `step ${record.step}`;
   }
 
+  // Search nested argument-like objects before scanning every remaining property.
   const nestedKeys = [
+    "tool_call",
     "arguments",
     "args",
     "params",
@@ -1091,6 +1091,7 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
   return "";
 }
 
+// Applies path compaction only when a preview string looks file-system-like.
 function formatPreviewString(value: string): string {
   if (value.includes("/")) {
     return summarizePath(value);
@@ -1099,6 +1100,7 @@ function formatPreviewString(value: string): string {
   return value;
 }
 
+// Tries several payload and phase fields to produce the most useful step name for task events.
 function getTaskStepDisplayName(event: TaskRunEvent): string {
   const payload = readPayloadObject(event.payloadJson);
   const payloadCandidates = [
@@ -1132,6 +1134,7 @@ function getTaskStepDisplayName(event: TaskRunEvent): string {
   return "";
 }
 
+// Builds a "from -> to" phase transition label when both sides are known.
 function formatTaskPhaseLine(event: TaskRunEvent): string {
   const from = event.phasePath ? humanizePhase(event.phasePath) : "";
   const to = event.resultingPhasePath ? humanizePhase(event.resultingPhasePath) : "";
@@ -1143,7 +1146,8 @@ function formatTaskPhaseLine(event: TaskRunEvent): string {
   return to || from;
 }
 
-function getServerAccentColor(serverName: string): string {
+// Assigns a stable accent color to arbitrary server names.
+export function getServerAccentColor(serverName: string): string {
   const palette = [
     "#a78bfa",
     "#fbbf24",
@@ -1163,6 +1167,7 @@ function getServerAccentColor(serverName: string): string {
   return palette[hash % palette.length];
 }
 
+// Maps task and action events into the shared tone model used by the UI.
 function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" | "failed" {
   if (event.source === "task") {
     if (event.outcome === "failed" || event.eventType === "task_failed") {
@@ -1183,6 +1188,7 @@ function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" |
   return "neutral";
 }
 
+// Generates the compact status label shown next to event payloads.
 function getEventStatusLabel(event: TaskRunEvent): string {
   if (event.source === "task") {
     return event.outcome ?? "tracked";
@@ -1196,110 +1202,7 @@ function getEventStatusLabel(event: TaskRunEvent): string {
   return event.direction ?? "event";
 }
 
-function getEventVisuals(
-  event: TaskRunEvent,
-  tone: "neutral" | "active" | "completed" | "failed",
-): {
-  channelLabel: string;
-  iconKind: "task" | "filesystem" | "shell" | "server";
-  shape: "hex" | "diamond" | "circle";
-  style: CSSProperties;
-} {
-  let color = "#8ce6d8";
-  let glow = "rgba(140, 230, 216, 0.5)";
-  let background = "rgba(140, 230, 216, 0.08)";
-  let shape: "hex" | "diamond" | "circle" = "hex";
-  let channelLabel = "centian";
-  let iconKind: "task" | "filesystem" | "shell" | "server" = "server";
-
-  if (event.source === "task") {
-    color = "#a78bfa";
-    glow = "rgba(167, 139, 250, 0.55)";
-    background = "rgba(167, 139, 250, 0.08)";
-    channelLabel = "task";
-    iconKind = "task";
-    shape = "hex";
-  } else if (event.serverName === "filesystem") {
-    color = "#34d399";
-    glow = "rgba(52, 211, 153, 0.55)";
-    background = "rgba(52, 211, 153, 0.08)";
-    channelLabel = "filesystem";
-    iconKind = "filesystem";
-    shape = "diamond";
-  } else if (event.serverName === "shell") {
-    color = "#fbbf24";
-    glow = "rgba(251, 191, 36, 0.55)";
-    background = "rgba(251, 191, 36, 0.08)";
-    channelLabel = "shell";
-    iconKind = "shell";
-    shape = "circle";
-  } else if (event.serverName) {
-    color = "#9fc6ff";
-    glow = "rgba(159, 198, 255, 0.52)";
-    background = "rgba(159, 198, 255, 0.08)";
-    channelLabel = event.serverName;
-    shape = "circle";
-  }
-
-  if (tone === "failed") {
-    color = "#ff8c8c";
-    glow = "rgba(255, 140, 140, 0.52)";
-    background = "rgba(255, 140, 140, 0.1)";
-  }
-
-  return {
-    channelLabel,
-    iconKind,
-    shape,
-    style: {
-      "--event-color": color,
-      "--event-glow": glow,
-      "--event-bg": background,
-    } as CSSProperties,
-  };
-}
-
-function EventGlyph({
-  kind,
-}: {
-  kind: "task" | "filesystem" | "shell" | "server";
-}) {
-  if (kind === "task") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M4 5.5h8M4 8h8M4 10.5h5" />
-      </svg>
-    );
-  }
-
-  if (kind === "filesystem") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M2.5 5.5h4l1.2 1.5h5.8v4.5H2.5z" />
-        <path d="M2.5 5.5V4h4l1.2 1.5" />
-      </svg>
-    );
-  }
-
-  if (kind === "shell") {
-    return (
-      <svg viewBox="0 0 16 16" aria-hidden="true">
-        <path d="m4 5 2.5 2.5L4 10" />
-        <path d="M8 10.5h3.5" />
-      </svg>
-    );
-  }
-
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="4" cy="8" r="1.3" />
-      <circle cx="12" cy="5" r="1.3" />
-      <circle cx="12" cy="11" r="1.3" />
-      <path d="M5.2 7.4 10.7 5.6M5.2 8.6l5.5 1.8" />
-    </svg>
-  );
-}
-
+// Serializes payloads defensively so the inspector can always render something readable.
 function formatPayload(payload: unknown): string {
   if (payload == null) {
     return "null";

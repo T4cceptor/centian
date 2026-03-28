@@ -1,33 +1,32 @@
 # Taskverification
 
 Centian taskverification adds a workflow-driven task runtime on top of a normal MCP proxy endpoint.
-It lets an agent register a task from a template, move through onboarding and planning, execute stepwise verification, and observe lifecycle and action data through the same Centian endpoint.
+It lets an agent register a task from a template, move through workflow phases, and inspect lifecycle plus MCP action history through the same Centian deployment.
 
-## Purpose
+## What It Adds
 
-Taskverification exists to make agent work more explicit, inspectable, and enforceable than a plain "call tools until it works" loop.
-
-It is intended to solve four practical problems:
-
-1. Give the agent a structured lifecycle instead of leaving all process control to prompt text.
-2. Freeze execution expectations before implementation starts, so execution reads from a contract instead of ad hoc mutable context.
-3. Gate downstream MCP tool usage by workflow node, so onboarding, planning, execution, and approval waits can have different permissions.
-4. Produce lifecycle and action history that can later support replay, auditing, and visualization.
-
-At a high level, taskverification turns Centian into:
+Taskverification turns Centian into four things at once:
 
 - an MCP proxy
 - a task runtime
 - a workflow policy layer
 - an observability source for task-oriented agent runs
 
+The feature exists to solve four practical problems:
+
+1. Give the agent a structured lifecycle instead of leaving all process control to prompt text.
+2. Freeze expectations before execution starts, so the agent reads from a contract instead of mutable ad hoc context.
+3. Gate downstream MCP tool usage by workflow node, so the different workflow phases can have different permissions.
+4. Persist enough lifecycle and action history to inspect task runs after the fact.
+
 ## Quickstart
 
 Taskverification tools are disabled by default. You must opt in explicitly.
 
-### 1. Enable the feature
+### 1. Enable the runtime
 
-Add `proxy.capabilities.taskVerification` to your Centian config:
+Add `proxy.capabilities.taskVerification` to your Centian config.
+If you also want the embedded UI, enable `proxy.capabilities.ui`.
 
 ```json
 {
@@ -42,7 +41,11 @@ Add `proxy.capabilities.taskVerification` to your Centian config:
       },
       "eventStorage": {
         "enabled": true,
-        "driver": "sqlite"
+        "driver": "sqlite",
+        "path": "/absolute/path/to/events.sqlite"
+      },
+      "ui": {
+        "enabled": true
       }
     }
   }
@@ -53,8 +56,12 @@ Notes:
 
 - `capabilities.taskVerification.enabled` controls whether `centian.task_*` tools are exposed.
 - `capabilities.taskVerification.templatesPath` overrides where Centian looks for task templates.
-- `capabilities.eventStorage` configures durable task/action event persistence.
-- SQLite is the only implemented runtime backend today.
+  - Note: we are planning to move a basic set of templates into the binary itself or potentially retrieve it from github. However this is not yet included in `v0.2`
+- `capabilities.eventStorage.enabled` defaults to `true`.
+- `capabilities.eventStorage.driver` currently only supports `sqlite`.
+- `capabilities.eventStorage.path` is optional. If omitted, Centian uses `~/.centian/logs/events.sqlite`.
+- `capabilities.ui.enabled` only exposes the embedded frontend. It does not enable taskverification tools by itself.
+  - You can also use both event storage and task verification without the UI.
 
 ### 2. Ensure templates exist
 
@@ -64,25 +71,23 @@ By default, taskverification loads templates from:
 <current-working-directory>/task-templates
 ```
 
-If `proxy.capabilities.taskVerification.templatesPath` is set, Centian uses that directory instead.
+If `proxy.capabilities.taskVerification.templatesPath` is set:
 
-That means you can either:
+- an absolute path is used as-is
+- a relative path is resolved from Centian's current working directory
 
-- start Centian in a directory that contains `task-templates/`
-- or point `capabilities.taskVerification.templatesPath` at a different template directory explicitly
-
-This repository already includes example templates under [task-templates](/Users/brb/_devspace/centian-cli/task-templates).
+This repository includes example templates under [task-templates](../task-templates).
 
 ### 3. Expose downstream tools through a normal gateway
 
 Taskverification does not replace downstream MCP tools. It orchestrates and governs them.
 
-A typical setup exposes project access through a gateway such as:
+A typical setup exposes project access through downstream tools such as:
 
 - `filesystem`
 - `shell`
 
-The agent then talks to one Centian endpoint and gets both:
+The agent then talks to one Centian endpoint and receives both:
 
 - normal proxied MCP tools
 - `centian.task_*` tools
@@ -93,9 +98,9 @@ The agent then talks to one Centian endpoint and gets both:
 centian start
 ```
 
-### 5. Use the task lifecycle
+### 5. Use the lifecycle
 
-The intended lifecycle is:
+The normal lifecycle is:
 
 1. `centian.task_list_templates`
 2. `centian.task_register`
@@ -104,15 +109,70 @@ The intended lifecycle is:
 5. `centian.task_start_step`
 6. `centian.task_complete_step`
 
-Approval-wait templates may pause after planning or after step completion. In those nodes, meaningful downstream tool calls are blocked until the workflow leaves the wait node.
+Additional control tools are also available:
 
-## Core Concepts
+- `centian.task_restart`
+- `centian.task_fail`
+
+Before a task is registered, only these two task tools are allowed:
+
+- `centian.task_list_templates`
+- `centian.task_register`
+
+### 6. Inspect persisted runs
+
+If event storage is enabled, Centian exposes a read-only task run API:
+
+- `GET /api/task-runs`
+- `GET /api/task-runs/{runID}/events`
+
+If `proxy.capabilities.ui.enabled` is also enabled, Centian serves the embedded UI under `/ui`.
+The frontend routes are:
+
+- `/ui/tasks`
+- `/ui/tasks/:runID`
+
+## Capability Overview
+
+Taskverification currently spans three separate capability areas in Centian config:
+
+- `proxy.capabilities.taskVerification`
+  Enables agents to be controlled via task templates. Agents can use `centian.task_*` MCP tools for process management and control. Default: `false` (meaning no process management for agents).
+- `proxy.capabilities.eventStorage`
+  Persists task and action events to SQLite so run summaries and timelines can be queried later. Default: `true`.
+- `proxy.capabilities.ui`
+  Serves the embedded frontend under `/ui`. Default: `false`.
+
+These capabilities are related, but they are not the same thing:
+
+- The taskverification runtime and tools are controlled by `taskVerification`.
+- The historical task run API depends on persistence backing from `eventStorage`.
+- The embedded UI depends on both persistence backing and `ui.enabled`.
+
+If event storage is disabled, Centian does not register the task run API or the embedded task run UI.
+
+## Tool Surface
+
+The current taskverification MCP tools are:
+
+- `centian.task_list_templates`
+- `centian.task_register`
+- `centian.task_complete_onboarding`
+- `centian.task_complete_planning`
+- `centian.task_start_step`
+- `centian.task_complete_step`
+- `centian.task_restart`
+- `centian.task_fail`
+
+These tools are injected as static proxy-owned tools on the Centian endpoint when `taskVerification.enabled` is true.
+
+## Runtime Model
 
 ### Task run
 
 A task run is one active agent task session created from one template.
 
-Current state is held in memory in a `RunState`. This includes:
+Mutable run state is held in memory in a `RunState`. This includes:
 
 - template id
 - workflow phase/path
@@ -120,8 +180,9 @@ Current state is held in memory in a `RunState`. This includes:
 - planning artifact
 - frozen execution contract
 - per-step runtime state
+- failure metadata
 
-Task runs are not durably persisted yet.
+Current mutable run state is not durably restorable yet.
 
 ### Workflow path
 
@@ -131,7 +192,8 @@ Examples:
 
 - `onboarding`
 - `planning`
-- `execution.step_one`
+- `scaffolding.setup_test_file`
+- `execution.implement_fix`
 - `waiting_for_approval.review_plan`
 
 The path tells you where the run is.
@@ -143,8 +205,11 @@ Current workflow node kinds are:
 
 - `onboarding`
 - `planning`
+- `scaffolding`
 - `execution`
 - `waiting_for_approval`
+
+Step execution is only allowed in `scaffolding` and `execution` nodes.
 
 ### Template
 
@@ -152,14 +217,15 @@ A template defines:
 
 - task identity
 - required parameters
-- onboarding node
-- planning node
-- execution and approval-wait nodes
+- onboarding requirements
+- planning requirements
+- scaffolding nodes
+- execution nodes
+- approval-wait nodes
 - tool allowlists per node
-- planning output requirements
-- verification checks and invariants
+- preconditions, postconditions, and invariants
 
-Templates are authored as hierarchical workflow YAML and compiled into normalized runtime nodes when loaded.
+Templates are authored as workflow YAML and compiled into normalized runtime nodes when loaded.
 
 ### Frozen execution contract
 
@@ -169,7 +235,7 @@ Planning produces a `PlanningArtifact`, and planning completion freezes executio
 - the draft parameters
 - the planning artifact
 
-Execution then reads from that frozen contract rather than from mutable shell state.
+Execution then reads from that frozen contract rather than from mutable shell state or prompt drift.
 
 ## Runtime Flow
 
@@ -179,7 +245,7 @@ Execution then reads from that frozen contract rather than from mutable shell st
 
 - validates template parameters
 - creates a task run
-- places the run directly into `onboarding`
+- places the run into `onboarding`
 
 ### 2. Complete onboarding
 
@@ -203,19 +269,22 @@ Typical onboarding data includes:
 - validates required planning outputs
 - stores the planning artifact
 - freezes the execution contract
-- initializes execution step state
+- initializes step state
 - advances to the configured next node
 
 That next node may be:
 
-- the first execution node
+- a `scaffolding.*` node
+- an `execution.*` node
 - a `waiting_for_approval.*` node
+
+When planning or step completion enters an approval wait, Centian records an `approval_wait_entered` lifecycle event.
 
 ### 4. Start and complete steps
 
 `centian.task_start_step`:
 
-- validates the current active execution node
+- validates the active workflow node
 - runs preconditions
 - captures invariant baselines
 
@@ -230,9 +299,9 @@ That next node may be:
 
 `centian.task_restart`:
 
-- currently resets the run to onboarding
-- clears planning and execution state
-- keeps the same task run identity
+- resets the run to onboarding
+- clears planning and step state
+- keeps the same task run id
 
 `centian.task_fail`:
 
@@ -259,140 +328,131 @@ Examples:
 - allow `filesystem__*`
 - block everything in approval wait
 
-## Observability and Persistence
+## Observability, Persistence, and UI
 
-Taskverification uses a split model:
-
-- `task_runs`
-  - current in-memory state only
-- `task_events`
-  - lifecycle history
-- `action_events`
-  - MCP/proxy action history
-- `action_event_task_context`
-  - bridge between action history and active task context
-
-### Request logs
-
-Centian still writes JSONL request logs for MCP activity.
-
-### SQLite event store
-
-When `proxy.capabilities.eventStorage.enabled` is on, Centian also persists:
+Taskverification currently persists three concrete record types in SQLite:
 
 - `task_events`
+  Append-only lifecycle events such as registration, onboarding completion, planning completion, step start, step completion, restart, fail, and approval-wait entry.
 - `action_events`
+  Persisted MCP/proxy request and response history.
 - `action_event_task_context`
+  The bridge that links a proxied action request id back to the task run and invocation phase that produced it.
 
-Default storage today is SQLite.
+There is no persisted `task_runs` table today.
+Instead, task run summaries are derived from persisted lifecycle and action records.
 
-The event DB is useful for:
-
-- querying task timelines
-- correlating lifecycle events with tool calls
-- preparing later visualization work
-
-### Current persistence boundary
+### What is persisted
 
 Persisted today:
 
 - lifecycle events
-- action events
+- proxied action events
 - action-to-task correlation
 
-Not persisted today:
+Not durably restorable today:
 
-- full mutable task run state
-- execution state recovery from durable storage
+- full mutable `RunState`
+- step execution recovery from persistence
+- resume-from-database task restoration
 
-## Configuration Notes
+Available today as read-only query projections:
 
-### Capabilities
+- aggregated task run summaries
+- unified per-run task/action timelines
 
-Taskverification is behind:
+### Request logs
 
-```json
-"proxy": {
-  "capabilities": {
-    "taskVerification": {
-      "enabled": true
-    }
-  }
-}
+Centian still writes JSONL request logs for MCP activity.
+Those logs are separate from the SQLite projections above.
+
+### SQLite event store
+
+When `proxy.capabilities.eventStorage.enabled` is on, Centian persists taskverification history to SQLite.
+
+The default path is:
+
+```text
+~/.centian/logs/events.sqlite
 ```
 
-Other proxy-owned capabilities live in the same block, for example:
+The database currently supports:
 
-```json
-"capabilities": {
-  "testTools": {
-    "enabled": false
-  },
-  "taskVerification": {
-    "enabled": true
-  }
-}
-```
+- task run summary queries
+- unified task/action timelines
+- correlation of lifecycle events with downstream MCP activity
 
-### Event storage
+### Task run API
 
-Event storage lives under the same `capabilities` block:
+The persistence-backed API is read-only and currently exposes:
 
-```json
-"capabilities": {
-  "eventStorage": {
-    "enabled": true,
-    "driver": "sqlite",
-    "path": "/path/to/events.sqlite"
-  }
-}
-```
+- `GET /api/task-runs`
+  Returns aggregated run summaries including template id, current phase, status, and event counts.
+- `GET /api/task-runs/{runID}/events`
+  Returns one chronological unified event stream combining task lifecycle rows and correlated action rows.
 
-### Demo
+### Embedded UI
 
-This repository includes a taskverification demo in [demo/taskverification](/Users/brb/_devspace/centian-cli/demo/taskverification).
+When `proxy.capabilities.ui.enabled` is true and persistence is available, Centian serves an embedded SPA under `/ui`.
+
+The current UI provides:
+
+- a task run list view at `/ui/tasks`
+- a task run detail view at `/ui/tasks/:runID`
+- grouped timeline rendering by phase
+- correlated task and MCP exchange views
+- per-run status and event summary metadata
+- a read-only inspector for the selected timeline item
+
+The UI is currently an observer only.
+It does not register tasks, advance workflow steps, or mutate run state.
+
+## Demo
+
+This repository includes a taskverification demo in [demo/taskverification](../demo/taskverification).
 
 The demo covers:
 
 - onboarding
 - planning
-- execution
+- scaffolding and execution
 - approval waits
 - request logs
 - persisted SQLite event timelines
 
-## Known Gaps and Issues
+## Current Boundaries and Gaps
 
 Taskverification is usable, but it is still a v1 feature set with deliberate gaps.
 
 ### Runtime and lifecycle gaps
 
-- Task runs are in-memory only.
+- Mutable task runs are in-memory only.
 - Restart always resets to onboarding.
-- Checkpoint hints exist in the schema, but runtime checkpoint creation and restore are not implemented yet.
-- Approval waits can block execution, but there is no dedicated approve/resume mechanism yet.
+- Checkpoint hints exist in the schema, but checkpoint creation and restore are not implemented yet.
+- Approval waits can block execution, but there is no dedicated approve/resume tool yet.
 
 ### Governance gaps
 
 - Governance is tool-level, not semantic.
 - Centian does not yet distinguish read vs write shell commands.
 - Centian does not yet distinguish read vs write filesystem sub-operations inside a single tool.
-- Deeper evidence/evaluation/policy reasoning is not implemented yet.
+- Deeper evidence, evaluation, and policy reasoning is not implemented yet.
 
 ### Persistence gaps
 
-- SQLite is the only implemented runtime backend.
-- The schema is designed to stay portable to Postgres later, but Postgres support is not implemented yet.
+- SQLite is the only implemented storage backend.
+- The schema is intended to stay portable to Postgres later, but Postgres support is not implemented yet.
 - Event persistence is durable, but mutable task state persistence is not.
 
 ### Replay and visualization gaps
 
-- Event data is sufficient groundwork for future replay/visualization work, but full replay is not implemented.
-- There is no built-in UI or CLI explorer for task timelines yet.
+- Historical inspection exists through the API and embedded UI.
+- Full replay is not implemented.
+- The UI is read-only and does not yet support task control actions.
 
 ### Operational caveats
 
-- Templates are loaded relative to the process working directory.
+- Templates are loaded relative to the process working directory unless `templatesPath` overrides that.
 - A misaligned working directory can make task templates invisible.
 - The taskverification demo intentionally exposes unsafe shell access for the PoC; that setup is not production-safe.
 
@@ -403,7 +463,8 @@ Taskverification is a good fit when you want:
 - a structured workflow for agent coding or investigation tasks
 - explicit planning before execution
 - node-level tool gating
-- lifecycle plus tool-call observability
+- persisted lifecycle plus tool-call observability
+- a built-in read-only run explorer
 
 It is not yet a full replacement for:
 
@@ -414,7 +475,10 @@ It is not yet a full replacement for:
 
 ## Related Files
 
-- Demo: [demo/taskverification/README.md](/Users/brb/_devspace/centian-cli/demo/taskverification/README.md)
-- Templates: [task-templates](/Users/brb/_devspace/centian-cli/task-templates)
-- Runtime: [internal/taskverification](/Users/brb/_devspace/centian-cli/internal/taskverification)
-- Proxy tool surface: [proxy_taskverification_tools.go](/Users/brb/_devspace/centian-cli/internal/proxy/proxy_taskverification_tools.go)
+- Demo: [demo/taskverification/README.md](../demo/taskverification/README.md)
+- Templates: [task-templates](../task-templates)
+- Runtime: [internal/taskverification](../internal/taskverification)
+- Proxy tool surface: [proxy_taskverification_tools.go](../internal/proxy/proxy_taskverification_tools.go)
+- Persistence projections: [store.go](../internal/persistence/store.go)
+- Task run API: [handler.go](../internal/api/handler.go)
+- Embedded UI handler: [handler.go](../internal/ui/handler.go)

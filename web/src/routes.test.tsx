@@ -208,8 +208,8 @@ describe("task run list", () => {
 
     await user.click(await screen.findByRole("link", { name: /tr_1742947200123_0000000001/i }));
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
-    expect(screen.getByText(/tr_1742947200123_0000000001/i)).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(screen.getByText(/TR · 0000000001/)).toBeInTheDocument();
   });
 });
 
@@ -223,7 +223,7 @@ describe("task run detail", () => {
     expect(screen.getByTestId("task-run-detail-loading")).toBeInTheDocument();
     pending.resolve(createFetchResponse([]));
     await waitFor(() => {
-      expect(screen.getByText("Task run timeline")).toBeInTheDocument();
+      expect(screen.getByText("Run Detail")).toBeInTheDocument();
     });
   });
 
@@ -324,7 +324,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
     expect(screen.getByLabelText("Onboarding")).toBeInTheDocument();
     expect(screen.getByText("300ms")).toBeInTheDocument();
 
@@ -400,7 +400,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
     expect(screen.getByText("error")).toBeInTheDocument();
@@ -466,7 +466,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "filesystem - create_directory"]);
     expect(screen.getByText("300ms")).toBeInTheDocument();
@@ -497,7 +497,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
     expect(screen.queryByText("Inspector")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for task registered/i }));
@@ -547,7 +547,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Onboarding Completed")).toBeInTheDocument();
@@ -587,7 +587,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Task run timeline")).toBeInTheDocument();
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
 

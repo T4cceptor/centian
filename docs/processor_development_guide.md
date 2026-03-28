@@ -67,7 +67,7 @@ Quick-start to get a processor running in minutes:
          "enabled": true,
          "config": {
            "command": "python3",
-           "args": ["/Users/you/centian/processors/my_processor.py"]
+           "args": ["./processors/my_processor.py"]
          }
        },
        {
@@ -558,7 +558,7 @@ Edit `~/.centian/config.json`:
       "parts": ["payload", "meta"],
       "config": {
         "command": "python3",
-        "args": ["/Users/yourname/centian/processors/my_processor.py"]
+        "args": ["./processors/my_processor.py"]
       }
     },
     {

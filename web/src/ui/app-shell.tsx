@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from "react";
 
+// Provides the shared chrome around the task run views.
 export function AppShell({ children }: PropsWithChildren) {
   return (
     <div className="app-shell">
