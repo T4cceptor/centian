@@ -43,6 +43,7 @@ web/vite.config.js
 web/vite.config.d.ts
 web/vitest.config.js
 web/vitest.config.d.ts
+!internal/ui/dist/
 internal/ui/dist/*
 !internal/ui/dist/.keep
 

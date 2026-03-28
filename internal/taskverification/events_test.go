@@ -43,4 +43,3 @@ func TestRecordTaskEventAddsRunStatusToPayload(t *testing.T) {
 	assert.Equal(t, payload["status"], string(TaskStatusCompleted))
 	assert.Equal(t, int(payload["step"].(float64)), 2)
 }
-
