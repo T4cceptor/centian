@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,7 +153,7 @@ func connectInstrumentedSession(
 	t.Helper()
 
 	recorder := &notificationRecorder{}
-	client := newInstrumentedClient(recorder)
+	client := newInstrumentedClient(t, recorder)
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSessionTimeout)
 	defer cancel()
@@ -182,7 +184,9 @@ func isExpectedDirectCloseError(err error) bool {
 	return errors.As(err, &exitErr)
 }
 
-func newInstrumentedClient(recorder *notificationRecorder) *mcp.Client {
+func newInstrumentedClient(t *testing.T, recorder *notificationRecorder) *mcp.Client {
+	t.Helper()
+
 	client := mcp.NewClient(&mcp.Implementation{
 		Name:    "centian-everything-test-client",
 		Version: "1.0.0",
@@ -230,10 +234,37 @@ func newInstrumentedClient(recorder *notificationRecorder) *mcp.Client {
 
 	client.AddRoots(&mcp.Root{
 		Name: "centian-workspace",
-		URI:  "file:///Users/brb/_devspace/centian-cli",
+		URI:  repoRootURI(t),
 	})
 
 	return client
+}
+
+func repoRootURI(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to resolve working directory: %v", err)
+	}
+
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return fileURI(dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("failed to locate repository root from %q", dir)
+		}
+		dir = parent
+	}
+}
+
+func fileURI(path string) string {
+	return (&url.URL{
+		Scheme: "file",
+		Path:   filepath.ToSlash(path),
+	}).String()
 }
 
 func (r *notificationRecorder) recordLog(params *mcp.LoggingMessageParams) {

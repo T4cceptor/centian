@@ -42,7 +42,7 @@ Artifacts are written to:
 ## Commands
 
 ```bash
-cd /Users/brb/_devspace/centian-cli/demo/taskverification
+cd demo/taskverification
 make reset-project
 make build
 make demo-up
@@ -55,21 +55,20 @@ make demo-down
 For the explicit end-to-end verification path, the Make targets now call the Go e2e harness instead of shelling the demo flow directly:
 
 ```bash
-cd /Users/brb/_devspace/centian-cli
 make test-taskverification
 ```
 
 Scenario-specific Go e2e runs are also available directly from the demo folder:
 
 ```bash
-cd /Users/brb/_devspace/centian-cli/demo/taskverification
+cd demo/taskverification
 make e2e-problem
 make e2e-existing
 make e2e-approval
 make e2e
 ```
 
-The Go harness is extensible through scenario registration in [demo_test.go](/Users/brb/_devspace/centian-cli/demo/taskverification/demo_test.go). New tasks only need a new prompt plus a new scenario entry; the Docker lifecycle, artifact reset, request-log assertions, persisted event-store checks, and final verification stay shared.
+The Go harness is extensible through scenario registration in [demo_test.go](.demo/taskverification/demo_test.go). New tasks only need a new prompt plus a new scenario entry; the Docker lifecycle, artifact reset, request-log assertions, persisted event-store checks, and final verification stay shared.
 
 ## Unsafe PoC Note
 
