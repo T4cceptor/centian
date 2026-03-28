@@ -8,25 +8,31 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// DefaultCommandTimeout is the per-command timeout applied to template-defined shell commands.
+const DefaultCommandTimeout = 30 * time.Second
 
 var placeholderPattern = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 
 // Service loads templates and manages the task verification runtime.
 type Service struct {
-	TemplateDir string
-	WorkingDir  string
-	EventStore  EventStore
+	TemplateDir    string
+	WorkingDir     string
+	EventStore     EventStore
+	CommandTimeout time.Duration
 }
 
 // NewService creates a task verification service rooted at the given directories.
 func NewService(templateDir, workingDir string) *Service {
 	return &Service{
-		TemplateDir: templateDir,
-		WorkingDir:  workingDir,
-		EventStore:  NewInMemoryEventStore(),
+		TemplateDir:    templateDir,
+		WorkingDir:     workingDir,
+		EventStore:     NewInMemoryEventStore(),
+		CommandTimeout: DefaultCommandTimeout,
 	}
 }
 

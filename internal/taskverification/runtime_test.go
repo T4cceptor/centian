@@ -1,10 +1,12 @@
 package taskverification
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gotest.tools/assert"
 )
@@ -46,14 +48,14 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 	service := NewService(dir, dir)
 	run := newWorkflowReadyRun(&template)
 
-	start, err := service.StartStep(run, 1)
+	start, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, start.Passed)
 	assert.Equal(t, start.FailureKind, StepFailureKind(""))
 	assert.Equal(t, start.StdoutSnippet, "")
 	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
 
-	complete, err := service.CompleteStep(run, 1)
+	complete, err := service.CompleteStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, complete.Passed)
 	assert.Equal(t, complete.FailureKind, StepFailureKind(""))
@@ -84,7 +86,7 @@ workflow:
               value: "missing"
 `)
 
-	result, err := service.StartStep(run, 1)
+	result, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
 	assert.Equal(t, result.FailureKind, StepFailureKindCheck)
@@ -127,7 +129,7 @@ workflow:
 
 	assert.Equal(t, run.Phase, TaskPhase("scaffolding.setup_test_file"))
 
-	start, err := service.StartStep(run, 1)
+	start, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, start.Passed)
 	assert.Equal(t, start.Phase, TaskPhase("scaffolding.setup_test_file"))
@@ -135,7 +137,7 @@ workflow:
 	err = os.WriteFile(filepath.Join(service.WorkingDir, "generated_test.py"), []byte("def test_ok(): pass\n"), 0o644)
 	assert.NilError(t, err)
 
-	complete, err := service.CompleteStep(run, 1)
+	complete, err := service.CompleteStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, complete.Passed)
 	assert.Equal(t, run.Phase, TaskPhase("execution.implement_solution"))
@@ -159,7 +161,7 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	_, err := service.StartStep(run, 1)
+	_, err := service.StartStep(context.Background(), run, 1)
 	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
@@ -181,7 +183,7 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	_, err := service.CompleteStep(run, 1)
+	_, err := service.CompleteStep(context.Background(), run, 1)
 	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
@@ -206,7 +208,7 @@ workflow:
 	err := service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready to plan"})
 	assert.NilError(t, err)
 
-	_, err = service.StartStep(run, 1)
+	_, err = service.StartStep(context.Background(), run, 1)
 	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
@@ -251,12 +253,12 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 	service := NewService(dir, dir)
 	run := newWorkflowReadyRun(&template)
 
-	_, err = service.StartStep(run, 1)
+	_, err = service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	err = os.WriteFile(stateFile, []byte("after"), 0o644)
 	assert.NilError(t, err)
 
-	result, err := service.CompleteStep(run, 1)
+	result, err := service.CompleteStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
 	assert.Equal(t, result.FailureKind, StepFailureKindInvariant)
@@ -291,10 +293,10 @@ workflow:
               value: "missing"
 `)
 
-	_, err := service.StartStep(run, 1)
+	_, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 
-	result, err := service.CompleteStep(run, 1)
+	result, err := service.CompleteStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
 	assert.Equal(t, result.FailureKind, StepFailureKindCheck)
@@ -327,7 +329,7 @@ workflow:
           command: "sh -c 'printf boom >&2; exit 4'"
 `)
 
-	result, err := service.StartStep(run, 1)
+	result, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
 	assert.Equal(t, result.FailureKind, StepFailureKindInvariant)
@@ -361,7 +363,7 @@ workflow:
 `)
 	service.WorkingDir = filepath.Join(t.TempDir(), "missing")
 
-	result, err := service.StartStep(run, 1)
+	result, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
 	assert.Equal(t, result.FailureKind, StepFailureKindCommandExecution)
@@ -404,10 +406,10 @@ workflow:
               value: "two"
 `)
 
-	_, err := service.StartStep(run, 1)
+	_, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 
-	result, err := service.StartStep(run, 2)
+	result, err := service.StartStep(context.Background(), run, 2)
 	assert.NilError(t, err)
 	assert.Assert(t, result.Passed)
 	assert.Equal(t, run.Steps[0].Status, StepStatusPassed)
@@ -481,14 +483,14 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	_, err := service.StartStep(run, 1)
+	_, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
-	result, err := service.CompleteStep(run, 1)
+	result, err := service.CompleteStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, result.Passed)
 	assert.Equal(t, run.Phase, TaskPhase("waiting_for_approval.review"))
 
-	_, err = service.StartStep(run, 2)
+	_, err = service.StartStep(context.Background(), run, 2)
 	assert.ErrorContains(t, err, "step execution is only allowed in scaffolding or execution nodes")
 }
 
@@ -529,6 +531,48 @@ func mustCompileRuntimeTemplate(t *testing.T, template *Template) Template {
 	err := template.Validate()
 	assert.NilError(t, err)
 	return *template
+}
+
+func TestCommandTimeout(t *testing.T) {
+	// Given: a service with a very short command timeout and a step whose check sleeps
+	dir := t.TempDir()
+	template := mustCompileRuntimeTemplate(t, &Template{
+		Version: "0.1",
+		Task: Task{
+			ID:          "task",
+			Name:        "Task",
+			Description: "desc",
+		},
+		Workflow: &Workflow{
+			Onboarding: &LifecycleNodeSpec{},
+			Planning: &PlanningNodeSpec{
+				RequiredOutputs: []string{"testTarget"},
+			},
+			Execution: []ExecutionNodeSpec{
+				{
+					ID: "step_one",
+					Checks: []Check{{
+						ID:      "slow_check",
+						Command: "sleep 60",
+					}},
+				},
+			},
+		},
+	})
+	service := NewService(dir, dir)
+	service.CommandTimeout = 200 * time.Millisecond
+	run := newWorkflowReadyRun(&template)
+
+	// When: starting the step (which runs the slow check)
+	start := time.Now()
+	result, err := service.StartStep(context.Background(), run, 1)
+	elapsed := time.Since(start)
+
+	// Then: the step fails due to timeout rather than hanging
+	assert.NilError(t, err)
+	assert.Assert(t, !result.Passed, "expected step to fail due to timeout")
+	assert.Equal(t, result.FailureKind, StepFailureKindCommandExecution)
+	assert.Assert(t, elapsed < 5*time.Second, "command should have been killed by timeout, took %v", elapsed)
 }
 
 func newWorkflowReadyRun(template *Template) *RunState {

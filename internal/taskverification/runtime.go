@@ -30,12 +30,12 @@ type stepFailureDetails struct {
 }
 
 // StartStep validates the next step, runs its preconditions, and captures invariant baselines.
-func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) {
+func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) (*StepResult, error) {
 	stepIndex, step, err := workflowStepRequest(run, stepNumber)
 	if err != nil {
 		return nil, err
 	}
-	if handled, result, err := s.completePreviousStepIfNeeded(run, stepIndex); err != nil {
+	if handled, result, err := s.completePreviousStepIfNeeded(ctx, run, stepIndex); err != nil {
 		return nil, err
 	} else if handled {
 		return result, err
@@ -44,10 +44,10 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 		return nil, err
 	}
 
-	if result, failed := s.runStepChecks(run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, preConditionsForCheck); failed {
+	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, preConditionsForCheck); failed {
 		return result, nil
 	}
-	baselines, result, failed := s.captureInvariantBaselines(run, step, stepIndex, stepNumber)
+	baselines, result, failed := s.captureInvariantBaselines(ctx, run, step, stepIndex, stepNumber)
 	if failed {
 		return result, nil
 	}
@@ -56,15 +56,15 @@ func (s *Service) StartStep(run *RunState, stepNumber int) (*StepResult, error) 
 }
 
 // CompleteStep runs postconditions and invariant verification for an active step.
-func (s *Service) CompleteStep(run *RunState, stepNumber int) (*StepResult, error) {
+func (s *Service) CompleteStep(ctx context.Context, run *RunState, stepNumber int) (*StepResult, error) {
 	stepIndex, _, err := workflowStepRequest(run, stepNumber)
 	if err != nil {
 		return nil, err
 	}
-	return s.completeWorkflowStep(run, stepIndex)
+	return s.completeWorkflowStep(ctx, run, stepIndex)
 }
 
-func (s *Service) completeWorkflowStep(run *RunState, stepIndex int) (*StepResult, error) {
+func (s *Service) completeWorkflowStep(ctx context.Context, run *RunState, stepIndex int) (*StepResult, error) {
 	step, err := activeWorkflowStep(run, stepIndex)
 	if err != nil {
 		return nil, err
@@ -73,10 +73,10 @@ func (s *Service) completeWorkflowStep(run *RunState, stepIndex int) (*StepResul
 		return nil, fmt.Errorf("step %d (%s) is not active", stepIndex+1, run.Steps[stepIndex].ID)
 	}
 
-	if result, failed := s.runStepChecks(run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, postConditionsForCheck); failed {
+	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, postConditionsForCheck); failed {
 		return result, nil
 	}
-	if result, failed := s.verifyInvariants(run, step, stepIndex); failed {
+	if result, failed := s.verifyInvariants(ctx, run, step, stepIndex); failed {
 		return result, nil
 	}
 
@@ -184,11 +184,11 @@ func validateTaskExecutable(run *RunState) error {
 	return nil
 }
 
-func (s *Service) completePreviousStepIfNeeded(run *RunState, stepIndex int) (bool, *StepResult, error) {
+func (s *Service) completePreviousStepIfNeeded(ctx context.Context, run *RunState, stepIndex int) (bool, *StepResult, error) {
 	if stepIndex == 0 || run.Steps[stepIndex-1].Status != StepStatusActive {
 		return false, nil, nil
 	}
-	result, err := s.completeWorkflowStep(run, stepIndex-1)
+	result, err := s.completeWorkflowStep(ctx, run, stepIndex-1)
 	if err != nil {
 		return true, nil, err
 	}
@@ -198,10 +198,12 @@ func (s *Service) completePreviousStepIfNeeded(run *RunState, stepIndex int) (bo
 	return false, nil, nil
 }
 
-func (s *Service) runStepChecks(run *RunState, step *Step, stepIndex, stepNumber int, phase StepFailurePhase, conditions func(check *Check) []Condition) (*StepResult, bool) {
+func (s *Service) runStepChecks(ctx context.Context, run *RunState, step *Step, stepIndex, stepNumber int, phase StepFailurePhase, conditions func(check *Check) []Condition) (*StepResult, bool) {
 	for checkIndex := range step.Checks {
 		check := &step.Checks[checkIndex]
-		result, err := s.runCommand(context.Background(), check.Command)
+		cmdCtx, cancel := context.WithTimeout(ctx, s.CommandTimeout)
+		result, err := s.runCommand(cmdCtx, check.Command)
+		cancel()
 		if err != nil {
 			return s.executionFailure(run, step, stepIndex, stepNumber, check.ID, result, err), true
 		}
@@ -228,10 +230,12 @@ func postConditionsForCheck(check *Check) []Condition {
 	return check.PostConditions
 }
 
-func (s *Service) captureInvariantBaselines(run *RunState, step *Step, stepIndex, stepNumber int) (map[string]string, *StepResult, bool) {
+func (s *Service) captureInvariantBaselines(ctx context.Context, run *RunState, step *Step, stepIndex, stepNumber int) (map[string]string, *StepResult, bool) {
 	baselines := make(map[string]string, len(step.Invariants))
 	for _, invariant := range step.Invariants {
-		result, err := s.runCommand(context.Background(), invariant.Command)
+		cmdCtx, cancel := context.WithTimeout(ctx, s.CommandTimeout)
+		result, err := s.runCommand(cmdCtx, invariant.Command)
+		cancel()
 		if err != nil {
 			return nil, s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, StepFailurePhaseInvariantCapture, result, err), true
 		}
@@ -252,10 +256,12 @@ func (s *Service) captureInvariantBaselines(run *RunState, step *Step, stepIndex
 	return baselines, nil, false
 }
 
-func (s *Service) verifyInvariants(run *RunState, step *Step, stepIndex int) (*StepResult, bool) {
+func (s *Service) verifyInvariants(ctx context.Context, run *RunState, step *Step, stepIndex int) (*StepResult, bool) {
 	stepNumber := stepIndex + 1
 	for _, invariant := range step.Invariants {
-		result, err := s.runCommand(context.Background(), invariant.Command)
+		cmdCtx, cancel := context.WithTimeout(ctx, s.CommandTimeout)
+		result, err := s.runCommand(cmdCtx, invariant.Command)
+		cancel()
 		if err != nil {
 			return s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, StepFailurePhaseInvariantVerify, result, err), true
 		}
