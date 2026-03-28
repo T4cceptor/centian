@@ -1,7 +1,7 @@
 # Taskverification
 
 Centian taskverification adds a workflow-driven task runtime on top of a normal MCP proxy endpoint.
-It lets an agent register a task from a template, move through onboarding and planning, execute stepwise verification, and inspect lifecycle plus MCP action history through the same Centian deployment.
+It lets an agent register a task from a template, move through workflow phases, and inspect lifecycle plus MCP action history through the same Centian deployment.
 
 ## What It Adds
 
@@ -15,28 +15,9 @@ Taskverification turns Centian into four things at once:
 The feature exists to solve four practical problems:
 
 1. Give the agent a structured lifecycle instead of leaving all process control to prompt text.
-2. Freeze execution expectations before implementation starts, so execution reads from a contract instead of mutable ad hoc context.
-3. Gate downstream MCP tool usage by workflow node, so onboarding, planning, scaffolding, execution, and approval waits can have different permissions.
+2. Freeze expectations before execution starts, so the agent reads from a contract instead of mutable ad hoc context.
+3. Gate downstream MCP tool usage by workflow node, so the different workflow phases can have different permissions.
 4. Persist enough lifecycle and action history to inspect task runs after the fact.
-
-## Capability Overview
-
-Taskverification currently spans three separate capability areas in Centian config:
-
-- `proxy.capabilities.taskVerification`
-  Enables the `centian.task_*` MCP tools. Default: `false`.
-- `proxy.capabilities.eventStorage`
-  Persists task and action events to SQLite so run summaries and timelines can be queried later. Default: `true`.
-- `proxy.capabilities.ui`
-  Serves the embedded read-only frontend under `/ui`. Default: `false`.
-
-These capabilities are related, but they are not the same thing:
-
-- The taskverification runtime and tools are controlled by `taskVerification`.
-- The historical task run API depends on persistence backing from `eventStorage`.
-- The embedded UI depends on both persistence backing and `ui.enabled`.
-
-If event storage is disabled, Centian does not register the task run API or the embedded task run UI.
 
 ## Quickstart
 
@@ -75,10 +56,12 @@ Notes:
 
 - `capabilities.taskVerification.enabled` controls whether `centian.task_*` tools are exposed.
 - `capabilities.taskVerification.templatesPath` overrides where Centian looks for task templates.
+  - Note: we are planning to move a basic set of templates into the binary itself or potentially retrieve it from github. However this is not yet included in `v0.2`
 - `capabilities.eventStorage.enabled` defaults to `true`.
 - `capabilities.eventStorage.driver` currently only supports `sqlite`.
 - `capabilities.eventStorage.path` is optional. If omitted, Centian uses `~/.centian/logs/events.sqlite`.
 - `capabilities.ui.enabled` only exposes the embedded frontend. It does not enable taskverification tools by itself.
+  - You can also use both event storage and task verification without the UI.
 
 ### 2. Ensure templates exist
 
@@ -148,6 +131,25 @@ The frontend routes are:
 
 - `/ui/tasks`
 - `/ui/tasks/:runID`
+
+## Capability Overview
+
+Taskverification currently spans three separate capability areas in Centian config:
+
+- `proxy.capabilities.taskVerification`
+  Enables agents to be controlled via task templates. Agents can use `centian.task_*` MCP tools for process management and control. Default: `false` (meaning no process management for agents).
+- `proxy.capabilities.eventStorage`
+  Persists task and action events to SQLite so run summaries and timelines can be queried later. Default: `true`.
+- `proxy.capabilities.ui`
+  Serves the embedded frontend under `/ui`. Default: `false`.
+
+These capabilities are related, but they are not the same thing:
+
+- The taskverification runtime and tools are controlled by `taskVerification`.
+- The historical task run API depends on persistence backing from `eventStorage`.
+- The embedded UI depends on both persistence backing and `ui.enabled`.
+
+If event storage is disabled, Centian does not register the task run API or the embedded task run UI.
 
 ## Tool Surface
 
