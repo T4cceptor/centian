@@ -1,3 +1,4 @@
+// Formats an API timestamp using the user's locale with date and minute precision.
 export function formatTimestamp(unixMilli: number): string {
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
@@ -8,6 +9,7 @@ export function formatTimestamp(unixMilli: number): string {
   }).format(unixMilli);
 }
 
+// Renders elapsed time for both finished and still-running task runs.
 export function formatDuration(startedAt: number, endedAt?: number, now: number = Date.now()): string {
   const totalSeconds = Math.max(0, Math.floor(((endedAt ?? now) - startedAt) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
@@ -23,6 +25,7 @@ export function formatDuration(startedAt: number, endedAt?: number, now: number 
   return `${seconds}s`;
 }
 
+// Turns a dotted phase path into a readable breadcrumb for the UI.
 export function humanizePhase(phasePath: string): string {
   if (!phasePath) {
     return "Unknown";
@@ -40,6 +43,7 @@ export function humanizePhase(phasePath: string): string {
     .join(" / ");
 }
 
+// Converts machine identifiers into title-cased labels.
 export function humanizeIdentifier(value: string): string {
   if (!value) {
     return "Unknown";
@@ -53,6 +57,7 @@ export function humanizeIdentifier(value: string): string {
     .join(" ");
 }
 
+// Shortens canonical task run ids while still preserving a stable suffix for operators.
 export function formatTaskRunId(value: string): string {
   if (!value) {
     return "TR";

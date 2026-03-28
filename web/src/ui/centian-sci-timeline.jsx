@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 
-// ── CSS animations ──────────────────────────────────────────────────────
+// Inline stylesheet for the standalone timeline demo.
 const STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
 
@@ -61,7 +61,7 @@ const STYLES = `
   }
 `;
 
-// ── Color tokens ────────────────────────────────────────────────────────
+// Color tokens keyed by server or alert state.
 const C = {
   centian:    { color: "#a78bfa", bg: "rgba(167,139,250,0.1)",  glow: "rgba(167,139,250,0.6)", dim: "#3b2e6e" },
   shell:      { color: "#fbbf24", bg: "rgba(251,191,36,0.1)",   glow: "rgba(251,191,36,0.6)",  dim: "#6b4f10" },
@@ -69,13 +69,14 @@ const C = {
   error:      { color: "#f87171", bg: "rgba(248,113,113,0.12)", glow: "rgba(248,113,113,0.7)", dim: "#5c1e1e" },
   warn:       { color: "#fb923c", bg: "rgba(251,146,60,0.1)",   glow: "rgba(251,146,60,0.55)", dim: "#5c3010" },
 };
+// Chooses the visual treatment for each processed log entry.
 const cv = (entry) => {
   if (entry.isError && !entry.isWarning) return C.error;
   if (entry.isWarning) return C.warn;
   return C[entry.routing?.server_name] || C.centian;
 };
 
-// ── Raw data ────────────────────────────────────────────────────────────
+// Sample trace data used by the design/demo component.
 const RAW_LOG = [
   {"timestamp":"2026-03-20T22:56:09.780Z","request_id":"r-9a34","message_type":"request","routing":{"server_name":"centian"},"tool_call":{"name":"centian.task_list_templates","arguments":{},"result":{"structuredContent":{"templates":[{"id":"python_tdd_demo","name":"Python TDD Demo","stepCount":2}]}}}},
   {"timestamp":"2026-03-20T22:56:11.040Z","request_id":"r-9f20","message_type":"request","routing":{"server_name":"centian"},"tool_call":{"name":"centian.task_register","arguments":{"templateId":"python_tdd_demo","parameters":{"testCommand":"python -m pytest -q","testTarget":"tests/test_mathlib.py","lintCommand":"python -m ruff check .","expectedError":"assert -1 == 5"}},"result":{"structuredContent":{"status":"registered","stepCount":2}}}},
@@ -107,7 +108,7 @@ const RAW_LOG = [
   {"timestamp":"2026-03-20T22:56:32.227Z","request_id":"r-f1e3","message_type":"request","routing":{"server_name":"centian"},"tool_call":{"name":"centian.task_complete_step","arguments":{"step":2},"result":{"structuredContent":{"step":2,"stepId":"implement_fix","stepStatus":"passed","taskStatus":"completed","steps":[{"id":"establish_failing_baseline","status":"passed","step":1},{"id":"implement_fix","status":"passed","step":2}]}}}},
 ];
 
-// ── Error detection (fixed) ─────────────────────────────────────────────
+// Detects exchanges that should be treated as hard failures in the demo UI.
 function hasError(entry) {
   const r = entry.tool_call?.result;
   if (!r) return false;
@@ -117,6 +118,7 @@ function hasError(entry) {
   if (t.includes("ENOENT") || t.startsWith("Error executing")) return true;
   return false;
 }
+// Separates non-zero exit codes from transport/runtime failures so they can render as warnings.
 function isWarning(entry) {
   if (!entry.isError) return false;
   const r = entry.result || entry.tool_call?.result;
@@ -126,7 +128,7 @@ function isWarning(entry) {
   return /exit_code:\s+[1-9]\d*/.test(t);
 }
 
-// ── Data processing ─────────────────────────────────────────────────────
+// Pairs requests and responses, then groups them into setup/step phases for rendering.
 function processLog(log) {
   const paired = [];
   const pending = {};
@@ -175,7 +177,7 @@ function processLog(log) {
     }
   }
 
-  // Reassign orphaned downstream calls to step 2
+  // Reassign orphaned downstream calls to the following step when the agent logged them late.
   const steps = phases.filter(p => p.type === "step");
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
@@ -194,7 +196,7 @@ function processLog(log) {
   return { phases, t0, totalMs: tEnd - t0 };
 }
 
-// ── Shape ───────────────────────────────────────────────────────────────
+// Draws a different node shape for each server family.
 function NodeShape({ server, size, color }) {
   if (server === "centian") return (
     <div style={{ width: size, height: size, clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)", background: color }} />
@@ -205,13 +207,14 @@ function NodeShape({ server, size, color }) {
   return <div style={{ width: size, height: size, borderRadius: "50%", background: color }} />;
 }
 
-// ── Node helper text ────────────────────────────────────────────────────
+// Shortens tool names for the compact node label.
 function shortName(entry) {
   return (entry.tool_call?.name || "")
     .replace("centian.", "")
     .replace("shell___", "").replace("filesystem___", "")
     .replace("execute_command", "exec");
 }
+// Chooses the most useful short secondary label for a node.
 function subLabel(entry) {
   const a = entry.tool_call?.arguments;
   if (a?.command) return (a.command.length > 46 ? a.command.slice(0, 46) + "…" : a.command);
@@ -221,11 +224,12 @@ function subLabel(entry) {
   if (a?.step !== undefined) return `step ${a.step}`;
   return null;
 }
+// Formats demo timestamps as dense trace-style clock strings.
 function fmtTs(ts) {
   return new Date(ts).toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 });
 }
 
-// ── Sector divider ──────────────────────────────────────────────────────
+// Renders the phase divider between setup and task steps.
 function SectorDivider({ phase }) {
   const isStep = phase.type === "step";
   const statusColor = phase.status === "passed" ? "#34d399" : phase.status === "failed" ? "#f87171" : "#a78bfa";
@@ -291,7 +295,7 @@ function SectorDivider({ phase }) {
   );
 }
 
-// ── Event node ──────────────────────────────────────────────────────────
+// Renders one timeline row and opens the modal when selected.
 function EventNode({ entry, t0, totalMs, onClick }) {
   const server = entry.routing?.server_name;
   const vc = cv(entry);
@@ -299,7 +303,7 @@ function EventNode({ entry, t0, totalMs, onClick }) {
   const sub = subLabel(entry);
   const pct = Math.round(((new Date(entry.timestamp).getTime() - t0) / totalMs) * 100);
 
-  // Outer ring shape mirrors inner shape
+  // Mirror the inner node shape so the surrounding halo stays visually aligned.
   const outerStyle = server === "centian"
     ? { clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }
     : server === "filesystem"
@@ -343,7 +347,7 @@ function EventNode({ entry, t0, totalMs, onClick }) {
         }} />
         {/* Core shape */}
         <NodeShape server={server} size={12} color={vc.color} />
-        {/* Progress pip: tiny arc showing call position in session */}
+        {/* Progress pip marks that the row belongs to the active session rail. */}
         <div style={{
           position: "absolute", bottom: -2, right: 0,
           width: 4, height: 4, borderRadius: "50%",
@@ -428,7 +432,7 @@ function EventNode({ entry, t0, totalMs, onClick }) {
   );
 }
 
-// ── Detail modal ─────────────────────────────────────────────────────────
+// Shows the full request/response payload for the selected node.
 function DetailModal({ entry, onClose }) {
   if (!entry) return null;
   const server = entry.routing?.server_name;
@@ -543,7 +547,7 @@ function DetailModal({ entry, onClose }) {
   );
 }
 
-// ── Pulse traveler on the timeline line ─────────────────────────────────
+// Decorative tracer that can be layered over the vertical timeline rail.
 function PulseTracer({ color }) {
   return (
     <div style={{ position: "absolute", top: 0, left: "50%", transform: "translateX(-50%)", width: 2, height: "100%", pointerEvents: "none", overflow: "hidden" }}>
@@ -559,12 +563,12 @@ function PulseTracer({ color }) {
   );
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────
+// Standalone showcase component for the sci-fi trace timeline treatment.
 export default function CentianSciTimeline() {
   const { phases, t0, totalMs } = useMemo(() => processLog(RAW_LOG), []);
   const [selected, setSelected] = useState(null);
 
-  // Flatten into rows: sector divider + events
+  // Flatten phases into a single render list so dividers and events share one vertical rail.
   const rows = [];
   for (const phase of phases) {
     rows.push({ type: "sector", phase });
@@ -573,7 +577,7 @@ export default function CentianSciTimeline() {
     }
   }
 
-  // Summary stats
+  // Summary stats drive the compact HUD copy in the header.
   const allEntries = phases.flatMap(p => p.entries);
   const errCount = allEntries.filter(e => e.isError && !e.isWarning).length;
   const warnCount = allEntries.filter(e => e.isWarning).length;

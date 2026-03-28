@@ -13,7 +13,7 @@ import {
   type TimelineItem,
 } from "./task-run-detail-page";
 
-// ── CSS animations ──────────────────────────────────────────────────────
+// Injected stylesheet for the self-contained sci-fi timeline treatment.
 const SCI_FI_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
 
@@ -39,7 +39,7 @@ const SCI_FI_STYLES = `
   }
 `;
 
-// ── Color tokens ────────────────────────────────────────────────────────
+// Shared color primitives for timeline nodes and badges.
 type ColorToken = {
   color: string;
   bg: string;
@@ -47,6 +47,7 @@ type ColorToken = {
   dim: string;
 };
 
+// Hand-tuned colors for servers with established visual identities.
 const KNOWN_COLORS: Record<string, ColorToken> = {
   centian: { color: "#a78bfa", bg: "rgba(167,139,250,0.1)", glow: "rgba(167,139,250,0.6)", dim: "#3b2e6e" },
   shell: { color: "#fbbf24", bg: "rgba(251,191,36,0.1)", glow: "rgba(251,191,36,0.6)", dim: "#6b4f10" },
@@ -54,16 +55,19 @@ const KNOWN_COLORS: Record<string, ColorToken> = {
   error: { color: "#f87171", bg: "rgba(248,113,113,0.12)", glow: "rgba(248,113,113,0.7)", dim: "#5c1e1e" },
 };
 
+// Fallback palette used to deterministically color unknown servers.
 const FALLBACK_PALETTE = [
   "#a78bfa", "#fbbf24", "#34d399", "#60a5fa",
   "#fb7185", "#22d3ee", "#f97316", "#4ade80",
 ];
 
+// Returns a stable color token for a server name, hashing when the server is not predefined.
 function getColorToken(serverName: string): ColorToken {
   const known = KNOWN_COLORS[serverName];
   if (known) return known;
 
   let hash = 0;
+  // A simple string hash keeps ad hoc server colors stable across renders.
   for (let i = 0; i < serverName.length; i++) {
     hash = (hash * 31 + serverName.charCodeAt(i)) >>> 0;
   }
@@ -76,6 +80,7 @@ function getColorToken(serverName: string): ColorToken {
   };
 }
 
+// Chooses the node color from its tone first, then from the owning server.
 function getItemColorToken(item: TimelineItem): ColorToken {
   const tone = getTimelineItemTone(item);
   if (tone === "failed") return KNOWN_COLORS.error;
@@ -85,11 +90,13 @@ function getItemColorToken(item: TimelineItem): ColorToken {
   return getColorToken(serverName);
 }
 
+// Server summary row shown above the timeline.
 type MCPServerLegendEntry = {
   name: string;
   eventCount: number;
 };
 
+// Counts exchange traffic per downstream server for the compact legend.
 function getMCPServerLegendEntries(groups: TimelineGroup[], events: TaskRunEvent[]): MCPServerLegendEntry[] {
   const serverCounts = new Map<string, number>();
 
@@ -109,6 +116,7 @@ function getMCPServerLegendEntries(groups: TimelineGroup[], events: TaskRunEvent
   }
 
   let centianRequestCount = 0;
+  // Centian task events are collapsed elsewhere, so count its action requests from the raw event stream.
   for (const event of events) {
     if (
       event.source === "action" &&
@@ -128,9 +136,9 @@ function getMCPServerLegendEntries(groups: TimelineGroup[], events: TaskRunEvent
   return [...serverCounts.entries()].map(([name, eventCount]) => ({ name, eventCount }));
 }
 
-// ── Shape ───────────────────────────────────────────────────────────────
+// Renders the server-specific node silhouette used throughout the timeline.
 function NodeShape({ server, size, color }: { server: string; size: number; color: string }) {
-  // TODO: in the future it would be best if we can find some kind of 
+  // TODO: in the future it would be best if we can find some kind of
   // function that creates the same shape for a server name every time
   if (server === "centian" || server === "task") {
     return (
@@ -145,7 +153,7 @@ function NodeShape({ server, size, color }: { server: string; size: number; colo
   return <div style={{ width: size, height: size, borderRadius: "50%", background: color }} />;
 }
 
-// ── Derive group status from its items ──────────────────────────────────
+// Summarizes a phase group into a single status badge for the sector header.
 function deriveGroupStatus(group: TimelineGroup): string {
   const items = group.items;
   for (let i = items.length - 1; i >= 0; i--) {
@@ -164,7 +172,7 @@ function deriveGroupStatus(group: TimelineGroup): string {
   return "info";
 }
 
-// ── Sector divider ──────────────────────────────────────────────────────
+// Renders the collapsible phase divider between groups of timeline items.
 function SciFiSectorDivider({
   group,
   groupIndex,
@@ -235,7 +243,7 @@ function SciFiSectorDivider({
   );
 }
 
-// ── Event node ──────────────────────────────────────────────────────────
+// Renders a single clickable task or exchange row on the timeline.
 function SciFiEventNode({
   item,
   onSelect,
@@ -254,7 +262,7 @@ function SciFiEventNode({
   const alertLabel = getTimelineItemAlertLabel(item);
   const exchangeLatency = item.kind === "exchange" ? getExchangeLatency(item.exchange) : undefined;
 
-  // Outer ring shape mirrors inner shape
+  // Mirror the inner node shape so the outer halo feels like one component.
   const outerStyle = serverName === "centian"
     ? { clipPath: "polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%)" }
     : serverName === "filesystem"
@@ -386,7 +394,7 @@ function SciFiEventNode({
   );
 }
 
-// ── Main container ──────────────────────────────────────────────────────
+// Hosts the sci-fi timeline with legend, grouped rows, and the completion marker.
 export function SciFiTimeline({
   groups,
   collapsedGroups,
@@ -403,6 +411,7 @@ export function SciFiTimeline({
   events: TaskRunEvent[];
 }) {
   const serverLegendEntries = getMCPServerLegendEntries(groups, events);
+  // Show the end-cap only once the run has emitted a completed task event/status.
   const hasCompleted = events.length > 0 && events.some(
     (e) => e.source === "task" && (e.eventType === "task_completed" || (e.payloadJson as { status?: string } | null)?.status === "completed")
   );
