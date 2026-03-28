@@ -52,11 +52,4 @@ RUN apt-get update \
 
 COPY --from=builder /build/centian /usr/local/bin/centian
 
-# Bundle demo processors so users only need a config file to run the demo
-COPY demo/requirements.txt /tmp/demo-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/demo-requirements.txt \
-    && rm -f /tmp/demo-requirements.txt
-
-COPY demo/src/ /opt/centian/processors/
-
 ENTRYPOINT ["centian", "start"]

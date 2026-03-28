@@ -117,11 +117,19 @@ func evaluateExitCodeInCondition(condition Condition, result *commandResult, _ s
 }
 
 func evaluateStdoutContainsCondition(condition Condition, result *commandResult, _ string) error {
-	return evaluateStdoutContains(condition.Value.(string), result.Stdout)
+	value, ok := condition.Value.(string)
+	if !ok {
+		return fmt.Errorf("stdout_contains condition requires a string value, got %T", condition.Value)
+	}
+	return evaluateStdoutContains(value, result.Stdout)
 }
 
 func evaluateStdoutNotContainsCondition(condition Condition, result *commandResult, _ string) error {
-	return evaluateStdoutNotContains(condition.Value.(string), result.Stdout)
+	value, ok := condition.Value.(string)
+	if !ok {
+		return fmt.Errorf("stdout_not_contains condition requires a string value, got %T", condition.Value)
+	}
+	return evaluateStdoutNotContains(value, result.Stdout)
 }
 
 func evaluateFileExistsCondition(condition Condition, _ *commandResult, workingDir string) error {
@@ -133,11 +141,19 @@ func evaluateFileNotExistsCondition(condition Condition, _ *commandResult, worki
 }
 
 func evaluateFileContainsCondition(condition Condition, _ *commandResult, workingDir string) error {
-	return evaluateFileContains(condition.Path, condition.Value.(string), workingDir)
+	value, ok := condition.Value.(string)
+	if !ok {
+		return fmt.Errorf("file_contains condition requires a string value, got %T", condition.Value)
+	}
+	return evaluateFileContains(condition.Path, value, workingDir)
 }
 
 func evaluateFileNotContainsCondition(condition Condition, _ *commandResult, workingDir string) error {
-	return evaluateFileNotContains(condition.Path, condition.Value.(string), workingDir)
+	value, ok := condition.Value.(string)
+	if !ok {
+		return fmt.Errorf("file_not_contains condition requires a string value, got %T", condition.Value)
+	}
+	return evaluateFileNotContains(condition.Path, value, workingDir)
 }
 
 func evaluateStdoutContains(expected, stdout string) error {

@@ -479,7 +479,7 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	result, err := p.server.TaskVerification.StartStep(session.taskRun, args.Step)
+	result, err := p.server.TaskVerification.StartStep(ctx, session.taskRun, args.Step)
 	if err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepStarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"step":  args.Step,
@@ -506,7 +506,7 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	result, err := p.server.TaskVerification.CompleteStep(session.taskRun, args.Step)
+	result, err := p.server.TaskVerification.CompleteStep(ctx, session.taskRun, args.Step)
 	if err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"step":  args.Step,
