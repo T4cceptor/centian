@@ -100,9 +100,9 @@ These examples are intended to demonstrate extension patterns and are not produc
 
 For further details, check out `demo/README.md`.
 
-The taskverification demo has its own setup and run flow documented in [demo/taskverification/README.md](/Users/brb/_devspace/centian-cli/demo/taskverification/README.md).
+The taskverification demo has its own setup and run flow documented in [demo/taskverification/README.md](demo/taskverification/README.md).
 
-Taskverification documentation is available in [docs/TASKVERIFICATION.md](/Users/brb/_devspace/centian-cli/docs/TASKVERIFICATION.md).
+Taskverification documentation is available in [docs/TASKVERIFICATION.md](docs/TASKVERIFICATION.md).
 
 ## Taskverification
 
@@ -126,8 +126,8 @@ When `proxy.capabilities.ui.enabled` is true, Centian serves an embedded read-on
 
 See:
 
-- [docs/TASKVERIFICATION.md](/Users/brb/_devspace/centian-cli/docs/TASKVERIFICATION.md)
-- [demo/taskverification/README.md](/Users/brb/_devspace/centian-cli/demo/taskverification/README.md)
+- [docs/TASKVERIFICATION.md](docs/TASKVERIFICATION.md)
+- [demo/taskverification/README.md](demo/taskverification/README.md)
 
 
 ## Configuration
@@ -340,7 +340,7 @@ centian processor add --type webhook --url https://example.com/processors/audit 
 ```
 
 CLI and webhook processors use the same `DataContext` contract and can coexist in the same chain.
-That contract centers on `event`, `payload`, `routing`, and optional read-only `auth` context, as documented in [`docs/processor_development_guide.md`](/Users/brb/_devspace/centian-cli/docs/processor_development_guide.md).
+That contract centers on `event`, `payload`, `routing`, and optional read-only `auth` context, as documented in [`docs/processor_development_guide.md`](docs/processor_development_guide.md).
 Processors currently run only around proxied `tools/call` handling: once before the downstream call and once after the downstream result is returned.
 Processor `timeout` values are configured in seconds per processor and default to `15`. The timeout is enforced per invocation, so the same processor may consume that budget once on the request phase and again on the response phase of a single tool call. Required processor timeouts fail the current phase; non-required processor timeouts are logged and skipped.
 
@@ -451,9 +451,9 @@ Good contribution areas include:
 
 To contribute:
 
-- read [CONTRIBUTING.md](/Users/brb/_devspace/centian-cli/CONTRIBUTING.md)
-- follow [CODE_OF_CONDUCT.md](/Users/brb/_devspace/centian-cli/CODE_OF_CONDUCT.md)
-- report security issues through [SECURITY.md](/Users/brb/_devspace/centian-cli/SECURITY.md)
+- read [CONTRIBUTING.md](CONTRIBUTING.md)
+- follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- report security issues through [SECURITY.md](SECURITY.md)
 
 ## License
 

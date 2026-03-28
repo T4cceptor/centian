@@ -76,7 +76,7 @@ If `proxy.capabilities.taskVerification.templatesPath` is set:
 - an absolute path is used as-is
 - a relative path is resolved from Centian's current working directory
 
-This repository includes example templates under [task-templates](/Users/brb/_devspace/centian-cli/task-templates).
+This repository includes example templates under [task-templates](../task-templates).
 
 ### 3. Expose downstream tools through a normal gateway
 
@@ -409,7 +409,7 @@ It does not register tasks, advance workflow steps, or mutate run state.
 
 ## Demo
 
-This repository includes a taskverification demo in [demo/taskverification](/Users/brb/_devspace/centian-cli/demo/taskverification).
+This repository includes a taskverification demo in [demo/taskverification](../demo/taskverification).
 
 The demo covers:
 
@@ -475,10 +475,10 @@ It is not yet a full replacement for:
 
 ## Related Files
 
-- Demo: [demo/taskverification/README.md](/Users/brb/_devspace/centian-cli/demo/taskverification/README.md)
-- Templates: [task-templates](/Users/brb/_devspace/centian-cli/task-templates)
-- Runtime: [internal/taskverification](/Users/brb/_devspace/centian-cli/internal/taskverification)
-- Proxy tool surface: [proxy_taskverification_tools.go](/Users/brb/_devspace/centian-cli/internal/proxy/proxy_taskverification_tools.go)
-- Persistence projections: [store.go](/Users/brb/_devspace/centian-cli/internal/persistence/store.go)
-- Task run API: [handler.go](/Users/brb/_devspace/centian-cli/internal/api/handler.go)
-- Embedded UI handler: [handler.go](/Users/brb/_devspace/centian-cli/internal/ui/handler.go)
+- Demo: [demo/taskverification/README.md](../demo/taskverification/README.md)
+- Templates: [task-templates](../task-templates)
+- Runtime: [internal/taskverification](../internal/taskverification)
+- Proxy tool surface: [proxy_taskverification_tools.go](../internal/proxy/proxy_taskverification_tools.go)
+- Persistence projections: [store.go](../internal/persistence/store.go)
+- Task run API: [handler.go](../internal/api/handler.go)
+- Embedded UI handler: [handler.go](../internal/ui/handler.go)
