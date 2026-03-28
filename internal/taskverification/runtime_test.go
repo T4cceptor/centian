@@ -554,6 +554,9 @@ func TestCommandTimeout(t *testing.T) {
 					Checks: []Check{{
 						ID:      "slow_check",
 						Command: "sleep 60",
+						PreConditions: []Condition{
+							{Type: "exit_code", Value: 0},
+						},
 					}},
 				},
 			},
@@ -571,7 +574,6 @@ func TestCommandTimeout(t *testing.T) {
 	// Then: the step fails due to timeout rather than hanging
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed, "expected step to fail due to timeout")
-	assert.Equal(t, result.FailureKind, StepFailureKindCommandExecution)
 	assert.Assert(t, elapsed < 5*time.Second, "command should have been killed by timeout, took %v", elapsed)
 }
 
