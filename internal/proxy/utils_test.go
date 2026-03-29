@@ -15,11 +15,9 @@ func TestGetNewUUIDV7(t *testing.T) {
 }
 
 func TestGetServerID(t *testing.T) {
-	withName := getServerID("my-server")
-	defaultName := getServerID("")
+	serverID := getServerID()
 
-	assert.Assert(t, identifiers.IsKind(withName, identifiers.KindServer))
-	assert.Assert(t, identifiers.IsKind(defaultName, identifiers.KindServer))
+	assert.Assert(t, identifiers.IsKind(serverID, identifiers.KindServer))
 }
 
 func TestGetEndpointString(t *testing.T) {

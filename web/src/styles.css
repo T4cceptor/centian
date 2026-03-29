@@ -1,8 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
-
 :root {
   color-scheme: dark;
-  font-family: "Inter", "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.5;
   font-weight: 400;
   background:
@@ -102,7 +100,7 @@ code,
 .state-card h2,
 .task-run-list__toolbar h2 {
   margin: 0;
-  font-family: "Inter", "Segoe UI", sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -493,7 +491,7 @@ code,
 .timeline-event__timestamp {
   padding-right: 0;
   color: #1e2a42;
-  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.62rem;
   letter-spacing: 0.02em;
   text-align: right;
@@ -668,7 +666,7 @@ code,
 .timeline-event__server-dot,
 .timeline-event__server-name,
 .timeline-event__status {
-  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   text-transform: uppercase;
 }
 
@@ -729,7 +727,7 @@ code,
 .timeline-event__title {
   margin: 0;
   color: var(--accent-strong);
-  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.76rem;
   font-weight: 400;
   line-height: 1.2;
@@ -750,7 +748,7 @@ code,
 .timeline-event__subtitle {
   margin: 0;
   color: #2a3d5e;
-  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.62rem;
   line-height: 1.25;
   overflow: hidden;
@@ -763,7 +761,7 @@ code,
 .timeline-event__payload-label {
   margin: 2px 0 0;
   color: var(--text-muted);
-  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.6rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -790,7 +788,7 @@ code,
 .timeline-event__metric {
   align-self: flex-start;
   color: #1e2a42;
-  font-family: "Share Tech Mono", "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.56rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;

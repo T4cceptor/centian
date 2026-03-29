@@ -72,7 +72,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		Mux:              mux,
 		Server:           server,
 		Logger:           logger,
-		ServerID:         getServerID(globalConfig.Name),
+		ServerID:         getServerID(),
 		Gateways:         make(map[string]*CentianEndpoint),
 		Endpoints:        []*CentianEndpoint{},
 		APIKeys:          apiKeyStore,

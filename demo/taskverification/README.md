@@ -44,7 +44,7 @@ Artifacts are written to:
 
 ```bash
 cd demo/taskverification
-make reset-project
+make reset
 make build
 make demo-up
 make run-agent-problem

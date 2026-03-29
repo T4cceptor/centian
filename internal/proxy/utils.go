@@ -84,7 +84,7 @@ func getNewUUIDV7() string {
 }
 
 // getServerID returns a canonical internal server ID.
-func getServerID(_ string) string {
+func getServerID() string {
 	return identifiers.New(identifiers.KindServer)
 }
 

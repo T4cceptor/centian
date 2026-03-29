@@ -108,13 +108,10 @@ export function TaskRunDetailPage() {
     const startedAt = events[0]?.createdAtUnixMilli;
     const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
 
-    const serverCounts: Record<string, number> = {};
     let errorCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
       if (item.kind === "exchange") {
-        const server = getExchangeServerName(item.exchange);
-        serverCounts[server] = (serverCounts[server] ?? 0) + 1;
         const resp = item.exchange.response;
         if (resp && (resp.isError === true || resp.success === false)) {
           errorCount++;
@@ -126,7 +123,7 @@ export function TaskRunDetailPage() {
       }
     }
 
-    return { startedAt, lastSeenAt, serverCounts, errorCount, totalEvents: events.length };
+    return { startedAt, lastSeenAt, errorCount, totalEvents: events.length };
   }, [events, flatTimelineItems]);
 
   useEffect(() => {
@@ -443,7 +440,6 @@ function DetailStateCard({
 type RunStats = {
   startedAt: number | undefined;
   lastSeenAt: number | undefined;
-  serverCounts: Record<string, number>;
   errorCount: number;
   totalEvents: number;
 };
@@ -479,7 +475,7 @@ function RunMetadataBar({ stats }: { stats: RunStats }) {
         padding: "10px 20px",
         background: "linear-gradient(135deg, rgba(10,14,30,0.7), rgba(15,22,42,0.5))",
         borderBottom: "1px solid rgba(100,140,200,0.1)",
-        fontFamily: "'Inter', system-ui, sans-serif",
+        fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         alignItems: "flex-start",
       }}
     >
@@ -503,39 +499,6 @@ function RunMetadataBar({ stats }: { stats: RunStats }) {
         <span style={labelStyle}>Events</span>
         <span style={valueStyle}>{stats.totalEvents}</span>
       </div>
-
-      {/* {Object.keys(stats.serverCounts).length > 0 && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Calls</span>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 1 }}>
-            {Object.entries(stats.serverCounts).map(([server, count]) => (
-              <span
-                key={server}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 5,
-                  fontSize: 12,
-                  color: "#c8daf0",
-                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                }}
-              >
-                <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: "50%",
-                    background: getServerAccentColor(server),
-                    flexShrink: 0,
-                  }}
-                />
-                {server}
-                <span style={{ color: "#5a7a9a", marginLeft: 1 }}>{count}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )} */}
 
       {stats.errorCount > 0 && (
         <div style={cellStyle}>
@@ -1185,27 +1148,6 @@ function formatTaskPhaseLine(event: TaskRunEvent): string {
   }
 
   return to || from;
-}
-
-// Assigns a stable accent color to arbitrary server names.
-export function getServerAccentColor(serverName: string): string {
-  const palette = [
-    "#a78bfa",
-    "#fbbf24",
-    "#34d399",
-    "#60a5fa",
-    "#fb7185",
-    "#22d3ee",
-    "#f97316",
-    "#4ade80",
-  ];
-
-  let hash = 0;
-  for (let index = 0; index < serverName.length; index += 1) {
-    hash = (hash * 31 + serverName.charCodeAt(index)) >>> 0;
-  }
-
-  return palette[hash % palette.length];
 }
 
 // Maps task and action events into the shared tone model used by the UI.

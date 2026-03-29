@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "./routes";
 import { clearStoredApiAuth } from "./api/api-auth";
+import { ErrorBoundary } from "./ui/error-boundary";
 import { getTimelineAnchorEvent, type TimelineItem } from "./ui/task-run-detail-page";
 
 const originalFetch = globalThis.fetch;
@@ -42,6 +43,25 @@ afterEach(() => {
   vi.restoreAllMocks();
   globalThis.fetch = originalFetch;
   clearStoredApiAuth();
+});
+
+function ThrowingRoute() {
+  throw new Error("render crash");
+}
+
+describe("error boundary", () => {
+  it("renders a fallback when a child route crashes during render", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(
+      <ErrorBoundary>
+        <ThrowingRoute />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText("Task run UI crashed")).toBeInTheDocument();
+    expect(screen.getByText("Reload the page or return to the task list.")).toBeInTheDocument();
+  });
 });
 
 describe("task run list", () => {

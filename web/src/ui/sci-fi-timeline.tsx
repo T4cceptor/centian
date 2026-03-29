@@ -1,4 +1,5 @@
 import type { TaskRunEvent } from "../api/task-runs";
+import { getServerColorToken, KNOWN_SERVER_COLORS, type ColorToken } from "./server-colors";
 import {
   formatLatency,
   formatTraceTimestamp,
@@ -15,8 +16,6 @@ import {
 
 // Injected stylesheet for the self-contained sci-fi timeline treatment.
 const SCI_FI_STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
-
   .ctv * { box-sizing: border-box; }
 
   @keyframes breathe {
@@ -39,55 +38,14 @@ const SCI_FI_STYLES = `
   }
 `;
 
-// Shared color primitives for timeline nodes and badges.
-type ColorToken = {
-  color: string;
-  bg: string;
-  glow: string;
-  dim: string;
-};
-
-// Hand-tuned colors for servers with established visual identities.
-const KNOWN_COLORS: Record<string, ColorToken> = {
-  centian: { color: "#a78bfa", bg: "rgba(167,139,250,0.1)", glow: "rgba(167,139,250,0.6)", dim: "#3b2e6e" },
-  shell: { color: "#fbbf24", bg: "rgba(251,191,36,0.1)", glow: "rgba(251,191,36,0.6)", dim: "#6b4f10" },
-  filesystem: { color: "#34d399", bg: "rgba(52,211,153,0.1)", glow: "rgba(52,211,153,0.6)", dim: "#0e4a35" },
-  error: { color: "#f87171", bg: "rgba(248,113,113,0.12)", glow: "rgba(248,113,113,0.7)", dim: "#5c1e1e" },
-};
-
-// Fallback palette used to deterministically color unknown servers.
-const FALLBACK_PALETTE = [
-  "#a78bfa", "#fbbf24", "#34d399", "#60a5fa",
-  "#fb7185", "#22d3ee", "#f97316", "#4ade80",
-];
-
-// Returns a stable color token for a server name, hashing when the server is not predefined.
-function getColorToken(serverName: string): ColorToken {
-  const known = KNOWN_COLORS[serverName];
-  if (known) return known;
-
-  let hash = 0;
-  // A simple string hash keeps ad hoc server colors stable across renders.
-  for (let i = 0; i < serverName.length; i++) {
-    hash = (hash * 31 + serverName.charCodeAt(i)) >>> 0;
-  }
-  const hex = FALLBACK_PALETTE[hash % FALLBACK_PALETTE.length];
-  return {
-    color: hex,
-    bg: `${hex}1a`,
-    glow: `${hex}99`,
-    dim: `${hex}44`,
-  };
-}
-
 // Chooses the node color from its tone first, then from the owning server.
 function getItemColorToken(item: TimelineItem): ColorToken {
   const tone = getTimelineItemTone(item);
-  if (tone === "failed") return KNOWN_COLORS.error;
+  if (tone === "failed") return KNOWN_SERVER_COLORS.error;
 
-  if (item.kind === "task") return KNOWN_COLORS.centian;
+  if (item.kind === "task") return KNOWN_SERVER_COLORS.centian;
   const serverName = getExchangeServerName(item.exchange);
-  return getColorToken(serverName);
+  return getServerColorToken(serverName);
 }
 
 // Server summary row shown above the timeline.
@@ -213,18 +171,18 @@ function SciFiSectorDivider({
           opacity: 0.7,
         }} />
 
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 11, color: accentColor, letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.8 }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 11, color: accentColor, letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.8 }}>
           SECTOR {String(groupIndex + 1).padStart(2, "0")}
         </span>
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 12, color: "#6a8ab0", letterSpacing: "0.08em" }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 12, color: "#6a8ab0", letterSpacing: "0.08em" }}>
           {group.label}
         </span>
-        <span style={{ fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 12, color: "#3d4a6a", opacity: 0.7 }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 12, color: "#3d4a6a", opacity: 0.7 }}>
           {group.items.length} events
         </span>
         <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${accentColor}20, transparent)` }} />
         <span style={{
-          fontFamily: "'Share Tech Mono', 'Courier New', monospace", fontSize: 10,
+          fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 10,
           color: statusColor, letterSpacing: "0.15em", textTransform: "uppercase",
           padding: "2px 8px", border: `1px solid ${statusColor}40`,
           borderRadius: 2, background: `${statusColor}0d`,
@@ -281,7 +239,7 @@ function SciFiEventNode({
       {/* Timestamp */}
       <div className="sci-ts" style={{
         width: 80, textAlign: "right", paddingRight: 0, flexShrink: 0,
-        fontFamily: "'Share Tech Mono', 'Courier New', monospace",
+        fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
         fontSize: 11, color: "#3a5070", letterSpacing: "0.02em",
         transition: "color 0.2s",
       }}>
@@ -347,7 +305,7 @@ function SciFiEventNode({
             }} />
             {/* Server name */}
             <span style={{
-              fontFamily: "'Share Tech Mono', 'Courier New', monospace",
+              fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
               fontSize: 10, color: vc.color, letterSpacing: "0.12em",
               textTransform: "uppercase", opacity: 0.8, flexShrink: 0,
             }}>
@@ -357,7 +315,7 @@ function SciFiEventNode({
             <span
               data-testid="timeline-event-title"
               style={{
-                fontFamily: "'Share Tech Mono', 'Courier New', monospace",
+                fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
                 fontSize: 13, color: "#b0c8e8", fontWeight: "normal",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}
@@ -380,7 +338,7 @@ function SciFiEventNode({
           {/* Subtitle */}
           {subtitle ? (
             <div style={{
-              fontFamily: "'Share Tech Mono', 'Courier New', monospace",
+              fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
               fontSize: 11, color: "#4a6a8e", marginTop: 3,
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               maxWidth: 460,
@@ -420,7 +378,7 @@ export function SciFiTimeline({
     <div className="ctv" style={{
       background: "#020210",
       color: "#8ba4c8",
-      fontFamily: "'Share Tech Mono','Courier New',monospace",
+      fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace",
       position: "relative",
       overflow: "hidden",
       flex: 1,
@@ -444,8 +402,8 @@ export function SciFiTimeline({
         {serverLegendEntries.length > 0 && (
           <div style={{ display: "flex", gap: 24, marginBottom: 16, paddingLeft: 120 }}>
             {serverLegendEntries.map(({ name, eventCount }) => (
-              <div key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: getColorToken(name).color, opacity: 0.7, letterSpacing: "0.1em", fontFamily: "'Share Tech Mono', 'Courier New', monospace" }}>
-                <NodeShape server={name} size={10} color={getColorToken(name).color} />
+              <div key={name} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, color: getServerColorToken(name).color, opacity: 0.7, letterSpacing: "0.1em", fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace" }}>
+                <NodeShape server={name} size={10} color={getServerColorToken(name).color} />
                 <span>{name}</span>
                 <span >({eventCount})</span>
                 {/* {style={{ color: "#536785", opacity: 0.85 }}} */}
