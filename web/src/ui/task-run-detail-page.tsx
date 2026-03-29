@@ -1033,7 +1033,7 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
     "cwd",
     "templateId",
     "template_id",
-    "projectSummary",
+    "taskSummary",
     "project_summary",
     "input",
     "message",

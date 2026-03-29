@@ -209,7 +209,7 @@ The workflow has four authoring areas:
 
 ### Onboarding
 
-Use onboarding for project discovery and context gathering.
+Use onboarding for task and environment discovery context.
 
 ```yaml
 workflow:

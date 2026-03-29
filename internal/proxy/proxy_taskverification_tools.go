@@ -285,7 +285,7 @@ func taskCompleteOnboardingSchema() map[string]any {
 			"onboarding": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"projectSummary": map[string]any{"type": "string"},
+					"taskSummary": map[string]any{"type": "string"},
 					"artifactMap": map[string]any{
 						"type": "array",
 						"items": map[string]any{
@@ -318,7 +318,7 @@ func taskCompleteOnboardingSchema() map[string]any {
 						"items": map[string]any{"type": "string"},
 					},
 				},
-				"required": []string{"projectSummary"},
+				"required": []string{"taskSummary"},
 			},
 		},
 		"required": []string{"onboarding"},
@@ -432,7 +432,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
-		"projectSummary": args.Onboarding.ProjectSummary,
+		"taskSummary": args.Onboarding.TaskSummary,
 	})
 	structured := runStructuredContent(session.taskRun)
 	if session.taskRun.Onboarding != nil {
@@ -707,7 +707,7 @@ func addPlanningNodeContext(structured map[string]any, run *taskverification.Run
 
 func addArtifactSummaries(structured map[string]any, run *taskverification.RunState) {
 	if run.Onboarding != nil {
-		structured["onboardingSummary"] = run.Onboarding.ProjectSummary
+		structured["taskSummary"] = run.Onboarding.TaskSummary
 	}
 	if run.Planning == nil {
 		return
@@ -743,7 +743,7 @@ func workflowStepsSummary(run *taskverification.RunState) []map[string]any {
 
 func onboardingContract() map[string]any {
 	return map[string]any{
-		"requiredFields": []string{"projectSummary"},
+		"requiredFields": []string{"taskSummary"},
 		"artifactMapItem": map[string]any{
 			"requiredFields": []string{"path", "kind"},
 			"optionalFields": []string{"notes"},

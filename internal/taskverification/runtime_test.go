@@ -283,7 +283,7 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	err := service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready to plan"})
+	err := service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready to plan"})
 	assert.NilError(t, err)
 
 	_, err = service.StartStep(context.Background(), run, 1)
@@ -517,7 +517,7 @@ workflow:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusFailed)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.ErrorContains(t, err, "task is failed")
 
 	err = service.RestartTask(run)
@@ -582,7 +582,7 @@ func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
 	service := NewService(dir, dir)
 	run, err := service.RegisterTask("task", map[string]string{})
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 	err = service.CompletePlanning(run, &PlanningArtifact{
 		TestTarget: "pytest -q",

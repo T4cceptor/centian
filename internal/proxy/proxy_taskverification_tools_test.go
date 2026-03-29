@@ -177,7 +177,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Small test project with one shell validation path.",
+				"taskSummary": "Small test task context with one shell validation path.",
 				"artifactMap": []map[string]any{
 					{
 						"path":  "/workspace/project/tests",
@@ -207,7 +207,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.DeepEqual(t, completeOnboardingStructured["planningRequiredOutputs"], []any{"testTarget"})
 	assert.Equal(t, completeOnboardingStructured["shellCommandHint"], "For compound shell commands or directory changes, use bash -lc '...'.")
 	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
-	assert.Equal(t, completeOnboardingStructured["onboardingSummary"], "Small test project with one shell validation path.")
+	assert.Equal(t, completeOnboardingStructured["taskSummary"], "Small test task context with one shell validation path.")
 	assert.DeepEqual(t, completeOnboardingStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
 	assert.Equal(t, completeOnboardingStructured["hasPlanning"], false)
@@ -276,7 +276,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, restartStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
 	assert.Equal(t, restartStructured["hasOnboarding"], true)
 	assert.Equal(t, restartStructured["hasPlanning"], false)
-	assert.Equal(t, restartStructured["onboardingSummary"], "Small test project with one shell validation path.")
+	assert.Equal(t, restartStructured["taskSummary"], "Small test task context with one shell validation path.")
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskFailTool,
@@ -323,7 +323,7 @@ func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Minimal free-form task.",
+				"taskSummary": "Minimal free-form task.",
 			},
 		},
 	})
@@ -383,7 +383,7 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 
 	onboardingSchema := byName[taskCompleteOnboardingTool].InputSchema.(map[string]any)
 	onboardingProps := onboardingSchema["properties"].(map[string]any)["onboarding"].(map[string]any)["properties"].(map[string]any)
-	assert.Assert(t, onboardingProps["projectSummary"] != nil)
+	assert.Assert(t, onboardingProps["taskSummary"] != nil)
 	artifactMapItems := onboardingProps["artifactMap"].(map[string]any)["items"].(map[string]any)
 	assert.DeepEqual(t, artifactMapItems["required"], []any{"path", "kind"})
 	commonCommandItems := onboardingProps["commonCommands"].(map[string]any)["items"].(map[string]any)
@@ -421,7 +421,7 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Small project with parameterized planning fields.",
+				"taskSummary": "Small task context with parameterized planning fields.",
 			},
 		},
 	})
@@ -475,7 +475,7 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -590,7 +590,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -627,7 +627,7 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -714,7 +714,7 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -825,7 +825,7 @@ workflow:
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Stored summary",
+				"taskSummary": "Stored summary",
 			},
 		},
 	})
@@ -938,7 +938,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1006,7 +1006,7 @@ func TestTaskLifecycleToolsRequireRegistrationFirst(t *testing.T) {
 	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "blocked"},
+			"onboarding": map[string]any{"taskSummary": "blocked"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1168,7 +1168,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1235,7 +1235,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1291,7 +1291,7 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Stored summary",
+				"taskSummary": "Stored summary",
 			},
 		},
 	})

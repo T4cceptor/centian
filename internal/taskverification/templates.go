@@ -651,8 +651,8 @@ func validateOnboardingArtifact(artifact *OnboardingArtifact) error {
 	if artifact == nil {
 		return fmt.Errorf("onboarding artifact is required")
 	}
-	if strings.TrimSpace(artifact.ProjectSummary) == "" {
-		return fmt.Errorf("onboarding.projectSummary is required")
+	if strings.TrimSpace(artifact.TaskSummary) == "" {
+		return fmt.Errorf("onboarding.taskSummary is required")
 	}
 	for index, ref := range artifact.ArtifactMap {
 		if strings.TrimSpace(ref.Path) == "" {
@@ -678,9 +678,9 @@ func cloneOnboardingArtifact(artifact *OnboardingArtifact) OnboardingArtifact {
 		return OnboardingArtifact{}
 	}
 	cloned := OnboardingArtifact{
-		ProjectSummary: artifact.ProjectSummary,
-		Constraints:    append([]string(nil), artifact.Constraints...),
-		OpenQuestions:  append([]string(nil), artifact.OpenQuestions...),
+		TaskSummary:   artifact.TaskSummary,
+		Constraints:   append([]string(nil), artifact.Constraints...),
+		OpenQuestions: append([]string(nil), artifact.OpenQuestions...),
 	}
 	if len(artifact.ArtifactMap) > 0 {
 		cloned.ArtifactMap = make([]OnboardingArtifactRef, len(artifact.ArtifactMap))

@@ -107,9 +107,9 @@ type TemplateParameter struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
-// OnboardingArtifact stores reusable project/environment discovery context.
+// OnboardingArtifact stores reusable task/environment discovery context.
 type OnboardingArtifact struct {
-	ProjectSummary string                  `json:"projectSummary"`
+	TaskSummary    string                  `json:"taskSummary"`
 	ArtifactMap    []OnboardingArtifactRef `json:"artifactMap,omitempty"`
 	CommonCommands []OnboardingCommand     `json:"commonCommands,omitempty"`
 	Constraints    []string                `json:"constraints,omitempty"`

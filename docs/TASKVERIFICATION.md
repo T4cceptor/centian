@@ -258,12 +258,12 @@ Execution then reads from that frozen contract rather than from mutable shell st
 
 `centian.task_complete_onboarding`:
 
-- stores reusable project discovery context
+- stores reusable task and environment context
 - moves the run into `planning`
 
 Typical onboarding data includes:
 
-- project summary
+- task summary
 - artifact map
 - common commands
 - constraints
