@@ -407,6 +407,7 @@ func workflowStep(run *RunState, stepIndex int) *Step {
 func (s *Service) runCommand(ctx context.Context, command string) (*commandResult, error) {
 	// #nosec G204 -- task verification intentionally executes template-defined commands.
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	configureCommandCancellation(cmd)
 	cmd.Dir = s.WorkingDir
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
