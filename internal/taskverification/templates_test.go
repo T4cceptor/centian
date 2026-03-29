@@ -86,6 +86,53 @@ workflow:
 	assert.ErrorContains(t, err, `unknown task parameter "unknown"`)
 }
 
+func TestListTemplatesAllowsExecutionStepWithoutChecks(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "free_form"
+  name: "Free Form"
+  description: "Minimal execution flow without explicit checks."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+`, "free_form.yaml")
+
+	summaries, err := service.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].ID, "free_form")
+	assert.Equal(t, summaries[0].StepCount, 1)
+	assert.Equal(t, summaries[0].Steps[0].ID, "step_one")
+}
+
+func TestListTemplatesAllowsExecutionStepWithoutChecksWhenInvariantsArePresent(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "free_form_with_invariant"
+  name: "Free Form With Invariant"
+  description: "Execution step uses invariants without checks."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+      invariants:
+        - id: "stable"
+          command: "printf 'same'"
+`, "free_form_with_invariant.yaml")
+
+	summaries, err := service.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].ID, "free_form_with_invariant")
+	assert.Equal(t, summaries[0].StepCount, 1)
+	assert.Equal(t, summaries[0].Steps[0].ID, "step_one")
+}
+
 func TestCompletePlanningResolvesDraftParametersAndEntersConfiguredExecutionNode(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
@@ -129,6 +176,36 @@ workflow:
 	assert.Assert(t, run.RunnableTemplate != nil)
 	assert.Equal(t, run.Phase, TaskPhase("execution.failing_test"))
 	assert.Equal(t, run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
+}
+
+func TestCompletePlanningUsesResolvedExecutionPathForParameterizedStepID(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "free_form"
+  name: "Free Form"
+  description: "Parameterized step id."
+parameters:
+  - name: "taskName"
+    description: "Human-readable task name."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "Task ${taskName}"
+`, "free_form.yaml")
+
+	run, err := service.RegisterTask("free_form", map[string]string{
+		"taskName": "Investigate issue",
+	})
+	assert.NilError(t, err)
+
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	assert.NilError(t, err)
+
+	err = service.CompletePlanning(run, &PlanningArtifact{})
+	assert.NilError(t, err)
+	assert.Equal(t, run.Phase, TaskPhase("execution.Task Investigate issue"))
 }
 
 func TestCompletePlanningAllowsEditableFieldsForResolvedDeclaredParameters(t *testing.T) {

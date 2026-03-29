@@ -106,7 +106,11 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 	if err != nil {
 		return err
 	}
-	nextPath := run.SelectedTemplate.CompiledWorkflow.Nodes[TaskPhasePlanning].NextPath
+	planningNode, exists := resolved.CompiledWorkflow.Nodes[resolved.CompiledWorkflow.PlanningPath]
+	if !exists {
+		return fmt.Errorf("planning has no compiled workflow node")
+	}
+	nextPath := planningNode.NextPath
 	if nextPath == "" {
 		return fmt.Errorf("planning has no configured next workflow node")
 	}
@@ -328,9 +332,6 @@ func validateStep(stepIndex int, step *Step, stepIDs map[string]struct{}) error 
 		return fmt.Errorf("duplicate step id %q", step.ID)
 	}
 	stepIDs[step.ID] = struct{}{}
-	if len(step.Checks) == 0 {
-		return fmt.Errorf("step %q must define at least one check", step.ID)
-	}
 
 	if err := validateChecks(step); err != nil {
 		return err

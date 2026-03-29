@@ -79,6 +79,7 @@ If `proxy.capabilities.taskVerification.templatesPath` is set:
 - a relative path is resolved from Centian's current working directory
 
 This repository includes example templates under [task-templates](../task-templates).
+For a schema-focused authoring guide, see [TASK_TEMPLATE_AUTHORING.md](./TASK_TEMPLATE_AUTHORING.md).
 
 ### 3. Expose downstream tools through a normal gateway
 

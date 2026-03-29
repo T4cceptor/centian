@@ -291,6 +291,79 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
 }
 
+func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, noCheckTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	listResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: taskListTemplatesTool})
+	assert.NilError(t, err)
+	listStructured := listResult.StructuredContent.(map[string]any)
+	templates := listStructured["templates"].([]any)
+	assert.Equal(t, len(templates), 1)
+	template := templates[0].(map[string]any)
+	assert.Equal(t, template["id"], "minimal")
+
+	registerResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "minimal",
+			"parameters": map[string]any{
+				"taskName": "Investigate issue",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	registerStructured := registerResult.StructuredContent.(map[string]any)
+	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+	assertAllowedTools(t, registerStructured["allowedTools"], "*")
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"projectSummary": "Minimal free-form task.",
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	completePlanningStructured := completePlanningResult.StructuredContent.(map[string]any)
+	assertAllowedTools(t, completePlanningStructured["allowedTools"], "*")
+	assert.Equal(t, completePlanningStructured["executionReady"], true)
+
+	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskStartStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.NilError(t, err)
+	startStepStructured := startStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, startStepStructured["passed"], true)
+	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
+
+	completeStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.NilError(t, err)
+	completeStepStructured := completeStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completeStepStructured["passed"], true)
+	assert.Equal(t, completeStepStructured["status"], string(taskverification.TaskStatusCompleted))
+	assert.Equal(t, completeStepStructured["stepStatus"], string(taskverification.StepStatusPassed))
+}
+
 func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	_, session := newTaskToolTestProxy(t, basicTaskTemplate())
 
@@ -1319,6 +1392,44 @@ workflow:
             - type: stdout_contains
               value: "pytest:boom"
 `
+}
+
+func noCheckTaskTemplate() string {
+	return `
+version: "0.1"
+task:
+  id: "minimal"
+  name: "Minimal"
+  description: "Smallest task template that still allows work."
+parameters:
+  - name: "taskName"
+    description: "Human-readable task name."
+workflow:
+  onboarding:
+    tools_allowed: ["*"]
+  planning:
+    tools_allowed: ["*"]
+  execution:
+    - id: "Task ${taskName}"
+      tools_allowed: ["*"]
+`
+}
+
+func assertAllowedTools(t *testing.T, value any, expected ...string) {
+	t.Helper()
+
+	switch typed := value.(type) {
+	case []string:
+		assert.DeepEqual(t, typed, expected)
+	case []any:
+		actual := make([]string, 0, len(typed))
+		for _, item := range typed {
+			actual = append(actual, item.(string))
+		}
+		assert.DeepEqual(t, actual, expected)
+	default:
+		t.Fatalf("unexpected allowedTools type %T", value)
+	}
 }
 
 func readTaskToolLogEntries(t *testing.T, path string) []common.LogEntry {
