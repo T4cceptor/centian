@@ -114,7 +114,9 @@ When `proxy.capabilities.taskVerification.enabled` is true, Centian adds `centia
 - step-by-step execution with checks and invariants
 - approval-wait nodes that block downstream tool usage
 
-When event storage is enabled, Centian also persists lifecycle and MCP action history and exposes:
+Taskverification is opt-in. The task runtime, persisted history, and embedded UI are separate capability toggles.
+
+When event storage is enabled, Centian persists lifecycle and MCP action history and exposes:
 
 - `GET /api/task-runs`
 - `GET /api/task-runs/{runID}/events`
@@ -123,6 +125,10 @@ When `proxy.capabilities.ui.enabled` is true, Centian serves an embedded read-on
 
 - `/ui/tasks`
 - `/ui/tasks/:runID`
+
+The embedded UI is an observer only. It does not register tasks, advance workflow steps, or mutate run state.
+
+For local builds, `make build` rebuilds and embeds the full frontend, while `make build-go` skips the frontend rebuild and uses the fallback embedded UI.
 
 See:
 

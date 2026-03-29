@@ -19,6 +19,8 @@ The feature exists to solve four practical problems:
 3. Gate downstream MCP tool usage by workflow node, so the different workflow phases can have different permissions.
 4. Persist enough lifecycle and action history to inspect task runs after the fact.
 
+Before enabling taskverification in a shared or production-adjacent environment, read [Current Boundaries and Gaps](#current-boundaries-and-gaps) below. That section is the canonical long-form limitations list for `v0.2.0`.
+
 ## Quickstart
 
 Taskverification tools are disabled by default. You must opt in explicitly.
@@ -133,6 +135,8 @@ The frontend routes are:
 - `/ui/tasks/:runID`
 
 CI, release, and container builds stage the full frontend before embedding it. Local `make build-go` builds can still serve the fallback embedded UI without rebuilding the frontend.
+
+The UI is read-only. It is intended for inspection of persisted runs, not task control.
 
 ## Capability Overview
 
@@ -425,6 +429,8 @@ The demo covers:
 ## Current Boundaries and Gaps
 
 Taskverification is usable, but it is still a v1 feature set with deliberate gaps.
+
+Use this section as the detailed `v0.2.0` limitations reference when preparing release notes, operator guidance, or rollout decisions.
 
 ### Runtime and lifecycle gaps
 
