@@ -414,7 +414,8 @@ Coming soon.
 ```bash
 git clone https://github.com/T4cceptor/centian.git
 cd centian
-go build -o build/centian ./cmd/main.go
+make build-go      # Go-only build using the embedded fallback UI
+make build         # Full build, requires Node 22 and embeds the real UI
 ```
 
 ## Troubleshooting & Known Limitations
@@ -430,12 +431,15 @@ go build -o build/centian ./cmd/main.go
 
 ```bash
 make build          # Build to build/centian
+make build-go       # Build without rebuilding the frontend
 make install        # Install to ~/.local/bin/centian
 make test-all       # Run unit + integration tests
 make test-coverage  # Runs test coverage report
 make lint           # Run linting
 make dev            # Clean, fmt, vet, test, build
 ```
+
+`make build` stages the frontend and expects Node 22 plus npm to be installed. Use `make build-go` when you only need the Go binary and the fallback embedded UI is sufficient.
 
 ## Contributing
 

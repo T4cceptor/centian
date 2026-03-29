@@ -563,6 +563,9 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
     }
 
     const exchange = createSingletonExchange(event);
+    if (!hasRenderableExchangeEvent(exchange)) {
+      continue;
+    }
     const requestId = getExchangeRequestID(event);
     if (!requestId) {
       rawItems.push({
@@ -656,10 +659,21 @@ function createSingletonExchange(event: TaskRunEvent): TimelineExchange {
     };
   }
 
-  return {
-    requestId,
-    response: event,
-  };
+  if (isResponseAction(event)) {
+    return {
+      requestId,
+      response: event,
+    };
+  }
+
+  return { requestId };
+}
+
+function hasRenderableExchangeEvent(
+  exchange: TimelineExchange,
+): exchange is TimelineExchange &
+  ({ request: TaskRunEvent; response?: TaskRunEvent } | { request?: TaskRunEvent; response: TaskRunEvent }) {
+  return exchange.request != null || exchange.response != null;
 }
 
 // Detects request-direction action events across the variants emitted by the backend.
@@ -734,7 +748,13 @@ export function getTimelineAnchorEvent(item: TimelineItem): TaskRunEvent {
     return item.task;
   }
 
-  return item.exchange.request ?? item.exchange.response ?? item.exchange.request!;
+  if (item.exchange.request) {
+    return item.exchange.request;
+  }
+  if (item.exchange.response) {
+    return item.exchange.response;
+  }
+  throw new Error("timeline exchange is missing both request and response events");
 }
 
 // Maps a normalized timeline item to its visual tone.

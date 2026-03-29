@@ -12,6 +12,7 @@ Centian is exposed to the host on `127.0.0.1:${CENTIAN_TASKVERIFICATION_PORT:-86
 
 - Docker with `docker compose`
 - `OPENAI_API_KEY`
+- Node 22 only if you also run root-level local frontend builds such as `make build`
 
 Optional:
 
@@ -51,6 +52,8 @@ make run-agent-existing
 make run-agent-approval
 make demo-down
 ```
+
+Keep using `make build` for this demo flow so the container image embeds the real frontend assets.
 
 For the explicit end-to-end verification path, the Make targets now call the Go e2e harness instead of shelling the demo flow directly:
 

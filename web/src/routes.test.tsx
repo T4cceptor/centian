@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "./routes";
 import { clearStoredApiAuth } from "./api/api-auth";
+import { getTimelineAnchorEvent, type TimelineItem } from "./ui/task-run-detail-page";
 
 const originalFetch = globalThis.fetch;
 
@@ -551,6 +552,52 @@ describe("task run detail", () => {
     await user.click(screen.getByRole("button", { name: /show event details for create_directory/i }));
     expect(screen.getAllByText("Request")).toHaveLength(2);
     expect(screen.getAllByText("Response")).toHaveLength(2);
+  });
+
+  it("skips malformed action events that cannot form a renderable exchange", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            requestId: "req_1742947201123_0000000002",
+            toolName: "unknown_exchange",
+            serverName: "filesystem",
+            payloadJson: { path: "/workspace/project/tmp" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
+    expect(titles).toEqual(["Task Registered"]);
+  });
+
+  it("throws for exchange items without a request or response anchor", () => {
+    const invalidItem: TimelineItem = {
+      id: "invalid",
+      kind: "exchange",
+      exchange: {},
+    };
+
+    expect(() => getTimelineAnchorEvent(invalidItem)).toThrow(
+      "timeline exchange is missing both request and response events",
+    );
   });
 
   it("collapses and re-expands the side inspector", async () => {

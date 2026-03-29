@@ -20,7 +20,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test test-integration test-everything test-realworld test-taskverification test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -28,6 +28,12 @@ help: ## Show this help message
 
 build: web-stage ## Build the MCP proxy binary
 	@echo "Building $(BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
+
+build-go: ## Build the MCP proxy binary without staging the frontend
+	@echo "Building $(BINARY_NAME) without rebuilding the frontend..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
@@ -131,11 +137,21 @@ web-install: ## Install frontend dependencies
 	@echo "Installing frontend dependencies..."
 	cd $(WEB_DIR) && npm install
 
-web-dev: ## Run the frontend dev server
+ensure-web-tooling:
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "Error: Node.js is required for frontend-backed builds. Install Node 22 or use 'make build-go'."; \
+		exit 1; \
+	fi
+	@if ! command -v npm >/dev/null 2>&1; then \
+		echo "Error: npm is required for frontend-backed builds. Install Node 22 or use 'make build-go'."; \
+		exit 1; \
+	fi
+
+web-dev: ensure-web-tooling ## Run the frontend dev server
 	@echo "Starting frontend dev server..."
 	cd $(WEB_DIR) && npm run dev
 
-web-build: ## Build the frontend app
+web-build: ensure-web-tooling ## Build the frontend app
 	@echo "Building frontend app..."
 	cd $(WEB_DIR) && npm run build
 
@@ -145,11 +161,11 @@ web-stage: web-build ## Stage frontend assets for Go embedding
 	@find $(UI_DIST_DIR) -mindepth 1 ! -name '.keep' -exec rm -rf {} +
 	@cp -R $(WEB_DIR)/dist/. $(UI_DIST_DIR)/
 
-web-test: ## Run frontend tests
+web-test: ensure-web-tooling ## Run frontend tests
 	@echo "Running frontend tests..."
 	cd $(WEB_DIR) && npm test
 
-web-preview: ## Preview the built frontend app
+web-preview: ensure-web-tooling ## Preview the built frontend app
 	@echo "Previewing frontend app..."
 	cd $(WEB_DIR) && npm run preview
 

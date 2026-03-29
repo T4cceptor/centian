@@ -132,6 +132,8 @@ The frontend routes are:
 - `/ui/tasks`
 - `/ui/tasks/:runID`
 
+CI, release, and container builds stage the full frontend before embedding it. Local `make build-go` builds can still serve the fallback embedded UI without rebuilding the frontend.
+
 ## Capability Overview
 
 Taskverification currently spans three separate capability areas in Centian config:
