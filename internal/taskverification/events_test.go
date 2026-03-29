@@ -34,7 +34,8 @@ func TestRecordTaskEventAddsRunStatusToPayload(t *testing.T) {
 
 	// Then: the persisted payload includes the current run status.
 	assert.NilError(t, err)
-	events := store.TaskEvents()
+	events, err := store.TaskEvents()
+	assert.NilError(t, err)
 	assert.Equal(t, len(events), 1)
 
 	var payload map[string]any

@@ -3,6 +3,7 @@ package taskverification
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -131,5 +132,53 @@ func TestEvaluateFileNotContainsCondition_ValidString(t *testing.T) {
 	// Then: no error is returned
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestEvaluateFileExistsRejectsAbsolutePath(t *testing.T) {
+	tmpDir := t.TempDir()
+	absolutePath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(absolutePath, []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := evaluateFileExists(absolutePath, tmpDir)
+
+	if err == nil || !strings.Contains(err.Error(), "must be relative") {
+		t.Fatalf("expected absolute path rejection, got %v", err)
+	}
+}
+
+func TestEvaluateFileContainsRejectsTraversalOutsideWorkingDirectory(t *testing.T) {
+	rootDir := t.TempDir()
+	parentDir := filepath.Dir(rootDir)
+	outsideName := "outside.txt"
+	outsidePath := filepath.Join(parentDir, outsideName)
+	if err := os.WriteFile(outsidePath, []byte("content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(outsidePath)
+
+	err := evaluateFileContains(filepath.Join("..", outsideName), "content", rootDir)
+
+	if err == nil || !strings.Contains(err.Error(), "escapes the working directory") {
+		t.Fatalf("expected traversal rejection, got %v", err)
+	}
+}
+
+func TestEvaluateFileContainsAllowsNestedCleanedInRootPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	nestedDir := filepath.Join(tmpDir, "nested")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "test.txt"), []byte("file content here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := evaluateFileContains(filepath.Join("nested", "..", "nested", "test.txt"), "content", tmpDir)
+
+	if err != nil {
+		t.Fatalf("expected cleaned in-root path to succeed, got %v", err)
 	}
 }

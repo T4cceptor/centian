@@ -582,10 +582,10 @@ ORDER BY created_at_unix_milli ASC, id ASC
 }
 
 // TaskEvents returns all persisted task lifecycle events ordered by timestamp.
-func (s *Store) TaskEvents() []taskverification.TaskEvent {
+func (s *Store) TaskEvents() ([]taskverification.TaskEvent, error) {
 	rows := make([]taskEventRow, 0)
 	if err := s.db.NewSelect().Model(&rows).Order("created_at_unix_milli ASC").Scan(context.Background()); err != nil {
-		return nil
+		return nil, err
 	}
 	events := make([]taskverification.TaskEvent, 0, len(rows))
 	for idx := range rows {
@@ -608,14 +608,14 @@ func (s *Store) TaskEvents() []taskverification.TaskEvent {
 			Payload:                row.PayloadJSON,
 		})
 	}
-	return events
+	return events, nil
 }
 
 // ActionEventTaskContexts returns all persisted action-to-task bridge rows ordered by timestamp.
-func (s *Store) ActionEventTaskContexts() []taskverification.ActionEventTaskContext {
+func (s *Store) ActionEventTaskContexts() ([]taskverification.ActionEventTaskContext, error) {
 	rows := make([]actionEventTaskContextRow, 0)
 	if err := s.db.NewSelect().Model(&rows).Order("created_at_unix_milli ASC").Scan(context.Background()); err != nil {
-		return nil
+		return nil, err
 	}
 	result := make([]taskverification.ActionEventTaskContext, 0, len(rows))
 	for idx := range rows {
@@ -628,43 +628,43 @@ func (s *Store) ActionEventTaskContexts() []taskverification.ActionEventTaskCont
 			CreatedAtUnixMilli:  row.CreatedAtUnixMilli,
 		})
 	}
-	return result
+	return result, nil
 }
 
 // ActionEvents returns all persisted action events ordered by timestamp.
-func (s *Store) ActionEvents() []ActionEventRecord {
+func (s *Store) ActionEvents() ([]ActionEventRecord, error) {
 	rows := make([]ActionEventRecord, 0)
 	if err := s.db.NewSelect().Model(&rows).Order("created_at_unix_milli ASC").Scan(context.Background()); err != nil {
-		return nil
+		return nil, err
 	}
-	return rows
+	return rows, nil
 }
 
 // ActionEventsByRequestID returns all persisted action events for a request id.
-func (s *Store) ActionEventsByRequestID(requestID string) []ActionEventRecord {
+func (s *Store) ActionEventsByRequestID(requestID string) ([]ActionEventRecord, error) {
 	rows := make([]ActionEventRecord, 0)
 	if err := s.db.NewSelect().Model(&rows).Where("request_id = ?", requestID).Order("created_at_unix_milli ASC").Scan(context.Background()); err != nil {
-		return nil
+		return nil, err
 	}
-	return rows
+	return rows, nil
 }
 
 // ActionEventRowsByTaskRunID returns bridge rows for one task run.
-func (s *Store) ActionEventRowsByTaskRunID(taskRunID string) []actionEventTaskContextRow {
+func (s *Store) ActionEventRowsByTaskRunID(taskRunID string) ([]actionEventTaskContextRow, error) {
 	rows := make([]actionEventTaskContextRow, 0)
 	if err := s.db.NewSelect().Model(&rows).Where("task_run_id = ?", taskRunID).Order("created_at_unix_milli ASC").Scan(context.Background()); err != nil {
-		return nil
+		return nil, err
 	}
-	return rows
+	return rows, nil
 }
 
 // TaskEventRowsByTaskRunID returns lifecycle rows for one task run.
-func (s *Store) TaskEventRowsByTaskRunID(taskRunID string) []taskEventRow {
+func (s *Store) TaskEventRowsByTaskRunID(taskRunID string) ([]taskEventRow, error) {
 	rows := make([]taskEventRow, 0)
 	if err := s.db.NewSelect().Model(&rows).Where("task_run_id = ?", taskRunID).Order("created_at_unix_milli ASC").Scan(context.Background()); err != nil {
-		return nil
+		return nil, err
 	}
-	return rows
+	return rows, nil
 }
 
 // DB exposes the Bun DB handle for focused tests.

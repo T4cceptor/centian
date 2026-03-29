@@ -434,7 +434,8 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	events := endpoint.server.TaskVerification.TaskEvents()
+	events, err := endpoint.server.TaskVerification.TaskEvents()
+	assert.NilError(t, err)
 	assert.Equal(t, len(events), 7)
 	assert.DeepEqual(t, []taskverification.TaskEventType{
 		events[0].EventType,
@@ -528,7 +529,8 @@ workflow:
 	})
 	assert.NilError(t, err)
 
-	events := endpoint.server.TaskVerification.TaskEvents()
+	events, err := endpoint.server.TaskVerification.TaskEvents()
+	assert.NilError(t, err)
 	assert.Equal(t, events[len(events)-2].EventType, taskverification.TaskEventTypePlanningCompleted)
 	assert.Equal(t, events[len(events)-1].EventType, taskverification.TaskEventTypeApprovalWaitEntered)
 	assert.Equal(t, events[len(events)-1].PhasePath, taskverification.TaskPhasePlanning)
@@ -564,7 +566,8 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
+	contexts, err := endpoint.server.TaskVerification.ActionEventTaskContexts()
+	assert.NilError(t, err)
 	assert.Equal(t, len(contexts), 3)
 	assert.Equal(t, contexts[0].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
 	assert.Equal(t, contexts[1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
@@ -591,7 +594,9 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 	assert.Assert(t, preRegisterResult.IsError)
 	preRegisterStructured := preRegisterResult.StructuredContent.(map[string]any)
 	assert.Equal(t, preRegisterStructured["reason"], governanceDeniedRegistrationNeeded)
-	assert.Equal(t, len(endpoint.server.TaskVerification.ActionEventTaskContexts()), 0)
+	contexts, err := endpoint.server.TaskVerification.ActionEventTaskContexts()
+	assert.NilError(t, err)
+	assert.Equal(t, len(contexts), 0)
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskRegisterTool,
@@ -601,7 +606,9 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 		},
 	})
 	assert.NilError(t, err)
-	before := len(endpoint.server.TaskVerification.ActionEventTaskContexts())
+	contexts, err = endpoint.server.TaskVerification.ActionEventTaskContexts()
+	assert.NilError(t, err)
+	before := len(contexts)
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "shell__exec",
@@ -609,7 +616,8 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 	})
 	assert.NilError(t, err)
 
-	contexts := endpoint.server.TaskVerification.ActionEventTaskContexts()
+	contexts, err = endpoint.server.TaskVerification.ActionEventTaskContexts()
+	assert.NilError(t, err)
 	assert.Equal(t, len(contexts), before+1)
 	assert.Equal(t, contexts[len(contexts)-1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
 }
@@ -638,18 +646,21 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	actionEvents := store.ActionEvents()
+	actionEvents, err := store.ActionEvents()
+	assert.NilError(t, err)
 	assert.Assert(t, len(actionEvents) >= 3)
 	assert.Equal(t, actionEvents[0].ToolName, taskListTemplatesTool)
 	assert.Equal(t, actionEvents[1].ToolName, taskRegisterTool)
 	assert.Equal(t, actionEvents[1].PrincipalID, "principal-1")
 
-	taskEvents := store.TaskEvents()
+	taskEvents, err := store.TaskEvents()
+	assert.NilError(t, err)
 	assert.Equal(t, len(taskEvents), 2)
 	assert.Equal(t, taskEvents[0].EventType, taskverification.TaskEventTypeRegistered)
 	assert.Equal(t, taskEvents[1].EventType, taskverification.TaskEventTypeOnboardingCompleted)
 
-	contexts := store.ActionEventTaskContexts()
+	contexts, err := store.ActionEventTaskContexts()
+	assert.NilError(t, err)
 	assert.Equal(t, len(contexts), 2)
 	assert.Equal(t, contexts[0].RequestID, actionEvents[1].RequestID)
 	assert.Equal(t, contexts[0].TaskRunID, taskEvents[0].TaskRunID)
@@ -677,7 +688,8 @@ func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	actionEvents := store.ActionEvents()
+	actionEvents, err := store.ActionEvents()
+	assert.NilError(t, err)
 	assert.Assert(t, len(actionEvents) >= 1)
 	foundShell := false
 	knownRequestIDs := make(map[string]struct{}, len(actionEvents))
@@ -691,7 +703,8 @@ func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 	}
 	assert.Assert(t, foundShell)
 
-	contexts := store.ActionEventTaskContexts()
+	contexts, err := store.ActionEventTaskContexts()
+	assert.NilError(t, err)
 	assert.Assert(t, len(contexts) >= 2)
 	_, exists := knownRequestIDs[contexts[len(contexts)-1].RequestID]
 	assert.Assert(t, exists)

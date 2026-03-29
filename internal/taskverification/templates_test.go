@@ -394,6 +394,13 @@ workflow:
 	assert.ErrorContains(t, err, `planning.selectedFiles contains duplicate value "a.go"`)
 }
 
+func TestValidatePlanningOutput_RequiresScalarFields(t *testing.T) {
+	for _, output := range []string{"testTarget", "lintCommand", "expectedFailure", "implementationTarget"} {
+		err := validatePlanningOutput(output, &PlanningArtifact{})
+		assert.ErrorContains(t, err, "planning."+output+" is required")
+	}
+}
+
 func TestPlanningCanAdvanceToConfiguredWaitingNode(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"

@@ -781,10 +781,7 @@ func validatePlanningOutput(output string, artifact *PlanningArtifact) error {
 			return fmt.Errorf("planning.invariants is required")
 		}
 		return nil
-	case "testTarget":
-	case "lintCommand":
-	case "expectedFailure":
-	case "implementationTarget":
+	case "testTarget", "lintCommand", "expectedFailure", "implementationTarget":
 		return validateNonEmptyPlanningField(output, planningFieldValue(output, artifact))
 	}
 	return nil

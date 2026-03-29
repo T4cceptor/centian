@@ -3,6 +3,7 @@ package taskverification
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -171,7 +172,10 @@ func evaluateStdoutNotContains(unexpected, stdout string) error {
 }
 
 func evaluateFileExists(path, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
+	resolvedPath, err := resolveConditionPath(workingDir, path)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(resolvedPath); err != nil {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("expected file %q to exist", path)
@@ -182,7 +186,10 @@ func evaluateFileExists(path, workingDir string) error {
 }
 
 func evaluateFileNotExists(path, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
+	resolvedPath, err := resolveConditionPath(workingDir, path)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(resolvedPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -193,7 +200,10 @@ func evaluateFileNotExists(path, workingDir string) error {
 }
 
 func evaluateFileContains(path, expected, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
+	resolvedPath, err := resolveConditionPath(workingDir, path)
+	if err != nil {
+		return err
+	}
 	// #nosec G304 -- task verification intentionally reads template-defined files relative to the working directory.
 	content, err := os.ReadFile(resolvedPath)
 	if err != nil {
@@ -206,7 +216,10 @@ func evaluateFileContains(path, expected, workingDir string) error {
 }
 
 func evaluateFileNotContains(path, unexpected, workingDir string) error {
-	resolvedPath := resolvePath(workingDir, path)
+	resolvedPath, err := resolveConditionPath(workingDir, path)
+	if err != nil {
+		return err
+	}
 	// #nosec G304 -- task verification intentionally reads template-defined files relative to the working directory.
 	content, err := os.ReadFile(resolvedPath)
 	if err != nil {
@@ -216,4 +229,27 @@ func evaluateFileNotContains(path, unexpected, workingDir string) error {
 		return fmt.Errorf("expected file %q not to contain %q", path, unexpected)
 	}
 	return nil
+}
+
+func resolveConditionPath(workingDir, candidate string) (string, error) {
+	if strings.TrimSpace(workingDir) == "" {
+		return "", fmt.Errorf("working directory is required")
+	}
+	if filepath.IsAbs(candidate) {
+		return "", fmt.Errorf("path %q must be relative to the working directory", candidate)
+	}
+
+	baseDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve working directory: %w", err)
+	}
+	resolvedPath := filepath.Join(baseDir, filepath.Clean(candidate))
+	relativePath, err := filepath.Rel(baseDir, resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve file %q: %w", candidate, err)
+	}
+	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes the working directory", candidate)
+	}
+	return resolvedPath, nil
 }

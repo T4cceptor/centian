@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
@@ -483,13 +482,6 @@ func evaluateConditions(conditions []Condition, result *commandResult, workingDi
 		}
 	}
 	return nil
-}
-
-func resolvePath(workingDir, path string) string {
-	if filepath.IsAbs(path) {
-		return path
-	}
-	return filepath.Join(workingDir, path)
 }
 
 func intFromValue(value any) (int, error) {

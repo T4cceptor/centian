@@ -12,8 +12,8 @@ import (
 type EventStore interface {
 	AppendTaskEvent(*TaskEvent) error
 	AppendActionEventTaskContext(ActionEventTaskContext) error
-	TaskEvents() []TaskEvent
-	ActionEventTaskContexts() []ActionEventTaskContext
+	TaskEvents() ([]TaskEvent, error)
+	ActionEventTaskContexts() ([]ActionEventTaskContext, error)
 }
 
 // InMemoryEventStore stores task events in memory for the current process.
@@ -51,17 +51,17 @@ func (s *InMemoryEventStore) AppendActionEventTaskContext(ctx ActionEventTaskCon
 }
 
 // TaskEvents returns a copy of all stored lifecycle events.
-func (s *InMemoryEventStore) TaskEvents() []TaskEvent {
+func (s *InMemoryEventStore) TaskEvents() ([]TaskEvent, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]TaskEvent(nil), s.taskEvents...)
+	return append([]TaskEvent(nil), s.taskEvents...), nil
 }
 
 // ActionEventTaskContexts returns a copy of all stored action-to-task links.
-func (s *InMemoryEventStore) ActionEventTaskContexts() []ActionEventTaskContext {
+func (s *InMemoryEventStore) ActionEventTaskContexts() ([]ActionEventTaskContext, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]ActionEventTaskContext(nil), s.actionTaskContexts...)
+	return append([]ActionEventTaskContext(nil), s.actionTaskContexts...), nil
 }
 
 func newTaskRunID() string {
@@ -166,17 +166,17 @@ func (s *Service) RecordActionEventTaskContextForRunID(runID, requestID string, 
 }
 
 // TaskEvents returns the currently recorded task lifecycle events.
-func (s *Service) TaskEvents() []TaskEvent {
+func (s *Service) TaskEvents() ([]TaskEvent, error) {
 	if s == nil || s.EventStore == nil {
-		return nil
+		return nil, nil
 	}
 	return s.EventStore.TaskEvents()
 }
 
 // ActionEventTaskContexts returns the currently recorded action-to-task links.
-func (s *Service) ActionEventTaskContexts() []ActionEventTaskContext {
+func (s *Service) ActionEventTaskContexts() ([]ActionEventTaskContext, error) {
 	if s == nil || s.EventStore == nil {
-		return nil
+		return nil, nil
 	}
 	return s.EventStore.ActionEventTaskContexts()
 }

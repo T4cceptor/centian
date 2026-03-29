@@ -98,18 +98,21 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 	err = store.AppendActionEvent(responseEntry)
 	assert.NilError(t, err)
 
-	taskEvents := store.TaskEventRowsByTaskRunID("run-1")
+	taskEvents, err := store.TaskEventRowsByTaskRunID("run-1")
+	assert.NilError(t, err)
 	assert.Equal(t, len(taskEvents), 1)
 	assert.Equal(t, taskEvents[0].PrincipalID, "principal-1")
 	assert.Equal(t, taskEvents[0].ResultingPhasePath, "execution.step_one")
 	assert.Equal(t, taskEvents[0].ResultingNodeKind, string(taskverification.WorkflowNodeKindExecution))
 
-	contexts := store.ActionEventRowsByTaskRunID("run-1")
+	contexts, err := store.ActionEventRowsByTaskRunID("run-1")
+	assert.NilError(t, err)
 	assert.Equal(t, len(contexts), 1)
 	assert.Equal(t, contexts[0].RequestID, "action-1")
 	assert.Equal(t, contexts[0].InvocationPhasePath, string(taskverification.TaskPhasePlanning))
 
-	actionEvents := store.ActionEventsByRequestID("action-1")
+	actionEvents, err := store.ActionEventsByRequestID("action-1")
+	assert.NilError(t, err)
 	assert.Equal(t, len(actionEvents), 2)
 	assert.Equal(t, actionEvents[0].ToolName, "shell__exec")
 	assert.Equal(t, actionEvents[0].PrincipalID, "principal-1")
@@ -184,6 +187,30 @@ func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) 
 	err = db.QueryRow(`SELECT COUNT(*) FROM action_events`).Scan(&count)
 	assert.NilError(t, err)
 	assert.Equal(t, count, 0)
+}
+
+func TestStoreReadMethodsReturnErrorsWhenDatabaseIsClosed(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	assert.NilError(t, store.Close())
+
+	_, err = store.TaskEvents()
+	assert.Assert(t, err != nil)
+
+	_, err = store.ActionEventTaskContexts()
+	assert.Assert(t, err != nil)
+
+	_, err = store.ActionEvents()
+	assert.Assert(t, err != nil)
+
+	_, err = store.ActionEventsByRequestID("request-1")
+	assert.Assert(t, err != nil)
+
+	_, err = store.ActionEventRowsByTaskRunID("run-1")
+	assert.Assert(t, err != nil)
+
+	_, err = store.TaskEventRowsByTaskRunID("run-1")
+	assert.Assert(t, err != nil)
 }
 
 func TestListTaskRunsAggregatesSummaries(t *testing.T) {
