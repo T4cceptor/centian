@@ -3,6 +3,8 @@ BINARY_NAME=centian
 BUILD_DIR=build
 MAIN_PATH=./cmd/main.go
 LOG_DIR=$(HOME)/.centian/logs
+WEB_DIR=web
+UI_DIST_DIR=internal/ui/dist
 
 # Release bump (defaults to patch, can be set via `make release minor`)
 BUMP ?= patch
@@ -18,19 +20,25 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build clean test test-integration test-everything test-realworld test-all test-coverage test-coverage-html lint fmt vet tidy run dev check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s", $$1, $$2}'
 
-build: ## Build the MCP proxy binary
+build: web-stage ## Build the MCP proxy binary
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
 
-clean: ## Clean build artifacts
+build-go: ## Build the MCP proxy binary without staging the frontend
+	@echo "Building $(BINARY_NAME) without rebuilding the frontend..."
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
+
+clean: web-clean ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
 	@rm -rf $(BUILD_DIR)
 	@rm -f $(BINARY_NAME)
@@ -67,6 +75,16 @@ test-realworld: ## Run opt-in real-world MCP integration tests
 		echo "Note: gotestsum not found, using default go test output"; \
 		echo "Install with: go install gotest.tools/gotestsum@latest"; \
 		CENTIAN_RUN_REALWORLD_INTEGRATION=1 GOCACHE=/tmp/go-build go test -v ./tests/integrationtests/realworld/...; \
+	fi
+
+test-taskverification: ## Run opt-in Docker task verification integration test
+	@echo "Running Docker task verification integration test..."
+	@if command -v gotestsum >/dev/null 2>&1; then \
+		CENTIAN_RUN_TASKVERIFICATION_INTEGRATION=1 GOCACHE=/tmp/go-build gotestsum --format testname -- ./demo/taskverification; \
+	else \
+		echo "Note: gotestsum not found, using default go test output"; \
+		echo "Install with: go install gotest.tools/gotestsum@latest"; \
+		CENTIAN_RUN_TASKVERIFICATION_INTEGRATION=1 GOCACHE=/tmp/go-build go test -v ./demo/taskverification; \
 	fi
 
 test-all: test test-integration ## Run all tests (unit + integration)
@@ -114,6 +132,52 @@ start: build ## Build and start the MCP proxy server
 	./$(BUILD_DIR)/$(BINARY_NAME) start
 
 dev: clean fmt vet test-all build ## Run full development workflow (includes integration tests)
+
+web-install: ## Install frontend dependencies
+	@echo "Installing frontend dependencies..."
+	cd $(WEB_DIR) && npm install
+
+ensure-web-tooling:
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "Error: Node.js is required for frontend-backed builds. Install Node 22 or use 'make build-go'."; \
+		exit 1; \
+	fi
+	@if ! command -v npm >/dev/null 2>&1; then \
+		echo "Error: npm is required for frontend-backed builds. Install Node 22 or use 'make build-go'."; \
+		exit 1; \
+	fi
+
+web-dev: ensure-web-tooling ## Run the frontend dev server
+	@echo "Starting frontend dev server..."
+	cd $(WEB_DIR) && npm run dev
+
+web-build: ensure-web-tooling ## Build the frontend app
+	@echo "Building frontend app..."
+	cd $(WEB_DIR) && npm run build
+
+web-stage: web-build ## Stage frontend assets for Go embedding
+	@echo "Staging frontend assets for embedding..."
+	@mkdir -p $(UI_DIST_DIR)
+	@find $(UI_DIST_DIR) -mindepth 1 ! -name '.keep' -exec rm -rf {} +
+	@cp -R $(WEB_DIR)/dist/. $(UI_DIST_DIR)/
+
+web-test: ensure-web-tooling ## Run frontend tests
+	@echo "Running frontend tests..."
+	cd $(WEB_DIR) && npm test
+
+web-preview: ensure-web-tooling ## Preview the built frontend app
+	@echo "Previewing frontend app..."
+	cd $(WEB_DIR) && npm run preview
+
+web-clean: ## Clean frontend build and generated config artifacts
+	@echo "Cleaning frontend artifacts..."
+	@rm -rf $(WEB_DIR)/dist
+	@rm -rf $(WEB_DIR)/coverage
+	@rm -f $(WEB_DIR)/*.tsbuildinfo
+	@rm -f $(WEB_DIR)/*.js
+	@rm -f $(WEB_DIR)/*.d.ts
+	@mkdir -p $(UI_DIST_DIR)
+	@find $(UI_DIST_DIR) -mindepth 1 ! -name '.keep' -exec rm -rf {} +
 
 install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."

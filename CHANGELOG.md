@@ -2,6 +2,59 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.0 - 2026-03-29
+
+### Major
+- Added taskverification as an opt-in workflow-driven task runtime on top of Centian's MCP proxy surface, including the `centian.task_*` lifecycle tools for registration, onboarding, planning, execution, restart, and explicit failure handling.
+- Added persisted task-run observability with a SQLite-backed event store, a read-only task-run API (`GET /api/task-runs` and `GET /api/task-runs/{runID}/events`), and an embedded UI under `/ui/tasks` and `/ui/tasks/:runID`.
+- Added workflow-path and node-kind based task execution with planning contracts, step checks, invariants, approval-wait nodes, and downstream tool governance tied to the active workflow node.
+- Added the `demo/taskverification` Docker-based demo flow with sample templates, persisted timelines, approval-wait coverage, and headless agent/e2e scenarios for manual and automated validation.
+
+### Minor
+- Added comprehensive documentation for taskverification enablement, capability boundaries, run inspection, current gaps, and recommended usage in `docs/TASKVERIFICATION.md`, plus README updates for opt-in usage and UI-integrated builds.
+- Added frontend build and embedding support across CI, release binaries, and Docker images, including the `make build-go` fallback path for local Go-only builds when rebuilding the frontend is unnecessary.
+- Expanded test coverage across the taskverification runtime, proxy integration, persistence store, API handlers, embedded UI, build paths, and demo/e2e flows.
+- Hardened the release path for the integrated UI by aligning Docker and release builds on frontend staging before Go compilation and by documenting the `v0.2.0` release readiness checks in this changelog.
+
+### Bugfixes
+- Protected the task-run API with the existing API-key model while keeping the embedded UI shell reachable and adding a minimal browser-side API-key retry flow for protected API fetches.
+- Replaced destructive event-store schema reset behavior with fail-closed schema mismatch handling that preserves existing data until an explicit migration is available.
+- Fixed race-prone task-run bookkeeping by switching tool-call event/context recording to lock-safe run snapshots instead of reading mutable run state after unlock.
+- Fixed planning-output validation so all required scalar planning fields are actually enforced before execution can proceed.
+- Fixed file-based taskverification conditions to reject absolute paths and path traversal outside the task working directory.
+- Fixed persistence read helpers to return explicit errors instead of silently returning empty result sets on database failures.
+- Fixed timeline normalization and detail selection in the embedded UI so malformed exchange rows are skipped instead of causing invalid anchor dereferences.
+- Fixed build and release flows to always embed a valid frontend artifact, while preserving a documented Go-only fallback build path for local development.
+
+### Known limitations
+- Mutable task run state is in-memory only and is not durably restorable yet.
+- The embedded UI is read-only and does not perform task control actions.
+- SQLite is the only implemented event storage backend.
+- Task templates are filesystem-based and must be present on disk.
+- Approval waits can block execution, but there is no dedicated approve/resume tool yet.
+
+### Release readiness
+Release-path audit for `v0.2.0`:
+- Root `Dockerfile` builds the frontend with `npm ci` and `npm run build`.
+- Root `Dockerfile` copies `web/dist` into `internal/ui/dist` before the Go build.
+- `.github/workflows/release.yml` installs frontend dependencies, stages frontend assets, and only then performs cross-platform Go builds.
+- Release archives still package the binary together with `README.md` and `LICENSE`.
+- `scripts/install.sh` still matches the existing release archive naming convention.
+
+Pre-tag validation for `v0.2.0`:
+- `make build`
+- `make build-go`
+- current CI green
+- one manual taskverification agent run succeeds end-to-end
+- one manual `/ui/tasks` inspection path works against persisted runs
+
+Post-tag validation for `v0.2.0`:
+- GitHub release exists for `v0.2.0`
+- expected archives are uploaded
+- `checksums.txt` is uploaded
+- published release notes reflect this `v0.2.0` changelog entry
+- installer can resolve the release assets using the existing naming convention
+
 ## v0.1.0 - 2026-03-20
 
 ### Major

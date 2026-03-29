@@ -227,6 +227,7 @@ func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downs
 	t.Helper()
 
 	authDisabled := false
+	testToolsEnabled := false
 	port := allocateFreePort(t)
 
 	globalConfig := &config.GlobalConfig{
@@ -234,10 +235,14 @@ func startCentianProxyForRealworld(t *testing.T, manifest *serverManifest, downs
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
 		Proxy: &config.ProxySettings{
-			Host:            "127.0.0.1",
-			Port:            port,
-			Timeout:         int(defaultSessionTimeout.Seconds()),
-			EnableTestTools: false,
+			Host:    "127.0.0.1",
+			Port:    port,
+			Timeout: int(defaultSessionTimeout.Seconds()),
+			Capabilities: &config.CapabilitiesSettings{
+				TestTools: &config.TestToolsCapabilitySettings{
+					Enabled: &testToolsEnabled,
+				},
+			},
 		},
 		Gateways: map[string]*config.GatewayConfig{
 			manifest.GatewayID: {

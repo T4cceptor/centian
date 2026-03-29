@@ -31,6 +31,12 @@ func TestConfigLifecycle(t *testing.T) {
 	if config != nil && config.Proxy == nil {
 		t.Fatal("Expected proxy settings to be initialized")
 	}
+	if config != nil && config.Proxy != nil && config.Proxy.Capabilities == nil {
+		t.Fatal("Expected proxy capabilities to be initialized")
+	}
+	if config != nil && config.Proxy != nil && config.Proxy.Capabilities != nil && config.Proxy.Capabilities.EventStorage == nil {
+		t.Fatal("Expected default event storage capability to be initialized")
+	}
 	if config != nil && config.Processors == nil {
 		t.Fatal("Expected processors to be initialized")
 	}

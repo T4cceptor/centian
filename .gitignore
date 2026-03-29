@@ -12,6 +12,7 @@
 *.out
 *.cover
 *.coverprofile
+*.tsbuildinfo
 coverage.html
 coverage.xml
 profile.cov
@@ -26,6 +27,7 @@ dist/
 bin/
 *.tar.gz
 *.zip
+coverage/
 
 # Environment files
 .env
@@ -34,6 +36,16 @@ bin/
 
 # Dependency directories
 vendor/
+node_modules/
+
+# Generated frontend config artifacts
+web/vite.config.js
+web/vite.config.d.ts
+web/vitest.config.js
+web/vitest.config.d.ts
+!internal/ui/dist/
+internal/ui/dist/*
+!internal/ui/dist/.keep
 
 # OS generated files
 .DS_Store
@@ -74,3 +86,6 @@ centian
 
 # Local-only test files (may contain credentials or environment-specific configs)
 *.local.go
+
+# local sqlite
+*.sqlite

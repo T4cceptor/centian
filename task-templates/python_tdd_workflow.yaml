@@ -1,0 +1,143 @@
+version: "0.1"
+task:
+  id: "python_tdd_workflow"
+  name: "Python TDD Workflow"
+  description: "Use Centian to drive a Python TDD loop with explicit scaffolding, a failing-test step, and an implementation step."
+  instructions: |
+    Use Centian task verification as the authoritative process for this task.
+
+    Expectations:
+    - Register the task before using any project-access MCP tool, then follow the step boundaries in order.
+    - Prefer `centian.task_start_step` and `centian.task_complete_step` over manually rebuilding the full validation flow.
+    - Treat `centian.task_complete_step` as the source of truth for whether a step passes.
+    - Use the scaffolding phase for additive setup, then use execution for baseline verification and implementation.
+    - Use shell and filesystem tools only to gather focused context, derive parameters, and make targeted edits.
+    - If a step fails, use the Centian failure message to decide the next fix.
+    - Once the implementation step has started, keep the selected test file stable.
+parameters:
+  - name: "testCommand"
+    description: "The command prefix used to run the selected pytest target, for example `python -m pytest -q`."
+  - name: "testTarget"
+    description: "The pytest target to execute. This can be a file path or a selector such as `tests/test_x.py::test_case`."
+  - name: "testFile"
+    description: "The concrete path to the pytest file used for invariants, for example `tests/test_x.py`."
+  - name: "testName"
+    description: "The pytest function name that scaffolding should create inside the selected test file."
+  - name: "lintCommand"
+    description: "The command used to run linting for the project."
+  - name: "expectedError"
+    description: "A stable substring expected in the failing test output for the initial TDD baseline."
+  - name: "implementationTarget"
+    description: "The concrete implementation file path that scaffolding and execution will operate on."
+workflow:
+  onboarding:
+    instructions: |
+      Identify the concrete pytest target, relevant source files, and project commands before planning.
+    tools_allowed:
+      - "shell__*"
+      - "filesystem__*"
+  planning:
+    tools_allowed:
+      - "shell__*"
+      - "filesystem__*"
+    editable_fields:
+      - "parameters.testCommand"
+      - "parameters.testTarget"
+      - "parameters.testFile"
+      - "parameters.testName"
+      - "parameters.lintCommand"
+      - "parameters.expectedError"
+      - "parameters.implementationTarget"
+    required_outputs:
+      - "selectedFiles"
+      - "testTarget"
+      - "lintCommand"
+      - "expectedFailure"
+      - "implementationTarget"
+  scaffolding:
+    - id: "setup_test_file"
+      name: "Setup test file"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Create the planned test file as a new artifact. Keep this step additive.
+      checks:
+        - id: "test_file_created"
+          command: "printf 'scaffold-test-file'"
+          pre_conditions:
+            - type: file_not_exists
+              path: "${testFile}"
+          post_conditions:
+            - type: file_exists
+              path: "${testFile}"
+    - id: "setup_test_scaffolding"
+      name: "Setup test scaffolding"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Add the planned test scaffold and make sure the implementation target exists. If the implementation file does not exist yet, create a minimal stub that preserves the planned failing baseline.
+      checks:
+        - id: "test_scaffold_created"
+          command: "printf 'scaffold-test-content'"
+          pre_conditions:
+            - type: file_exists
+              path: "${testFile}"
+            - type: file_not_contains
+              path: "${testFile}"
+              value: "${testName}"
+          post_conditions:
+            - type: file_contains
+              path: "${testFile}"
+              value: "${testName}"
+            - type: file_exists
+              path: "${implementationTarget}"
+  execution:
+    - id: "establish_failing_baseline"
+      name: "Establish failing baseline"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Verify the planned test target already fails for the intended reason. No additional file edits should be required in this step.
+        The pass/fail decision for this step comes from `centian.task_complete_step`.
+      checks:
+        - id: "selected_test_fails"
+          command: "cd /workspace/project && ${testCommand} ${testTarget}"
+          pre_conditions:
+            - type: exit_code
+              value: 1
+            - type: stdout_contains
+              value: "${expectedError}"
+          post_conditions:
+            - type: exit_code
+              value: 1
+            - type: stdout_contains
+              value: "${expectedError}"
+    - id: "implement_solution"
+      name: "Implement solution"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Start this step before changing production code.
+        Make the implementation pass the selected test, then let Centian verify the step.
+        Once this step is active, keep the selected test file stable.
+      checks:
+        - id: "selected_test_passes"
+          command: "cd /workspace/project && ${testCommand} ${testTarget}"
+          pre_conditions:
+            - type: exit_code
+              value: 1
+          post_conditions:
+            - type: exit_code
+              value: 0
+        - id: "project_lint_passes"
+          command: "cd /workspace/project && ${lintCommand}"
+          post_conditions:
+            - type: exit_code
+              value: 0
+      invariants:
+        - id: "test_file_stable"
+          command: "cd /workspace/project && cat ${testFile}"

@@ -55,8 +55,22 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
       - name: Get dependencies
         run: go mod download
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Stage frontend assets
+        run: make web-stage
 
       - name: Run all tests (unit + integration)
         run: make test-all

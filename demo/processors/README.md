@@ -7,7 +7,7 @@ This folder provides two local demos with a single Centian config and container:
 
 ## Structure
 
-Run commands from `demo/`.
+Run commands from `demo/processors`.
 
 - `configs/demo_config.json`: Centian config with 2 demo gateways and gateway-level processors.
 - `src/`: Python processors and shared helpers.
@@ -25,7 +25,7 @@ Both gateways are served by the same Centian instance on `localhost:8576`.
 1. Setup, start, and smoke test:
 
 ```bash
-cd demo
+cd demo/processors
 make setup
 make demo-up
 make demo-test
@@ -48,8 +48,7 @@ make demo-test
 
 3. Logging gateway checks:
 
-- `List tools exposed by the MCP server.`
-- `Use logging-demo-db___query and query for all employees data.`
+- Ask your agent to: `Use logging-demo-db___query and query for all employees data.`
 - Inspect traces in Jaeger: `http://localhost:16686`
 
 Expected:
@@ -60,7 +59,7 @@ Expected:
 
 4. Redaction gateway checks:
 
-- `Use modification-demo-db___query and query for all data on table sample_data_1.`
+- Ask your agent to: `Use modification-demo-db___query and query for all data on table sample_data_1.`
 
 Expected redaction behavior:
 

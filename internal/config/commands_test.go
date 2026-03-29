@@ -102,6 +102,37 @@ func TestInitConfig_CreatesDefaultConfig(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, config != nil)
 	assert.Equal(t, "1.0.0", config.Version)
+	assert.Assert(t, config.Proxy != nil)
+	assert.Assert(t, config.Proxy.Capabilities != nil)
+	assert.Assert(t, config.Proxy.Capabilities.TaskVerification != nil)
+	assert.Assert(t, config.Proxy.Capabilities.TaskVerification.Enabled != nil)
+	assert.Equal(t, false, *config.Proxy.Capabilities.TaskVerification.Enabled)
+	assert.Assert(t, config.Proxy.Capabilities.EventStorage != nil)
+	assert.Assert(t, config.Proxy.Capabilities.EventStorage.Enabled != nil)
+	assert.Equal(t, true, *config.Proxy.Capabilities.EventStorage.Enabled)
+	assert.Equal(t, DefaultEventStorageDriver, config.Proxy.Capabilities.EventStorage.Driver)
+	assert.Assert(t, config.Proxy.Capabilities.TestTools != nil)
+	assert.Assert(t, config.Proxy.Capabilities.TestTools.Enabled != nil)
+	assert.Equal(t, false, *config.Proxy.Capabilities.TestTools.Enabled)
+	assert.Assert(t, config.Proxy.Capabilities.UI != nil)
+	assert.Assert(t, config.Proxy.Capabilities.UI.Enabled != nil)
+	assert.Equal(t, false, *config.Proxy.Capabilities.UI.Enabled)
+
+	data, err := os.ReadFile(configPath)
+	assert.NilError(t, err)
+	var raw map[string]any
+	err = json.Unmarshal(data, &raw)
+	assert.NilError(t, err)
+	proxy, ok := raw["proxy"].(map[string]any)
+	assert.Assert(t, ok)
+	_, hasCapabilities := proxy["capabilities"]
+	assert.Assert(t, hasCapabilities)
+	_, hasFeatureFlags := proxy["featureFlags"]
+	assert.Assert(t, !hasFeatureFlags)
+	_, hasTaskTemplatesPath := proxy["taskTemplatesPath"]
+	assert.Assert(t, !hasTaskTemplatesPath)
+	_, hasEventStorage := proxy["eventStorage"]
+	assert.Assert(t, !hasEventStorage)
 }
 
 func TestInitConfig_FailsIfConfigExists(t *testing.T) {

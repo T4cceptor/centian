@@ -1,4 +1,16 @@
-# Stage 1: Build the binary
+# Stage 1: Build the frontend
+FROM node:22-alpine AS web-builder
+
+WORKDIR /src/web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
+
+# Stage 2: Build the binary
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
@@ -7,6 +19,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+COPY --from=web-builder /src/web/dist/. /build/internal/ui/dist/
 
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build \
@@ -15,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     ./cmd/main.go
 
 
-# Stage 2: Alpine image — minimal, binary only
+# Stage 3: Alpine image — minimal, binary only
 # Tagged as: t4cceptor/centian:<version>-alpine
 FROM alpine:3.21 AS alpine
 
@@ -26,7 +39,7 @@ COPY --from=builder /build/centian /usr/local/bin/centian
 ENTRYPOINT ["centian", "start"]
 
 
-# Stage 3: Full image — Python + Node.js included for stdio MCP servers
+# Stage 4: Full image — Python + Node.js included for stdio MCP servers
 # Tagged as: t4cceptor/centian:<version>  (the default)
 FROM python:3.12-slim AS full
 
@@ -38,12 +51,5 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/centian /usr/local/bin/centian
-
-# Bundle demo processors so users only need a config file to run the demo
-COPY demo/requirements.txt /tmp/demo-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/demo-requirements.txt \
-    && rm -f /tmp/demo-requirements.txt
-
-COPY demo/src/ /opt/centian/processors/
 
 ENTRYPOINT ["centian", "start"]
