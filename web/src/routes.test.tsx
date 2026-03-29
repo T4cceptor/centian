@@ -45,7 +45,7 @@ afterEach(() => {
   clearStoredApiAuth();
 });
 
-function ThrowingRoute() {
+function ThrowingRoute(): null {
   throw new Error("render crash");
 }
 
