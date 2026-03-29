@@ -33,28 +33,6 @@ All notable changes to this project will be documented in this file.
 - Task templates are filesystem-based and must be present on disk.
 - Approval waits can block execution, but there is no dedicated approve/resume tool yet.
 
-### Release readiness
-Release-path audit for `v0.2.0`:
-- Root `Dockerfile` builds the frontend with `npm ci` and `npm run build`.
-- Root `Dockerfile` copies `web/dist` into `internal/ui/dist` before the Go build.
-- `.github/workflows/release.yml` installs frontend dependencies, stages frontend assets, and only then performs cross-platform Go builds.
-- Release archives still package the binary together with `README.md` and `LICENSE`.
-- `scripts/install.sh` still matches the existing release archive naming convention.
-
-Pre-tag validation for `v0.2.0`:
-- `make build`
-- `make build-go`
-- current CI green
-- one manual taskverification agent run succeeds end-to-end
-- one manual `/ui/tasks` inspection path works against persisted runs
-
-Post-tag validation for `v0.2.0`:
-- GitHub release exists for `v0.2.0`
-- expected archives are uploaded
-- `checksums.txt` is uploaded
-- published release notes reflect this `v0.2.0` changelog entry
-- installer can resolve the release assets using the existing naming convention
-
 ## v0.1.0 - 2026-03-20
 
 ### Major
