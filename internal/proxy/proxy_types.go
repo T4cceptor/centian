@@ -70,6 +70,9 @@ type UpstreamSession struct {
 
 	taskMu  sync.Mutex
 	taskRun *taskverification.RunState
+
+	taskTimeoutTimer   *time.Timer
+	taskTimeoutVersion uint64
 }
 
 // DownstreamSessionPool owns the reusable downstream connection set for one downstream session key.

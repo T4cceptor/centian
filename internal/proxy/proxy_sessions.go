@@ -437,7 +437,17 @@ func (p *CentianEndpoint) Close() []error {
 		pools = append(pools, pool)
 		delete(p.downstreamPools, key)
 	}
+	sessions := make([]*UpstreamSession, 0, len(p.upstreamSessions))
+	for _, session := range p.upstreamSessions {
+		sessions = append(sessions, session)
+	}
 	p.mu.Unlock()
+
+	for _, session := range sessions {
+		session.taskMu.Lock()
+		p.cancelTaskTimeoutLocked(session)
+		session.taskMu.Unlock()
+	}
 
 	errs := make([]error, 0)
 	for _, pool := range pools {

@@ -14,6 +14,9 @@ const (
 	governanceDeniedNoAllowlist        = "no_allowlist"
 	governanceDeniedNoPatternMatch     = "no_matching_pattern"
 	governanceDeniedRegistrationNeeded = "registration_required"
+	governanceDeniedTaskCompleted      = "task_completed"
+	governanceDeniedTaskFailed         = "task_failed"
+	governanceDeniedTaskTimedOut       = "task_timed_out"
 )
 
 func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSession, callCtx CallContext) (*mcp.CallToolResult, bool) {
@@ -27,28 +30,28 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 	run := session.taskRun
 	if run == nil {
 		if p.server != nil && p.server.Config != nil && p.server.Config.Proxy.TaskVerificationEnabled() {
-			return p.governanceDeniedResult(callCtx, "", "", nil, governanceDeniedRegistrationNeeded), true
+			return p.governanceDeniedResult(callCtx, "", "", "", nil, governanceDeniedRegistrationNeeded), true
 		}
 		return nil, false
 	}
 	if run.Status != taskverification.TaskStatusActive {
-		return nil, false
+		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, governanceReasonForTaskStatus(run.Status)), true
 	}
 
 	node, exists := run.CurrentNode()
 	if !exists {
-		return p.governanceDeniedResult(callCtx, run.Phase, "", nil, "unknown_workflow_node"), true
+		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, "unknown_workflow_node"), true
 	}
 	if node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-		return p.governanceDeniedResult(callCtx, run.Phase, node.Kind, node.AllowedTools, governanceDeniedWaitingForApproval), true
+		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedWaitingForApproval), true
 	}
 	if len(node.AllowedTools) == 0 {
-		return p.governanceDeniedResult(callCtx, run.Phase, node.Kind, node.AllowedTools, governanceDeniedNoAllowlist), true
+		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoAllowlist), true
 	}
 	if matchesAllowedTool(node.AllowedTools, callCtx.GetOriginalToolName(), callCtx.GetToolName()) {
 		return nil, false
 	}
-	return p.governanceDeniedResult(callCtx, run.Phase, node.Kind, node.AllowedTools, governanceDeniedNoPatternMatch), true
+	return p.governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoPatternMatch), true
 }
 
 func matchesAllowedTool(patterns []string, upstreamName, canonicalName string) bool {
@@ -69,6 +72,7 @@ func matchesAllowedTool(patterns []string, upstreamName, canonicalName string) b
 func (p *CentianEndpoint) governanceDeniedResult(
 	callCtx CallContext,
 	phase taskverification.TaskPhase,
+	status taskverification.TaskStatus,
 	nodeKind taskverification.WorkflowNodeKind,
 	allowedTools []string,
 	reason string,
@@ -106,6 +110,7 @@ func (p *CentianEndpoint) governanceDeniedResult(
 		StructuredContent: map[string]any{
 			"error":           message,
 			"requestedTool":   requestedTool,
+			"status":          string(status),
 			"phase":           string(phase),
 			"currentNodeKind": string(nodeKind),
 			"reason":          reason,
@@ -125,4 +130,17 @@ func (p *CentianEndpoint) governanceDeniedResult(
 	}
 
 	return result
+}
+
+func governanceReasonForTaskStatus(status taskverification.TaskStatus) string {
+	switch status {
+	case taskverification.TaskStatusCompleted:
+		return governanceDeniedTaskCompleted
+	case taskverification.TaskStatusFailed:
+		return governanceDeniedTaskFailed
+	case taskverification.TaskStatusTimedOut:
+		return governanceDeniedTaskTimedOut
+	default:
+		return governanceDeniedRegistrationNeeded
+	}
 }

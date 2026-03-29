@@ -19,6 +19,7 @@ const (
 	taskCompletePlanningTool   = "centian.task_complete_planning"
 	taskStartStepTool          = "centian.task_start_step"
 	taskCompleteStepTool       = "centian.task_complete_step"
+	taskResumeTool             = "centian.task_resume"
 	taskRestartTool            = "centian.task_restart"
 	taskFailTool               = "centian.task_fail"
 )
@@ -119,6 +120,16 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 	session.registeredStaticTools[taskCompleteStepTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
+		Name:        taskResumeTool,
+		Description: "Resume a timed-out task verification run without resetting workflow progress.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}, p.wrapTaskToolHandler(session, taskResumeTool, p.handleTaskResumeTool))
+	session.registeredStaticTools[taskResumeTool] = struct{}{}
+
+	server.AddTool(&mcp.Tool{
 		Name:        taskRestartTool,
 		Description: "Restart the active task verification run and clear step state.",
 		InputSchema: map[string]any{
@@ -150,7 +161,11 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 		requestID := getNewUUIDV7()
 		ctx = withTaskActionRequestID(ctx, requestID)
 		session.taskMu.Lock()
+		p.maybeExpireActiveTaskLocked(session, requestID)
 		invocationSnapshot := snapshotTaskRun(session.taskRun)
+		if invocationSnapshot.Status == taskverification.TaskStatusActive {
+			p.cancelTaskTimeoutLocked(session)
+		}
 		session.taskMu.Unlock()
 		var (
 			result *mcp.CallToolResult
@@ -163,7 +178,19 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 		}
 		p.logTaskToolCall(session, requestID, toolName, req, result, err)
 		session.taskMu.Lock()
+		switch {
+		case session.taskRun == nil:
+			p.cancelTaskTimeoutLocked(session)
+		case session.taskRun.Status == taskverification.TaskStatusActive:
+			p.refreshTaskActivityLocked(session)
+		default:
+			p.cancelTaskTimeoutLocked(session)
+			if session.taskRun.Status != taskverification.TaskStatusTimedOut {
+				session.taskRun.ExpiresAt = 0
+			}
+		}
 		currentSnapshot := snapshotTaskRun(session.taskRun)
+		addTaskTimingToToolResult(result, session.taskRun)
 		session.taskMu.Unlock()
 		if currentSnapshot.RunID != "" {
 			invocationPhase := invocationSnapshot.Phase
@@ -530,6 +557,22 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 	return stepToolResult(result, session.taskRun), nil
 }
 
+func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	session.taskMu.Lock()
+	defer session.taskMu.Unlock()
+
+	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
+	if err := p.server.TaskVerification.ResumeTask(session.taskRun); err != nil {
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+			"error": err.Error(),
+		})
+		return nil, err
+	}
+	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
+	return toolResult("Task resumed.", runStructuredContent(session.taskRun)), nil
+}
+
 func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
@@ -651,6 +694,7 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		"lastFailureMessage": run.LastFailureMessage,
 		"explicitFailReason": run.ExplicitFailReason,
 	}
+	addTaskTimingFields(structured, run)
 	addTaskContracts(structured)
 	addCurrentNodeContext(structured, run)
 	addPlanningNodeContext(structured, run)
@@ -753,6 +797,29 @@ func onboardingContract() map[string]any {
 		},
 		"optionalFields": []string{"artifactMap", "commonCommands", "constraints", "openQuestions"},
 	}
+}
+
+func addTaskTimingFields(structured map[string]any, run *taskverification.RunState) {
+	if structured == nil || run == nil {
+		return
+	}
+	if run.LastActivityAt > 0 {
+		structured["lastActivityAtUnixMilli"] = run.LastActivityAt
+	}
+	if run.ExpiresAt > 0 {
+		structured["expiresAtUnixMilli"] = run.ExpiresAt
+	}
+}
+
+func addTaskTimingToToolResult(result *mcp.CallToolResult, run *taskverification.RunState) {
+	if result == nil {
+		return
+	}
+	structured, ok := result.StructuredContent.(map[string]any)
+	if !ok {
+		return
+	}
+	addTaskTimingFields(structured, run)
 }
 
 func planningContract() map[string]any {

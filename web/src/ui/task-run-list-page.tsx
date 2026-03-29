@@ -15,6 +15,9 @@ function getTaskRunDisplayPhase(run: TaskRunSummary): string {
   if (uiStatus === "success") {
     return "Completed";
   }
+  if (uiStatus === "timed_out") {
+    return "Timed Out";
+  }
 
   return humanizePhase(run.currentPhase);
 }
@@ -57,7 +60,7 @@ export function TaskRunListPage() {
   }, [reloadToken]);
 
   useEffect(() => {
-    const activeRunExists = runs.some((run) => run.endedAt == null);
+    const activeRunExists = runs.some((run) => getTaskRunUIStatus(run.status, run.endedAt) === "active");
     if (!activeRunExists) {
       return;
     }

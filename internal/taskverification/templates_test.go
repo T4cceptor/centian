@@ -86,6 +86,47 @@ workflow:
 	assert.ErrorContains(t, err, `unknown task parameter "unknown"`)
 }
 
+func TestTimeoutAndResumeTaskPreserveWorkflowState(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Simple TDD"
+  description: "Test driven task"
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+`, "simple_tdd.yaml")
+
+	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	assert.NilError(t, err)
+	run.Phase = TaskPhase("execution.step_one")
+	run.WorkflowReady = true
+	run.Steps = []StepState{{
+		ID:                 "step_one",
+		Path:               TaskPhase("execution.step_one"),
+		Status:             StepStatusActive,
+		InvariantBaselines: map[string]string{},
+	}}
+	run.LastActivityAt = 123
+	run.ExpiresAt = 456
+
+	err = service.TimeoutTask(run)
+	assert.NilError(t, err)
+	assert.Equal(t, run.Status, TaskStatusTimedOut)
+	assert.Equal(t, run.Phase, TaskPhase("execution.step_one"))
+	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+
+	err = service.ResumeTask(run)
+	assert.NilError(t, err)
+	assert.Equal(t, run.Status, TaskStatusActive)
+	assert.Equal(t, run.Phase, TaskPhase("execution.step_one"))
+	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+	assert.Equal(t, run.ExpiresAt, int64(0))
+}
+
 func TestListTemplatesAllowsExecutionStepWithoutChecks(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"

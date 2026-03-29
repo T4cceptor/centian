@@ -141,6 +141,8 @@ func (s *Service) RestartTask(run *RunState) error {
 	run.Steps = nil
 	run.LastFailureMessage = ""
 	run.ExplicitFailReason = ""
+	run.LastActivityAt = 0
+	run.ExpiresAt = 0
 	return nil
 }
 
@@ -153,6 +155,35 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	run.Status = TaskStatusFailed
 	run.ExplicitFailReason = strings.TrimSpace(reason)
 	run.LastFailureMessage = run.ExplicitFailReason
+	run.ExpiresAt = 0
+	return nil
+}
+
+// TimeoutTask marks an active task run as timed out without changing its phase or steps.
+func (s *Service) TimeoutTask(run *RunState) error {
+	if run == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	if run.Status != TaskStatusActive {
+		return fmt.Errorf("task is %s", run.Status)
+	}
+
+	run.Status = TaskStatusTimedOut
+	return nil
+}
+
+// ResumeTask reactivates a timed-out task run without resetting its workflow progress.
+func (s *Service) ResumeTask(run *RunState) error {
+	if run == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	if run.Status != TaskStatusTimedOut {
+		return fmt.Errorf("task is %s", run.Status)
+	}
+
+	run.Status = TaskStatusActive
+	run.LastFailureMessage = ""
+	run.ExpiresAt = 0
 	return nil
 }
 
@@ -620,6 +651,8 @@ func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) er
 		return fmt.Errorf("task is already completed")
 	case TaskStatusFailed:
 		return fmt.Errorf("task is failed; restart or register a new task")
+	case TaskStatusTimedOut:
+		return fmt.Errorf("task is timed out; resume or restart the task")
 	default:
 		return fmt.Errorf("task is %s", run.Status)
 	}

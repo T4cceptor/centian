@@ -472,7 +472,7 @@ ORDER BY agg.started_at DESC, agg.task_run_id DESC
 			PrincipalID:      row.PrincipalID,
 			SessionID:        row.SessionID,
 			StartedAt:        row.StartedAt,
-			Status:           row.Status,
+			Status:           taskRunStatus(row.LatestEventType, row.LatestEventPayload, row.Status),
 			CurrentPhase:     row.CurrentPhase,
 			CurrentNodeKind:  row.CurrentNodeKind,
 			TaskEventCount:   row.TaskEventCount,
@@ -709,6 +709,33 @@ func isTerminalTaskEvent(eventType string, payload json.RawMessage) bool {
 	}
 	status, _ := body["status"].(string)
 	return status == string(taskverification.TaskStatusCompleted) || status == string(taskverification.TaskStatusFailed)
+}
+
+func taskRunStatus(eventType string, payload json.RawMessage, fallback string) string {
+	status := payloadTaskStatus(payload)
+	if status != "" {
+		return status
+	}
+	switch eventType {
+	case string(taskverification.TaskEventTypeFailed):
+		return string(taskverification.TaskStatusFailed)
+	case string(taskverification.TaskEventTypeTimedOut):
+		return string(taskverification.TaskStatusTimedOut)
+	}
+	return fallback
+}
+
+func payloadTaskStatus(payload json.RawMessage) string {
+	if len(payload) == 0 {
+		return ""
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(payload, &body); err != nil {
+		return ""
+	}
+	status, _ := body["status"].(string)
+	return status
 }
 
 func newActionEventRowID() string {

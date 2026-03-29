@@ -179,7 +179,7 @@ describe("task run list", () => {
     expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
   });
 
-  it("maps active success and failed status badges", async () => {
+  it("maps active success failed and timed out status badges", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse([
@@ -215,6 +215,16 @@ describe("task run list", () => {
             actionEventCount: 1,
             eventCount: 3,
           },
+          {
+            runId: "tr_1742947200126_0000000004",
+            templateId: "timed_out_task",
+            startedAt: 1742947200123,
+            status: "timed_out",
+            currentPhase: "execution.run",
+            taskEventCount: 2,
+            actionEventCount: 1,
+            eventCount: 3,
+          },
         ]),
       ),
     ) as typeof fetch;
@@ -224,6 +234,7 @@ describe("task run list", () => {
     expect(await screen.findByText("active")).toBeInTheDocument();
     expect(screen.getByText("success")).toBeInTheDocument();
     expect(screen.getByText("failed")).toBeInTheDocument();
+    expect(screen.getByText("timed_out")).toBeInTheDocument();
   });
 
   it("uses endedAt for finished run duration instead of current time", async () => {

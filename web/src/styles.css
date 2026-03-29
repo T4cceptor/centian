@@ -256,6 +256,12 @@ code,
   background: rgba(255, 140, 140, 0.08);
 }
 
+.status-badge--timed_out {
+  color: #9ed1ff;
+  border-color: rgba(158, 209, 255, 0.72);
+  background: rgba(110, 170, 255, 0.14);
+}
+
 .state-card {
   padding: 32px;
 }

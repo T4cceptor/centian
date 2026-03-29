@@ -263,11 +263,30 @@ func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamS
 	ctx = WithCallContext(ctx, callCtx)
 	common.LogInfo("Tool called: %s :: %s", callCtx.GetServerName(), callCtx.GetToolName())
 	session.taskMu.Lock()
+	p.maybeExpireActiveTaskLocked(session, callCtx.GetRequestID())
 	activeRun := snapshotTaskRun(session.taskRun)
+	if activeRun.Status == taskverification.TaskStatusActive {
+		p.cancelTaskTimeoutLocked(session)
+	}
 	session.taskMu.Unlock()
 	if activeRun.Status == taskverification.TaskStatusActive {
 		p.recordTaskActionContext(activeRun.RunID, callCtx.GetRequestID(), activeRun.Phase, activeRun.NodeKind)
 	}
+	defer func() {
+		session.taskMu.Lock()
+		defer session.taskMu.Unlock()
+		switch {
+		case session.taskRun == nil:
+			p.cancelTaskTimeoutLocked(session)
+		case session.taskRun.Status == taskverification.TaskStatusActive:
+			p.refreshTaskActivityLocked(session)
+		default:
+			p.cancelTaskTimeoutLocked(session)
+			if session.taskRun.Status != taskverification.TaskStatusTimedOut {
+				session.taskRun.ExpiresAt = 0
+			}
+		}
+	}()
 	if denied, blocked := p.enforceWorkflowNodeToolGovernance(session, callCtx); blocked {
 		return denied, nil
 	}

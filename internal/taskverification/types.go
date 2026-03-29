@@ -212,6 +212,8 @@ const (
 	TaskStatusCompleted TaskStatus = "completed"
 	// TaskStatusFailed indicates a task run ended in failure.
 	TaskStatusFailed TaskStatus = "failed"
+	// TaskStatusTimedOut indicates a task run was paused due to inactivity.
+	TaskStatusTimedOut TaskStatus = "timed_out"
 )
 
 // TaskPhase enumerates the workflow position of a task run.
@@ -295,6 +297,8 @@ type RunState struct {
 	Steps              []StepState         `json:"steps,omitempty"`
 	LastFailureMessage string              `json:"lastFailureMessage,omitempty"`
 	ExplicitFailReason string              `json:"explicitFailReason,omitempty"`
+	LastActivityAt     int64               `json:"lastActivityAtUnixMilli,omitempty"`
+	ExpiresAt          int64               `json:"expiresAtUnixMilli,omitempty"`
 }
 
 // StepResult is the MCP-facing outcome of starting or completing a step.
@@ -334,6 +338,10 @@ const (
 	TaskEventTypeRestarted TaskEventType = "task_restarted"
 	// TaskEventTypeFailed records explicit task failure.
 	TaskEventTypeFailed TaskEventType = "task_failed"
+	// TaskEventTypeTimedOut records automatic inactivity timeout.
+	TaskEventTypeTimedOut TaskEventType = "task_timed_out"
+	// TaskEventTypeResumed records resuming a timed-out run in place.
+	TaskEventTypeResumed TaskEventType = "task_resumed"
 	// TaskEventTypeApprovalWaitEntered records entry into an approval wait node.
 	TaskEventTypeApprovalWaitEntered TaskEventType = "approval_wait_entered"
 )
