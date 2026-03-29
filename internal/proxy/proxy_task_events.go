@@ -8,6 +8,13 @@ import (
 
 type taskActionRequestIDKey struct{}
 
+type taskRunSnapshot struct {
+	RunID    string
+	Phase    taskverification.TaskPhase
+	NodeKind taskverification.WorkflowNodeKind
+	Status   taskverification.TaskStatus
+}
+
 func withTaskActionRequestID(ctx context.Context, requestID string) context.Context {
 	if requestID == "" {
 		return ctx
@@ -21,6 +28,19 @@ func taskActionRequestIDFromContext(ctx context.Context) string {
 	}
 	value, _ := ctx.Value(taskActionRequestIDKey{}).(string)
 	return value
+}
+
+func snapshotTaskRun(run *taskverification.RunState) taskRunSnapshot {
+	if run == nil {
+		return taskRunSnapshot{}
+	}
+	phase, nodeKind := taskPhaseSnapshot(run)
+	return taskRunSnapshot{
+		RunID:    run.RunID,
+		Phase:    phase,
+		NodeKind: nodeKind,
+		Status:   run.Status,
+	}
 }
 
 func taskPhaseSnapshot(run *taskverification.RunState) (taskverification.TaskPhase, taskverification.WorkflowNodeKind) {
@@ -65,15 +85,15 @@ func (p *CentianEndpoint) recordTaskEvent(
 }
 
 func (p *CentianEndpoint) recordTaskActionContext(
-	run *taskverification.RunState,
+	runID string,
 	requestID string,
 	invocationPhase taskverification.TaskPhase,
 	invocationNodeKind taskverification.WorkflowNodeKind,
 ) {
-	if p == nil || p.server == nil || p.server.TaskVerification == nil || run == nil || requestID == "" {
+	if p == nil || p.server == nil || p.server.TaskVerification == nil || runID == "" || requestID == "" {
 		return
 	}
-	_ = p.server.TaskVerification.RecordActionEventTaskContext(run, requestID, invocationPhase, invocationNodeKind)
+	_ = p.server.TaskVerification.RecordActionEventTaskContextForRunID(runID, requestID, invocationPhase, invocationNodeKind)
 }
 
 func stepEventPayload(result *taskverification.StepResult) map[string]any {

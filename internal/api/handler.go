@@ -31,12 +31,26 @@ func NewHandler(store Store) *Handler {
 
 // RegisterRoutes registers the task run API routes on the provided mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	h.RegisterRoutesWithMiddleware(mux, nil)
+}
+
+// RegisterRoutesWithMiddleware registers the task run API routes and wraps each
+// endpoint with the provided middleware when present.
+func (h *Handler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
 	if h == nil || h.store == nil || mux == nil {
 		return
 	}
 
-	mux.HandleFunc("GET /api/task-runs", h.handleListTaskRuns)
-	mux.HandleFunc("GET /api/task-runs/{runID}/events", h.handleGetTaskRunEvents)
+	register := func(pattern string, handler http.HandlerFunc) {
+		var wrapped http.Handler = handler
+		if middleware != nil {
+			wrapped = middleware(wrapped)
+		}
+		mux.Handle(pattern, wrapped)
+	}
+
+	register("GET /api/task-runs", h.handleListTaskRuns)
+	register("GET /api/task-runs/{runID}/events", h.handleGetTaskRunEvents)
 }
 
 func (h *Handler) handleListTaskRuns(w http.ResponseWriter, r *http.Request) {

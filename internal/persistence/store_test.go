@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -137,7 +138,7 @@ func TestNewSQLiteStoreBootstrapIsIdempotent(t *testing.T) {
 	assert.Assert(t, storeB.DB() != nil)
 }
 
-func TestNewSQLiteStoreResetsOldSchema(t *testing.T) {
+func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.sqlite")
 
 	db, err := sql.Open(sqliteshim.ShimName, path)
@@ -167,38 +168,22 @@ func TestNewSQLiteStoreResetsOldSchema(t *testing.T) {
 	assert.NilError(t, db.Close())
 
 	store, err := NewSQLiteStore(path)
+	assert.Assert(t, store == nil)
+	var migrationErr *SchemaMigrationRequiredError
+	assert.Assert(t, errors.As(err, &migrationErr))
+	assert.Equal(t, migrationErr.StoredVersion, 1)
+	assert.Equal(t, migrationErr.ExpectedVersion, schemaVersion)
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
 	assert.NilError(t, err)
 	t.Cleanup(func() {
-		_ = store.Close()
+		_ = db.Close()
 	})
 
-	requestEntry := &common.LogEntry{
-		BaseMcpEvent: common.BaseMcpEvent{
-			Timestamp:   time.Now().UTC(),
-			RequestID:   "action-2",
-			SessionID:   "session-2",
-			Transport:   "http",
-			MessageType: common.MessageTypeRequest,
-			Direction:   common.DirectionClientToServer,
-			Success:     true,
-		},
-	}
-	responseEntry := &common.LogEntry{
-		BaseMcpEvent: common.BaseMcpEvent{
-			Timestamp:   time.Now().UTC(),
-			RequestID:   "action-2",
-			SessionID:   "session-2",
-			Transport:   "http",
-			MessageType: common.MessageTypeResponse,
-			Direction:   common.DirectionServerToClient,
-			Success:     true,
-		},
-	}
-	err = store.AppendActionEvent(requestEntry)
+	var count int
+	err = db.QueryRow(`SELECT COUNT(*) FROM action_events`).Scan(&count)
 	assert.NilError(t, err)
-	err = store.AppendActionEvent(responseEntry)
-	assert.NilError(t, err)
-	assert.Equal(t, len(store.ActionEventsByRequestID("action-2")), 2)
+	assert.Equal(t, count, 0)
 }
 
 func TestListTaskRunsAggregatesSummaries(t *testing.T) {

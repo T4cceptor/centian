@@ -22,6 +22,24 @@ import (
 
 const schemaVersion = 3
 
+// SchemaMigrationRequiredError reports that an existing event store schema
+// cannot be opened safely without an explicit migration path.
+type SchemaMigrationRequiredError struct {
+	StoredVersion   int
+	ExpectedVersion int
+}
+
+func (e *SchemaMigrationRequiredError) Error() string {
+	if e == nil {
+		return "event store schema migration required"
+	}
+	return fmt.Sprintf(
+		"event store schema version %d does not match expected version %d; explicit migration required",
+		e.StoredVersion,
+		e.ExpectedVersion,
+	)
+}
+
 // TaskRunSummary is the aggregated view of one persisted task run.
 type TaskRunSummary struct {
 	RunID            string `json:"runId"`
@@ -235,7 +253,7 @@ func (s *Store) bootstrap(ctx context.Context) error {
 	case err != nil:
 		return fmt.Errorf("failed to inspect event store schema version: %w", err)
 	case versionRow.Version != schemaVersion:
-		if err := s.resetSchema(ctx); err != nil {
+		if err := s.migrateSchema(ctx, versionRow.Version); err != nil {
 			return err
 		}
 		versionRow.Version = schemaVersion
@@ -307,18 +325,14 @@ func (s *Store) createTables(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) resetSchema(ctx context.Context) error {
-	stmts := []string{
-		`DROP TABLE IF EXISTS task_events`,
-		`DROP TABLE IF EXISTS action_events`,
-		`DROP TABLE IF EXISTS action_event_task_context`,
+func (s *Store) migrateSchema(_ context.Context, fromVersion int) error {
+	if fromVersion == schemaVersion {
+		return nil
 	}
-	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("failed to reset event store schema: %w", err)
-		}
+	return &SchemaMigrationRequiredError{
+		StoredVersion:   fromVersion,
+		ExpectedVersion: schemaVersion,
 	}
-	return s.createTables(ctx)
 }
 
 // AppendTaskEvent persists one task lifecycle event.

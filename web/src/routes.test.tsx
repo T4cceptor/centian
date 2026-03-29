@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AppRoutes } from "./routes";
+import { clearStoredApiAuth } from "./api/api-auth";
 
 const originalFetch = globalThis.fetch;
 
@@ -39,6 +40,7 @@ function renderApp(initialEntries: string[] = ["/tasks"]) {
 afterEach(() => {
   vi.restoreAllMocks();
   globalThis.fetch = originalFetch;
+  clearStoredApiAuth();
 });
 
 describe("task run list", () => {
@@ -94,6 +96,66 @@ describe("task run list", () => {
     renderApp();
 
     expect(await screen.findByText("Task run feed unavailable")).toBeInTheDocument();
+  });
+
+  it("prompts for an api key on unauthorized list access and retries with the stored header", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: new Headers({ "X-Centian-Auth-Header": "X-Centian-Auth" }),
+      } as Response)
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            runId: "tr_1742947200123_0000000001",
+            templateId: "python_tdd_demo",
+            startedAt: 1742947200123,
+            status: "succeeded",
+            currentPhase: "planning.review",
+            taskEventCount: 2,
+            actionEventCount: 3,
+            eventCount: 5,
+          },
+        ]),
+      ) as typeof fetch;
+
+    renderApp();
+
+    expect(await screen.findByText("Task run feed is protected")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("API key"), "plain-key");
+    await user.click(screen.getByRole("button", { name: "Save and retry" }));
+
+    expect(await screen.findByText("python_tdd_demo")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/task-runs",
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      }),
+    );
+    const headers = (vi.mocked(globalThis.fetch).mock.calls[1]?.[1] as RequestInit)?.headers as Headers;
+    expect(headers.get("X-Centian-Auth")).toBe("plain-key");
+  });
+
+  it("clears a stored api key from the unauthorized prompt", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 401,
+        headers: new Headers({ "X-Centian-Auth-Header": "X-Centian-Auth" }),
+      } as Response),
+    ) as typeof fetch;
+
+    renderApp();
+
+    await user.type(await screen.findByLabelText("API key"), "plain-key");
+    await user.click(screen.getByRole("button", { name: "Clear stored key" }));
+
+    expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
   });
 
   it("maps active success and failed status badges", async () => {
@@ -225,6 +287,21 @@ describe("task run detail", () => {
     await waitFor(() => {
       expect(screen.getByText("Run Detail")).toBeInTheDocument();
     });
+  });
+
+  it("prompts for an api key on unauthorized detail access", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        status: 401,
+        headers: new Headers({ "X-Centian-Auth-Header": "X-Centian-Auth" }),
+      } as Response),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Task timeline is protected")).toBeInTheDocument();
+    expect(screen.getByText("Back to task runs")).toBeInTheDocument();
   });
 
   it("renders grouped mixed timeline exchanges and shows selected details in the side inspector", async () => {

@@ -21,6 +21,8 @@ import (
 // This file wraps the MCP HTTP transport to observe requests and run
 // post-handler session-state synchronization.
 
+const unauthorizedAuthHeaderHint = "X-Centian-Auth-Header"
+
 type observedMCPRequest struct {
 	sessionID string
 	methods   map[string]struct{}
@@ -284,6 +286,18 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, 
 	})
 }
 
+func wrapWithAPIKeyAuth(server *CentianServer, handler http.Handler) http.Handler {
+	if server == nil || server.APIKeys == nil || handler == nil {
+		return handler
+	}
+
+	headerName := server.AuthHeader
+	if headerName == "" {
+		headerName = strings.Clone(config.DefaultAuthHeader)
+	}
+	return apiKeyMiddlewareWithHeader(server.APIKeys, headerName, handler)
+}
+
 func getGatewayFromPath(requestPath string) string {
 	normalized := path.Clean("/" + strings.TrimSpace(requestPath))
 	parts := strings.Split(normalized, "/")
@@ -317,6 +331,9 @@ func extractAuthToken(header string) string {
 func writeUnauthorized(w http.ResponseWriter, headerName string) {
 	if strings.EqualFold(headerName, "Authorization") {
 		w.Header().Set("WWW-Authenticate", "Bearer")
+	}
+	if headerName != "" {
+		w.Header().Set(unauthorizedAuthHeaderHint, headerName)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
@@ -391,13 +408,7 @@ func RegisterEndpoint(proxy *CentianEndpoint, mux *http.ServeMux, options *mcp.S
 	)
 
 	handler := proxy.observeMCPRequests(baseHandler)
-	if proxy.server != nil && proxy.server.APIKeys != nil {
-		headerName := proxy.server.AuthHeader
-		if headerName == "" {
-			headerName = strings.Clone(config.DefaultAuthHeader)
-		}
-		handler = apiKeyMiddlewareWithHeader(proxy.server.APIKeys, headerName, handler)
-	}
+	handler = wrapWithAPIKeyAuth(proxy.server, handler)
 
 	mux.Handle(proxy.endpoint, handler)
 	common.LogInfo("Registered handler at %s", proxy.endpoint)

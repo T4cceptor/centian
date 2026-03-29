@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
 	"gotest.tools/assert"
@@ -102,6 +104,49 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	uiTasksHandler, uiTasksPattern := proxy.Mux.Handler(uiTasksReq)
 	assert.Assert(t, uiTasksHandler != nil)
 	assert.Equal(t, uiTasksPattern, "GET /ui/")
+}
+
+func TestCentianServerSetup_ProtectsAPIRoutesButLeavesUIReachable(t *testing.T) {
+	authEnabled := true
+	uiEnabled := true
+	t.Setenv("HOME", t.TempDir())
+	entry, err := auth.NewAPIKeyEntry("plain-key")
+	assert.NilError(t, err)
+	entry.ID = "key_test"
+	defaultPath, err := auth.DefaultAPIKeysPath()
+	assert.NilError(t, err)
+	assert.NilError(t, auth.WriteAPIKeyFile(defaultPath, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authEnabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+			Capabilities: &config.CapabilitiesSettings{
+				UI: &config.UICapabilitySettings{
+					Enabled: &uiEnabled,
+				},
+			},
+		},
+		Gateways: map[string]*config.GatewayConfig{},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	err = server.Setup()
+	assert.NilError(t, err)
+
+	apiReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/task-runs", http.NoBody)
+	apiRec := httptest.NewRecorder()
+	server.Mux.ServeHTTP(apiRec, apiReq)
+	assert.Equal(t, apiRec.Code, http.StatusUnauthorized)
+	assert.Equal(t, apiRec.Header().Get(unauthorizedAuthHeaderHint), config.DefaultAuthHeader)
+
+	uiReq := httptest.NewRequest(http.MethodGet, "http://example.com/ui", http.NoBody)
+	uiRec := httptest.NewRecorder()
+	server.Mux.ServeHTTP(uiRec, uiReq)
+	assert.Equal(t, uiRec.Code, http.StatusOK)
 }
 
 func TestInitEventProcessor_GatewayProcessorsAppliedToAggregatedEndpoint(t *testing.T) {

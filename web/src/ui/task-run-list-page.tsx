@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
+import { ApiError, fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
+import { ApiAuthCard } from "./api-auth-card";
 import { formatDuration, formatTaskRunId, formatTimestamp, humanizePhase } from "./format";
 import { getTaskRunUIStatus } from "./task-run-status";
 
 // Tracks the high-level fetch state for the list view.
-type LoadState = "loading" | "ready" | "error";
+type LoadState = "loading" | "ready" | "error" | "unauthorized";
 
 // Prefers a final "Completed" label once a run has fully succeeded.
 function getTaskRunDisplayPhase(run: TaskRunSummary): string {
@@ -23,7 +24,9 @@ export function TaskRunListPage() {
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [authHeaderName, setAuthHeaderName] = useState<string>();
   const [now, setNow] = useState(() => Date.now());
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -40,12 +43,18 @@ export function TaskRunListPage() {
         if ((error as Error)?.name === "AbortError") {
           return;
         }
+        if (error instanceof ApiError && error.status === 401) {
+          setAuthHeaderName(error.authHeaderName);
+          setErrorMessage("Enter a Centian API key to read persisted task runs.");
+          setLoadState("unauthorized");
+          return;
+        }
         setErrorMessage("Unable to load task runs right now.");
         setLoadState("error");
       });
 
     return () => controller.abort();
-  }, []);
+  }, [reloadToken]);
 
   useEffect(() => {
     const activeRunExists = runs.some((run) => run.endedAt == null);
@@ -78,6 +87,18 @@ export function TaskRunListPage() {
         <h2>Task run feed unavailable</h2>
         <p>{errorMessage}</p>
       </div>
+    );
+  }
+
+  if (loadState === "unauthorized") {
+    return (
+      <ApiAuthCard
+        eyebrow="Access Required"
+        title="Task run feed is protected"
+        body={errorMessage}
+        authHeaderName={authHeaderName}
+        onSaved={() => setReloadToken((value) => value + 1)}
+      />
     );
   }
 

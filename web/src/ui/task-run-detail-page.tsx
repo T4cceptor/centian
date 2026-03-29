@@ -2,12 +2,13 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
+import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
 // Tracks the fetch state for the detail page.
-type LoadState = "loading" | "ready" | "invalid" | "not-found" | "error";
+type LoadState = "loading" | "ready" | "invalid" | "not-found" | "error" | "unauthorized";
 
 // Represents one rendered phase section in the timeline.
 export type TimelineGroup = {
@@ -46,6 +47,8 @@ export function TaskRunDetailPage() {
   const [selectedItemID, setSelectedItemID] = useState<string>("");
   const [detailsWidth, setDetailsWidth] = useState(() => getDefaultDetailsWidth());
   const [draggingResize, setDraggingResize] = useState(false);
+  const [authHeaderName, setAuthHeaderName] = useState<string>();
+  const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
 
   useEffect(() => {
@@ -71,6 +74,11 @@ export function TaskRunDetailPage() {
           return;
         }
         if (error instanceof ApiError) {
+          if (error.status === 401) {
+            setAuthHeaderName(error.authHeaderName);
+            setLoadState("unauthorized");
+            return;
+          }
           if (error.status === 400) {
             setLoadState("invalid");
             return;
@@ -84,7 +92,7 @@ export function TaskRunDetailPage() {
       });
 
     return () => controller.abort();
-  }, [runID]);
+  }, [reloadToken, runID]);
 
   const timelineItems = useMemo(() => buildTimelineItems(events), [events]);
   const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
@@ -195,6 +203,19 @@ export function TaskRunDetailPage() {
         eyebrow="Link Loss"
         title="Task timeline unavailable"
         body="The event stream could not be loaded right now."
+      />
+    );
+  }
+
+  if (loadState === "unauthorized") {
+    return (
+      <ApiAuthCard
+        eyebrow="Access Required"
+        title="Task timeline is protected"
+        body="Enter a Centian API key to load this persisted run timeline."
+        authHeaderName={authHeaderName}
+        onSaved={() => setReloadToken((value) => value + 1)}
+        showBackLink
       />
     );
   }

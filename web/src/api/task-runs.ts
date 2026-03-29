@@ -1,3 +1,5 @@
+import { loadStoredApiAuth, unauthorizedAuthHeaderHint } from "./api-auth";
+
 export type TaskRunSummary = {
   runId: string;
   templateId: string;
@@ -40,18 +42,30 @@ export type TaskRunEvent = {
 
 export class ApiError extends Error {
   status: number;
+  authHeaderName?: string;
 
-  constructor(status: number, message?: string) {
+  constructor(status: number, message?: string, authHeaderName?: string) {
     super(message ?? `Request failed (${status})`);
     this.name = "ApiError";
     this.status = status;
+    this.authHeaderName = authHeaderName;
   }
 }
 
 async function requestJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal });
+  const headers = new Headers();
+  const storedAuth = loadStoredApiAuth();
+  if (storedAuth) {
+    headers.set(storedAuth.headerName, storedAuth.apiKey);
+  }
+
+  const response = await fetch(url, { signal, headers });
   if (!response.ok) {
-    throw new ApiError(response.status);
+    const authHeaderName =
+      response.headers && typeof response.headers.get === "function"
+        ? (response.headers.get(unauthorizedAuthHeaderHint) ?? undefined)
+        : undefined;
+    throw new ApiError(response.status, undefined, authHeaderName);
   }
   return (await response.json()) as T;
 }
@@ -62,6 +76,6 @@ export async function fetchTaskRuns(signal?: AbortSignal): Promise<TaskRunSummar
 }
 
 export async function fetchTaskRunEvents(runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {
-  const events = await requestJSON<TaskRunEvent[]>(`/api/task-runs/${runID}/events`, signal);
+  const events = await requestJSON<TaskRunEvent[]>(`/api/task-runs/${encodeURIComponent(runID)}/events`, signal);
   return Array.isArray(events) ? events : [];
 }

@@ -232,7 +232,9 @@ func (c *CentianServer) registerOptionalHTTPRoutes() {
 		return
 	}
 
-	centapi.NewHandler(c.PersistenceStore).RegisterRoutes(c.Mux)
+	centapi.NewHandler(c.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, next)
+	})
 	if c.Config != nil && c.Config.Proxy != nil && c.Config.Proxy.UIEnabled() {
 		centui.NewHandler().RegisterRoutes(c.Mux)
 	}

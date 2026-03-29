@@ -144,12 +144,21 @@ func (s *Service) RecordTaskEvent(
 
 // RecordActionEventTaskContext appends one task snapshot for an action event.
 func (s *Service) RecordActionEventTaskContext(run *RunState, requestID string, invocationPhase TaskPhase, invocationNodeKind WorkflowNodeKind) error {
-	if s == nil || s.EventStore == nil || run == nil || requestID == "" {
+	if run == nil {
+		return nil
+	}
+	return s.RecordActionEventTaskContextForRunID(run.RunID, requestID, invocationPhase, invocationNodeKind)
+}
+
+// RecordActionEventTaskContextForRunID appends one task snapshot for an action
+// event using an immutable run identifier.
+func (s *Service) RecordActionEventTaskContextForRunID(runID, requestID string, invocationPhase TaskPhase, invocationNodeKind WorkflowNodeKind) error {
+	if s == nil || s.EventStore == nil || runID == "" || requestID == "" {
 		return nil
 	}
 	return s.EventStore.AppendActionEventTaskContext(ActionEventTaskContext{
 		RequestID:           requestID,
-		TaskRunID:           run.RunID,
+		TaskRunID:           runID,
 		InvocationPhasePath: invocationPhase,
 		InvocationNodeKind:  invocationNodeKind,
 		CreatedAtUnixMilli:  nowUnixMilli(),

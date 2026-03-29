@@ -150,27 +150,29 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 		requestID := getNewUUIDV7()
 		ctx = withTaskActionRequestID(ctx, requestID)
 		session.taskMu.Lock()
-		invocationRun := session.taskRun
-		invocationPhase, invocationNodeKind := taskPhaseSnapshot(invocationRun)
+		invocationSnapshot := snapshotTaskRun(session.taskRun)
 		session.taskMu.Unlock()
 		var (
 			result *mcp.CallToolResult
 			err    error
 		)
-		if invocationRun == nil && !taskToolAllowedBeforeRegistration(toolName) {
+		if invocationSnapshot.RunID == "" && !taskToolAllowedBeforeRegistration(toolName) {
 			result = taskToolRegistrationRequiredResult(toolName)
 		} else {
 			result, err = handler(ctx, session, req)
 		}
 		p.logTaskToolCall(session, requestID, toolName, req, result, err)
 		session.taskMu.Lock()
-		run := session.taskRun
+		currentSnapshot := snapshotTaskRun(session.taskRun)
 		session.taskMu.Unlock()
-		if run != nil {
-			if invocationRun == nil {
-				invocationPhase, invocationNodeKind = taskPhaseSnapshot(run)
+		if currentSnapshot.RunID != "" {
+			invocationPhase := invocationSnapshot.Phase
+			invocationNodeKind := invocationSnapshot.NodeKind
+			if invocationSnapshot.RunID == "" {
+				invocationPhase = currentSnapshot.Phase
+				invocationNodeKind = currentSnapshot.NodeKind
 			}
-			p.recordTaskActionContext(run, requestID, invocationPhase, invocationNodeKind)
+			p.recordTaskActionContext(currentSnapshot.RunID, requestID, invocationPhase, invocationNodeKind)
 		}
 		return result, err
 	}

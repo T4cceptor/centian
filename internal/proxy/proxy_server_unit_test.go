@@ -39,6 +39,7 @@ func TestWriteUnauthorized(t *testing.T) {
 	assert.Equal(t, result.StatusCode, http.StatusUnauthorized)
 	assert.Equal(t, result.Header.Get("WWW-Authenticate"), "Bearer")
 	assert.Equal(t, result.Header.Get("Content-Type"), "application/json")
+	assert.Equal(t, result.Header.Get(unauthorizedAuthHeaderHint), "Authorization")
 }
 
 func TestWriteUnauthorized_CustomHeader(t *testing.T) {
@@ -52,6 +53,7 @@ func TestWriteUnauthorized_CustomHeader(t *testing.T) {
 	result := recorder.Result()
 	assert.Equal(t, result.StatusCode, http.StatusUnauthorized)
 	assert.Equal(t, result.Header.Get("WWW-Authenticate"), "")
+	assert.Equal(t, result.Header.Get(unauthorizedAuthHeaderHint), "X-API-Key")
 }
 
 func TestAPIKeyMiddlewareWithHeader_NoStore(t *testing.T) {
