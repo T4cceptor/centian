@@ -106,6 +106,7 @@ func completeWorkflowStep(run *RunState, stepIndex int, step *Step) *StepResult 
 	message := fmt.Sprintf("step %d (%s) completed", stepIndex+1, step.ID)
 	if step.NextPath == "" {
 		run.Status = TaskStatusCompleted
+		run.ExpiresAt = 0
 		message = fmt.Sprintf("%s; task completed", message)
 	} else {
 		run.Phase = step.NextPath
@@ -167,6 +168,8 @@ func validateTaskExecutable(run *RunState) error {
 		return fmt.Errorf("task is already completed")
 	case TaskStatusFailed:
 		return fmt.Errorf("task is failed; restart or register a new task")
+	case TaskStatusTimedOut:
+		return fmt.Errorf("task is timed out; resume or restart the task")
 	default:
 		return fmt.Errorf("task is %s", run.Status)
 	}

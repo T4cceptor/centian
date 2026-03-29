@@ -187,8 +187,9 @@ type CapabilitiesSettings struct {
 
 // TaskVerificationCapabilitySettings controls taskverification capability behavior.
 type TaskVerificationCapabilitySettings struct {
-	Enabled       *bool  `json:"enabled,omitempty"`
-	TemplatesPath string `json:"templatesPath,omitempty"`
+	Enabled            *bool  `json:"enabled,omitempty"`
+	TemplatesPath      string `json:"templatesPath,omitempty"`
+	IdleTimeoutSeconds int    `json:"idleTimeoutSeconds,omitempty"`
 }
 
 // EventStorageCapabilitySettings controls durable storage for task and action events.
@@ -285,6 +286,14 @@ func (t *TaskVerificationCapabilitySettings) GetTemplatesPath() string {
 		return ""
 	}
 	return strings.TrimSpace(t.TemplatesPath)
+}
+
+// GetIdleTimeoutSeconds returns the configured task idle timeout in seconds.
+func (t *TaskVerificationCapabilitySettings) GetIdleTimeoutSeconds() int {
+	if t == nil || t.IdleTimeoutSeconds <= 0 {
+		return 0
+	}
+	return t.IdleTimeoutSeconds
 }
 
 // TaskVerificationCapability returns the configured taskverification capability block.

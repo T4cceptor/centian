@@ -427,7 +427,7 @@ func TestListTaskRunsAggregatesSummaries(t *testing.T) {
 	assert.Equal(t, summaries[2].RunID, "run-active")
 
 	assert.Equal(t, summaries[0].TemplateID, "template-completed")
-	assert.Equal(t, summaries[0].Status, string(taskverification.TaskEventOutcomeSucceeded))
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusCompleted))
 	assert.Equal(t, summaries[0].CurrentPhase, string(taskverification.TaskPhaseExecution))
 	assert.Equal(t, summaries[0].CurrentNodeKind, string(taskverification.WorkflowNodeKindExecution))
 	assert.Equal(t, summaries[0].TaskEventCount, 3)
@@ -436,18 +436,66 @@ func TestListTaskRunsAggregatesSummaries(t *testing.T) {
 	assert.Assert(t, summaries[0].EndedAt != nil)
 	assert.Equal(t, *summaries[0].EndedAt, int64(2_100))
 
-	assert.Equal(t, summaries[1].Status, string(taskverification.TaskEventOutcomeSucceeded))
+	assert.Equal(t, summaries[1].Status, string(taskverification.TaskStatusFailed))
 	assert.Equal(t, summaries[1].TaskEventCount, 2)
 	assert.Equal(t, summaries[1].ActionEventCount, 0)
 	assert.Assert(t, summaries[1].EndedAt != nil)
 	assert.Equal(t, *summaries[1].EndedAt, int64(1_800))
 
-	assert.Equal(t, summaries[2].Status, string(taskverification.TaskEventOutcomeSucceeded))
+	assert.Equal(t, summaries[2].Status, string(taskverification.TaskStatusActive))
 	assert.Equal(t, summaries[2].CurrentPhase, "execution.step_one")
 	assert.Equal(t, summaries[2].TaskEventCount, 2)
 	assert.Equal(t, summaries[2].ActionEventCount, 1)
 	assert.Equal(t, summaries[2].EventCount, 3)
 	assert.Assert(t, summaries[2].EndedAt == nil)
+}
+
+func TestListTaskRunsKeepsTimedOutRunsOpen(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-timeout-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_000,
+		TaskRunID:          "run-timeout",
+		SessionID:          "session-timeout",
+		TemplateID:         "template-timeout",
+		PrincipalID:        "principal-timeout",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-timeout-2",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 2_000,
+		TaskRunID:          "run-timeout",
+		SessionID:          "session-timeout",
+		TemplateID:         "template-timeout",
+		PrincipalID:        "principal-timeout",
+		PhasePath:          taskverification.TaskPhase("execution.step_one"),
+		NodeKind:           taskverification.WorkflowNodeKindExecution,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypeTimedOut,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"timed_out"}`),
+	})
+
+	summaries, err := store.ListTaskRuns(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusTimedOut))
+	assert.Equal(t, summaries[0].CurrentPhase, "execution.step_one")
+	assert.Assert(t, summaries[0].EndedAt == nil)
 }
 
 func TestGetTaskRunEventsReturnsUnifiedChronologicalTimeline(t *testing.T) {

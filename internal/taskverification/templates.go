@@ -106,7 +106,11 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 	if err != nil {
 		return err
 	}
-	nextPath := run.SelectedTemplate.CompiledWorkflow.Nodes[TaskPhasePlanning].NextPath
+	planningNode, exists := resolved.CompiledWorkflow.Nodes[resolved.CompiledWorkflow.PlanningPath]
+	if !exists {
+		return fmt.Errorf("planning has no compiled workflow node")
+	}
+	nextPath := planningNode.NextPath
 	if nextPath == "" {
 		return fmt.Errorf("planning has no configured next workflow node")
 	}
@@ -137,6 +141,8 @@ func (s *Service) RestartTask(run *RunState) error {
 	run.Steps = nil
 	run.LastFailureMessage = ""
 	run.ExplicitFailReason = ""
+	run.LastActivityAt = 0
+	run.ExpiresAt = 0
 	return nil
 }
 
@@ -149,6 +155,35 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	run.Status = TaskStatusFailed
 	run.ExplicitFailReason = strings.TrimSpace(reason)
 	run.LastFailureMessage = run.ExplicitFailReason
+	run.ExpiresAt = 0
+	return nil
+}
+
+// TimeoutTask marks an active task run as timed out without changing its phase or steps.
+func (s *Service) TimeoutTask(run *RunState) error {
+	if run == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	if run.Status != TaskStatusActive {
+		return fmt.Errorf("task is %s", run.Status)
+	}
+
+	run.Status = TaskStatusTimedOut
+	return nil
+}
+
+// ResumeTask reactivates a timed-out task run without resetting its workflow progress.
+func (s *Service) ResumeTask(run *RunState) error {
+	if run == nil {
+		return fmt.Errorf("task is not registered")
+	}
+	if run.Status != TaskStatusTimedOut {
+		return fmt.Errorf("task is %s", run.Status)
+	}
+
+	run.Status = TaskStatusActive
+	run.LastFailureMessage = ""
+	run.ExpiresAt = 0
 	return nil
 }
 
@@ -328,9 +363,6 @@ func validateStep(stepIndex int, step *Step, stepIDs map[string]struct{}) error 
 		return fmt.Errorf("duplicate step id %q", step.ID)
 	}
 	stepIDs[step.ID] = struct{}{}
-	if len(step.Checks) == 0 {
-		return fmt.Errorf("step %q must define at least one check", step.ID)
-	}
 
 	if err := validateChecks(step); err != nil {
 		return err
@@ -619,6 +651,8 @@ func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) er
 		return fmt.Errorf("task is already completed")
 	case TaskStatusFailed:
 		return fmt.Errorf("task is failed; restart or register a new task")
+	case TaskStatusTimedOut:
+		return fmt.Errorf("task is timed out; resume or restart the task")
 	default:
 		return fmt.Errorf("task is %s", run.Status)
 	}
@@ -650,8 +684,8 @@ func validateOnboardingArtifact(artifact *OnboardingArtifact) error {
 	if artifact == nil {
 		return fmt.Errorf("onboarding artifact is required")
 	}
-	if strings.TrimSpace(artifact.ProjectSummary) == "" {
-		return fmt.Errorf("onboarding.projectSummary is required")
+	if strings.TrimSpace(artifact.TaskSummary) == "" {
+		return fmt.Errorf("onboarding.taskSummary is required")
 	}
 	for index, ref := range artifact.ArtifactMap {
 		if strings.TrimSpace(ref.Path) == "" {
@@ -677,9 +711,9 @@ func cloneOnboardingArtifact(artifact *OnboardingArtifact) OnboardingArtifact {
 		return OnboardingArtifact{}
 	}
 	cloned := OnboardingArtifact{
-		ProjectSummary: artifact.ProjectSummary,
-		Constraints:    append([]string(nil), artifact.Constraints...),
-		OpenQuestions:  append([]string(nil), artifact.OpenQuestions...),
+		TaskSummary:   artifact.TaskSummary,
+		Constraints:   append([]string(nil), artifact.Constraints...),
+		OpenQuestions: append([]string(nil), artifact.OpenQuestions...),
 	}
 	if len(artifact.ArtifactMap) > 0 {
 		cloned.ArtifactMap = make([]OnboardingArtifactRef, len(artifact.ArtifactMap))

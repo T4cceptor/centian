@@ -65,6 +65,84 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 	assert.Equal(t, run.Steps[0].Status, StepStatusPassed)
 }
 
+func TestStartAndCompleteStepWithoutChecksOrInvariants(t *testing.T) {
+	dir := t.TempDir()
+	template := mustCompileRuntimeTemplate(t, &Template{
+		Version: "0.1",
+		Task: Task{
+			ID:          "task",
+			Name:        "Task",
+			Description: "desc",
+		},
+		Workflow: &Workflow{
+			Onboarding: &LifecycleNodeSpec{},
+			Planning:   &PlanningNodeSpec{},
+			Execution: []ExecutionNodeSpec{
+				{
+					ID: "step_one",
+				},
+			},
+		},
+	})
+	service := NewService(dir, dir)
+	run := newWorkflowReadyRun(&template)
+
+	start, err := service.StartStep(context.Background(), run, 1)
+	assert.NilError(t, err)
+	assert.Assert(t, start.Passed)
+	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+
+	complete, err := service.CompleteStep(context.Background(), run, 1)
+	assert.NilError(t, err)
+	assert.Assert(t, complete.Passed)
+	assert.Equal(t, run.Status, TaskStatusCompleted)
+	assert.Equal(t, run.Steps[0].Status, StepStatusPassed)
+}
+
+func TestStepWithoutChecksStillVerifiesInvariantDrift(t *testing.T) {
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "state.txt")
+	err := os.WriteFile(stateFile, []byte("before"), 0o644)
+	assert.NilError(t, err)
+
+	template := mustCompileRuntimeTemplate(t, &Template{
+		Version: "0.1",
+		Task: Task{
+			ID:          "task",
+			Name:        "Task",
+			Description: "desc",
+		},
+		Workflow: &Workflow{
+			Onboarding: &LifecycleNodeSpec{},
+			Planning:   &PlanningNodeSpec{},
+			Execution: []ExecutionNodeSpec{
+				{
+					ID: "step_one",
+					Invariants: []Invariant{
+						{ID: "stable_file", Command: "cat state.txt"},
+					},
+				},
+			},
+		},
+	})
+	service := NewService(dir, dir)
+	run := newWorkflowReadyRun(&template)
+
+	_, err = service.StartStep(context.Background(), run, 1)
+	assert.NilError(t, err)
+	err = os.WriteFile(stateFile, []byte("after"), 0o644)
+	assert.NilError(t, err)
+
+	result, err := service.CompleteStep(context.Background(), run, 1)
+	assert.NilError(t, err)
+	assert.Assert(t, !result.Passed)
+	assert.Equal(t, result.FailureKind, StepFailureKindInvariant)
+	assert.Equal(t, result.FailurePhase, StepFailurePhaseInvariantVerify)
+	assert.Equal(t, result.FailedInvariantID, "stable_file")
+	assert.Assert(t, strings.Contains(result.StdoutSnippet, "after"))
+	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+}
+
 func TestStartStepFailsPreconditions(t *testing.T) {
 	service, run := newRuntimeTestService(t, `
 version: "0.1"
@@ -205,7 +283,7 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	err := service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready to plan"})
+	err := service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready to plan"})
 	assert.NilError(t, err)
 
 	_, err = service.StartStep(context.Background(), run, 1)
@@ -439,7 +517,7 @@ workflow:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusFailed)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.ErrorContains(t, err, "task is failed")
 
 	err = service.RestartTask(run)
@@ -504,7 +582,7 @@ func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
 	service := NewService(dir, dir)
 	run, err := service.RegisterTask("task", map[string]string{})
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 	err = service.CompletePlanning(run, &PlanningArtifact{
 		TestTarget: "pytest -q",

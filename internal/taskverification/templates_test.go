@@ -86,6 +86,94 @@ workflow:
 	assert.ErrorContains(t, err, `unknown task parameter "unknown"`)
 }
 
+func TestTimeoutAndResumeTaskPreserveWorkflowState(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Simple TDD"
+  description: "Test driven task"
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+`, "simple_tdd.yaml")
+
+	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	assert.NilError(t, err)
+	run.Phase = TaskPhase("execution.step_one")
+	run.WorkflowReady = true
+	run.Steps = []StepState{{
+		ID:                 "step_one",
+		Path:               TaskPhase("execution.step_one"),
+		Status:             StepStatusActive,
+		InvariantBaselines: map[string]string{},
+	}}
+	run.LastActivityAt = 123
+	run.ExpiresAt = 456
+
+	err = service.TimeoutTask(run)
+	assert.NilError(t, err)
+	assert.Equal(t, run.Status, TaskStatusTimedOut)
+	assert.Equal(t, run.Phase, TaskPhase("execution.step_one"))
+	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+
+	err = service.ResumeTask(run)
+	assert.NilError(t, err)
+	assert.Equal(t, run.Status, TaskStatusActive)
+	assert.Equal(t, run.Phase, TaskPhase("execution.step_one"))
+	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+	assert.Equal(t, run.ExpiresAt, int64(0))
+}
+
+func TestListTemplatesAllowsExecutionStepWithoutChecks(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "free_form"
+  name: "Free Form"
+  description: "Minimal execution flow without explicit checks."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+`, "free_form.yaml")
+
+	summaries, err := service.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].ID, "free_form")
+	assert.Equal(t, summaries[0].StepCount, 1)
+	assert.Equal(t, summaries[0].Steps[0].ID, "step_one")
+}
+
+func TestListTemplatesAllowsExecutionStepWithoutChecksWhenInvariantsArePresent(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "free_form_with_invariant"
+  name: "Free Form With Invariant"
+  description: "Execution step uses invariants without checks."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+      invariants:
+        - id: "stable"
+          command: "printf 'same'"
+`, "free_form_with_invariant.yaml")
+
+	summaries, err := service.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].ID, "free_form_with_invariant")
+	assert.Equal(t, summaries[0].StepCount, 1)
+	assert.Equal(t, summaries[0].Steps[0].ID, "step_one")
+}
+
 func TestCompletePlanningResolvesDraftParametersAndEntersConfiguredExecutionNode(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
@@ -116,7 +204,7 @@ workflow:
 	})
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
@@ -129,6 +217,36 @@ workflow:
 	assert.Assert(t, run.RunnableTemplate != nil)
 	assert.Equal(t, run.Phase, TaskPhase("execution.failing_test"))
 	assert.Equal(t, run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[0].Checks[0].Command, "printf '%s' 'TestThing:boom'")
+}
+
+func TestCompletePlanningUsesResolvedExecutionPathForParameterizedStepID(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "free_form"
+  name: "Free Form"
+  description: "Parameterized step id."
+parameters:
+  - name: "taskName"
+    description: "Human-readable task name."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "Task ${taskName}"
+`, "free_form.yaml")
+
+	run, err := service.RegisterTask("free_form", map[string]string{
+		"taskName": "Investigate issue",
+	})
+	assert.NilError(t, err)
+
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	assert.NilError(t, err)
+
+	err = service.CompletePlanning(run, &PlanningArtifact{})
+	assert.NilError(t, err)
+	assert.Equal(t, run.Phase, TaskPhase("execution.Task Investigate issue"))
 }
 
 func TestCompletePlanningAllowsEditableFieldsForResolvedDeclaredParameters(t *testing.T) {
@@ -167,7 +285,7 @@ workflow:
 	})
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "tests/test_thing.py"})
@@ -199,7 +317,7 @@ workflow:
 	assert.Assert(t, run.Onboarding == nil)
 
 	artifact := OnboardingArtifact{
-		ProjectSummary: "Small Python project with one pytest target.",
+		TaskSummary: "Small Python task context with one pytest target.",
 		ArtifactMap: []OnboardingArtifactRef{
 			{Path: "/workspace/project/tests", Kind: "tests", Notes: "Pytest location"},
 		},
@@ -214,7 +332,7 @@ workflow:
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhasePlanning)
 	assert.Assert(t, run.Onboarding != nil)
-	assert.Equal(t, run.Onboarding.ProjectSummary, artifact.ProjectSummary)
+	assert.Equal(t, run.Onboarding.TaskSummary, artifact.TaskSummary)
 	assert.Equal(t, run.Onboarding.ArtifactMap[0].Path, artifact.ArtifactMap[0].Path)
 }
 
@@ -240,9 +358,9 @@ workflow:
 	assert.NilError(t, err)
 	assert.Assert(t, identifiers.IsKind(run.RunID, identifiers.KindTaskRun))
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
-	run.Onboarding = &OnboardingArtifact{ProjectSummary: "existing summary"}
+	run.Onboarding = &OnboardingArtifact{TaskSummary: "existing summary"}
 	assert.Assert(t, run.Onboarding != nil)
-	assert.Equal(t, run.Onboarding.ProjectSummary, "existing summary")
+	assert.Equal(t, run.Onboarding.TaskSummary, "existing summary")
 }
 
 func TestCompleteOnboardingRequiresOnboardingPhase(t *testing.T) {
@@ -266,14 +384,14 @@ workflow:
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready again"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready again"})
 	assert.ErrorContains(t, err, "cannot transition to planning")
 }
 
-func TestCompleteOnboardingValidatesProjectSummary(t *testing.T) {
+func TestCompleteOnboardingValidatesTaskSummary(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
 task:
@@ -295,7 +413,7 @@ workflow:
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{})
-	assert.ErrorContains(t, err, "onboarding.projectSummary is required")
+	assert.ErrorContains(t, err, "onboarding.taskSummary is required")
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, run.Onboarding == nil)
 }
@@ -320,14 +438,14 @@ workflow:
 
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "stored summary"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "stored summary"})
 	assert.NilError(t, err)
 
 	err = service.RestartTask(run)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, run.Onboarding != nil)
-	assert.Equal(t, run.Onboarding.ProjectSummary, "stored summary")
+	assert.Equal(t, run.Onboarding.TaskSummary, "stored summary")
 	assert.Assert(t, run.Planning == nil)
 }
 
@@ -376,7 +494,7 @@ workflow:
 
 	run, err := service.RegisterTask("simple_tdd", map[string]string{})
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{})
@@ -425,7 +543,7 @@ workflow:
 
 	run, err := service.RegisterTask("approval_flow", map[string]string{})
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{ProjectSummary: "ready"})
+	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "pytest -q"})
 	assert.NilError(t, err)

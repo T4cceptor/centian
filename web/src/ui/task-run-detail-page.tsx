@@ -792,8 +792,10 @@ function shouldStickToCurrentPhase(event: TaskRunEvent): boolean {
     event.eventType === "planning_completed" ||
     event.eventType === "step_completed" ||
     event.eventType === "task_completed" ||
+    event.eventType === "task_timed_out" ||
     event.eventType === "task_failed" ||
     payloadStatus === "completed" ||
+    payloadStatus === "timed_out" ||
     payloadStatus === "failed"
   );
 }
@@ -807,6 +809,9 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
     }
 
     const payloadStatus = readPayloadStatus(event.payloadJson);
+    if (payloadStatus === "timed_out" || event.eventType === "task_timed_out") {
+      return "timed_out";
+    }
     if (payloadStatus === "failed" || event.eventType === "task_failed" || event.outcome === "failed") {
       return "failed";
     }
@@ -1033,7 +1038,7 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
     "cwd",
     "templateId",
     "template_id",
-    "projectSummary",
+    "taskSummary",
     "project_summary",
     "input",
     "message",
@@ -1153,6 +1158,9 @@ function formatTaskPhaseLine(event: TaskRunEvent): string {
 // Maps task and action events into the shared tone model used by the UI.
 function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" | "failed" {
   if (event.source === "task") {
+    if (event.eventType === "task_timed_out" || readPayloadStatus(event.payloadJson) === "timed_out") {
+      return "neutral";
+    }
     if (event.outcome === "failed" || event.eventType === "task_failed") {
       return "failed";
     }
@@ -1174,6 +1182,10 @@ function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" |
 // Generates the compact status label shown next to event payloads.
 function getEventStatusLabel(event: TaskRunEvent): string {
   if (event.source === "task") {
+    const payloadStatus = readPayloadStatus(event.payloadJson);
+    if (payloadStatus) {
+      return payloadStatus;
+    }
     return event.outcome ?? "tracked";
   }
   if (event.isError === true || event.success === false) {

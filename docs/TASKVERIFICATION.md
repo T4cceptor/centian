@@ -79,6 +79,7 @@ If `proxy.capabilities.taskVerification.templatesPath` is set:
 - a relative path is resolved from Centian's current working directory
 
 This repository includes example templates under [task-templates](../task-templates).
+For a schema-focused authoring guide, see [TASK_TEMPLATE_AUTHORING.md](./TASK_TEMPLATE_AUTHORING.md).
 
 ### 3. Expose downstream tools through a normal gateway
 
@@ -257,12 +258,12 @@ Execution then reads from that frozen contract rather than from mutable shell st
 
 `centian.task_complete_onboarding`:
 
-- stores reusable project discovery context
+- stores reusable task and environment context
 - moves the run into `planning`
 
 Typical onboarding data includes:
 
-- project summary
+- task summary
 - artifact map
 - common commands
 - constraints

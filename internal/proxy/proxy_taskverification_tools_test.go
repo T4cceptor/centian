@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
@@ -22,6 +23,10 @@ func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoin
 }
 
 func newTaskToolTestProxyWithEnabled(t *testing.T, templateContent string, enabled bool) (*CentianEndpoint, *UpstreamSession) {
+	return newTaskToolTestProxyWithTimeout(t, templateContent, enabled, 0)
+}
+
+func newTaskToolTestProxyWithTimeout(t *testing.T, templateContent string, enabled bool, idleTimeoutSeconds int) (*CentianEndpoint, *UpstreamSession) {
 	t.Helper()
 
 	t.Setenv("HOME", t.TempDir())
@@ -47,7 +52,8 @@ func newTaskToolTestProxyWithEnabled(t *testing.T, templateContent string, enabl
 				Proxy: &config.ProxySettings{
 					Capabilities: &config.CapabilitiesSettings{
 						TaskVerification: &config.TaskVerificationCapabilitySettings{
-							Enabled: &taskVerificationEnabled,
+							Enabled:            &taskVerificationEnabled,
+							IdleTimeoutSeconds: idleTimeoutSeconds,
 						},
 					},
 				},
@@ -126,6 +132,28 @@ func attachTaskToolDownstream(
 	return conn
 }
 
+func waitForTaskStatus(t *testing.T, session *UpstreamSession, expected taskverification.TaskStatus, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		session.taskMu.Lock()
+		matches := session.taskRun != nil && session.taskRun.Status == expected
+		session.taskMu.Unlock()
+		if matches {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	session.taskMu.Lock()
+	defer session.taskMu.Unlock()
+	if session.taskRun == nil {
+		t.Fatalf("expected task status %s, but no task run was registered", expected)
+	}
+	t.Fatalf("expected task status %s, got %s", expected, session.taskRun.Status)
+}
+
 func TestNewUpstreamServerRegistersTaskVerificationTools(t *testing.T) {
 	_, session := newTaskToolTestProxy(t, basicTaskTemplate())
 
@@ -140,6 +168,7 @@ func TestNewUpstreamServerRegistersTaskVerificationTools(t *testing.T) {
 		taskListTemplatesTool,
 		taskRegisterTool,
 		taskRestartTool,
+		taskResumeTool,
 		taskStartStepTool,
 	})
 }
@@ -177,7 +206,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Small test project with one shell validation path.",
+				"taskSummary": "Small test task context with one shell validation path.",
 				"artifactMap": []map[string]any{
 					{
 						"path":  "/workspace/project/tests",
@@ -207,7 +236,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.DeepEqual(t, completeOnboardingStructured["planningRequiredOutputs"], []any{"testTarget"})
 	assert.Equal(t, completeOnboardingStructured["shellCommandHint"], "For compound shell commands or directory changes, use bash -lc '...'.")
 	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
-	assert.Equal(t, completeOnboardingStructured["onboardingSummary"], "Small test project with one shell validation path.")
+	assert.Equal(t, completeOnboardingStructured["taskSummary"], "Small test task context with one shell validation path.")
 	assert.DeepEqual(t, completeOnboardingStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
 	assert.Equal(t, completeOnboardingStructured["hasPlanning"], false)
@@ -276,7 +305,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, restartStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
 	assert.Equal(t, restartStructured["hasOnboarding"], true)
 	assert.Equal(t, restartStructured["hasPlanning"], false)
-	assert.Equal(t, restartStructured["onboardingSummary"], "Small test project with one shell validation path.")
+	assert.Equal(t, restartStructured["taskSummary"], "Small test task context with one shell validation path.")
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskFailTool,
@@ -289,6 +318,79 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
 	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+}
+
+func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, noCheckTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	listResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: taskListTemplatesTool})
+	assert.NilError(t, err)
+	listStructured := listResult.StructuredContent.(map[string]any)
+	templates := listStructured["templates"].([]any)
+	assert.Equal(t, len(templates), 1)
+	template := templates[0].(map[string]any)
+	assert.Equal(t, template["id"], "minimal")
+
+	registerResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "minimal",
+			"parameters": map[string]any{
+				"taskName": "Investigate issue",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	registerStructured := registerResult.StructuredContent.(map[string]any)
+	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+	assertAllowedTools(t, registerStructured["allowedTools"], "*")
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"taskSummary": "Minimal free-form task.",
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{},
+		},
+	})
+	assert.NilError(t, err)
+	completePlanningStructured := completePlanningResult.StructuredContent.(map[string]any)
+	assertAllowedTools(t, completePlanningStructured["allowedTools"], "*")
+	assert.Equal(t, completePlanningStructured["executionReady"], true)
+
+	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskStartStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.NilError(t, err)
+	startStepStructured := startStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, startStepStructured["passed"], true)
+	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
+
+	completeStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteStepTool,
+		Arguments: map[string]any{
+			"step": 1,
+		},
+	})
+	assert.NilError(t, err)
+	completeStepStructured := completeStepResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completeStepStructured["passed"], true)
+	assert.Equal(t, completeStepStructured["status"], string(taskverification.TaskStatusCompleted))
+	assert.Equal(t, completeStepStructured["stepStatus"], string(taskverification.StepStatusPassed))
 }
 
 func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
@@ -310,7 +412,7 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 
 	onboardingSchema := byName[taskCompleteOnboardingTool].InputSchema.(map[string]any)
 	onboardingProps := onboardingSchema["properties"].(map[string]any)["onboarding"].(map[string]any)["properties"].(map[string]any)
-	assert.Assert(t, onboardingProps["projectSummary"] != nil)
+	assert.Assert(t, onboardingProps["taskSummary"] != nil)
 	artifactMapItems := onboardingProps["artifactMap"].(map[string]any)["items"].(map[string]any)
 	assert.DeepEqual(t, artifactMapItems["required"], []any{"path", "kind"})
 	commonCommandItems := onboardingProps["commonCommands"].(map[string]any)["items"].(map[string]any)
@@ -348,7 +450,7 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Small project with parameterized planning fields.",
+				"taskSummary": "Small task context with parameterized planning fields.",
 			},
 		},
 	})
@@ -402,7 +504,7 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -517,7 +619,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -554,7 +656,7 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -641,7 +743,7 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -752,7 +854,7 @@ workflow:
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Stored summary",
+				"taskSummary": "Stored summary",
 			},
 		},
 	})
@@ -865,7 +967,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -924,6 +1026,235 @@ func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
 	assert.Equal(t, downstream.CapturedToolName, "shell__exec")
 }
 
+func TestWorkflowNodeToolGovernanceDeniesCompletedTask(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteOnboardingTool,
+		Arguments: map[string]any{"onboarding": map[string]any{"taskSummary": "Stored summary"}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompletePlanningTool,
+		Arguments: map[string]any{"planning": map[string]any{"testTarget": "pytest -q"}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, result.IsError)
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["reason"], governanceDeniedTaskCompleted)
+	assert.Equal(t, structured["status"], string(taskverification.TaskStatusCompleted))
+	assert.Assert(t, downstream.CapturedRequest == nil)
+}
+
+func TestWorkflowNodeToolGovernanceDeniesFailedTask(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskFailTool,
+		Arguments: map[string]any{"reason": "stuck"},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, result.IsError)
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["reason"], governanceDeniedTaskFailed)
+	assert.Equal(t, structured["status"], string(taskverification.TaskStatusFailed))
+	assert.Assert(t, downstream.CapturedRequest == nil)
+}
+
+func TestTaskIdleTimeoutDeniesDownstreamToolsAndRecordsEvent(t *testing.T) {
+	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, 1)
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	registerResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+	})
+	assert.NilError(t, err)
+	registerStructured := registerResult.StructuredContent.(map[string]any)
+	assert.Assert(t, registerStructured["lastActivityAtUnixMilli"] != nil)
+	assert.Assert(t, registerStructured["expiresAtUnixMilli"] != nil)
+
+	waitForTaskStatus(t, session, taskverification.TaskStatusTimedOut, 2*time.Second)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, result.IsError)
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["reason"], governanceDeniedTaskTimedOut)
+	assert.Equal(t, structured["status"], string(taskverification.TaskStatusTimedOut))
+	assert.Assert(t, downstream.CapturedRequest == nil)
+
+	events, err := endpoint.server.TaskVerification.TaskEvents()
+	assert.NilError(t, err)
+	assert.Equal(t, events[len(events)-1].EventType, taskverification.TaskEventTypeTimedOut)
+	timeoutEvents := 0
+	for _, event := range events {
+		if event.EventType == taskverification.TaskEventTypeTimedOut {
+			timeoutEvents++
+		}
+	}
+	assert.Equal(t, timeoutEvents, 1)
+}
+
+func TestTaskActivityRefreshesIdleTimeoutForTaskAndDownstreamCalls(t *testing.T) {
+	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, 1)
+	attachTaskToolDownstream(t, endpoint, session, "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+	})
+	assert.NilError(t, err)
+
+	time.Sleep(400 * time.Millisecond)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskListTemplatesTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+
+	time.Sleep(700 * time.Millisecond)
+	session.taskMu.Lock()
+	assert.Equal(t, session.taskRun.Status, taskverification.TaskStatusActive)
+	session.taskMu.Unlock()
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+
+	time.Sleep(700 * time.Millisecond)
+	session.taskMu.Lock()
+	assert.Equal(t, session.taskRun.Status, taskverification.TaskStatusActive)
+	session.taskMu.Unlock()
+
+	waitForTaskStatus(t, session, taskverification.TaskStatusTimedOut, 1500*time.Millisecond)
+}
+
+func TestTaskResumeRequiresTimedOutRunAndPreservesWorkflowProgress(t *testing.T) {
+	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, 1)
+	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteOnboardingTool,
+		Arguments: map[string]any{"onboarding": map[string]any{"taskSummary": "Stored summary"}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompletePlanningTool,
+		Arguments: map[string]any{"planning": map[string]any{"testTarget": "pytest -q"}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskResumeTool,
+		Arguments: map[string]any{},
+	})
+	assert.ErrorContains(t, err, "task is active")
+
+	waitForTaskStatus(t, session, taskverification.TaskStatusTimedOut, 2*time.Second)
+
+	session.taskMu.Lock()
+	assert.Equal(t, session.taskRun.Phase, taskverification.TaskPhase("execution.step_one"))
+	assert.Equal(t, session.taskRun.Steps[0].Status, taskverification.StepStatusActive)
+	session.taskMu.Unlock()
+
+	resumeResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskResumeTool,
+		Arguments: map[string]any{},
+	})
+	assert.NilError(t, err)
+	resumeStructured := resumeResult.StructuredContent.(map[string]any)
+	assert.Equal(t, resumeStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, resumeStructured["phase"], "execution.step_one")
+	assert.Assert(t, resumeStructured["lastActivityAtUnixMilli"] != nil)
+	assert.Assert(t, resumeStructured["expiresAtUnixMilli"] != nil)
+
+	session.taskMu.Lock()
+	assert.Equal(t, session.taskRun.Steps[0].Status, taskverification.StepStatusActive)
+	session.taskMu.Unlock()
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "shell__exec",
+		Arguments: map[string]any{"command": "pwd"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, !result.IsError)
+	assert.Equal(t, downstream.CapturedToolName, "shell__exec")
+
+	events, err := endpoint.server.TaskVerification.TaskEvents()
+	assert.NilError(t, err)
+	assert.Equal(t, events[len(events)-2].EventType, taskverification.TaskEventTypeTimedOut)
+	assert.Equal(t, events[len(events)-1].EventType, taskverification.TaskEventTypeResumed)
+}
+
 func TestTaskLifecycleToolsRequireRegistrationFirst(t *testing.T) {
 	_, session := newTaskToolTestProxy(t, basicTaskTemplate())
 
@@ -933,7 +1264,7 @@ func TestTaskLifecycleToolsRequireRegistrationFirst(t *testing.T) {
 	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "blocked"},
+			"onboarding": map[string]any{"taskSummary": "blocked"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1095,7 +1426,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1162,7 +1493,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
-			"onboarding": map[string]any{"projectSummary": "Stored summary"},
+			"onboarding": map[string]any{"taskSummary": "Stored summary"},
 		},
 	})
 	assert.NilError(t, err)
@@ -1218,7 +1549,7 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{
-				"projectSummary": "Stored summary",
+				"taskSummary": "Stored summary",
 			},
 		},
 	})
@@ -1319,6 +1650,44 @@ workflow:
             - type: stdout_contains
               value: "pytest:boom"
 `
+}
+
+func noCheckTaskTemplate() string {
+	return `
+version: "0.1"
+task:
+  id: "minimal"
+  name: "Minimal"
+  description: "Smallest task template that still allows work."
+parameters:
+  - name: "taskName"
+    description: "Human-readable task name."
+workflow:
+  onboarding:
+    tools_allowed: ["*"]
+  planning:
+    tools_allowed: ["*"]
+  execution:
+    - id: "Task ${taskName}"
+      tools_allowed: ["*"]
+`
+}
+
+func assertAllowedTools(t *testing.T, value any, expected ...string) {
+	t.Helper()
+
+	switch typed := value.(type) {
+	case []string:
+		assert.DeepEqual(t, typed, expected)
+	case []any:
+		actual := make([]string, 0, len(typed))
+		for _, item := range typed {
+			actual = append(actual, item.(string))
+		}
+		assert.DeepEqual(t, actual, expected)
+	default:
+		t.Fatalf("unexpected allowedTools type %T", value)
+	}
 }
 
 func readTaskToolLogEntries(t *testing.T, path string) []common.LogEntry {
