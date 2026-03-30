@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "centian": {
+      "type": "http",
+      "url": "__MCP_URL__"
+    }
+  }
+}

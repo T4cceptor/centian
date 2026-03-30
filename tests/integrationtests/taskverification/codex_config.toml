@@ -1,0 +1,7 @@
+__MODEL_BLOCK__
+[mcp_servers.centian]
+url = "__MCP_URL__"
+enabled = true
+
+[projects."__WORK_DIR__"]
+trust_level = "trusted"
