@@ -222,11 +222,7 @@ func newArtifactDir(t *testing.T, assetsDir, agentName string) (string, func()) 
 		dir = filepath.Join(root, fmt.Sprintf("%s_%02d", baseName, i))
 	}
 	return dir, func() {
-		if t.Failed() {
-			t.Logf("preserving taskverification black-box artifacts at %s", dir)
-			return
-		}
-		_ = os.RemoveAll(dir)
+		t.Logf("preserving taskverification black-box artifacts at %s", dir)
 	}
 }
 
@@ -571,6 +567,7 @@ func waitForCentian(t *testing.T, h *blackboxHarness) {
 		mcpReady := isEndpointReachable(client, h.mcpURL)
 		apiReady := isJSONEndpointReady(client, apiURL)
 		if mcpReady && apiReady {
+			fmt.Printf("Task UI: %s/ui/tasks\n", h.baseURL)
 			return
 		}
 		time.Sleep(500 * time.Millisecond)
