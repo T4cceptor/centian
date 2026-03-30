@@ -857,7 +857,7 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
     if (payloadStatus === "timed_out" || event.eventType === "task_timed_out") {
       return "timed_out";
     }
-    if (payloadStatus === "failed" || event.eventType === "task_failed" || event.outcome === "failed") {
+    if (payloadStatus === "failed" || event.eventType === "task_failed") {
       return "failed";
     }
     if (payloadStatus === "completed") {

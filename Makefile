@@ -90,7 +90,7 @@ test-taskverification: ## Run opt-in Docker task verification integration test
 test-taskverification-blackbox: ## Run opt-in host-native black-box taskverification test
 	@echo "Running host-native black-box taskverification test..."
 	@if command -v gotestsum >/dev/null 2>&1; then \
-		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build gotestsum --format testname -- ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
+		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build gotestsum --format standard-verbose -- -v ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
 	else \
 		echo "Note: gotestsum not found, using default go test output"; \
 		echo "Install with: go install gotest.tools/gotestsum@latest"; \

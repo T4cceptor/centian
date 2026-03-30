@@ -60,6 +60,52 @@ export function TaskRunListPage() {
   }, [reloadToken]);
 
   useEffect(() => {
+    if (loadState !== "ready") {
+      return;
+    }
+
+    let inFlight = false;
+    let controller: AbortController | null = null;
+
+    const poll = () => {
+      if (inFlight) {
+        return;
+      }
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      inFlight = true;
+      controller = new AbortController();
+
+      void fetchTaskRuns(controller.signal)
+        .then((result) => {
+          setRuns(result);
+        })
+        .catch((error: unknown) => {
+          if ((error as Error)?.name === "AbortError") {
+            return;
+          }
+          if (error instanceof ApiError && error.status === 401) {
+            setAuthHeaderName(error.authHeaderName);
+            setErrorMessage("Enter a Centian API key to read persisted task runs.");
+            setLoadState("unauthorized");
+          }
+        })
+        .finally(() => {
+          inFlight = false;
+          controller = null;
+        });
+    };
+
+    const timer = window.setInterval(poll, 2000);
+    return () => {
+      window.clearInterval(timer);
+      controller?.abort();
+    };
+  }, [loadState]);
+
+  useEffect(() => {
     const activeRunExists = runs.some((run) => getTaskRunUIStatus(run.status, run.endedAt) === "active");
     if (!activeRunExists) {
       return;

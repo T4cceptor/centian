@@ -18,6 +18,9 @@
         "enabled": true,
         "driver": "sqlite",
         "path": "__EVENT_STORE_PATH__"
+      },
+      "ui": {
+        "enabled": true
       }
     }
   },
