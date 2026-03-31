@@ -1,0 +1,144 @@
+version: "0.1"
+task:
+  id: "python_tdd_workflow"
+  name: "Python TDD Workflow"
+  description: "Use Centian to drive a Python TDD loop with explicit scaffolding, a failing-baseline step, and an implementation step."
+  instructions: |
+    Use Centian task verification as the authoritative process for this task.
+
+    Expectations:
+    - Register the task before using any project-access MCP tool, then follow the step boundaries in order.
+    - Prefer `centian.task_start_step` and `centian.task_complete_step` over manually rebuilding the full validation flow.
+    - Treat `centian.task_complete_step` as the source of truth for whether a step passes.
+    - The Centian taskverification working directory is the project root.
+    - Use paths relative to the project root when filling template parameters.
+    - This workflow runs in a host-native test environment with only `python` guaranteed to exist.
+    - Do not assume `pytest` or `ruff` are installed; choose commands that work with plain `python`.
+    - Once the implementation step has started, keep the selected test file stable.
+parameters:
+  - name: "testCommand"
+    description: "The command prefix used to run the selected test target with standard-library-only Python, for example `python`."
+  - name: "testTarget"
+    description: "The test target to execute with the selected command. Use a plain file path such as `test_x.py`."
+  - name: "testFile"
+    description: "The concrete path to the test file used for invariants, for example `test_x.py`."
+  - name: "testName"
+    description: "The test entrypoint name that scaffolding should create inside the selected test file."
+  - name: "lintCommand"
+    description: "The command used to run a dependency-free syntax check for the project, for example `python -m py_compile score_parentheses.py test_score_parentheses.py`."
+  - name: "expectedError"
+    description: "A stable substring expected in the combined test output for the initial failing baseline, for example `FAIL`."
+  - name: "implementationTarget"
+    description: "The concrete implementation file path that scaffolding and execution will operate on. Use a path relative to the project root, for example `score_parentheses.py`."
+workflow:
+  onboarding:
+    instructions: |
+      Identify the concrete test target, relevant source files, and project commands before planning.
+    tools_allowed:
+      - "shell__*"
+      - "filesystem__*"
+  planning:
+    tools_allowed:
+      - "shell__*"
+      - "filesystem__*"
+    editable_fields:
+      - "parameters.testCommand"
+      - "parameters.testTarget"
+      - "parameters.testFile"
+      - "parameters.testName"
+      - "parameters.lintCommand"
+      - "parameters.expectedError"
+      - "parameters.implementationTarget"
+    required_outputs:
+      - "selectedFiles"
+      - "testTarget"
+      - "lintCommand"
+      - "expectedFailure"
+      - "implementationTarget"
+  scaffolding:
+    - id: "setup_test_file"
+      name: "Setup test file"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Create the planned test file as a new artifact. Keep this step additive.
+      checks:
+        - id: "test_file_created"
+          command: "printf 'scaffold-test-file'"
+          pre_conditions:
+            - type: file_not_exists
+              path: "${testFile}"
+          post_conditions:
+            - type: file_exists
+              path: "${testFile}"
+    - id: "setup_test_scaffolding"
+      name: "Setup test scaffolding"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Add the planned test scaffold and make sure the implementation target exists. If the implementation file does not exist yet, create a minimal stub that preserves the planned failing baseline.
+      checks:
+        - id: "test_scaffold_created"
+          command: "printf 'scaffold-test-content'"
+          pre_conditions:
+            - type: file_exists
+              path: "${testFile}"
+            - type: file_not_contains
+              path: "${testFile}"
+              value: "${testName}"
+          post_conditions:
+            - type: file_contains
+              path: "${testFile}"
+              value: "${testName}"
+            - type: file_exists
+              path: "${implementationTarget}"
+  execution:
+    - id: "establish_failing_baseline"
+      name: "Establish failing baseline"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Verify the planned test target already fails for the intended reason. No additional file edits should be required in this step.
+        The pass/fail decision for this step comes from `centian.task_complete_step`.
+      checks:
+        - id: "selected_test_fails"
+          command: "${testCommand} ${testTarget}"
+          pre_conditions:
+            - type: exit_code
+              value: 1
+            - type: output_contains
+              value: "${expectedError}"
+          post_conditions:
+            - type: exit_code
+              value: 1
+            - type: output_contains
+              value: "${expectedError}"
+    - id: "implement_solution"
+      name: "Implement solution"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      instructions: |
+        Start this step before changing production code.
+        Make the implementation pass the selected test, then let Centian verify the step.
+        Once this step is active, keep the selected test file stable.
+      checks:
+        - id: "selected_test_passes"
+          command: "${testCommand} ${testTarget}"
+          pre_conditions:
+            - type: exit_code
+              value: 1
+          post_conditions:
+            - type: exit_code
+              value: 0
+        - id: "project_lint_passes"
+          command: "${lintCommand}"
+          post_conditions:
+            - type: exit_code
+              value: 0
+      invariants:
+        - id: "test_file_stable"
+          command: "cat ${testFile}"

@@ -1,0 +1,56 @@
+{
+  "name": "Centian Demo",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "__PORT__",
+    "timeout": 30,
+    "logLevel": "debug",
+    "logOutput": "file",
+    "logFile": "__INTERNAL_LOG__",
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "__TEMPLATES_DIR__"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite",
+        "path": "__EVENT_STORE_PATH__"
+      },
+      "ui": {
+        "enabled": true
+      }
+    }
+  },
+  "gateways": {
+    "taskverification": {
+      "setupGateway": true,
+      "mcpServers": {
+        "filesystem": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "__PROJECT_DIR__"
+          ],
+          "enabled": true,
+          "description": "Filesystem access to the demo workspace."
+        },
+        "shell": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "shell-command-mcp"
+          ],
+          "env": {
+            "ALLOWED_COMMANDS": "*"
+          },
+          "enabled": true,
+          "description": "Shell access for the Centian demo."
+        }
+      }
+    }
+  }
+}
