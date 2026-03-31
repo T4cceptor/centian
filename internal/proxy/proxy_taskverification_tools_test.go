@@ -174,7 +174,7 @@ func TestNewUpstreamServerRegistersTaskVerificationTools(t *testing.T) {
 }
 
 func TestTaskToolFlowAndRestartFail(t *testing.T) {
-	_, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
@@ -199,6 +199,10 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.DeepEqual(t, registerStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, registerStructured["executionReady"], false)
 	assert.Equal(t, registerStructured["hasOnboarding"], false)
+	assert.Equal(t, registerStructured["workspaceRoot"], endpoint.server.TaskVerification.WorkingDir)
+	assert.Equal(t, registerStructured["pathMode"], pathModeRelativeToWorkspace)
+	assert.Equal(t, registerStructured["commandWorkingDirectory"], endpoint.server.TaskVerification.WorkingDir)
+	assert.Equal(t, registerStructured["nextAction"], "Call centian.task_complete_onboarding to freeze the onboarding context.")
 	_, hasSteps := registerStructured["steps"]
 	assert.Assert(t, !hasSteps)
 
@@ -240,6 +244,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.DeepEqual(t, completeOnboardingStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
 	assert.Equal(t, completeOnboardingStructured["hasPlanning"], false)
+	assert.Equal(t, completeOnboardingStructured["nextAction"], "Call centian.task_complete_planning to freeze the execution contract.")
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -270,6 +275,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, completePlanningStructured["hasPlanning"], true)
 	assert.DeepEqual(t, completePlanningStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, completePlanningStructured["executionReady"], true)
+	assert.Equal(t, completePlanningStructured["nextAction"], "Call centian.task_start_step for step 1.")
 	assert.Assert(t, completePlanningStructured["planningSummary"] != nil)
 	assert.DeepEqual(t, completePlanningStructured["frozenContractSummary"], map[string]any{
 		"selectedFiles":        []any{"tests/test_mathlib.py"},
@@ -291,6 +297,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, startStepStructured["phase"], "execution.step_one")
 	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
 	assert.Equal(t, startStepStructured["summary"], "step 1 (step_one) started")
+	assert.Equal(t, startStepStructured["nextAction"], "Do the step work in workspaceRoot, then call centian.task_complete_step for step 1.")
 	_, hasFailureKind := startStepStructured["failureKind"]
 	assert.Assert(t, !hasFailureKind)
 
@@ -306,6 +313,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, restartStructured["hasOnboarding"], true)
 	assert.Equal(t, restartStructured["hasPlanning"], false)
 	assert.Equal(t, restartStructured["taskSummary"], "Small test task context with one shell validation path.")
+	assert.Equal(t, restartStructured["nextAction"], "Call centian.task_complete_onboarding to freeze the onboarding context.")
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskFailTool,
@@ -318,6 +326,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
 	assert.Equal(t, failStructured["explicitFailReason"], "stuck")
 	assert.Equal(t, failStructured["phase"], string(taskverification.TaskPhaseOnboarding))
+	assert.Equal(t, failStructured["nextAction"], "Restart the task or register a new task run.")
 }
 
 func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
@@ -426,6 +435,34 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	assert.Assert(t, planningProps["expectedFailure"] != nil)
 	assert.Assert(t, planningProps["implementationTarget"] != nil)
 	assert.Assert(t, planningProps["invariants"] != nil)
+
+	listTool := byName[taskListTemplatesTool]
+	assert.Assert(t, listTool.Annotations != nil)
+	assert.Equal(t, listTool.Annotations.ReadOnlyHint, true)
+	assert.Equal(t, listTool.Annotations.IdempotentHint, true)
+	assert.Assert(t, listTool.Annotations.OpenWorldHint != nil)
+	assert.Equal(t, *listTool.Annotations.OpenWorldHint, false)
+
+	for _, toolName := range []string{
+		taskRegisterTool,
+		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
+		taskStartStepTool,
+		taskCompleteStepTool,
+		taskResumeTool,
+		taskRestartTool,
+		taskFailTool,
+	} {
+		tool := byName[toolName]
+		assert.Assert(t, tool != nil)
+		assert.Assert(t, tool.Annotations != nil)
+		assert.Assert(t, tool.Annotations.DestructiveHint != nil)
+		assert.Equal(t, *tool.Annotations.DestructiveHint, false)
+		assert.Assert(t, tool.Annotations.OpenWorldHint != nil)
+		assert.Equal(t, *tool.Annotations.OpenWorldHint, false)
+		assert.Equal(t, tool.Annotations.ReadOnlyHint, false)
+		assert.Equal(t, tool.Annotations.IdempotentHint, false)
+	}
 }
 
 func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *testing.T) {
@@ -998,6 +1035,7 @@ workflow:
 	assert.Assert(t, structured["stdoutSnippet"] != nil)
 	assert.Assert(t, structured["summary"] != nil)
 	assert.Assert(t, structured["frozenContractSummary"] != nil)
+	assert.Equal(t, structured["nextAction"], "Fix the failed check in workspaceRoot, then retry centian.task_complete_step for step 1.")
 }
 
 func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
@@ -1273,6 +1311,8 @@ func TestTaskLifecycleToolsRequireRegistrationFirst(t *testing.T) {
 	structured := result.StructuredContent.(map[string]any)
 	assert.Equal(t, structured["reason"], governanceDeniedRegistrationNeeded)
 	assert.Equal(t, structured["requestedTool"], taskCompleteOnboardingTool)
+	assert.Equal(t, structured["nextAction"], "Call centian.task_list_templates, then centian.task_register.")
+	assert.Equal(t, structured["pathMode"], pathModeRelativeToWorkspace)
 }
 
 func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
@@ -1304,6 +1344,7 @@ func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
 	assert.Equal(t, structured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
 	assert.Equal(t, structured["requestedTool"], "database__query")
 	assert.DeepEqual(t, structured["allowedTools"], []any{"shell__*", "filesystem__*"})
+	assert.Equal(t, structured["nextAction"], "Follow the current Centian workflow state before retrying this tool.")
 	assert.Assert(t, downstream.CapturedRequest == nil)
 }
 

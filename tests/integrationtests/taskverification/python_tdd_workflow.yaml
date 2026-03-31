@@ -27,7 +27,7 @@ parameters:
   - name: "lintCommand"
     description: "The command used to run a dependency-free syntax check for the project, for example `python -m py_compile score_parentheses.py test_score_parentheses.py`."
   - name: "expectedError"
-    description: "A stable substring expected in stdout for the initial failing baseline, for example `FAIL`."
+    description: "A stable substring expected in the combined test output for the initial failing baseline, for example `FAIL`."
   - name: "implementationTarget"
     description: "The concrete implementation file path that scaffolding and execution will operate on. Use a path relative to the project root, for example `score_parentheses.py`."
 workflow:
@@ -109,12 +109,12 @@ workflow:
           pre_conditions:
             - type: exit_code
               value: 1
-            - type: stdout_contains
+            - type: output_contains
               value: "${expectedError}"
           post_conditions:
             - type: exit_code
               value: 1
-            - type: stdout_contains
+            - type: output_contains
               value: "${expectedError}"
     - id: "implement_solution"
       name: "Implement solution"

@@ -108,12 +108,12 @@ workflow:
           pre_conditions:
             - type: exit_code
               value: 1
-            - type: stdout_contains
+            - type: output_contains
               value: "${expectedError}"
           post_conditions:
             - type: exit_code
               value: 1
-            - type: stdout_contains
+            - type: output_contains
               value: "${expectedError}"
     - id: "implement_solution"
       name: "Implement solution"

@@ -191,7 +191,16 @@ web-clean: ## Clean frontend build and generated config artifacts
 
 install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
-	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/$(BINARY_NAME)
+	@dest_dir="$(shell go env GOPATH)/bin"; \
+	dest="$$dest_dir/$(BINARY_NAME)"; \
+	tmp="$$dest.tmp"; \
+	mkdir -p "$$dest_dir"; \
+	cp "$(BUILD_DIR)/$(BINARY_NAME)" "$$tmp"; \
+	chmod +x "$$tmp"; \
+	if [ "$$(uname -s)" = "Darwin" ]; then \
+		codesign --force --sign - "$$tmp"; \
+	fi; \
+	mv "$$tmp" "$$dest"
 	@echo "Installed $(BINARY_NAME) to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 
 tail-log: ## Tail the latest Centian log file

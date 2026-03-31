@@ -50,7 +50,7 @@ type agentAdapter interface {
 	Name() string
 	IsAvailable() error
 	PrepareConfig(*testing.T, *blackboxHarness) (agentLaunchConfig, error)
-	Run(context.Context, *testing.T, *blackboxHarness, agentLaunchConfig, string) error
+	Run(context.Context, *testing.T, *blackboxHarness, *agentLaunchConfig, string) error
 }
 
 type agentLaunchConfig struct {
@@ -86,7 +86,6 @@ func TestTaskVerificationBlackBox(t *testing.T) {
 		t.Fatalf("no agents selected via %s", agentsEnv)
 	}
 	for _, adapter := range adapters {
-		adapter := adapter
 		t.Run(adapter.Name(), func(t *testing.T) {
 			harness := newBlackboxHarness(t, adapter.Name())
 			prompt := loadUserPrompt(t, harness.assetsDir)
@@ -111,13 +110,13 @@ func TestTaskVerificationBlackBox(t *testing.T) {
 				t.Fatalf("failed to prepare %s config: %v", adapter.Name(), err)
 			}
 
-			err = adapter.Run(runCtx, t, harness, cfg, prompt)
+			err = adapter.Run(runCtx, t, harness, &cfg, prompt)
 			runs := fetchTaskRuns(t, harness)
 			if len(runs) == 0 {
 				t.Fatalf("%s created no task run; run error: %v; artifacts: %s", adapter.Name(), err, cfg.ArtifactRoot)
 			}
 
-			latest := runs[0]
+			latest := &runs[0]
 			events := fetchTaskRunEvents(t, harness, latest.RunID)
 			requests := loadRequestLogs(t, harness)
 
@@ -401,8 +400,9 @@ func (codexAdapter) PrepareConfig(t *testing.T, h *blackboxHarness) (agentLaunch
 			"codex",
 			"exec",
 			"--skip-git-repo-check",
-			"--dangerously-bypass-approvals-and-sandbox",
 			"--json",
+			// "--full-auto",
+			// "--dangerously-bypass-approvals-and-sandbox",
 			"-C", workDir,
 			"-o", filepath.Join(artifactRoot, "final.txt"),
 			"-",
@@ -410,7 +410,7 @@ func (codexAdapter) PrepareConfig(t *testing.T, h *blackboxHarness) (agentLaunch
 	}, nil
 }
 
-func (codexAdapter) Run(ctx context.Context, t *testing.T, _ *blackboxHarness, cfg agentLaunchConfig, prompt string) error {
+func (codexAdapter) Run(ctx context.Context, t *testing.T, _ *blackboxHarness, cfg *agentLaunchConfig, prompt string) error {
 	t.Helper()
 	return runAgentCommand(ctx, cfg, prompt)
 }
@@ -474,12 +474,12 @@ func (claudeAdapter) PrepareConfig(t *testing.T, h *blackboxHarness) (agentLaunc
 	}, nil
 }
 
-func (claudeAdapter) Run(ctx context.Context, t *testing.T, _ *blackboxHarness, cfg agentLaunchConfig, prompt string) error {
+func (claudeAdapter) Run(ctx context.Context, t *testing.T, _ *blackboxHarness, cfg *agentLaunchConfig, prompt string) error {
 	t.Helper()
 	return runAgentCommand(ctx, cfg, prompt)
 }
 
-func runAgentCommand(ctx context.Context, cfg agentLaunchConfig, prompt string) error {
+func runAgentCommand(ctx context.Context, cfg *agentLaunchConfig, prompt string) error {
 	stdoutFile, err := os.Create(cfg.StdoutPath)
 	if err != nil {
 		return err
@@ -654,7 +654,7 @@ func loadRequestLogs(t *testing.T, h *blackboxHarness) []requestLogEntry {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if strings.TrimSpace(string(line)) == "" {
 			continue
 		}
 		var entry requestLogEntry
@@ -673,7 +673,7 @@ func assertStrictSuccess(
 	t *testing.T,
 	agentName string,
 	h *blackboxHarness,
-	latest persistence.TaskRunSummary,
+	latest *persistence.TaskRunSummary,
 	events []persistence.TaskRunEvent,
 	requests []requestLogEntry,
 ) {
@@ -716,7 +716,8 @@ func assertStrictSuccess(
 	}
 
 	eventTypes := make([]string, 0)
-	for _, event := range events {
+	for idx := range events {
+		event := &events[idx]
 		if event.Source != persistence.TaskRunEventSourceTask || event.EventType == "" {
 			continue
 		}
@@ -748,7 +749,7 @@ func assertStrictSuccess(
 	runProjectCommand(t, h.projectDir, "python", "-m", "py_compile", "score_parentheses.py", "test_score_parentheses.py")
 }
 
-func runProjectCommand(t *testing.T, dir string, name string, args ...string) {
+func runProjectCommand(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 
 	cmd := exec.Command(name, args...)

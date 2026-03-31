@@ -29,6 +29,14 @@ var conditionRegistry = map[string]conditionHandler{
 		validate: validateStringValueCondition,
 		evaluate: evaluateStdoutNotContainsCondition,
 	},
+	"output_contains": {
+		validate: validateStringValueCondition,
+		evaluate: evaluateOutputContainsCondition,
+	},
+	"output_not_contains": {
+		validate: validateStringValueCondition,
+		evaluate: evaluateOutputNotContainsCondition,
+	},
 	"file_exists": {
 		validate: validatePathCondition,
 		evaluate: evaluateFileExistsCondition,
@@ -133,6 +141,22 @@ func evaluateStdoutNotContainsCondition(condition Condition, result *commandResu
 	return evaluateStdoutNotContains(value, result.Stdout)
 }
 
+func evaluateOutputContainsCondition(condition Condition, result *commandResult, _ string) error {
+	value, ok := condition.Value.(string)
+	if !ok {
+		return fmt.Errorf("output_contains condition requires a string value, got %T", condition.Value)
+	}
+	return evaluateOutputContains(value, result)
+}
+
+func evaluateOutputNotContainsCondition(condition Condition, result *commandResult, _ string) error {
+	value, ok := condition.Value.(string)
+	if !ok {
+		return fmt.Errorf("output_not_contains condition requires a string value, got %T", condition.Value)
+	}
+	return evaluateOutputNotContains(value, result)
+}
+
 func evaluateFileExistsCondition(condition Condition, _ *commandResult, workingDir string) error {
 	return evaluateFileExists(condition.Path, workingDir)
 }
@@ -169,6 +193,33 @@ func evaluateStdoutNotContains(unexpected, stdout string) error {
 		return fmt.Errorf("expected stdout not to contain %q", unexpected)
 	}
 	return nil
+}
+
+func evaluateOutputContains(expected string, result *commandResult) error {
+	if !strings.Contains(combinedCommandOutput(result), expected) {
+		return fmt.Errorf("expected output to contain %q", expected)
+	}
+	return nil
+}
+
+func evaluateOutputNotContains(unexpected string, result *commandResult) error {
+	if strings.Contains(combinedCommandOutput(result), unexpected) {
+		return fmt.Errorf("expected output not to contain %q", unexpected)
+	}
+	return nil
+}
+
+func combinedCommandOutput(result *commandResult) string {
+	if result == nil {
+		return ""
+	}
+	if result.Stdout == "" {
+		return result.Stderr
+	}
+	if result.Stderr == "" {
+		return result.Stdout
+	}
+	return result.Stdout + "\n" + result.Stderr
 }
 
 func evaluateFileExists(path, workingDir string) error {

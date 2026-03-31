@@ -63,6 +63,28 @@ func TestEvaluateStdoutNotContainsCondition_ValidString(t *testing.T) {
 	}
 }
 
+func TestEvaluateOutputContainsCondition_MatchesStderr(t *testing.T) {
+	condition := Condition{Type: "output_contains", Value: "FAIL"}
+	result := &commandResult{Stdout: "", Stderr: "FAIL: test case"}
+
+	err := evaluateOutputContainsCondition(condition, result, "")
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
+func TestEvaluateOutputNotContainsCondition_UsesCombinedStreams(t *testing.T) {
+	condition := Condition{Type: "output_not_contains", Value: "panic"}
+	result := &commandResult{Stdout: "ok", Stderr: "still ok"}
+
+	err := evaluateOutputNotContainsCondition(condition, result, "")
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
+
 func TestEvaluateFileContainsCondition_NonStringValue(t *testing.T) {
 	// Given: a condition with a non-string value and a temp file
 	tmpDir := t.TempDir()
