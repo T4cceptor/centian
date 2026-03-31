@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.2 - 2026-04-01
+
+### Major
+- Added a host-native black-box taskverification integration harness under `tests/integrationtests/taskverification` that runs real local coding agents against a real Centian process, preserves artifacts under `.tmp/`, and asserts the task lifecycle from Centian task runs, events, request logs, and produced project files.
+- Added the new `centian demo` command for a self-contained local product demo, backed by a new `internal/agentrunner` package with embedded demo assets, a generated Centian config and workspace, a Claude headless adapter, preserved agent stdout/stderr logs, and automatic UI startup while keeping Centian running after the agent exits.
+
+### Minor
+- Added detailed black-box integration documentation in `tests/integrationtests/taskverification/README.md`, plus README coverage for the new `centian demo` flow, generated artifacts, and current agent support.
+- Added explicit task-tool annotations and richer agent-facing metadata across the `centian.task_*` tools, including `workspaceRoot`, `pathMode`, `commandWorkingDirectory`, and short `nextAction` guidance to make the taskverification workflow easier for agents to follow.
+- Added a dedicated demo integration test and expanded taskverification fixture assets to keep the runtime demo flow and the stricter black-box harness aligned.
+
+### Bugfixes
+- Fixed taskverification step verification to support `output_contains` and `output_not_contains` conditions over combined stdout/stderr, removing the need for agent-side workarounds when standard-library Python test failures write to stderr.
+- Fixed the task run UI to poll the list view in place, poll active detail views once per second, pause hidden-tab refreshes, and avoid incorrectly stopping detail polling after non-terminal failed step events.
+- Fixed the host-native taskverification harness to use a consistent project-root workspace model with versioned local configs/prompts/templates instead of ad hoc demo-path assumptions.
+
+## v0.2.1 - 2026-03-29
+
+### Major
+- No code delta relative to `v0.2.0`. `v0.2.1` tags the same `Task Verification - Phase 1 (#108)` release commit and serves as a republished release marker for that rollout.
+
 ## v0.2.0 - 2026-03-29
 
 ### Major
