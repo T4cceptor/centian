@@ -13,15 +13,16 @@ import (
 )
 
 const (
-	taskListTemplatesTool      = "centian.task_list_templates"
-	taskRegisterTool           = "centian.task_register"
-	taskCompleteOnboardingTool = "centian.task_complete_onboarding"
-	taskCompletePlanningTool   = "centian.task_complete_planning"
-	taskStartStepTool          = "centian.task_start_step"
-	taskCompleteStepTool       = "centian.task_complete_step"
-	taskResumeTool             = "centian.task_resume"
-	taskRestartTool            = "centian.task_restart"
-	taskFailTool               = "centian.task_fail"
+	taskListTemplatesTool       = "centian.task_list_templates"
+	taskRegisterTool            = "centian.task_register"
+	taskCompleteOnboardingTool  = "centian.task_complete_onboarding"
+	taskCompletePlanningTool    = "centian.task_complete_planning"
+	taskStartStepTool           = "centian.task_start_step"
+	taskCompleteStepTool        = "centian.task_complete_step"
+	taskResumeTool              = "centian.task_resume"
+	taskRestartTool             = "centian.task_restart"
+	taskFailTool                = "centian.task_fail"
+	pathModeRelativeToWorkspace = "relative_to_workspace"
 )
 
 type taskRegisterArgs struct {
@@ -57,7 +58,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskListTemplatesTool,
-		Description: "List available task verification templates.",
+		Description: taskToolDescription("List available task verification templates."),
+		Annotations: taskReadOnlyAnnotations(),
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -67,7 +69,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskRegisterTool,
-		Description: "Register a task verification run from a template.",
+		Description: taskToolDescription("Register a task verification run from a template."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -81,21 +84,24 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompleteOnboardingTool,
-		Description: "Persist onboarding context and advance the task into planning. For compound shell commands or directory changes later in the workflow, use bash -lc '...'.",
+		Description: taskToolDescription("Persist onboarding context and advance the task into planning."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: taskCompleteOnboardingSchema(),
 	}, p.wrapTaskToolHandler(session, taskCompleteOnboardingTool, p.handleTaskCompleteOnboardingTool))
 	session.registeredStaticTools[taskCompleteOnboardingTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompletePlanningTool,
-		Description: "Persist planning context, freeze the contract, and enter execution.",
+		Description: taskToolDescription("Persist planning context, freeze the contract, and enter execution."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: taskCompletePlanningSchema(),
 	}, p.wrapTaskToolHandler(session, taskCompletePlanningTool, p.handleTaskCompletePlanningTool))
 	session.registeredStaticTools[taskCompletePlanningTool] = struct{}{}
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskStartStepTool,
-		Description: "Start a task step by running preconditions and capturing invariant baselines.",
+		Description: taskToolDescription("Start a task step by running preconditions and capturing invariant baselines."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -108,7 +114,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompleteStepTool,
-		Description: "Complete a task step by running postconditions and invariant checks.",
+		Description: taskToolDescription("Complete a task step by running postconditions and invariant checks."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -121,7 +128,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskResumeTool,
-		Description: "Resume a timed-out task verification run without resetting workflow progress.",
+		Description: taskToolDescription("Resume a timed-out task verification run without resetting workflow progress."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -131,7 +139,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskRestartTool,
-		Description: "Restart the active task verification run and clear step state.",
+		Description: taskToolDescription("Restart the active task verification run and clear step state."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
@@ -141,7 +150,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskFailTool,
-		Description: "Explicitly fail the active task verification run.",
+		Description: taskToolDescription("Explicitly fail the active task verification run."),
+		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -150,6 +160,28 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		},
 	}, p.wrapTaskToolHandler(session, taskFailTool, p.handleTaskFailTool))
 	session.registeredStaticTools[taskFailTool] = struct{}{}
+}
+
+func taskToolDescription(base string) string {
+	return base + " Use workspaceRoot as the project root, keep file paths relative to it, and treat nextAction as the workflow hint."
+}
+
+func taskReadOnlyAnnotations() *mcp.ToolAnnotations {
+	openWorld := false
+	return &mcp.ToolAnnotations{
+		ReadOnlyHint:   true,
+		IdempotentHint: true,
+		OpenWorldHint:  &openWorld,
+	}
+}
+
+func taskStateTransitionAnnotations() *mcp.ToolAnnotations {
+	destructive := false
+	openWorld := false
+	return &mcp.ToolAnnotations{
+		DestructiveHint: &destructive,
+		OpenWorldHint:   &openWorld,
+	}
 }
 
 func (p *CentianEndpoint) wrapTaskToolHandler(
@@ -172,7 +204,7 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 			err    error
 		)
 		if invocationSnapshot.RunID == "" && !taskToolAllowedBeforeRegistration(toolName) {
-			result = taskToolRegistrationRequiredResult(toolName)
+			result = taskToolRegistrationRequiredResult(toolName, p.server.TaskVerification.WorkingDir)
 		} else {
 			result, err = handler(ctx, session, req)
 		}
@@ -214,23 +246,26 @@ func taskToolAllowedBeforeRegistration(toolName string) bool {
 	}
 }
 
-func taskToolRegistrationRequiredResult(toolName string) *mcp.CallToolResult {
+func taskToolRegistrationRequiredResult(toolName, workingDir string) *mcp.CallToolResult {
 	message := fmt.Sprintf(
 		"tool %q is not allowed before registering a task; call centian.task_list_templates and centian.task_register first",
 		toolName,
 	)
+	structured := map[string]any{
+		"error":              message,
+		"requestedTool":      toolName,
+		"reason":             governanceDeniedRegistrationNeeded,
+		"allowedBeforeRun":   []string{taskListTemplatesTool, taskRegisterTool},
+		"registrationNeeded": true,
+		"nextAction":         "Call centian.task_list_templates, then centian.task_register.",
+	}
+	addWorkspaceContext(structured, workingDir)
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: message},
 		},
-		StructuredContent: map[string]any{
-			"error":              message,
-			"requestedTool":      toolName,
-			"reason":             governanceDeniedRegistrationNeeded,
-			"allowedBeforeRun":   []string{taskListTemplatesTool, taskRegisterTool},
-			"registrationNeeded": true,
-		},
+		StructuredContent: structured,
 	}
 }
 
@@ -401,7 +436,12 @@ func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *Upst
 	if len(lines) == 0 {
 		lines = append(lines, "No task templates available.")
 	}
-	return toolResult(strings.Join(lines, "\n"), map[string]any{"templates": structured}), nil
+	response := map[string]any{
+		"templates":  structured,
+		"nextAction": "Call centian.task_register with one templateId and its parameters.",
+	}
+	addWorkspaceContext(response, p.server.TaskVerification.WorkingDir)
+	return toolResult(strings.Join(lines, "\n"), response), nil
 }
 
 func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -435,7 +475,7 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		"draftParameters": run.DraftParameters,
 	})
 
-	structured := runStructuredContent(run)
+	structured := runStructuredContent(run, p.server.TaskVerification.WorkingDir)
 	stepCount := len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps)
 	structured["stepCount"] = stepCount
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, stepCount), structured), nil
@@ -461,7 +501,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
 		"taskSummary": args.Onboarding.TaskSummary,
 	})
-	structured := runStructuredContent(session.taskRun)
+	structured := runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
 	if session.taskRun.Onboarding != nil {
 		structured["onboarding"] = session.taskRun.Onboarding
 	}
@@ -491,7 +531,7 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 	}
-	structured := runStructuredContent(session.taskRun)
+	structured := runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
 	if session.taskRun.Planning != nil {
 		structured["planning"] = session.taskRun.Planning
 	}
@@ -522,7 +562,7 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepStarted, outcome, taskActionRequestIDFromContext(ctx), stepEventPayload(result))
-	return stepToolResult(result, session.taskRun), nil
+	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir, taskStartStepTool), nil
 }
 
 func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -554,7 +594,7 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 			p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 		}
 	}
-	return stepToolResult(result, session.taskRun), nil
+	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir, taskCompleteStepTool), nil
 }
 
 func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -570,7 +610,7 @@ func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *Ups
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
-	return toolResult("Task resumed.", runStructuredContent(session.taskRun)), nil
+	return toolResult("Task resumed.", runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -586,7 +626,7 @@ func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *Up
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
-	return toolResult("Task restarted.", runStructuredContent(session.taskRun)), nil
+	return toolResult("Task restarted.", runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -614,7 +654,7 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 	if strings.TrimSpace(args.Reason) != "" {
 		message = fmt.Sprintf("Task failed: %s", strings.TrimSpace(args.Reason))
 	}
-	return toolResult(message, runStructuredContent(session.taskRun)), nil
+	return toolResult(message, runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
 }
 
 func decodeToolArguments(req *mcp.CallToolRequest, target any) error {
@@ -637,8 +677,8 @@ func toolResult(message string, structured map[string]any) *mcp.CallToolResult {
 	}
 }
 
-func stepToolResult(result *taskverification.StepResult, run *taskverification.RunState) *mcp.CallToolResult {
-	structured := runStructuredContent(run)
+func stepToolResult(result *taskverification.StepResult, run *taskverification.RunState, workingDir, actionTool string) *mcp.CallToolResult {
+	structured := runStructuredContent(run, workingDir)
 	structured["passed"] = result.Passed
 	structured["message"] = result.Message
 	structured["step"] = result.Step
@@ -670,12 +710,15 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	if result.StderrSnippet != "" {
 		structured["stderrSnippet"] = result.StderrSnippet
 	}
+	structured["nextAction"] = nextActionForStepResult(result, run, actionTool)
 	return toolResult(result.Message, structured)
 }
 
-func runStructuredContent(run *taskverification.RunState) map[string]any {
+func runStructuredContent(run *taskverification.RunState, workingDir string) map[string]any {
 	if run == nil {
-		return map[string]any{}
+		structured := map[string]any{}
+		addWorkspaceContext(structured, workingDir)
+		return structured
 	}
 
 	structured := map[string]any{
@@ -695,10 +738,12 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 		"explicitFailReason": run.ExplicitFailReason,
 	}
 	addTaskTimingFields(structured, run)
+	addWorkspaceContext(structured, workingDir)
 	addTaskContracts(structured)
 	addCurrentNodeContext(structured, run)
 	addPlanningNodeContext(structured, run)
 	addArtifactSummaries(structured, run)
+	structured["nextAction"] = nextActionForRun(run)
 
 	if !run.WorkflowReady || run.RunnableTemplate == nil {
 		return structured
@@ -708,10 +753,92 @@ func runStructuredContent(run *taskverification.RunState) map[string]any {
 	return structured
 }
 
+func addWorkspaceContext(structured map[string]any, workingDir string) {
+	if strings.TrimSpace(workingDir) == "" {
+		return
+	}
+	structured["workspaceRoot"] = workingDir
+	structured["pathMode"] = pathModeRelativeToWorkspace
+	structured["commandWorkingDirectory"] = workingDir
+}
+
 func addTaskContracts(structured map[string]any) {
 	structured["onboardingContract"] = onboardingContract()
 	structured["planningContract"] = planningContract()
 	structured["shellCommandHint"] = "For compound shell commands or directory changes, use bash -lc '...'."
+}
+
+func nextActionForRun(run *taskverification.RunState) string {
+	if run == nil {
+		return ""
+	}
+	switch run.Status {
+	case taskverification.TaskStatusCompleted:
+		return "Task is complete; stop task work."
+	case taskverification.TaskStatusFailed:
+		return "Restart the task or register a new task run."
+	case taskverification.TaskStatusTimedOut:
+		return "Call centian.task_resume or centian.task_restart."
+	}
+
+	node, exists := run.CurrentNode()
+	if !exists {
+		if run.Phase == taskverification.TaskPhaseInitialization {
+			return "Call centian.task_list_templates, then centian.task_register."
+		}
+		return ""
+	}
+
+	switch node.Kind {
+	case taskverification.WorkflowNodeKindOnboarding:
+		return "Call centian.task_complete_onboarding to freeze the onboarding context."
+	case taskverification.WorkflowNodeKindPlanning:
+		return "Call centian.task_complete_planning to freeze the execution contract."
+	case taskverification.WorkflowNodeKindWaitingForApproval:
+		return "Wait for approval before continuing task work."
+	case taskverification.WorkflowNodeKindScaffolding, taskverification.WorkflowNodeKindExecution:
+		stepNumber, active := activeOrCurrentStep(run)
+		if stepNumber == 0 {
+			return ""
+		}
+		if active {
+			return fmt.Sprintf("Do the step work in workspaceRoot, then call centian.task_complete_step for step %d.", stepNumber)
+		}
+		return fmt.Sprintf("Call centian.task_start_step for step %d.", stepNumber)
+	default:
+		return ""
+	}
+}
+
+func nextActionForStepResult(result *taskverification.StepResult, run *taskverification.RunState, actionTool string) string {
+	if result == nil {
+		return nextActionForRun(run)
+	}
+	if result.Passed {
+		return nextActionForRun(run)
+	}
+	retryTool := actionTool
+	if retryTool == "" {
+		retryTool = taskCompleteStepTool
+	}
+	return fmt.Sprintf("Fix the failed check in workspaceRoot, then retry %s for step %d.", retryTool, result.Step)
+}
+
+func activeOrCurrentStep(run *taskverification.RunState) (int, bool) {
+	if run == nil || run.RunnableTemplate == nil || run.RunnableTemplate.CompiledWorkflow == nil {
+		return 0, false
+	}
+	for idx := range run.Steps {
+		if run.Steps[idx].Status == taskverification.StepStatusActive {
+			return idx + 1, true
+		}
+	}
+	for idx := range run.RunnableTemplate.CompiledWorkflow.WorkflowSteps {
+		if run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[idx].Path == run.Phase {
+			return idx + 1, false
+		}
+	}
+	return 0, false
 }
 
 func addCurrentNodeContext(structured map[string]any, run *taskverification.RunState) {

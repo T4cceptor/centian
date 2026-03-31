@@ -40,6 +40,7 @@ function renderApp(initialEntries: string[] = ["/tasks"]) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   globalThis.fetch = originalFetch;
   clearStoredApiAuth();
@@ -110,6 +111,36 @@ describe("task run list", () => {
 
     expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
   });
+
+  it("polls the task run list and refreshes new runs in place", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(createFetchResponse([]))
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            runId: "tr_1742947200123_0000000001",
+            templateId: "python_tdd_demo",
+            startedAt: 1742947200123,
+            status: "active",
+            currentPhase: "planning.review",
+            taskEventCount: 2,
+            actionEventCount: 3,
+            eventCount: 5,
+          },
+        ]),
+      ) as typeof fetch;
+
+    renderApp();
+
+    expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    }, { timeout: 3500 });
+
+    expect(await screen.findByText("python_tdd_demo")).toBeInTheDocument();
+  }, 8000);
 
   it("shows an error state when the api request fails", async () => {
     globalThis.fetch = vi.fn(() => Promise.reject(new Error("network down"))) as typeof fetch;
@@ -320,6 +351,140 @@ describe("task run detail", () => {
       expect(screen.getByText("Run Detail")).toBeInTheDocument();
     });
   });
+
+  it("polls the detail timeline once per second while the run is active", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947201123_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_completed",
+            outcome: "succeeded",
+            phasePath: "scaffolding.step_1",
+            resultingPhasePath: "scaffolding.step_1",
+            payloadJson: { status: "active", step: 1 },
+          },
+        ]),
+      ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    }, { timeout: 2500 });
+    await waitFor(() => {
+      const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent ?? "");
+      expect(titles.some((title) => title.includes("Step Completed"))).toBe(true);
+    });
+  }, 8000);
+
+  it("stops polling the detail timeline after the run reaches a terminal state", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_completed",
+            outcome: "succeeded",
+            phasePath: "execution.implement_solution",
+            resultingPhasePath: "execution.implement_solution",
+            payloadJson: { status: "completed" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    await new Promise((resolve) => window.setTimeout(resolve, 2200));
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  }, 8000);
+
+  it("keeps polling after a failed step event while the task run remains active", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "step_completed",
+            outcome: "failed",
+            phasePath: "execution.establish_failing_baseline",
+            resultingPhasePath: "execution.establish_failing_baseline",
+            payloadJson: { status: "active", step: 3, passed: false },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "step_completed",
+            outcome: "failed",
+            phasePath: "execution.establish_failing_baseline",
+            resultingPhasePath: "execution.establish_failing_baseline",
+            payloadJson: { status: "active", step: 3, passed: false },
+          },
+          {
+            source: "task",
+            id: "te_1742947201123_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "execution.establish_failing_baseline",
+            resultingPhasePath: "execution.implement_solution",
+            payloadJson: { status: "active", step: 4 },
+          },
+        ]),
+      ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(screen.getByText("active")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    }, { timeout: 2500 });
+  }, 8000);
 
   it("prompts for an api key on unauthorized detail access", async () => {
     globalThis.fetch = vi.fn(() =>

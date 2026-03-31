@@ -20,7 +20,7 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -85,6 +85,16 @@ test-taskverification: ## Run opt-in Docker task verification integration test
 		echo "Note: gotestsum not found, using default go test output"; \
 		echo "Install with: go install gotest.tools/gotestsum@latest"; \
 		CENTIAN_RUN_TASKVERIFICATION_INTEGRATION=1 GOCACHE=/tmp/go-build go test -v ./demo/taskverification; \
+	fi
+
+test-taskverification-blackbox: ## Run opt-in host-native black-box taskverification test
+	@echo "Running host-native black-box taskverification test..."
+	@if command -v gotestsum >/dev/null 2>&1; then \
+		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build gotestsum --format standard-verbose -- -v ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
+	else \
+		echo "Note: gotestsum not found, using default go test output"; \
+		echo "Install with: go install gotest.tools/gotestsum@latest"; \
+		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build go test -v ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
 	fi
 
 test-all: test test-integration ## Run all tests (unit + integration)
@@ -181,7 +191,16 @@ web-clean: ## Clean frontend build and generated config artifacts
 
 install: build ## Install binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
-	@cp $(BUILD_DIR)/$(BINARY_NAME) $(shell go env GOPATH)/bin/$(BINARY_NAME)
+	@dest_dir="$(shell go env GOPATH)/bin"; \
+	dest="$$dest_dir/$(BINARY_NAME)"; \
+	tmp="$$dest.tmp"; \
+	mkdir -p "$$dest_dir"; \
+	cp "$(BUILD_DIR)/$(BINARY_NAME)" "$$tmp"; \
+	chmod +x "$$tmp"; \
+	if [ "$$(uname -s)" = "Darwin" ]; then \
+		codesign --force --sign - "$$tmp"; \
+	fi; \
+	mv "$$tmp" "$$dest"
 	@echo "Installed $(BINARY_NAME) to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
 
 tail-log: ## Tail the latest Centian log file

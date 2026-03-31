@@ -89,3 +89,6 @@ centian
 
 # local sqlite
 *.sqlite
+
+# local demo files
+.centian/

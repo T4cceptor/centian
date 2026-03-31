@@ -30,28 +30,28 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 	run := session.taskRun
 	if run == nil {
 		if p.server != nil && p.server.Config != nil && p.server.Config.Proxy.TaskVerificationEnabled() {
-			return p.governanceDeniedResult(callCtx, "", "", "", nil, governanceDeniedRegistrationNeeded), true
+			return governanceDeniedResult(callCtx, taskverification.TaskPhaseInitialization, "", "", nil, governanceDeniedRegistrationNeeded, p.server.TaskVerification.WorkingDir), true
 		}
 		return nil, false
 	}
 	if run.Status != taskverification.TaskStatusActive {
-		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, governanceReasonForTaskStatus(run.Status)), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, governanceReasonForTaskStatus(run.Status), p.server.TaskVerification.WorkingDir), true
 	}
 
 	node, exists := run.CurrentNode()
 	if !exists {
-		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, "unknown_workflow_node"), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, "unknown_workflow_node", p.server.TaskVerification.WorkingDir), true
 	}
 	if node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedWaitingForApproval), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedWaitingForApproval, p.server.TaskVerification.WorkingDir), true
 	}
 	if len(node.AllowedTools) == 0 {
-		return p.governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoAllowlist), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoAllowlist, p.server.TaskVerification.WorkingDir), true
 	}
 	if matchesAllowedTool(node.AllowedTools, callCtx.GetOriginalToolName(), callCtx.GetToolName()) {
 		return nil, false
 	}
-	return p.governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoPatternMatch), true
+	return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoPatternMatch, p.server.TaskVerification.WorkingDir), true
 }
 
 func matchesAllowedTool(patterns []string, upstreamName, canonicalName string) bool {
@@ -69,13 +69,14 @@ func matchesAllowedTool(patterns []string, upstreamName, canonicalName string) b
 	return false
 }
 
-func (p *CentianEndpoint) governanceDeniedResult(
+func governanceDeniedResult(
 	callCtx CallContext,
 	phase taskverification.TaskPhase,
 	status taskverification.TaskStatus,
 	nodeKind taskverification.WorkflowNodeKind,
 	allowedTools []string,
 	reason string,
+	workingDir string,
 ) *mcp.CallToolResult {
 	allowedToolCopy := append([]string{}, allowedTools...)
 	requestedTool := ""
@@ -93,7 +94,13 @@ func (p *CentianEndpoint) governanceDeniedResult(
 		nodeKind,
 		reason,
 	)
-	if nodeKind == "" {
+	if phase == taskverification.TaskPhaseInitialization {
+		message = `All actions are blocked until task registration at centian.
+		Use 'centian.task_list_templates' to list all templates, 
+		select one, and call 'centian.task_register' accordingly.
+		Follow the centian workflow as provided to you.
+		`
+	} else if nodeKind == "" {
 		message = fmt.Sprintf(
 			"tool %q is not allowed in workflow phase %q: %s",
 			requestedTool,
@@ -115,7 +122,11 @@ func (p *CentianEndpoint) governanceDeniedResult(
 			"currentNodeKind": string(nodeKind),
 			"reason":          reason,
 			"allowedTools":    allowedToolCopy,
+			"nextAction":      governanceNextAction(reason),
 		},
+	}
+	if structured, ok := result.StructuredContent.(map[string]any); ok {
+		addWorkspaceContext(structured, workingDir)
 	}
 
 	if callCtx != nil {
@@ -130,6 +141,23 @@ func (p *CentianEndpoint) governanceDeniedResult(
 	}
 
 	return result
+}
+
+func governanceNextAction(reason string) string {
+	switch reason {
+	case governanceDeniedRegistrationNeeded:
+		return "Call centian.task_list_templates, then centian.task_register."
+	case governanceDeniedTaskCompleted:
+		return "Task is complete; stop task work."
+	case governanceDeniedTaskFailed:
+		return "Restart the task or register a new task run."
+	case governanceDeniedTaskTimedOut:
+		return "Call centian.task_resume or centian.task_restart."
+	case governanceDeniedWaitingForApproval:
+		return "Wait for approval before continuing task work."
+	default:
+		return "Follow the current Centian workflow state before retrying this tool."
+	}
 }
 
 func governanceReasonForTaskStatus(status taskverification.TaskStatus) string {

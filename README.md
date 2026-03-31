@@ -82,6 +82,60 @@ Example:
 
 ## Demo
 
+For the fastest end-to-end product demo, use the built-in `centian demo` command.
+
+### `centian demo`
+
+`centian demo` creates a self-contained demo workspace, starts a local Centian instance, launches a supported coding agent against that instance, and shows the live task UI.
+
+Current v1 support:
+
+- `claude`
+
+Example:
+
+```bash
+centian demo --agent claude
+```
+
+Optional path override:
+
+```bash
+centian demo --agent claude --path ./my-centian-demo
+```
+
+By default this creates the demo under:
+
+```text
+{cwd}/.centian/demo
+```
+
+The command creates:
+
+- `workspace/` for the agent task
+- `templates/` with the taskverification workflow
+- `logs/` with Centian-generated logs and event storage
+- `config.json`, `prompt.md`, `claude_mcp_config.json`, and `centian.pid`
+- `agent.stdout.log` and `agent.stderr.log` for the headless agent process output
+
+Behavior:
+
+- starts Centian locally
+- prints the live UI URL
+- best-effort opens the browser on macOS
+- runs the agent headlessly
+- keeps Centian running after the agent finishes
+
+To stop the demo server later:
+
+```bash
+kill $(cat ./.centian/demo/centian.pid)
+```
+
+This is a safe, isolated demo flow intended to showcase Centian taskverification. It is not yet a hardened sandbox boundary and does not currently support Codex or Gemini in the public command.
+
+### `demo/` walkthroughs
+
 The `demo/` folder contains three walkthroughs:
 - `demo/logging_demo/` for OpenTelemetry span export on MCP tool calls.
 - `demo/modification_demo/` for regex-based redaction of sensitive response values.

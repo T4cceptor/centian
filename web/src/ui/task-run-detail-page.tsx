@@ -50,6 +50,7 @@ export function TaskRunDetailPage() {
   const [authHeaderName, setAuthHeaderName] = useState<string>();
   const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
+  const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
 
   useEffect(() => {
     if (!runID) {
@@ -94,9 +95,53 @@ export function TaskRunDetailPage() {
     return () => controller.abort();
   }, [reloadToken, runID]);
 
+  useEffect(() => {
+    if (!runID || loadState !== "ready" || detailStatus !== "active") {
+      return;
+    }
+
+    let inFlight = false;
+    let controller: AbortController | null = null;
+
+    const poll = () => {
+      if (inFlight) {
+        return;
+      }
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      inFlight = true;
+      controller = new AbortController();
+
+      void fetchTaskRunEvents(runID, controller.signal)
+        .then((result) => {
+          setEvents(result);
+        })
+        .catch((error: unknown) => {
+          if ((error as Error)?.name === "AbortError") {
+            return;
+          }
+          if (error instanceof ApiError && error.status === 401) {
+            setAuthHeaderName(error.authHeaderName);
+            setLoadState("unauthorized");
+          }
+        })
+        .finally(() => {
+          inFlight = false;
+          controller = null;
+        });
+    };
+
+    const timer = window.setInterval(poll, 1000);
+    return () => {
+      window.clearInterval(timer);
+      controller?.abort();
+    };
+  }, [detailStatus, loadState, runID]);
+
   const timelineItems = useMemo(() => buildTimelineItems(events), [events]);
   const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
-  const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
   const flatTimelineItems = useMemo(
     () => groupedEvents.flatMap((group) => group.items),
     [groupedEvents],
@@ -812,7 +857,7 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
     if (payloadStatus === "timed_out" || event.eventType === "task_timed_out") {
       return "timed_out";
     }
-    if (payloadStatus === "failed" || event.eventType === "task_failed" || event.outcome === "failed") {
+    if (payloadStatus === "failed" || event.eventType === "task_failed") {
       return "failed";
     }
     if (payloadStatus === "completed") {

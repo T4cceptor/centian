@@ -220,6 +220,8 @@ const (
 type TaskPhase string
 
 const (
+	// TaskPhaseInitialization is the workflow path before registering a task.
+	TaskPhaseInitialization TaskPhase = "initialization"
 	// TaskPhaseOnboarding is the onboarding workflow path.
 	TaskPhaseOnboarding TaskPhase = "onboarding"
 	// TaskPhasePlanning is the planning workflow path.
