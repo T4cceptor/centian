@@ -8,6 +8,7 @@ task:
 
     Expectations:
     - Register the task before using any project-access MCP tool, then follow the step boundaries in order.
+    - Registration only selects the template; determine all template parameters during onboarding/planning and submit them in `planning.parameters`.
     - Prefer `centian.task_start_step` and `centian.task_complete_step` over manually rebuilding the full validation flow.
     - Treat `centian.task_complete_step` as the source of truth for whether a step passes.
     - Use the scaffolding phase for additive setup, then use execution for baseline verification and implementation.
@@ -48,12 +49,14 @@ workflow:
       - "parameters.lintCommand"
       - "parameters.expectedError"
       - "parameters.implementationTarget"
-    required_outputs:
-      - "selectedFiles"
-      - "testTarget"
-      - "lintCommand"
-      - "expectedFailure"
+    required_inputs:
+      - "expectedError"
       - "implementationTarget"
+      - "lintCommand"
+      - "testCommand"
+      - "testFile"
+      - "testName"
+      - "testTarget"
   scaffolding:
     - id: "setup_test_file"
       name: "Setup test file"

@@ -22,9 +22,7 @@ func TestStartAndCompleteStepHappyPath(t *testing.T) {
 		},
 		Workflow: &Workflow{
 			Onboarding: &LifecycleNodeSpec{},
-			Planning: &PlanningNodeSpec{
-				RequiredOutputs: []string{"testTarget"},
-			},
+			Planning:   &PlanningNodeSpec{},
 			Execution: []ExecutionNodeSpec{
 				{
 					ID: "step_one",
@@ -153,7 +151,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -186,7 +184,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   scaffolding:
     - id: "setup_test_file"
       checks:
@@ -231,7 +229,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -253,7 +251,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -275,7 +273,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -305,9 +303,7 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 		},
 		Workflow: &Workflow{
 			Onboarding: &LifecycleNodeSpec{},
-			Planning: &PlanningNodeSpec{
-				RequiredOutputs: []string{"testTarget"},
-			},
+			Planning:   &PlanningNodeSpec{},
 			Execution: []ExecutionNodeSpec{
 				{
 					ID: "step_one",
@@ -357,7 +353,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -393,7 +389,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -429,7 +425,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -460,7 +456,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -505,7 +501,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -539,7 +535,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       next: "waiting_for_approval.review"
@@ -580,13 +576,11 @@ func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
 	assert.NilError(t, err)
 
 	service := NewService(dir, dir)
-	run, err := service.RegisterTask("task", map[string]string{})
+	run, err := service.RegisterTask("task")
 	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{
-		TestTarget: "pytest -q",
-	})
+	err = service.CompletePlanning(run, &PlanningArtifact{})
 	assert.NilError(t, err)
 	return service, run
 }
@@ -599,7 +593,7 @@ func newRuntimeShellTestService(t *testing.T, content string) (*Service, *RunSta
 	assert.NilError(t, err)
 
 	service := NewService(dir, dir)
-	run, err := service.RegisterTask("task", map[string]string{})
+	run, err := service.RegisterTask("task")
 	assert.NilError(t, err)
 	return service, run
 }
@@ -623,9 +617,7 @@ func TestCommandTimeout(t *testing.T) {
 		},
 		Workflow: &Workflow{
 			Onboarding: &LifecycleNodeSpec{},
-			Planning: &PlanningNodeSpec{
-				RequiredOutputs: []string{"testTarget"},
-			},
+			Planning:   &PlanningNodeSpec{},
 			Execution: []ExecutionNodeSpec{
 				{
 					ID: "step_one",
@@ -660,7 +652,6 @@ func newWorkflowReadyRun(template *Template) *RunState {
 		RunID:            newTaskRunID(),
 		TemplateID:       template.Task.ID,
 		SelectedTemplate: *template,
-		DraftParameters:  map[string]string{},
 		Status:           TaskStatusActive,
 		Phase:            template.CompiledWorkflow.FirstExecutablePath,
 		WorkflowReady:    true,

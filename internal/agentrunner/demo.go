@@ -26,7 +26,7 @@ const (
 	// DefaultClaudeModel is the default Claude model alias for demo runs.
 	DefaultClaudeModel = "sonnet"
 	// DefaultGeminiModel is the default Gemini model alias for demo runs.
-	DefaultGeminiModel = "flash" //"gemini-3.1-pro-preview"
+	DefaultGeminiModel = "gemini-3.1-pro-preview" // "flash" is an alternative
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
 	DefaultAgentTimeout = 5 * time.Minute
 )

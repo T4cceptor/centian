@@ -8,7 +8,7 @@ type Template struct {
 	Version string `yaml:"version" json:"version"`
 	// Task is the human-facing identity and description block for the template.
 	Task Task `yaml:"task" json:"task"`
-	// Parameters lists the agent-supplied placeholder values the template expects at registration time.
+	// Parameters lists the agent-supplied placeholder values the template expects before planning can complete.
 	Parameters []TemplateParameter `yaml:"parameters,omitempty" json:"parameters,omitempty"`
 	// Workflow is the declarative lifecycle definition authored in the template YAML.
 	Workflow *Workflow `yaml:"workflow" json:"workflow"`
@@ -58,10 +58,10 @@ type PlanningNodeSpec struct {
 	AllowedTools []string `yaml:"tools_allowed,omitempty" json:"toolsAllowed,omitempty"`
 	// Checkpoint holds optional metadata about whether planning should emit a checkpoint hint.
 	Checkpoint *CheckpointHint `yaml:"checkpoint,omitempty" json:"checkpoint,omitempty"`
-	// EditableFields lists which registered draft parameters the planning step may revise.
+	// EditableFields lists which planning.parameters entries the planning step may revise.
 	EditableFields []string `yaml:"editable_fields,omitempty" json:"editableFields,omitempty"`
-	// RequiredOutputs lists the planning artifact fields that must be present before execution can start.
-	RequiredOutputs []string `yaml:"required_outputs,omitempty" json:"requiredOutputs,omitempty"`
+	// RequiredInputs lists the planning inputs that must be present before execution can start.
+	RequiredInputs []string `yaml:"required_inputs,omitempty" json:"requiredInputs,omitempty"`
 	// Next optionally overrides the default next workflow path after planning completes.
 	Next string `yaml:"next,omitempty" json:"next,omitempty"`
 }
@@ -158,9 +158,9 @@ type Condition struct {
 
 // TemplateParameter describes one agent-provided parameter expected by a template.
 type TemplateParameter struct {
-	// Name is the placeholder identifier agents must fill when registering the template.
+	// Name is the placeholder identifier agents must fill in planning.parameters before planning completes.
 	Name string `yaml:"name" json:"name"`
-	// Description explains what value the agent should provide for this parameter.
+	// Description explains what value the agent should determine during onboarding and planning for this parameter.
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
@@ -200,14 +200,8 @@ type OnboardingCommand struct {
 type PlanningArtifact struct {
 	// SelectedFiles lists the project-relative files the agent expects to inspect or edit during execution.
 	SelectedFiles []string `json:"selectedFiles,omitempty"`
-	// TestTarget is the concrete test command target Centian should validate during execution.
-	TestTarget string `json:"testTarget,omitempty"`
-	// LintCommand is the project command Centian should run for the final verification step.
-	LintCommand string `json:"lintCommand,omitempty"`
-	// ExpectedFailure is the stable substring the agent expects in the intentionally failing baseline output.
-	ExpectedFailure string `json:"expectedFailure,omitempty"`
-	// ImplementationTarget is the project-relative production file the execution step should change.
-	ImplementationTarget string `json:"implementationTarget,omitempty"`
+	// Parameters stores the template placeholder values the agent freezes at planning completion.
+	Parameters map[string]string `json:"parameters,omitempty"`
 	// Invariants lists additional invariants the agent wants frozen as part of the planning contract.
 	Invariants []string `json:"invariants,omitempty"`
 }
@@ -252,10 +246,10 @@ type WorkflowNode struct {
 	AllowedTools []string `json:"allowedTools,omitempty"`
 	// Checkpoint holds optional metadata about whether this node should advertise checkpoint capability.
 	Checkpoint *CheckpointHint `json:"checkpoint,omitempty"`
-	// EditableFields lists the draft parameter fields planning may revise while this node is current.
+	// EditableFields lists the planning.parameters fields planning may revise while this node is current.
 	EditableFields []string `json:"editableFields,omitempty"`
-	// RequiredPlanningOutputs lists the planning fields that must be present before leaving planning.
-	RequiredPlanningOutputs []string `json:"requiredPlanningOutputs,omitempty"`
+	// RequiredPlanningInputs lists the planning inputs that must be present before leaving planning.
+	RequiredPlanningInputs []string `json:"requiredPlanningInputs,omitempty"`
 }
 
 // CompiledWorkflow stores normalized workflow nodes derived from the template schema.
@@ -282,7 +276,7 @@ type TemplateSummary struct {
 	Description string `json:"description"`
 	// Instructions is the template-level guidance agents can inspect before registration.
 	Instructions string `json:"instructions,omitempty"`
-	// Parameters lists the registration-time parameter contract for this template.
+	// Parameters lists the planning-time parameter contract for this template.
 	Parameters []TemplateParameter `json:"parameters"`
 	// StepCount is the number of compiled executable steps in the template.
 	StepCount int `json:"stepCount"`
@@ -400,8 +394,6 @@ type RunState struct {
 	TemplateID string `json:"templateId"`
 	// SelectedTemplate is the original unresolved template chosen at registration time and is not serialized.
 	SelectedTemplate Template `json:"-"`
-	// DraftParameters stores the registration-time parameter values before planning freezes the execution contract.
-	DraftParameters map[string]string `json:"draftParameters"`
 	// Status is the overall lifecycle status of the task run.
 	Status TaskStatus `json:"status"`
 	// Phase is the current workflow path the run is positioned in.

@@ -183,7 +183,6 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -237,7 +236,8 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, completeOnboardingStructured["nextNodePath"], "execution.step_one")
 	assert.Assert(t, completeOnboardingStructured["onboardingContract"] != nil)
 	assert.Assert(t, completeOnboardingStructured["planningContract"] != nil)
-	assert.DeepEqual(t, completeOnboardingStructured["planningRequiredOutputs"], []any{"testTarget"})
+	_, hasPlanningRequiredInputs := completeOnboardingStructured["planningRequiredInputs"]
+	assert.Assert(t, !hasPlanningRequiredInputs)
 	assert.Equal(t, completeOnboardingStructured["shellCommandHint"], "For compound shell commands or directory changes, use bash -lc '...'.")
 	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
 	assert.Equal(t, completeOnboardingStructured["taskSummary"], "Small test task context with one shell validation path.")
@@ -258,10 +258,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
-				"selectedFiles":        []string{"tests/test_mathlib.py"},
-				"testTarget":           "python -m pytest -q tests/test_mathlib.py",
-				"lintCommand":          "ruff check .",
-				"implementationTarget": "mathlib.add",
+				"selectedFiles": []string{"tests/test_mathlib.py"},
 			},
 		},
 	})
@@ -271,18 +268,17 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, completePlanningStructured["phase"], "execution.step_one")
 	assert.Equal(t, completePlanningStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindExecution))
 	assert.Equal(t, completePlanningStructured["approvalBlocked"], false)
-	assert.DeepEqual(t, completePlanningStructured["planningRequiredOutputs"], []any{"testTarget"})
+	_, hasPlanningRequiredInputs = completePlanningStructured["planningRequiredInputs"]
+	assert.Assert(t, !hasPlanningRequiredInputs)
 	assert.Equal(t, completePlanningStructured["hasPlanning"], true)
 	assert.DeepEqual(t, completePlanningStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, completePlanningStructured["executionReady"], true)
 	assert.Equal(t, completePlanningStructured["nextAction"], "Call centian.task_start_step for step 1.")
 	assert.Assert(t, completePlanningStructured["planningSummary"] != nil)
 	assert.DeepEqual(t, completePlanningStructured["frozenContractSummary"], map[string]any{
-		"selectedFiles":        []any{"tests/test_mathlib.py"},
-		"testTarget":           "python -m pytest -q tests/test_mathlib.py",
-		"implementationTarget": "mathlib.add",
-		"lintCommand":          "ruff check .",
-		"invariantCount":       float64(0),
+		"selectedFiles":  []any{"tests/test_mathlib.py"},
+		"parameters":     map[string]any{},
+		"invariantCount": float64(0),
 	})
 	assert.Assert(t, completePlanningStructured["steps"] != nil)
 
@@ -347,9 +343,6 @@ func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "minimal",
-			"parameters": map[string]any{
-				"taskName": "Investigate issue",
-			},
 		},
 	})
 	assert.NilError(t, err)
@@ -370,7 +363,11 @@ func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
 	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{},
+			"planning": map[string]any{
+				"parameters": map[string]any{
+					"taskName": "Investigate issue",
+				},
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -430,10 +427,7 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	planningSchema := byName[taskCompletePlanningTool].InputSchema.(map[string]any)
 	planningProps := planningSchema["properties"].(map[string]any)["planning"].(map[string]any)["properties"].(map[string]any)
 	assert.Assert(t, planningProps["selectedFiles"] != nil)
-	assert.Assert(t, planningProps["testTarget"] != nil)
-	assert.Assert(t, planningProps["lintCommand"] != nil)
-	assert.Assert(t, planningProps["expectedFailure"] != nil)
-	assert.Assert(t, planningProps["implementationTarget"] != nil)
+	assert.Assert(t, planningProps["parameters"] != nil)
 	assert.Assert(t, planningProps["invariants"] != nil)
 
 	listTool := byName[taskListTemplatesTool]
@@ -475,10 +469,6 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "parameterized_task",
-			"parameters": map[string]any{
-				"testCommand":   "pytest",
-				"expectedError": "boom",
-			},
 		},
 	})
 	assert.NilError(t, err)
@@ -497,7 +487,10 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
-				"testTarget": "tests/test_parameterized.py",
+				"parameters": map[string]any{
+					"testCommand":   "pytest",
+					"expectedError": "boom",
+				},
 			},
 		},
 	})
@@ -534,7 +527,6 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -628,7 +620,7 @@ workflow:
     tools_allowed: ["shell__*"]
   planning:
     tools_allowed: ["shell__*"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
     next: "waiting_for_approval.review_plan"
   execution:
     - id: "review_plan"
@@ -649,7 +641,6 @@ workflow:
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -686,7 +677,6 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -741,7 +731,6 @@ func TestProxiedActionCreatesTaskContextOnlyWhenActiveTaskRunExists(t *testing.T
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -773,7 +762,6 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -817,7 +805,6 @@ func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -862,7 +849,7 @@ workflow:
     tools_allowed: ["shell__*"]
   planning:
     tools_allowed: ["shell__*"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
     next: "waiting_for_approval.review_plan"
   execution:
     - id: "review_plan"
@@ -883,7 +870,6 @@ workflow:
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -945,7 +931,6 @@ func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -953,7 +938,6 @@ func TestTaskRegistrationIsIsolatedPerSession(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -975,7 +959,7 @@ workflow:
     tools_allowed: ["shell__*", "filesystem__*"]
   planning:
     tools_allowed: ["shell__*", "filesystem__*"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       tools_allowed: ["shell__*", "filesystem__*"]
@@ -997,7 +981,6 @@ workflow:
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1049,7 +1032,6 @@ func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1073,7 +1055,7 @@ func TestWorkflowNodeToolGovernanceDeniesCompletedTask(t *testing.T) {
 
 	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRegisterTool,
-		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+		Arguments: map[string]any{"templateId": "task"},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1119,7 +1101,7 @@ func TestWorkflowNodeToolGovernanceDeniesFailedTask(t *testing.T) {
 
 	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRegisterTool,
-		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+		Arguments: map[string]any{"templateId": "task"},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1150,7 +1132,7 @@ func TestTaskIdleTimeoutDeniesDownstreamToolsAndRecordsEvent(t *testing.T) {
 
 	registerResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRegisterTool,
-		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+		Arguments: map[string]any{"templateId": "task"},
 	})
 	assert.NilError(t, err)
 	registerStructured := registerResult.StructuredContent.(map[string]any)
@@ -1192,7 +1174,7 @@ func TestTaskActivityRefreshesIdleTimeoutForTaskAndDownstreamCalls(t *testing.T)
 
 	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRegisterTool,
-		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+		Arguments: map[string]any{"templateId": "task"},
 	})
 	assert.NilError(t, err)
 
@@ -1231,7 +1213,7 @@ func TestTaskResumeRequiresTimedOutRunAndPreservesWorkflowProgress(t *testing.T)
 
 	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRegisterTool,
-		Arguments: map[string]any{"templateId": "task", "parameters": map[string]any{}},
+		Arguments: map[string]any{"templateId": "task"},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1326,7 +1308,6 @@ func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1358,7 +1339,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -1374,7 +1355,6 @@ workflow:
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1404,7 +1384,6 @@ func TestWorkflowNodeToolGovernanceMatchesAggregatedCanonicalToolName(t *testing
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1431,7 +1410,7 @@ workflow:
     tools_allowed: ["shell__*"]
   planning:
     tools_allowed: ["shell__*"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
   scaffolding:
     - id: "setup_files"
       tools_allowed: ["*"]
@@ -1460,7 +1439,6 @@ workflow:
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1505,7 +1483,7 @@ workflow:
     tools_allowed: ["shell__*"]
   planning:
     tools_allowed: ["shell__*"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
     next: "waiting_for_approval.review_plan"
   execution:
     - id: "review_plan"
@@ -1527,7 +1505,6 @@ workflow:
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1582,7 +1559,6 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "task",
-			"parameters": map[string]any{},
 		},
 	})
 	assert.NilError(t, err)
@@ -1642,7 +1618,7 @@ workflow:
     tools_allowed: ["shell__*", "filesystem__*"]
   planning:
     tools_allowed: ["shell__*", "filesystem__*"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       tools_allowed: ["shell__*", "filesystem__*"]
@@ -1677,7 +1653,7 @@ workflow:
   planning:
     tools_allowed: ["shell__*", "filesystem__*"]
     editable_fields: ["parameters.testCommand", "parameters.expectedError"]
-    required_outputs: ["testTarget"]
+    required_inputs: ["expectedError", "testCommand"]
   execution:
     - id: "step_one"
       tools_allowed: ["shell__*", "filesystem__*"]
