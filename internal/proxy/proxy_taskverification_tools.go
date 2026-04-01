@@ -1128,7 +1128,7 @@ func contractConditions(conditions []taskverification.Condition) []map[string]an
 
 func frozenContractSummary(run *taskverification.RunState) map[string]any {
 	summary := map[string]any{
-		"planSummary":   "",
+		"planSummary":    "",
 		"selectedFiles":  []string{},
 		"parameters":     map[string]string{},
 		"invariantCount": 0,

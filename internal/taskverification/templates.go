@@ -815,10 +815,10 @@ func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
 		return PlanningArtifact{}
 	}
 	return PlanningArtifact{
-		PlanSummary:  artifact.PlanSummary,
+		PlanSummary:   artifact.PlanSummary,
 		SelectedFiles: append([]string(nil), artifact.SelectedFiles...),
-		Parameters:   cloneParameterMap(artifact.Parameters),
-		Invariants:   append([]string(nil), artifact.Invariants...),
+		Parameters:    cloneParameterMap(artifact.Parameters),
+		Invariants:    append([]string(nil), artifact.Invariants...),
 	}
 }
 

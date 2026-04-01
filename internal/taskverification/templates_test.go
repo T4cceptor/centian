@@ -501,8 +501,8 @@ workflow:
 	assert.ErrorContains(t, err, "planning.planSummary is required")
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
-		PlanSummary:  "Freeze the targeted test command and selected files before execution.",
-		Parameters:   map[string]string{"testTarget": "pytest -q"},
+		PlanSummary:   "Freeze the targeted test command and selected files before execution.",
+		Parameters:    map[string]string{"testTarget": "pytest -q"},
 		SelectedFiles: []string{"a.go", "a.go"},
 	})
 	assert.ErrorContains(t, err, `planning.selectedFiles contains duplicate value "a.go"`)
