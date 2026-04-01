@@ -48,6 +48,7 @@ export function TaskRunDetailPage() {
   const [detailsWidth, setDetailsWidth] = useState(() => getDefaultDetailsWidth());
   const [draggingResize, setDraggingResize] = useState(false);
   const [authHeaderName, setAuthHeaderName] = useState<string>();
+  const [now, setNow] = useState(() => Date.now());
   const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
@@ -168,8 +169,25 @@ export function TaskRunDetailPage() {
       }
     }
 
-    return { startedAt, lastSeenAt, errorCount, totalEvents: events.length };
-  }, [events, flatTimelineItems]);
+    return {
+      startedAt,
+      durationEndedAt: detailStatus === "active" ? undefined : lastSeenAt,
+      errorCount,
+      totalEvents: events.length,
+    };
+  }, [detailStatus, events, flatTimelineItems]);
+
+  useEffect(() => {
+    if (detailStatus !== "active") {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [detailStatus]);
 
   useEffect(() => {
     // Preserve existing collapse choices while seeding new groups as expanded.
@@ -281,7 +299,7 @@ export function TaskRunDetailPage() {
         </div>
       </header>
 
-      <RunMetadataBar stats={runStats} />
+      <RunMetadataBar stats={runStats} now={now} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -351,6 +369,7 @@ export function TaskRunDetailPage() {
 function DetailInspector({ item }: { item: TimelineItem }) {
   const tone = getTimelineItemTone(item);
   const statusLabel = getTimelineItemStatusLabel(item);
+  const statusTone = getInspectorStatusTone(statusLabel, tone);
   const anchorEvent = getTimelineAnchorEvent(item);
   const subtitle = getTimelineItemSubtitle(item);
   const metaLabel = item.kind === "task" ? "task" : getExchangeServerLabel(item.exchange);
@@ -368,7 +387,7 @@ function DetailInspector({ item }: { item: TimelineItem }) {
           {exchangeLatency != null ? (
             <span className="timeline-event__metric">{formatLatency(exchangeLatency)}</span>
           ) : null}
-          <span className={`timeline-event__status timeline-event__status--${tone}`}>{statusLabel}</span>
+          <span className={`timeline-event__status timeline-event__status--${statusTone}`}>{statusLabel}</span>
         </div>
       </div>
 
@@ -389,6 +408,22 @@ function DetailInspector({ item }: { item: TimelineItem }) {
       )}
     </div>
   );
+}
+
+function getInspectorStatusTone(
+  statusLabel: string,
+  fallbackTone: "neutral" | "active" | "completed" | "failed",
+): "neutral" | "active" | "completed" | "failed" {
+  switch (statusLabel) {
+    case "success":
+      return "completed";
+    case "error":
+      return "failed";
+    case "timed_out":
+      return "failed";
+    default:
+      return fallbackTone;
+  }
 }
 
 // Renders a labeled JSON payload block for either a task event or an exchange message.
@@ -484,14 +519,13 @@ function DetailStateCard({
 // Summary numbers shown above the timeline.
 type RunStats = {
   startedAt: number | undefined;
-  lastSeenAt: number | undefined;
+  durationEndedAt: number | undefined;
   errorCount: number;
   totalEvents: number;
 };
 
 // Displays the headline metrics for the selected run.
-function RunMetadataBar({ stats }: { stats: RunStats }) {
-  const now = Date.now();
+function RunMetadataBar({ stats, now }: { stats: RunStats; now: number }) {
   // Shared inline styles keep the compact metadata row visually consistent.
   const cellStyle: CSSProperties = {
     display: "flex",
@@ -535,7 +569,7 @@ function RunMetadataBar({ stats }: { stats: RunStats }) {
         <div style={cellStyle}>
           <span style={labelStyle}>Duration</span>
           <span style={valueStyle}>
-            {formatDuration(stats.startedAt, stats.lastSeenAt, now)}
+            {formatDuration(stats.startedAt, stats.durationEndedAt, now)}
           </span>
         </div>
       )}
@@ -610,28 +644,55 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   }
 
   const centianExchangesByRequestID = new Map<string, TimelineExchange>();
+  const centianFallbackExchangesByTaskKey = new Map<string, TimelineExchange[]>();
   for (const item of rawItems) {
     if (
       item.kind === "exchange" &&
-      item.exchange.requestId &&
       isCollapsibleCentianExchange(item.exchange)
     ) {
-      centianExchangesByRequestID.set(item.exchange.requestId, item.exchange);
+      if (item.exchange.requestId) {
+        centianExchangesByRequestID.set(item.exchange.requestId, item.exchange);
+      }
+      const fallbackKey = getCentianTaskFallbackKey(item.exchange);
+      if (fallbackKey) {
+        const existing = centianFallbackExchangesByTaskKey.get(fallbackKey) ?? [];
+        existing.push(item.exchange);
+        centianFallbackExchangesByTaskKey.set(fallbackKey, existing);
+      }
     }
   }
 
   const hiddenExchangeRequestIDs = new Set<string>();
+  const hiddenExchangeEventIDs = new Set<string>();
+  const correlatedExchangeByTaskID = new Map<string, TimelineExchange>();
+  for (const item of rawItems) {
+    if (item.kind !== "task") {
+      continue;
+    }
+    const correlatedExchange =
+      item.task.relatedActionRequestId != null
+        ? centianExchangesByRequestID.get(item.task.relatedActionRequestId)
+        : getFallbackCentianTaskExchange(item.task, centianFallbackExchangesByTaskKey);
+    if (!correlatedExchange) {
+      continue;
+    }
+    correlatedExchangeByTaskID.set(item.task.id, correlatedExchange);
+    if (correlatedExchange.requestId) {
+      hiddenExchangeRequestIDs.add(correlatedExchange.requestId);
+    }
+    if (correlatedExchange.request?.id) {
+      hiddenExchangeEventIDs.add(correlatedExchange.request.id);
+    }
+    if (correlatedExchange.response?.id) {
+      hiddenExchangeEventIDs.add(correlatedExchange.response.id);
+    }
+  }
+
   const items: TimelineItem[] = [];
   for (const item of rawItems) {
     if (item.kind === "task") {
       // Fold matching Centian exchanges into task rows so the timeline stays compact.
-      const correlatedExchange =
-        item.task.relatedActionRequestId != null
-          ? centianExchangesByRequestID.get(item.task.relatedActionRequestId)
-          : undefined;
-      if (correlatedExchange?.requestId) {
-        hiddenExchangeRequestIDs.add(correlatedExchange.requestId);
-      }
+      const correlatedExchange = correlatedExchangeByTaskID.get(item.task.id);
       items.push(
         correlatedExchange
           ? {
@@ -643,6 +704,9 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
       continue;
     }
 
+    if (hiddenExchangeEventIDs.has(item.id)) {
+      continue;
+    }
     if (
       item.exchange.requestId &&
       hiddenExchangeRequestIDs.has(item.exchange.requestId) &&
@@ -655,6 +719,57 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   }
 
   return items;
+}
+
+function getFallbackCentianTaskExchange(
+  task: TaskRunEvent,
+  fallbackMap: Map<string, TimelineExchange[]>,
+): TimelineExchange | undefined {
+  const fallbackKey = getCentianTaskFallbackKeyForTask(task);
+  if (!fallbackKey) {
+    return undefined;
+  }
+  const candidates = fallbackMap.get(fallbackKey);
+  return candidates?.length === 1 ? candidates[0] : undefined;
+}
+
+function getCentianTaskFallbackKeyForTask(task: TaskRunEvent): string | undefined {
+  if (task.source !== "task" || !task.eventType) {
+    return undefined;
+  }
+  return `${task.createdAtUnixMilli}:${task.eventType}`;
+}
+
+function getCentianTaskFallbackKey(exchange: TimelineExchange): string | undefined {
+  const taskEventType = getTaskEventTypeForCentianTool(exchange.request?.toolName ?? exchange.response?.toolName);
+  const anchorTimestamp = exchange.request?.createdAtUnixMilli ?? exchange.response?.createdAtUnixMilli;
+  if (!taskEventType || anchorTimestamp == null) {
+    return undefined;
+  }
+  return `${anchorTimestamp}:${taskEventType}`;
+}
+
+function getTaskEventTypeForCentianTool(toolName?: string): string | undefined {
+  switch (toolName) {
+    case "centian.task_register":
+      return "task_registered";
+    case "centian.task_complete_onboarding":
+      return "onboarding_completed";
+    case "centian.task_complete_planning":
+      return "planning_completed";
+    case "centian.task_start_step":
+      return "step_started";
+    case "centian.task_complete_step":
+      return "step_completed";
+    case "centian.task_resume":
+      return "resumed";
+    case "centian.task_restart":
+      return "restarted";
+    case "centian.task_fail":
+      return "task_failed";
+    default:
+      return undefined;
+  }
 }
 
 // Wraps a single action event so it can later be paired with its counterpart.
@@ -1203,13 +1318,14 @@ function formatTaskPhaseLine(event: TaskRunEvent): string {
 // Maps task and action events into the shared tone model used by the UI.
 function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" | "failed" {
   if (event.source === "task") {
-    if (event.eventType === "task_timed_out" || readPayloadStatus(event.payloadJson) === "timed_out") {
+    const payloadStatus = readPayloadStatus(event.payloadJson);
+    if (event.eventType === "task_timed_out" || payloadStatus === "timed_out") {
       return "neutral";
     }
     if (event.outcome === "failed" || event.eventType === "task_failed") {
       return "failed";
     }
-    if (event.eventType === "step_completed" || readPayloadStatus(event.payloadJson) === "completed") {
+    if (isCompletedTaskLifecycleEvent(event) || payloadStatus === "completed" || payloadStatus === "succeeded") {
       return "completed";
     }
     return "active";
@@ -1227,19 +1343,57 @@ function getEventTone(event: TaskRunEvent): "neutral" | "active" | "completed" |
 // Generates the compact status label shown next to event payloads.
 function getEventStatusLabel(event: TaskRunEvent): string {
   if (event.source === "task") {
+    const tone = getEventTone(event);
     const payloadStatus = readPayloadStatus(event.payloadJson);
-    if (payloadStatus) {
-      return payloadStatus;
+    if (tone === "failed") {
+      return "error";
     }
-    return event.outcome ?? "tracked";
+    if (tone === "completed") {
+      return "success";
+    }
+    if (event.outcome === "succeeded") {
+      return "success";
+    }
+    if (tone === "neutral" && payloadStatus === "timed_out") {
+      return "timed_out";
+    }
+    if (payloadStatus) {
+      return normalizeInspectorStatusLabel(payloadStatus);
+    }
+    return normalizeInspectorStatusLabel(event.outcome ?? "tracked");
   }
   if (event.isError === true || event.success === false) {
     return "error";
   }
   if (event.success === true) {
-    return "ok";
+    return "success";
   }
-  return event.direction ?? "event";
+  return normalizeInspectorStatusLabel(event.direction ?? "event");
+}
+
+function isCompletedTaskLifecycleEvent(event: TaskRunEvent): boolean {
+  switch (event.eventType) {
+    case "onboarding_completed":
+    case "planning_completed":
+    case "step_completed":
+    case "task_completed":
+    case "resumed":
+    case "restarted":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function normalizeInspectorStatusLabel(value: string): string {
+  switch (value) {
+    case "succeeded":
+    case "completed":
+    case "ok":
+      return "success";
+    default:
+      return value;
+  }
 }
 
 // Serializes payloads defensively so the inspector can always render something readable.

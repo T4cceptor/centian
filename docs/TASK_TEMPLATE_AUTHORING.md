@@ -275,7 +275,13 @@ Rules for `required_inputs`:
   - `implementationTarget`
   - `invariants`
 
-These outputs map to fields on the planning artifact sent to `centian.task_complete_planning`:
+These outputs map to fields on the planning artifact sent to `centian.task_complete_planning`.
+
+In addition to any template-specific planning parameters, every planning artifact must include:
+
+- `planSummary`: non-empty string describing the execution-defining plan that should be frozen at planning completion
+
+Template-derived planning outputs map to these artifact fields:
 
 - `selectedFiles`: non-empty `[]string`, each entry trimmed and unique
 - `testTarget`: non-empty string

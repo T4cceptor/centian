@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.4 - 2026-04-01
+
+### Major
+- Added a required `planning.planSummary` field to the taskverification planning artifact so each run freezes a human-readable execution summary at planning completion, and surfaced that summary through `centian.task_complete_planning`, structured task-tool output, and persisted planning-completed event payloads.
+- Hardened the local `centian demo` workflow so repeated runs can safely reuse the same demo root while preserving only durable history artifacts (`events.sqlite`, internal log, and agent stdout/stderr logs) and recreating all disposable demo assets such as workspace, templates, generated config, prompt, and agent MCP config files.
+- Refined the embedded task-run UI timeline and inspector behavior so Centian lifecycle events and correlated built-in task-tool exchanges render more consistently, including improved hiding of raw `centian.task_*` MCP rows once they are represented by task lifecycle events.
+
+### Minor
+- Updated taskverification authoring guidance and runtime/proxy test coverage for the frozen `planSummary` planning contract, including validation and payload assertions.
+- Updated the demo CLI completion flow to print the active UI URL and prompt operators to shut the demo server down explicitly after the agent run finishes.
+- Added demo-root safety checks for reused runs, including recognition of prior demo layouts, stale PID cleanup, and clear failure when a previous demo server is still running from the same root.
+- Expanded task-run route coverage for timeline correlation, inspector status normalization, live duration updates, and terminal duration freeze behavior.
+
+### Bugfixes
+- Fixed taskverification planning completion to fail fast when `planning.planSummary` is missing or blank instead of freezing an unreadable planning artifact.
+- Fixed `centian demo` to append agent stdout/stderr logs across runs with clear per-run separators instead of truncating prior output.
+- Fixed the task-run timeline to avoid leaving stray raw Centian task-tool request rows visible when a matching task lifecycle event already exists, even when the raw MCP event appears earlier in the persisted event stream.
+- Fixed section header status badges in the task-run detail timeline so completed Centian phases render as completed instead of incorrectly staying active.
+- Fixed inspector status labels and colors so Centian task events consistently show `success`, `error`, or `timed_out` with matching visual treatment instead of mixing `active`, `succeeded`, `ok`, or mismatched colors.
+- Fixed the detail-page duration counter to keep ticking while the run remains active and to freeze only when the final derived run state becomes `failed` or `timed_out`.
+
 ## v0.2.3 - 2026-04-01
 
 ### Major
