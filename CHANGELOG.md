@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.5 - 2026-04-02
+
+### Major
+- Bundled the current built-in taskverification templates into the Centian binary and introduced `task-templates/integrated/` as the explicit build-time source for embedded templates, while still allowing filesystem templates from `task-templates/` to load at runtime and override embedded templates by `task.id`.
+- Removed the older `demo/taskverification` Docker demo in favor of the newer integrated `centian demo` flow, reducing duplicate demo paths and aligning local taskverification demos around the maintained agent-runner entrypoint.
+- Reworked the processor demo container flow so `demo/processors` now builds a local demo image, layers the local Centian binary and demo processor sources into it, and keeps the required OpenTelemetry Python dependencies available for the logging processor demo.
+
+### Minor
+- Added a short `task-templates/README.md` describing the new distinction between disk-only templates and the stricter `integrated/` set that ships in release binaries.
+- Updated the demo agent runner defaults to use `gemini-2.5-flash` as the Gemini model for the local `centian demo` workflow.
+- Added startup logging for the taskverification command working directory so operators can immediately see which workspace Centian will use for taskverification command execution.
+- Expanded template-loading and proxy startup tests to cover embedded-template fallback, local template override behavior, and task-tool exposure when no on-disk template directory exists.
+
+### Bugfixes
+- Fixed the task-run UI timeline so repeated phase sections created by task restarts no longer share collapse state; collapsing one `Planning`, `Scaffolding`, or repeated step section now only affects that specific occurrence.
+- Fixed the processor demo image setup so the demo no longer depends on the published `t4ce/centian:latest` binary contents alone and instead consistently includes the local demo processor code and OTEL Python packages required by the logging demo.
+
 ## v0.2.4 - 2026-04-01
 
 ### Major
