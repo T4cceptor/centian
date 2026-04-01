@@ -631,6 +631,63 @@ describe("task run detail", () => {
     expect(within(onboardingSection).getByText("Step Completed · Onboarding")).toBeInTheDocument();
   });
 
+  it("collapses request-only centian task tool events into matching task lifecycle rows", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "onboarding_completed",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "planning",
+            nodeKind: "onboarding",
+            resultingNodeKind: "planning",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            requestId: "req_1742947201123_0000000002",
+            direction: "[CLIENT -> SERVER]",
+            messageType: "request",
+            toolName: "centian.task_complete_planning",
+            serverName: "centian",
+            gateway: "taskverification",
+            transport: "http",
+            payloadJson: { planning: { parameters: { testCommand: "python" } } },
+          },
+          {
+            source: "task",
+            id: "te_1742947200125_0000000003",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "scaffolding.setup_test_file",
+            nodeKind: "planning",
+            resultingNodeKind: "scaffolding",
+            payloadJson: { status: "active", step: 1 },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
+    expect(titles).toEqual([
+      "Onboarding Completed",
+      "Planning Completed",
+    ]);
+    expect(screen.queryByText("centian.task_complete_planning")).not.toBeInTheDocument();
+  });
+
   it("renders request-only exchanges as pending and orphan responses from response state", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>

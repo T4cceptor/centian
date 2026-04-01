@@ -610,28 +610,55 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   }
 
   const centianExchangesByRequestID = new Map<string, TimelineExchange>();
+  const centianFallbackExchangesByTaskKey = new Map<string, TimelineExchange[]>();
   for (const item of rawItems) {
     if (
       item.kind === "exchange" &&
-      item.exchange.requestId &&
       isCollapsibleCentianExchange(item.exchange)
     ) {
-      centianExchangesByRequestID.set(item.exchange.requestId, item.exchange);
+      if (item.exchange.requestId) {
+        centianExchangesByRequestID.set(item.exchange.requestId, item.exchange);
+      }
+      const fallbackKey = getCentianTaskFallbackKey(item.exchange);
+      if (fallbackKey) {
+        const existing = centianFallbackExchangesByTaskKey.get(fallbackKey) ?? [];
+        existing.push(item.exchange);
+        centianFallbackExchangesByTaskKey.set(fallbackKey, existing);
+      }
     }
   }
 
   const hiddenExchangeRequestIDs = new Set<string>();
+  const hiddenExchangeEventIDs = new Set<string>();
+  const correlatedExchangeByTaskID = new Map<string, TimelineExchange>();
+  for (const item of rawItems) {
+    if (item.kind !== "task") {
+      continue;
+    }
+    const correlatedExchange =
+      item.task.relatedActionRequestId != null
+        ? centianExchangesByRequestID.get(item.task.relatedActionRequestId)
+        : getFallbackCentianTaskExchange(item.task, centianFallbackExchangesByTaskKey);
+    if (!correlatedExchange) {
+      continue;
+    }
+    correlatedExchangeByTaskID.set(item.task.id, correlatedExchange);
+    if (correlatedExchange.requestId) {
+      hiddenExchangeRequestIDs.add(correlatedExchange.requestId);
+    }
+    if (correlatedExchange.request?.id) {
+      hiddenExchangeEventIDs.add(correlatedExchange.request.id);
+    }
+    if (correlatedExchange.response?.id) {
+      hiddenExchangeEventIDs.add(correlatedExchange.response.id);
+    }
+  }
+
   const items: TimelineItem[] = [];
   for (const item of rawItems) {
     if (item.kind === "task") {
       // Fold matching Centian exchanges into task rows so the timeline stays compact.
-      const correlatedExchange =
-        item.task.relatedActionRequestId != null
-          ? centianExchangesByRequestID.get(item.task.relatedActionRequestId)
-          : undefined;
-      if (correlatedExchange?.requestId) {
-        hiddenExchangeRequestIDs.add(correlatedExchange.requestId);
-      }
+      const correlatedExchange = correlatedExchangeByTaskID.get(item.task.id);
       items.push(
         correlatedExchange
           ? {
@@ -643,6 +670,9 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
       continue;
     }
 
+    if (hiddenExchangeEventIDs.has(item.id)) {
+      continue;
+    }
     if (
       item.exchange.requestId &&
       hiddenExchangeRequestIDs.has(item.exchange.requestId) &&
@@ -655,6 +685,57 @@ function buildTimelineItems(events: TaskRunEvent[]): TimelineItem[] {
   }
 
   return items;
+}
+
+function getFallbackCentianTaskExchange(
+  task: TaskRunEvent,
+  fallbackMap: Map<string, TimelineExchange[]>,
+): TimelineExchange | undefined {
+  const fallbackKey = getCentianTaskFallbackKeyForTask(task);
+  if (!fallbackKey) {
+    return undefined;
+  }
+  const candidates = fallbackMap.get(fallbackKey);
+  return candidates?.length === 1 ? candidates[0] : undefined;
+}
+
+function getCentianTaskFallbackKeyForTask(task: TaskRunEvent): string | undefined {
+  if (task.source !== "task" || !task.eventType) {
+    return undefined;
+  }
+  return `${task.createdAtUnixMilli}:${task.eventType}`;
+}
+
+function getCentianTaskFallbackKey(exchange: TimelineExchange): string | undefined {
+  const taskEventType = getTaskEventTypeForCentianTool(exchange.request?.toolName ?? exchange.response?.toolName);
+  const anchorTimestamp = exchange.request?.createdAtUnixMilli ?? exchange.response?.createdAtUnixMilli;
+  if (!taskEventType || anchorTimestamp == null) {
+    return undefined;
+  }
+  return `${anchorTimestamp}:${taskEventType}`;
+}
+
+function getTaskEventTypeForCentianTool(toolName?: string): string | undefined {
+  switch (toolName) {
+    case "centian.task_register":
+      return "task_registered";
+    case "centian.task_complete_onboarding":
+      return "onboarding_completed";
+    case "centian.task_complete_planning":
+      return "planning_completed";
+    case "centian.task_start_step":
+      return "step_started";
+    case "centian.task_complete_step":
+      return "step_completed";
+    case "centian.task_resume":
+      return "resumed";
+    case "centian.task_restart":
+      return "restarted";
+    case "centian.task_fail":
+      return "task_failed";
+    default:
+      return undefined;
+  }
 }
 
 // Wraps a single action event so it can later be paired with its counterpart.
