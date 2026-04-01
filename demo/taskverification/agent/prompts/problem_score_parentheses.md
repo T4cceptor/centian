@@ -36,22 +36,18 @@ Bootstrap the task like this:
 
 1. Call `centian.task_list_templates`.
 2. Choose the generic Python TDD workflow template.
-3. Call `centian.task_register` immediately with these parameters:
+3. Call `centian.task_register` immediately with:
    - `templateId`: `python_tdd_workflow`
-   - `testCommand`: `python -m pytest -q`
-   - `testFile`: `tests/test_score_parentheses.py`
-   - `testName`: `test_score_parentheses_examples`
-   - `testTarget`: `tests/test_score_parentheses.py::test_score_parentheses_examples`
-   - `lintCommand`: `python -m ruff check .`
-   - `expectedError`: `AssertionError: assert 0 == 1`
-   - `implementationTarget`: `/workspace/project/score_parentheses.py`
 4. Call `centian.task_complete_onboarding` with a concise summary of the planned new module and test, plus useful commands and constraints.
 5. Call `centian.task_complete_planning` with the required planning artifact, including:
    - `selectedFiles`: `/workspace/project/score_parentheses.py` and `/workspace/project/tests/test_score_parentheses.py`
-   - `testTarget`: `tests/test_score_parentheses.py::test_score_parentheses_examples`
-   - `lintCommand`: `python -m ruff check .`
-   - `expectedFailure`: `AssertionError: assert 0 == 1`
-   - `implementationTarget`: `/workspace/project/score_parentheses.py`
+   - `parameters.testCommand`: `python -m pytest -q`
+   - `parameters.testFile`: `tests/test_score_parentheses.py`
+   - `parameters.testName`: `test_score_parentheses_examples`
+   - `parameters.testTarget`: `tests/test_score_parentheses.py::test_score_parentheses_examples`
+   - `parameters.lintCommand`: `python -m ruff check .`
+   - `parameters.expectedError`: `AssertionError: assert 0 == 1`
+   - `parameters.implementationTarget`: `/workspace/project/score_parentheses.py`
 6. After planning enters `scaffolding`, run all four steps in order with `centian.task_start_step` and `centian.task_complete_step`:
    - `setup_test_file`
    - `setup_test_scaffolding`

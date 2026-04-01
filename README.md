@@ -91,11 +91,16 @@ For the fastest end-to-end product demo, use the built-in `centian demo` command
 Current v1 support:
 
 - `claude`
+- `gemini`
 
 Example:
 
 ```bash
 centian demo --agent claude
+```
+
+```bash
+centian demo --agent gemini
 ```
 
 Optional path override:
@@ -116,6 +121,7 @@ The command creates:
 - `templates/` with the taskverification workflow
 - `logs/` with Centian-generated logs and event storage
 - `config.json`, `prompt.md`, `claude_mcp_config.json`, and `centian.pid`
+- `workspace/.gemini/settings.json` when using the Gemini demo
 - `agent.stdout.log` and `agent.stderr.log` for the headless agent process output
 
 Behavior:
@@ -132,7 +138,9 @@ To stop the demo server later:
 kill $(cat ./.centian/demo/centian.pid)
 ```
 
-This is a safe, isolated demo flow intended to showcase Centian taskverification. It is not yet a hardened sandbox boundary and does not currently support Codex or Gemini in the public command.
+This is a safe, isolated demo flow intended to showcase Centian taskverification. It is not yet a hardened sandbox boundary and does not currently support Codex in the public command.
+
+When using Gemini, note that the CLI may still maintain some of its own local state outside the demo directory. Centian only controls the generated demo workspace and project-level Gemini settings.
 
 ### `demo/` walkthroughs
 

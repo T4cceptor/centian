@@ -66,7 +66,7 @@ parameters:
     description: "Command prefix used to run the targeted test."
   - name: "testTarget"
     description: "Concrete test target."
-  - name: "expectedFailure"
+  - name: "expectedError"
     description: "Stable failing output expected before the fix."
   - name: "sourceFile"
     description: "Implementation file expected to change."
@@ -86,12 +86,12 @@ workflow:
     editable_fields:
       - "parameters.testCommand"
       - "parameters.testTarget"
-      - "parameters.expectedFailure"
+      - "parameters.expectedError"
       - "parameters.sourceFile"
-    required_outputs:
+    required_inputs:
       - "selectedFiles"
       - "testTarget"
-      - "expectedFailure"
+      - "expectedError"
       - "implementationTarget"
 
   execution:
@@ -107,7 +107,7 @@ workflow:
             - type: exit_code
               value: 1
             - type: stdout_contains
-              value: "${expectedFailure}"
+              value: "${expectedError}"
 
     - id: "implement_fix"
       name: "Implement fix"
@@ -179,7 +179,7 @@ Reference parameters with `${name}` inside any string field:
 
 ```yaml
 command: "${testCommand} ${testTarget}"
-value: "${expectedFailure}"
+value: "${expectedError}"
 path: "${relativePath}"
 ```
 
@@ -243,7 +243,7 @@ planning:
   editable_fields:
     - "parameters.testCommand"
     - "parameters.testTarget"
-  required_outputs:
+  required_inputs:
     - "selectedFiles"
     - "testTarget"
   next: "execution.establish_failing_baseline"
@@ -255,7 +255,7 @@ Supported fields:
 - `tools_allowed`
 - `checkpoint.enabled`
 - `editable_fields`
-- `required_outputs`
+- `required_inputs`
 - `next`
 
 Rules for `editable_fields`:
@@ -264,14 +264,14 @@ Rules for `editable_fields`:
 - Only `parameters.<name>` is supported.
 - `<name>` must refer to a declared or placeholder-derived parameter.
 
-Rules for `required_outputs`:
+Rules for `required_inputs`:
 
 - Each value must be unique.
 - Only these outputs are supported:
   - `selectedFiles`
   - `testTarget`
   - `lintCommand`
-  - `expectedFailure`
+  - `expectedError`
   - `implementationTarget`
   - `invariants`
 
@@ -280,7 +280,7 @@ These outputs map to fields on the planning artifact sent to `centian.task_compl
 - `selectedFiles`: non-empty `[]string`, each entry trimmed and unique
 - `testTarget`: non-empty string
 - `lintCommand`: non-empty string
-- `expectedFailure`: non-empty string
+- `expectedError`: non-empty string
 - `implementationTarget`: non-empty string
 - `invariants`: non-empty `[]string`, each entry trimmed and unique
 
@@ -398,7 +398,7 @@ checks:
       - type: exit_code
         value: 1
       - type: stdout_contains
-        value: "${expectedFailure}"
+        value: "${expectedError}"
 ```
 
 Rules:
@@ -582,7 +582,7 @@ These are the errors template authors hit most often:
 - parameter declared but never referenced by a placeholder
 - placeholder used but missing from `parameters`
 - unsupported `editable_fields` entry
-- unsupported `required_outputs` value
+- unsupported `required_inputs` value
 - executable step with no checks
 - duplicate check or invariant IDs within a step
 - unsupported condition type
@@ -620,7 +620,7 @@ parameters:
     description: "Concrete Go test selector."
   - name: "testFile"
     description: "Relative path to the Go test file."
-  - name: "expectedFailure"
+  - name: "expectedError"
     description: "Stable failing output before the fix."
   - name: "implementationTarget"
     description: "Relative path to the implementation file."
@@ -641,12 +641,12 @@ workflow:
       - "parameters.testCommand"
       - "parameters.testTarget"
       - "parameters.testFile"
-      - "parameters.expectedFailure"
+      - "parameters.expectedError"
       - "parameters.implementationTarget"
-    required_outputs:
+    required_inputs:
       - "selectedFiles"
       - "testTarget"
-      - "expectedFailure"
+      - "expectedError"
       - "implementationTarget"
 
   scaffolding:
@@ -672,7 +672,7 @@ workflow:
             - type: exit_code
               value: 1
             - type: stdout_contains
-              value: "${expectedFailure}"
+              value: "${expectedError}"
 
     - id: "implement_fix"
       name: "Implement fix"

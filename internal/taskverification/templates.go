@@ -62,12 +62,9 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 }
 
 // RegisterTask creates a shell task run from the selected template.
-func (s *Service) RegisterTask(templateID string, parameters map[string]string) (*RunState, error) {
+func (s *Service) RegisterTask(templateID string) (*RunState, error) {
 	template, err := s.loadTemplateByID(templateID)
 	if err != nil {
-		return nil, err
-	}
-	if err := validateDraftParameters(template, parameters); err != nil {
 		return nil, err
 	}
 
@@ -75,7 +72,6 @@ func (s *Service) RegisterTask(templateID string, parameters map[string]string) 
 		RunID:            newTaskRunID(),
 		TemplateID:       template.Task.ID,
 		SelectedTemplate: *template,
-		DraftParameters:  cloneParameters(parameters),
 		Status:           TaskStatusActive,
 		Phase:            template.CompiledWorkflow.OnboardingPath,
 		WorkflowReady:    false,
@@ -102,7 +98,8 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 	if err := validatePlanningArtifact(&run.SelectedTemplate, artifact); err != nil {
 		return err
 	}
-	resolved, stepStates, err := freezeRunnableContract(run)
+	artifactCopy := clonePlanningArtifact(artifact)
+	resolved, stepStates, err := freezeRunnableContract(run, &artifactCopy)
 	if err != nil {
 		return err
 	}
@@ -118,7 +115,6 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 		return err
 	}
 
-	artifactCopy := clonePlanningArtifact(artifact)
 	run.Planning = &artifactCopy
 	run.WorkflowReady = true
 	run.RunnableTemplate = &resolved
@@ -187,15 +183,18 @@ func (s *Service) ResumeTask(run *RunState) error {
 	return nil
 }
 
-func freezeRunnableContract(run *RunState) (Template, []StepState, error) {
+func freezeRunnableContract(run *RunState, planning *PlanningArtifact) (Template, []StepState, error) {
 	if run == nil {
 		return Template{}, nil, fmt.Errorf("task is not registered")
 	}
 	if run.Status != TaskStatusActive {
 		return Template{}, nil, fmt.Errorf("task is %s", run.Status)
 	}
+	if planning == nil {
+		return Template{}, nil, fmt.Errorf("planning artifact is required")
+	}
 
-	resolved, err := run.SelectedTemplate.Resolve(run.DraftParameters)
+	resolved, err := run.SelectedTemplate.Resolve(planning.Parameters)
 	if err != nil {
 		return Template{}, nil, err
 	}
@@ -332,6 +331,9 @@ func (t *Template) validateParameters(checkCoverage bool) error {
 		}
 		definedParams[parameter.Name] = struct{}{}
 	}
+	if err := t.validatePlaceholderUsage(); err != nil {
+		return err
+	}
 
 	if !checkCoverage {
 		return nil
@@ -350,6 +352,34 @@ func (t *Template) validateParameters(checkCoverage bool) error {
 	for _, name := range requiredParams {
 		if _, exists := definedParams[name]; len(t.Parameters) > 0 && !exists {
 			return fmt.Errorf("parameter %q is used by a placeholder but missing from parameters", name)
+		}
+	}
+	return nil
+}
+
+func (t *Template) validatePlaceholderUsage() error {
+	if t == nil || t.Workflow == nil {
+		return nil
+	}
+	checks := []struct {
+		location string
+		value    any
+	}{
+		{location: "task", value: t.Task},
+		{location: "parameters", value: t.Parameters},
+		{location: "workflow.onboarding", value: t.Workflow.Onboarding},
+		{location: "workflow.planning", value: t.Workflow.Planning},
+	}
+	for _, check := range checks {
+		if check.value == nil {
+			continue
+		}
+		generic, err := genericValue(check.value)
+		if err != nil {
+			return err
+		}
+		if unresolved := findUnresolvedPlaceholder(generic); unresolved != "" {
+			return fmt.Errorf("%s must not reference template parameter placeholder %q", check.location, unresolved)
 		}
 	}
 	return nil
@@ -392,6 +422,9 @@ func validateCheck(stepID string, checkIndex int, check *Check, checkIDs map[str
 	if strings.TrimSpace(check.Command) == "" {
 		return fmt.Errorf("step %q check %q command is required", stepID, check.ID)
 	}
+	if check.Description != "" && strings.TrimSpace(check.Description) == "" {
+		return fmt.Errorf("step %q check %q description must not be blank", stepID, check.ID)
+	}
 	if err := validateConditions(stepID, check.ID, "pre_conditions", check.PreConditions); err != nil {
 		return err
 	}
@@ -410,6 +443,9 @@ func validateInvariants(step *Step) error {
 		invariantIDs[invariant.ID] = struct{}{}
 		if strings.TrimSpace(invariant.Command) == "" {
 			return fmt.Errorf("step %q invariant %q command is required", step.ID, invariant.ID)
+		}
+		if invariant.Description != "" && strings.TrimSpace(invariant.Description) == "" {
+			return fmt.Errorf("step %q invariant %q description must not be blank", step.ID, invariant.ID)
 		}
 	}
 	return nil
@@ -437,17 +473,13 @@ func validateCondition(condition Condition) error {
 
 // RequiredParameterNames returns the placeholder names referenced by the template.
 func (t *Template) RequiredParameterNames() []string {
-	if t == nil {
-		return nil
-	}
-
-	generic, err := genericValue(t)
-	if err != nil {
+	if t == nil || t.Workflow == nil {
 		return nil
 	}
 
 	params := make(map[string]struct{})
-	collectPlaceholders(generic, params)
+	collectPlaceholdersFromValue(t.Workflow.Scaffolding, params)
+	collectPlaceholdersFromValue(t.Workflow.Execution, params)
 
 	result := make([]string, 0, len(params))
 	for name := range params {
@@ -455,6 +487,14 @@ func (t *Template) RequiredParameterNames() []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func collectPlaceholdersFromValue(value any, params map[string]struct{}) {
+	generic, err := genericValue(value)
+	if err != nil {
+		return
+	}
+	collectPlaceholders(generic, params)
 }
 
 // ParameterDefinitions returns placeholder metadata in stable name order.
@@ -630,17 +670,6 @@ func findUnresolvedPlaceholder(value any) string {
 	return ""
 }
 
-func cloneParameters(parameters map[string]string) map[string]string {
-	if len(parameters) == 0 {
-		return map[string]string{}
-	}
-	cloned := make(map[string]string, len(parameters))
-	for key, value := range parameters {
-		cloned[key] = value
-	}
-	return cloned
-}
-
 func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
@@ -664,20 +693,6 @@ func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) er
 		}
 	}
 	return fmt.Errorf("task is in %s phase; cannot transition to %s", run.Phase, next)
-}
-
-func validateDraftParameters(template *Template, parameters map[string]string) error {
-	if template == nil {
-		return fmt.Errorf("template is required")
-	}
-
-	defined := parameterNameSet(template)
-	for name := range parameters {
-		if _, exists := defined[name]; !exists {
-			return fmt.Errorf("unknown task parameter %q", name)
-		}
-	}
-	return nil
 }
 
 func validateOnboardingArtifact(artifact *OnboardingArtifact) error {
@@ -731,7 +746,7 @@ func validatePlanningArtifact(template *Template, artifact *PlanningArtifact) er
 	if artifact == nil {
 		return fmt.Errorf("planning artifact is required")
 	}
-	if err := validatePlanningOutputs(template, artifact); err != nil {
+	if err := validatePlanningParameters(template, artifact.Parameters); err != nil {
 		return err
 	}
 	if err := validateUniqueTrimmedStrings("planning.selectedFiles", artifact.SelectedFiles); err != nil {
@@ -743,108 +758,53 @@ func validatePlanningArtifact(template *Template, artifact *PlanningArtifact) er
 	return nil
 }
 
-func validatePlanningOutputs(template *Template, artifact *PlanningArtifact) error {
-	for _, output := range orderedPlanningOutputs(requiredPlanningOutputs(template)) {
-		if err := validatePlanningOutput(output, artifact); err != nil {
-			return err
+func validatePlanningParameters(template *Template, parameters map[string]string) error {
+	if parameters == nil {
+		parameters = map[string]string{}
+	}
+	defined := parameterNameSet(template)
+	provided := make([]string, 0, len(parameters))
+	unknown := make([]string, 0)
+	for name := range parameters {
+		provided = append(provided, name)
+		if _, exists := defined[name]; !exists {
+			unknown = append(unknown, name)
 		}
+	}
+	missing := make([]string, 0)
+	for _, name := range orderedPlanningInputs(template) {
+		if strings.TrimSpace(parameters[name]) == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 || len(unknown) > 0 {
+		return newPlanningValidationError(orderedPlanningInputs(template), provided, missing, unknown)
 	}
 	return nil
 }
 
-func requiredPlanningOutputs(template *Template) []string {
-	if template == nil || template.CompiledWorkflow == nil {
+func orderedPlanningInputs(template *Template) []string {
+	if template == nil {
 		return nil
 	}
-	planningNode, exists := template.CompiledWorkflow.Nodes[template.CompiledWorkflow.PlanningPath]
-	if !exists {
-		return nil
-	}
-	return append([]string(nil), planningNode.RequiredPlanningOutputs...)
-}
-
-func orderedPlanningOutputs(outputs []string) []string {
-	if len(outputs) == 0 {
-		return nil
-	}
-
-	required := make(map[string]struct{}, len(outputs))
-	for _, output := range outputs {
-		trimmed := strings.TrimSpace(output)
-		if trimmed == "" {
+	names := make([]string, 0, len(template.Parameters))
+	seen := make(map[string]struct{}, len(template.Parameters))
+	for _, parameter := range template.Parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name == "" {
 			continue
 		}
-		required[trimmed] = struct{}{}
-	}
-
-	ordered := make([]string, 0, len(required))
-	for _, output := range []string{
-		"testTarget",
-		"selectedFiles",
-		"lintCommand",
-		"expectedFailure",
-		"implementationTarget",
-		"invariants",
-	} {
-		if _, exists := required[output]; !exists {
+		if _, exists := seen[name]; exists {
 			continue
 		}
-		delete(required, output)
-		ordered = append(ordered, output)
+		seen[name] = struct{}{}
+		names = append(names, name)
 	}
-	for _, output := range outputs {
-		trimmed := strings.TrimSpace(output)
-		if _, exists := required[trimmed]; !exists {
-			continue
-		}
-		delete(required, trimmed)
-		ordered = append(ordered, trimmed)
+	if len(names) == 0 {
+		return append([]string(nil), template.RequiredParameterNames()...)
 	}
-	return ordered
-}
-
-func validatePlanningOutput(output string, artifact *PlanningArtifact) error {
-	switch output {
-	case "selectedFiles":
-		if len(artifact.SelectedFiles) == 0 {
-			return fmt.Errorf("planning.selectedFiles is required")
-		}
-		return nil
-	case "invariants":
-		if len(artifact.Invariants) == 0 {
-			return fmt.Errorf("planning.invariants is required")
-		}
-		return nil
-	case "testTarget", "lintCommand", "expectedFailure", "implementationTarget":
-		return validateNonEmptyPlanningField(output, planningFieldValue(output, artifact))
-	}
-	return nil
-}
-
-func planningFieldValue(output string, artifact *PlanningArtifact) string {
-	switch output {
-	case "testTarget":
-		return artifact.TestTarget
-	case "lintCommand":
-		return artifact.LintCommand
-	case "expectedFailure":
-		return artifact.ExpectedFailure
-	case "implementationTarget":
-		return artifact.ImplementationTarget
-	default:
-		return ""
-	}
-}
-
-func validateNonEmptyPlanningField(output, value string) error {
-	fieldName := "planning." + output
-	if value == "" {
-		return fmt.Errorf("%s is required", fieldName)
-	}
-	if strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%s is required", fieldName)
-	}
-	return nil
+	sort.Strings(names)
+	return names
 }
 
 func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
@@ -852,13 +812,21 @@ func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
 		return PlanningArtifact{}
 	}
 	return PlanningArtifact{
-		SelectedFiles:        append([]string(nil), artifact.SelectedFiles...),
-		TestTarget:           artifact.TestTarget,
-		LintCommand:          artifact.LintCommand,
-		ExpectedFailure:      artifact.ExpectedFailure,
-		ImplementationTarget: artifact.ImplementationTarget,
-		Invariants:           append([]string(nil), artifact.Invariants...),
+		SelectedFiles: append([]string(nil), artifact.SelectedFiles...),
+		Parameters:    cloneParameterMap(artifact.Parameters),
+		Invariants:    append([]string(nil), artifact.Invariants...),
 	}
+}
+
+func cloneParameterMap(parameters map[string]string) map[string]string {
+	if len(parameters) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(parameters))
+	for key, value := range parameters {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func validateUniqueTrimmedStrings(field string, values []string) error {

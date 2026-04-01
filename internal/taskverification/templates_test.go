@@ -1,9 +1,9 @@
 package taskverification
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/identifiers"
@@ -24,7 +24,7 @@ parameters:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: ["testName"]
   execution:
     - id: "failing_test"
       instructions: "Start the step before changing anything."
@@ -50,7 +50,7 @@ workflow:
 	assert.Equal(t, summaries[0].Steps[0].Path, TaskPhase("execution.failing_test"))
 }
 
-func TestRegisterTaskAllowsMissingParametersButRejectsUnknownOnShellRegistration(t *testing.T) {
+func TestRegisterTaskCreatesShellWithoutPlanningParameters(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
 task:
@@ -62,8 +62,7 @@ parameters:
     description: "The test case to target."
 workflow:
   onboarding: {}
-  planning:
-    required_outputs: ["testTarget"]
+  planning: {}
   execution:
     - id: "failing_test"
       checks:
@@ -71,19 +70,13 @@ workflow:
           command: "printf '%s' '${testName}'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, !run.WorkflowReady)
 	assert.Assert(t, run.RunnableTemplate == nil)
 	assert.Equal(t, len(run.Steps), 0)
-
-	_, err = service.RegisterTask("simple_tdd", map[string]string{
-		"testName": "MyTest",
-		"unknown":  "value",
-	})
-	assert.ErrorContains(t, err, `unknown task parameter "unknown"`)
 }
 
 func TestTimeoutAndResumeTaskPreserveWorkflowState(t *testing.T) {
@@ -100,7 +93,7 @@ workflow:
     - id: "step_one"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 	run.Phase = TaskPhase("execution.step_one")
 	run.WorkflowReady = true
@@ -174,7 +167,7 @@ workflow:
 	assert.Equal(t, summaries[0].Steps[0].ID, "step_one")
 }
 
-func TestCompletePlanningResolvesDraftParametersAndEntersConfiguredExecutionNode(t *testing.T) {
+func TestCompletePlanningResolvesPlanningParametersAndEntersConfiguredExecutionNode(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
 task:
@@ -189,7 +182,7 @@ parameters:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: ["expectedError", "testName"]
     next: "execution.failing_test"
   execution:
     - id: "failing_test"
@@ -198,17 +191,17 @@ workflow:
           command: "printf '%s' '${testName}:${expectedError}'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{
-		"testName":      "TestThing",
-		"expectedError": "boom",
-	})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
-		TestTarget: "pytest tests/test_thing.py -q",
+		Parameters: map[string]string{
+			"testName":      "TestThing",
+			"expectedError": "boom",
+		},
 	})
 	assert.NilError(t, err)
 
@@ -236,15 +229,15 @@ workflow:
     - id: "Task ${taskName}"
 `, "free_form.yaml")
 
-	run, err := service.RegisterTask("free_form", map[string]string{
-		"taskName": "Investigate issue",
-	})
+	run, err := service.RegisterTask("free_form")
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{})
+	err = service.CompletePlanning(run, &PlanningArtifact{
+		Parameters: map[string]string{"taskName": "Investigate issue"},
+	})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("execution.Task Investigate issue"))
 }
@@ -265,7 +258,7 @@ workflow:
   onboarding: {}
   planning:
     editable_fields: ["parameters.testCommand", "parameters.expectedError"]
-    required_outputs: ["testTarget"]
+    required_inputs: ["expectedError", "testCommand"]
   execution:
     - id: "failing_test"
       checks:
@@ -279,16 +272,18 @@ workflow:
               value: "pytest:boom"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{
-		"testCommand":   "pytest",
-		"expectedError": "boom",
-	})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "tests/test_thing.py"})
+	err = service.CompletePlanning(run, &PlanningArtifact{
+		Parameters: map[string]string{
+			"testCommand":   "pytest",
+			"expectedError": "boom",
+		},
+	})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("execution.failing_test"))
 	assert.Assert(t, run.WorkflowReady)
@@ -303,8 +298,7 @@ task:
   description: "Test driven task"
 workflow:
   onboarding: {}
-  planning:
-    required_outputs: ["testTarget"]
+  planning: {}
   execution:
     - id: "failing_test"
       checks:
@@ -312,7 +306,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 	assert.Assert(t, run.Onboarding == nil)
 
@@ -345,8 +339,7 @@ task:
   description: "Test driven task"
 workflow:
   onboarding: {}
-  planning:
-    required_outputs: ["testTarget"]
+  planning: {}
   execution:
     - id: "failing_test"
       checks:
@@ -354,7 +347,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 	assert.Assert(t, identifiers.IsKind(run.RunID, identifiers.KindTaskRun))
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
@@ -373,7 +366,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "failing_test"
       checks:
@@ -381,7 +374,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
@@ -401,7 +394,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "failing_test"
       checks:
@@ -409,7 +402,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{})
@@ -428,7 +421,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "failing_test"
       checks:
@@ -436,7 +429,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "stored summary"})
 	assert.NilError(t, err)
@@ -459,7 +452,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "failing_test"
       checks:
@@ -467,10 +460,10 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "pytest -q"})
+	err = service.CompletePlanning(run, &PlanningArtifact{})
 	assert.ErrorContains(t, err, "cannot transition to")
 }
 
@@ -481,42 +474,126 @@ task:
   id: "simple_tdd"
   name: "Simple TDD"
   description: "Test driven task"
+parameters:
+  - name: "testTarget"
+    description: "Targeted test command."
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget", "selectedFiles"]
+    required_inputs: ["testTarget"]
   execution:
     - id: "failing_test"
       checks:
         - id: "selected_test_fails"
-          command: "printf 'ok'"
+          command: "printf '%s' '${testTarget}'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd", map[string]string{})
+	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{})
 	assert.Assert(t, err != nil)
-	assert.Assert(
-		t,
-		strings.Contains(err.Error(), "planning.testTarget is required") ||
-			strings.Contains(err.Error(), "planning.selectedFiles is required"),
-	)
+	assert.ErrorContains(t, err, "planning.parameters.testTarget is required")
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
-		TestTarget:    "pytest -q",
+		Parameters:    map[string]string{"testTarget": "pytest -q"},
 		SelectedFiles: []string{"a.go", "a.go"},
 	})
 	assert.ErrorContains(t, err, `planning.selectedFiles contains duplicate value "a.go"`)
 }
 
-func TestValidatePlanningOutput_RequiresScalarFields(t *testing.T) {
-	for _, output := range []string{"testTarget", "lintCommand", "expectedFailure", "implementationTarget"} {
-		err := validatePlanningOutput(output, &PlanningArtifact{})
-		assert.ErrorContains(t, err, "planning."+output+" is required")
+func TestValidatePlanningParametersRequiresDeclaredInputs(t *testing.T) {
+	template := &Template{
+		Parameters: []TemplateParameter{
+			{Name: "testTarget"},
+			{Name: "expectedError"},
+		},
+		Workflow: &Workflow{
+			Scaffolding: []ExecutionNodeSpec{{
+				ID: "setup",
+				Checks: []Check{{
+					ID:      "check",
+					Command: "printf '%s' '${testTarget}:${expectedError}'",
+				}},
+			}},
+		},
 	}
+	err := validatePlanningParameters(template, map[string]string{})
+	var validationErr *PlanningValidationError
+	assert.Assert(t, errors.As(err, &validationErr))
+	assert.DeepEqual(t, validationErr.MissingParameters, []string{"expectedError", "testTarget"})
+	assert.DeepEqual(t, validationErr.RequiredParameterNames, []string{"expectedError", "testTarget"})
+	assert.ErrorContains(t, err, "planning.parameters is invalid")
+}
+
+func TestValidatePlanningParametersReturnsUnknownAndMissingDetails(t *testing.T) {
+	template := &Template{
+		Parameters: []TemplateParameter{
+			{Name: "expectedError"},
+			{Name: "testTarget"},
+		},
+		Workflow: &Workflow{
+			Execution: []ExecutionNodeSpec{{
+				ID: "step_one",
+				Checks: []Check{{
+					ID:      "check_one",
+					Command: "printf '%s' '${testTarget}:${expectedError}'",
+				}},
+			}},
+		},
+	}
+
+	err := validatePlanningParameters(template, map[string]string{
+		"expectedError": "boom",
+		"unknown":       "value",
+	})
+	var validationErr *PlanningValidationError
+	assert.Assert(t, errors.As(err, &validationErr))
+	assert.DeepEqual(t, validationErr.MissingParameters, []string{"testTarget"})
+	assert.DeepEqual(t, validationErr.UnknownParameters, []string{"unknown"})
+	assert.DeepEqual(t, validationErr.ProvidedParameterNames, []string{"expectedError", "unknown"})
+	assert.ErrorContains(t, err, "planning.parameters is invalid")
+}
+
+func TestResolvePreservesCheckAndInvariantDescriptions(t *testing.T) {
+	template := mustCompileTemplate(t, &Template{
+		Version: "0.1",
+		Task: Task{
+			ID:          "task",
+			Name:        "Task",
+			Description: "desc",
+		},
+		Parameters: []TemplateParameter{
+			{Name: "testFile"},
+		},
+		Workflow: &Workflow{
+			Onboarding: &LifecycleNodeSpec{},
+			Planning:   &PlanningNodeSpec{},
+			Execution: []ExecutionNodeSpec{{
+				ID: "step_one",
+				Checks: []Check{{
+					ID:          "check_one",
+					Description: "Explains the check",
+					Command:     "printf ok",
+					PostConditions: []Condition{
+						{Type: "file_exists", Path: "${testFile}"},
+					},
+				}},
+				Invariants: []Invariant{{
+					ID:          "stable_test_file",
+					Description: "Keeps the selected test file stable",
+					Command:     "cat ${testFile}",
+				}},
+			}},
+		},
+	})
+
+	resolved, err := template.Resolve(map[string]string{"testFile": "test_score_parentheses.py"})
+	assert.NilError(t, err)
+	assert.Equal(t, resolved.CompiledWorkflow.WorkflowSteps[0].Checks[0].Description, "Explains the check")
+	assert.Equal(t, resolved.CompiledWorkflow.WorkflowSteps[0].Invariants[0].Description, "Keeps the selected test file stable")
 }
 
 func TestPlanningCanAdvanceToConfiguredWaitingNode(t *testing.T) {
@@ -529,7 +606,6 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
     next: "waiting_for_approval.review_plan"
   execution:
     - id: "review_plan"
@@ -541,11 +617,11 @@ workflow:
           command: "printf 'ok'"
 `, "approval_flow.yaml")
 
-	run, err := service.RegisterTask("approval_flow", map[string]string{})
+	run, err := service.RegisterTask("approval_flow")
 	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{TestTarget: "pytest -q"})
+	err = service.CompletePlanning(run, &PlanningArtifact{})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("waiting_for_approval.review_plan"))
 	node, exists := run.CurrentNode()
@@ -565,7 +641,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -593,7 +669,7 @@ parameters:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "failing_test"
       checks:
@@ -634,7 +710,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "step_one"
       checks:
@@ -665,7 +741,7 @@ workflow:
   onboarding: {}
   planning:
     editable_fields: ["parameters.unknown"]
-    required_outputs: ["testTarget"]
+    required_inputs: []
   execution:
     - id: "failing_test"
       checks:
@@ -690,7 +766,7 @@ task:
 workflow:
   onboarding: {}
   planning:
-    required_outputs: ["testTarget"]
+    required_inputs: []
     next: "execution.second"
   execution:
     - id: "first"
@@ -716,4 +792,11 @@ func newTemplateTestService(t *testing.T, content, fileName string) *Service {
 	err := os.WriteFile(filepath.Join(dir, fileName), []byte(content), 0o644)
 	assert.NilError(t, err)
 	return NewService(dir, dir)
+}
+
+func mustCompileTemplate(t *testing.T, template *Template) *Template {
+	t.Helper()
+	err := template.Validate()
+	assert.NilError(t, err)
+	return template
 }

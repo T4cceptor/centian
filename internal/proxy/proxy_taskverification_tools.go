@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -26,8 +27,7 @@ const (
 )
 
 type taskRegisterArgs struct {
-	TemplateID string         `json:"templateId"`
-	Parameters map[string]any `json:"parameters"`
+	TemplateID string `json:"templateId"`
 }
 
 type taskStepArgs struct {
@@ -75,9 +75,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			"type": "object",
 			"properties": map[string]any{
 				"templateId": map[string]any{"type": "string"},
-				"parameters": map[string]any{"type": "object"},
 			},
-			"required": []string{"templateId", "parameters"},
+			"required": []string{"templateId"},
 		},
 	}, p.wrapTaskToolHandler(session, taskRegisterTool, p.handleTaskRegisterTool))
 	session.registeredStaticTools[taskRegisterTool] = struct{}{}
@@ -92,7 +91,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	server.AddTool(&mcp.Tool{
 		Name:        taskCompletePlanningTool,
-		Description: taskToolDescription("Persist planning context, freeze the contract, and enter execution."),
+		Description: taskToolDescription("Persist planning context, freeze the execution contract, and enter execution. planning.parameters must contain every required planning parameter before execution can begin, and Centian enforces that contract."),
 		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: taskCompletePlanningSchema(),
 	}, p.wrapTaskToolHandler(session, taskCompletePlanningTool, p.handleTaskCompletePlanningTool))
@@ -398,15 +397,16 @@ func taskCompletePlanningSchema() map[string]any {
 						"type":  "array",
 						"items": map[string]any{"type": "string"},
 					},
-					"testTarget":           map[string]any{"type": "string"},
-					"lintCommand":          map[string]any{"type": "string"},
-					"expectedFailure":      map[string]any{"type": "string"},
-					"implementationTarget": map[string]any{"type": "string"},
+					"parameters": map[string]any{
+						"type":                 "object",
+						"additionalProperties": map[string]any{"type": "string"},
+					},
 					"invariants": map[string]any{
 						"type":  "array",
 						"items": map[string]any{"type": "string"},
 					},
 				},
+				"required": []string{"parameters"},
 			},
 		},
 		"required": []string{"planning"},
@@ -438,24 +438,27 @@ func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *Upst
 	}
 	response := map[string]any{
 		"templates":  structured,
-		"nextAction": "Call centian.task_register with one templateId and its parameters.",
+		"nextAction": "Call centian.task_register with one templateId.",
 	}
 	addWorkspaceContext(response, p.server.TaskVerification.WorkingDir)
 	return toolResult(strings.Join(lines, "\n"), response), nil
 }
 
 func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if req != nil && req.Params != nil && len(req.Params.Arguments) > 0 {
+		raw := map[string]json.RawMessage{}
+		if err := json.Unmarshal(req.Params.Arguments, &raw); err == nil {
+			if _, exists := raw["parameters"]; exists {
+				return nil, fmt.Errorf("task_register no longer accepts parameters; provide them in task_complete_planning under planning.parameters")
+			}
+		}
+	}
 	args := taskRegisterArgs{}
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(args.TemplateID) == "" {
 		return nil, fmt.Errorf("templateId is required")
-	}
-
-	parameters := make(map[string]string, len(args.Parameters))
-	for key, value := range args.Parameters {
-		parameters[key] = fmt.Sprint(value)
 	}
 
 	session.taskMu.Lock()
@@ -465,15 +468,13 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		return nil, fmt.Errorf("an active task is already registered for this session")
 	}
 
-	run, err := p.server.TaskVerification.RegisterTask(args.TemplateID, parameters)
+	run, err := p.server.TaskVerification.RegisterTask(args.TemplateID)
 	if err != nil {
 		return nil, err
 	}
 	session.taskRun = run
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(run)
-	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
-		"draftParameters": run.DraftParameters,
-	})
+	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 
 	structured := runStructuredContent(run, p.server.TaskVerification.WorkingDir)
 	stepCount := len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps)
@@ -513,6 +514,7 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	normalizePlanningArtifactArguments(req, &args.Planning)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
@@ -522,6 +524,10 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
+		var validationErr *taskverification.PlanningValidationError
+		if errors.As(err, &validationErr) {
+			return planningValidationToolResult(validationErr, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+		}
 		return nil, err
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
@@ -536,6 +542,54 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 		structured["planning"] = session.taskRun.Planning
 	}
 	return toolResult(fmt.Sprintf("Task planning completed; task moved to %s.", session.taskRun.Phase), structured), nil
+}
+
+func normalizePlanningArtifactArguments(req *mcp.CallToolRequest, artifact *taskverification.PlanningArtifact) {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 || artifact == nil {
+		return
+	}
+	rawArgs := map[string]json.RawMessage{}
+	if err := json.Unmarshal(req.Params.Arguments, &rawArgs); err != nil {
+		return
+	}
+	rawPlanning, exists := rawArgs["planning"]
+	if !exists {
+		return
+	}
+	planningMap := map[string]json.RawMessage{}
+	if err := json.Unmarshal(rawPlanning, &planningMap); err != nil {
+		return
+	}
+	if artifact.Parameters == nil {
+		artifact.Parameters = map[string]string{}
+	}
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "testCommand", "testCommand")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "testTarget", "testTarget")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "testFile", "testFile")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "testName", "testName")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "lintCommand", "lintCommand")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "expectedError", "expectedError")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "expectedFailure", "expectedError")
+	copyLegacyPlanningParameter(planningMap, artifact.Parameters, "implementationTarget", "implementationTarget")
+}
+
+func copyLegacyPlanningParameter(raw map[string]json.RawMessage, parameters map[string]string, sourceKey, targetKey string) {
+	if _, exists := parameters[targetKey]; exists {
+		return
+	}
+	value, exists := raw[sourceKey]
+	if !exists {
+		return
+	}
+	var decoded string
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		return
+	}
+	decoded = strings.TrimSpace(decoded)
+	if decoded == "" {
+		return
+	}
+	parameters[targetKey] = decoded
 }
 
 func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -722,20 +776,23 @@ func runStructuredContent(run *taskverification.RunState, workingDir string) map
 	}
 
 	structured := map[string]any{
-		"taskRunId":          run.RunID,
-		"templateId":         run.TemplateID,
-		"templateName":       run.SelectedTemplate.Task.Name,
-		"description":        run.SelectedTemplate.Task.Description,
-		"instructions":       run.SelectedTemplate.Task.Instructions,
-		"status":             string(run.Status),
-		"phase":              string(run.Phase),
-		"draftParameters":    run.DraftParameters,
-		"hasOnboarding":      run.Onboarding != nil,
-		"hasPlanning":        run.Planning != nil,
-		"executionReady":     run.WorkflowReady,
-		"stepCount":          len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps),
-		"lastFailureMessage": run.LastFailureMessage,
-		"explicitFailReason": run.ExplicitFailReason,
+		"taskRunId":                  run.RunID,
+		"templateId":                 run.TemplateID,
+		"templateName":               run.SelectedTemplate.Task.Name,
+		"description":                run.SelectedTemplate.Task.Description,
+		"instructions":               run.SelectedTemplate.Task.Instructions,
+		"status":                     string(run.Status),
+		"phase":                      string(run.Phase),
+		"hasOnboarding":              run.Onboarding != nil,
+		"hasPlanning":                run.Planning != nil,
+		"executionReady":             run.WorkflowReady,
+		"stepCount":                  len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps),
+		"lastFailureMessage":         run.LastFailureMessage,
+		"explicitFailReason":         run.ExplicitFailReason,
+		"parameterDefinitions":       run.SelectedTemplate.ParameterDefinitions(),
+		"requiredInputs":             run.SelectedTemplate.ParameterDefinitions(),
+		"requiredInputNames":         run.SelectedTemplate.RequiredParameterNames(),
+		"requiredPlanningParameters": requiredPlanningParameters(run.SelectedTemplate.ParameterDefinitions()),
 	}
 	addTaskTimingFields(structured, run)
 	addWorkspaceContext(structured, workingDir)
@@ -750,6 +807,7 @@ func runStructuredContent(run *taskverification.RunState, workingDir string) map
 	}
 
 	structured["steps"] = workflowStepsSummary(run)
+	addStepContract(structured, run)
 	return structured
 }
 
@@ -793,7 +851,7 @@ func nextActionForRun(run *taskverification.RunState) string {
 	case taskverification.WorkflowNodeKindOnboarding:
 		return "Call centian.task_complete_onboarding to freeze the onboarding context."
 	case taskverification.WorkflowNodeKindPlanning:
-		return "Call centian.task_complete_planning to freeze the execution contract."
+		return "Call centian.task_complete_planning with planning.parameters containing every required planning parameter. Execution cannot begin until the full planning contract is provided, and Centian enforces it."
 	case taskverification.WorkflowNodeKindWaitingForApproval:
 		return "Wait for approval before continuing task work."
 	case taskverification.WorkflowNodeKindScaffolding, taskverification.WorkflowNodeKindExecution:
@@ -852,8 +910,8 @@ func addCurrentNodeContext(structured map[string]any, run *taskverification.RunS
 	if len(node.EditableFields) > 0 {
 		structured["planningEditableFields"] = append([]string{}, node.EditableFields...)
 	}
-	if len(node.RequiredPlanningOutputs) > 0 {
-		structured["planningRequiredOutputs"] = append([]string{}, node.RequiredPlanningOutputs...)
+	if len(node.RequiredPlanningInputs) > 0 {
+		structured["planningRequiredInputs"] = append([]string{}, node.RequiredPlanningInputs...)
 	}
 	if node.NextPath != "" {
 		structured["nextNodePath"] = string(node.NextPath)
@@ -871,8 +929,8 @@ func addPlanningNodeContext(structured map[string]any, run *taskverification.Run
 	if _, present := structured["planningEditableFields"]; !present && len(planningNode.EditableFields) > 0 {
 		structured["planningEditableFields"] = append([]string{}, planningNode.EditableFields...)
 	}
-	if _, present := structured["planningRequiredOutputs"]; !present && len(planningNode.RequiredPlanningOutputs) > 0 {
-		structured["planningRequiredOutputs"] = append([]string{}, planningNode.RequiredPlanningOutputs...)
+	if _, present := structured["planningRequiredInputs"]; !present && len(planningNode.RequiredPlanningInputs) > 0 {
+		structured["planningRequiredInputs"] = append([]string{}, planningNode.RequiredPlanningInputs...)
 	}
 }
 
@@ -884,12 +942,22 @@ func addArtifactSummaries(structured map[string]any, run *taskverification.RunSt
 		return
 	}
 	structured["planningSummary"] = map[string]any{
-		"selectedFiles":        run.Planning.SelectedFiles,
-		"testTarget":           run.Planning.TestTarget,
-		"lintCommand":          run.Planning.LintCommand,
-		"implementationTarget": run.Planning.ImplementationTarget,
+		"selectedFiles": run.Planning.SelectedFiles,
+		"parameters":    run.Planning.Parameters,
 	}
 	structured["frozenContractSummary"] = frozenContractSummary(run)
+}
+
+func addStepContract(structured map[string]any, run *taskverification.RunState) {
+	if structured == nil || run == nil || run.RunnableTemplate == nil || run.RunnableTemplate.CompiledWorkflow == nil {
+		return
+	}
+	stepNumber, _ := activeOrCurrentStep(run)
+	if stepNumber == 0 || stepNumber > len(run.RunnableTemplate.CompiledWorkflow.WorkflowSteps) {
+		return
+	}
+	step := &run.RunnableTemplate.CompiledWorkflow.WorkflowSteps[stepNumber-1]
+	structured["stepContract"] = stepContract(stepNumber, step)
 }
 
 func workflowStepsSummary(run *taskverification.RunState) []map[string]any {
@@ -951,34 +1019,123 @@ func addTaskTimingToToolResult(result *mcp.CallToolResult, run *taskverification
 
 func planningContract() map[string]any {
 	return map[string]any{
-		"supportedFields": []string{
-			"selectedFiles",
-			"testTarget",
-			"lintCommand",
-			"expectedFailure",
-			"implementationTarget",
-			"invariants",
-		},
+		"topLevelFields":  []string{"selectedFiles", "parameters", "invariants"},
+		"inputField":      "parameters",
+		"parametersField": "planning.parameters",
+		"instructions":    "Fill every entry in planning.parameters before execution can begin. Centian enforces the planning contract.",
 	}
+}
+
+func requiredPlanningParameters(definitions []taskverification.TemplateParameter) map[string]any {
+	if len(definitions) == 0 {
+		return map[string]any{}
+	}
+	required := make(map[string]any, len(definitions))
+	for _, definition := range definitions {
+		required[definition.Name] = map[string]any{
+			"name":        definition.Name,
+			"description": definition.Description,
+			"required":    true,
+		}
+	}
+	return required
+}
+
+func planningValidationToolResult(validationErr *taskverification.PlanningValidationError, run *taskverification.RunState, workingDir string) *mcp.CallToolResult {
+	structured := runStructuredContent(run, workingDir)
+	structured["error"] = validationErr.Error()
+	structured["planningParametersField"] = "planning.parameters"
+	structured["requiredPlanningParameterNames"] = append([]string(nil), validationErr.RequiredParameterNames...)
+	structured["providedPlanningParameterNames"] = append([]string(nil), validationErr.ProvidedParameterNames...)
+	if len(validationErr.MissingParameters) > 0 {
+		structured["missingRequiredPlanningParameters"] = append([]string(nil), validationErr.MissingParameters...)
+	}
+	if len(validationErr.UnknownParameters) > 0 {
+		structured["unknownPlanningParameters"] = append([]string(nil), validationErr.UnknownParameters...)
+	}
+	structured["nextAction"] = "Resend centian.task_complete_planning with a complete planning.parameters object containing every required planning parameter. Execution remains blocked until the enforced planning contract is satisfied."
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: validationErr.Error()},
+		},
+		StructuredContent: structured,
+	}
+}
+
+func stepContract(stepNumber int, step *taskverification.Step) map[string]any {
+	contract := map[string]any{
+		"step":         stepNumber,
+		"id":           step.ID,
+		"path":         string(step.Path),
+		"name":         step.Name,
+		"description":  step.Description,
+		"instructions": step.Instructions,
+	}
+	if len(step.Checks) > 0 {
+		checks := make([]map[string]any, 0, len(step.Checks))
+		for _, check := range step.Checks {
+			checks = append(checks, map[string]any{
+				"id":             check.ID,
+				"description":    check.Description,
+				"command":        check.Command,
+				"preConditions":  contractConditions(check.PreConditions),
+				"postConditions": contractConditions(check.PostConditions),
+			})
+		}
+		contract["checks"] = checks
+	}
+	if len(step.Invariants) > 0 {
+		invariants := make([]map[string]any, 0, len(step.Invariants))
+		for _, invariant := range step.Invariants {
+			invariants = append(invariants, map[string]any{
+				"id":                   invariant.ID,
+				"description":          invariant.Description,
+				"command":              invariant.Command,
+				"technicalDescription": taskverification.InvariantTechnicalDescription(invariant),
+			})
+		}
+		contract["invariants"] = invariants
+	}
+	return contract
+}
+
+func contractConditions(conditions []taskverification.Condition) []map[string]any {
+	if len(conditions) == 0 {
+		return []map[string]any{}
+	}
+	described := make([]map[string]any, 0, len(conditions))
+	for _, condition := range conditions {
+		entry := map[string]any{
+			"type":                 condition.Type,
+			"technicalDescription": taskverification.ConditionTechnicalDescription(condition),
+		}
+		if condition.Path != "" {
+			entry["path"] = condition.Path
+		}
+		if condition.Value != nil {
+			entry["value"] = condition.Value
+		}
+		if len(condition.Values) > 0 {
+			entry["values"] = append([]any(nil), condition.Values...)
+		}
+		described = append(described, entry)
+	}
+	return described
 }
 
 func frozenContractSummary(run *taskverification.RunState) map[string]any {
 	summary := map[string]any{
-		"selectedFiles":        []string{},
-		"testTarget":           "",
-		"implementationTarget": "",
-		"invariantCount":       0,
+		"selectedFiles":  []string{},
+		"parameters":     map[string]string{},
+		"invariantCount": 0,
 	}
 	if run == nil || run.Planning == nil {
 		return summary
 	}
 
 	summary["selectedFiles"] = append([]string{}, run.Planning.SelectedFiles...)
-	summary["testTarget"] = run.Planning.TestTarget
-	summary["implementationTarget"] = run.Planning.ImplementationTarget
-	if strings.TrimSpace(run.Planning.LintCommand) != "" {
-		summary["lintCommand"] = run.Planning.LintCommand
-	}
+	summary["parameters"] = cloneStringMap(run.Planning.Parameters)
 	if run.RunnableTemplate != nil && run.RunnableTemplate.CompiledWorkflow != nil {
 		invariantCount := 0
 		for idx := range run.RunnableTemplate.CompiledWorkflow.WorkflowSteps {
@@ -988,4 +1145,15 @@ func frozenContractSummary(run *taskverification.RunState) map[string]any {
 		summary["invariantCount"] = invariantCount
 	}
 	return summary
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }

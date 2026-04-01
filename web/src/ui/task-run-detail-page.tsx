@@ -1123,10 +1123,10 @@ function extractPayloadPreview(payload: unknown, depth = 0): string {
     "args",
     "params",
     "parameters",
+    "requiredInputs",
+    "requiredInputNames",
     "request",
     "payload",
-    "draftParameters",
-    "draft_parameters",
   ];
   for (const key of nestedKeys) {
     const preview = extractPayloadPreview(record[key], depth + 1);

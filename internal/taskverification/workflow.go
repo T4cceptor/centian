@@ -6,15 +6,6 @@ import (
 	"strings"
 )
 
-var supportedPlanningOutputs = map[string]struct{}{
-	"selectedFiles":        {},
-	"testTarget":           {},
-	"lintCommand":          {},
-	"expectedFailure":      {},
-	"implementationTarget": {},
-	"invariants":           {},
-}
-
 //nolint:gocyclo // Workflow compilation is the central normalization pass; helper extraction keeps nested rules contained.
 func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	if err := validateWorkflowDefinition(t); err != nil {
@@ -22,7 +13,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	}
 
 	compiled := newCompiledWorkflow()
-	if err := addCompiledShellNodes(compiled, t.Workflow); err != nil {
+	if err := addCompiledShellNodes(compiled, t); err != nil {
 		return nil, err
 	}
 
@@ -179,7 +170,7 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	if err := validatePlanningEditableFields(t, t.Workflow.Planning); err != nil {
 		return nil, err
 	}
-	if err := validatePlanningRequiredOutputs(t.Workflow.Planning.RequiredOutputs); err != nil {
+	if err := validatePlanningRequiredInputs(t, t.Workflow.Planning.RequiredInputs); err != nil {
 		return nil, err
 	}
 	if err := validateWorkflowReachability(compiled); err != nil {
@@ -188,12 +179,12 @@ func (t *Template) compileWorkflow() (*CompiledWorkflow, error) {
 	return compiled, nil
 }
 
-func addCompiledShellNodes(compiled *CompiledWorkflow, workflow *Workflow) error {
-	onboardingNode := buildOnboardingNode(workflow.Onboarding)
+func addCompiledShellNodes(compiled *CompiledWorkflow, template *Template) error {
+	onboardingNode := buildOnboardingNode(template.Workflow.Onboarding)
 	if err := addCompiledNode(compiled, &onboardingNode); err != nil {
 		return err
 	}
-	planningNode := buildPlanningNode(workflow.Planning)
+	planningNode := buildPlanningNode(template)
 	return addCompiledNode(compiled, &planningNode)
 }
 
@@ -312,15 +303,16 @@ func buildOnboardingNode(spec *LifecycleNodeSpec) WorkflowNode {
 	}
 }
 
-func buildPlanningNode(spec *PlanningNodeSpec) WorkflowNode {
+func buildPlanningNode(template *Template) WorkflowNode {
+	spec := template.Workflow.Planning
 	return WorkflowNode{
-		Path:                    TaskPhasePlanning,
-		Kind:                    WorkflowNodeKindPlanning,
-		Instructions:            spec.Instructions,
-		AllowedTools:            cloneStringSlice(spec.AllowedTools),
-		Checkpoint:              cloneCheckpoint(spec.Checkpoint),
-		EditableFields:          cloneStringSlice(spec.EditableFields),
-		RequiredPlanningOutputs: cloneStringSlice(spec.RequiredOutputs),
+		Path:                   TaskPhasePlanning,
+		Kind:                   WorkflowNodeKindPlanning,
+		Instructions:           spec.Instructions,
+		AllowedTools:           cloneStringSlice(spec.AllowedTools),
+		Checkpoint:             cloneCheckpoint(spec.Checkpoint),
+		EditableFields:         cloneStringSlice(spec.EditableFields),
+		RequiredPlanningInputs: orderedPlanningInputs(template),
 	}
 }
 
@@ -404,20 +396,29 @@ func parameterNameSet(t *Template) map[string]struct{} {
 	return defined
 }
 
-func validatePlanningRequiredOutputs(outputs []string) error {
-	seen := make(map[string]struct{}, len(outputs))
-	for index, output := range outputs {
-		trimmed := strings.TrimSpace(output)
+func validatePlanningRequiredInputs(template *Template, inputs []string) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+	expected := orderedPlanningInputs(template)
+	seen := make(map[string]struct{}, len(inputs))
+	normalized := make([]string, 0, len(inputs))
+	for index, input := range inputs {
+		trimmed := strings.TrimSpace(input)
 		if trimmed == "" {
-			return fmt.Errorf("workflow.planning.required_outputs[%d] is required", index)
+			return fmt.Errorf("workflow.planning.required_inputs[%d] is required", index)
 		}
 		if _, exists := seen[trimmed]; exists {
-			return fmt.Errorf("workflow.planning.required_outputs contains duplicate value %q", trimmed)
+			return fmt.Errorf("workflow.planning.required_inputs contains duplicate value %q", trimmed)
 		}
 		seen[trimmed] = struct{}{}
-		if _, supported := supportedPlanningOutputs[trimmed]; !supported {
-			return fmt.Errorf("workflow.planning.required_outputs %q is unsupported", trimmed)
-		}
+		normalized = append(normalized, trimmed)
+	}
+	sort.Strings(normalized)
+	sortedExpected := append([]string(nil), expected...)
+	sort.Strings(sortedExpected)
+	if strings.Join(normalized, ",") != strings.Join(sortedExpected, ",") {
+		return fmt.Errorf("workflow.planning.required_inputs must match the template parameter names exactly")
 	}
 	return nil
 }
@@ -476,6 +477,7 @@ func cloneChecks(checks []Check) []Check {
 	for _, check := range checks {
 		cloned = append(cloned, Check{
 			ID:             check.ID,
+			Description:    check.Description,
 			Command:        check.Command,
 			PreConditions:  append([]Condition(nil), check.PreConditions...),
 			PostConditions: append([]Condition(nil), check.PostConditions...),

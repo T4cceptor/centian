@@ -25,22 +25,18 @@ Bootstrap the task like this:
 
 1. Call `centian.task_list_templates`.
 2. Choose the generic Python TDD workflow template.
-3. Call `centian.task_register` immediately with these parameters:
+3. Call `centian.task_register` immediately with:
    - `templateId`: `python_tdd_workflow`
-   - `testCommand`: `python -m pytest -q`
-   - `testFile`: `tests/test_mathlib_addition.py`
-   - `testName`: `test_add_two_numbers`
-   - `testTarget`: `tests/test_mathlib_addition.py::test_add_two_numbers`
-   - `lintCommand`: `python -m ruff check .`
-   - `expectedError`: `AssertionError: assert -1 == 3`
-   - `implementationTarget`: `/workspace/project/mathlib.py`
 4. Call `centian.task_complete_onboarding` with a concise project summary, relevant artifact map, and the planned commands.
 5. Call `centian.task_complete_planning` with the required planning artifact, including:
    - `selectedFiles`: `/workspace/project/mathlib.py` and `/workspace/project/tests/test_mathlib_addition.py`
-   - `testTarget`: `tests/test_mathlib_addition.py::test_add_two_numbers`
-   - `lintCommand`: `python -m ruff check .`
-   - `expectedFailure`: `AssertionError: assert -1 == 3`
-   - `implementationTarget`: `/workspace/project/mathlib.py`
+   - `parameters.testCommand`: `python -m pytest -q`
+   - `parameters.testFile`: `tests/test_mathlib_addition.py`
+   - `parameters.testName`: `test_add_two_numbers`
+   - `parameters.testTarget`: `tests/test_mathlib_addition.py::test_add_two_numbers`
+   - `parameters.lintCommand`: `python -m ruff check .`
+   - `parameters.expectedError`: `AssertionError: assert -1 == 3`
+   - `parameters.implementationTarget`: `/workspace/project/mathlib.py`
 6. After planning enters `scaffolding`, run all four steps in order.
 7. In scaffolding, create the new focused test file and leave the existing implementation file in place.
 8. In execution step 3, verify the new targeted test fails for the expected reason without extra edits.

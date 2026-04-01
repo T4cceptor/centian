@@ -23,8 +23,10 @@ workflow:
       - "parameters.testCommand"
       - "parameters.testFile"
       - "parameters.expectedError"
-    required_outputs:
-      - "testTarget"
+    required_inputs:
+      - "expectedError"
+      - "testCommand"
+      - "testFile"
   execution:
     - id: "create_failing_test_baseline"
       name: "Create failing test baseline"
