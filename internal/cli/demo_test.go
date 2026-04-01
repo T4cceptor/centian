@@ -70,3 +70,25 @@ func TestHandleDemoCommandRequiresAgent(t *testing.T) {
 		t.Fatal("expected error for missing agent")
 	}
 }
+
+func TestShouldShutdownDemo(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "empty defaults to yes", input: "\n", expected: true},
+		{name: "explicit yes", input: "y\n", expected: true},
+		{name: "explicit no", input: "n\n", expected: false},
+		{name: "full no", input: "no\n", expected: false},
+		{name: "unexpected value treated as no", input: "later\n", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if actual := shouldShutdownDemo(strings.NewReader(tt.input)); actual != tt.expected {
+				t.Fatalf("expected %v, got %v", tt.expected, actual)
+			}
+		})
+	}
+}

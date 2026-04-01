@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.2.3 - 2026-04-01
+
+### Major
+- Refactored taskverification registration and planning so `centian.task_register` only selects a template and all template parameters are frozen later through `planning.parameters`, removing the earlier draft-parameter shell and making onboarding/planning decisions the source of truth for execution.
+- Added stronger agent-facing taskverification workflow metadata and validation, including required planning parameter exposure, enforced `planning.parameters` schema requirements, structured planning-contract failures, and richer current-step contracts with check and invariant explanations.
+- Added initial Gemini support to `centian demo`, including embedded Gemini settings, demo wiring, and supporting test coverage for the new demo agent option.
+
+### Minor
+- Updated built-in taskverification templates, demo prompts, integration fixtures, and authoring documentation to use planning-time parameters and `required_inputs` consistently.
+- Expanded proxy and taskverification tests to cover the new planning contract, structured task-tool payloads, step metadata, and demo/taskverification integration flows.
+- Updated the task run UI/task state payloads to surface the newer planning metadata without relying on the removed draft-parameter model.
+
+### Bugfixes
+- Fixed brittle taskverification planning behavior where parameters were effectively decided too early and could diverge from onboarding/planning context.
+- Fixed agent-facing failure responses so planning-contract problems return actionable structured details instead of only plain string errors.
+- Fixed taskverification step metadata gaps by preserving authored check/invariant descriptions and exposing concise technical meanings for built-in file/output checks and invariants.
+
 ## v0.2.2 - 2026-04-01
 
 ### Major

@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
@@ -53,7 +57,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	runner := agentrunner.DemoRunner{}
-	_, err = runner.RunDemo(ctx, &agentrunner.DemoOptions{
+	result, err := runner.RunDemo(ctx, &agentrunner.DemoOptions{
 		Agent:             cmd.String("agent"),
 		RootPath:          rootPath,
 		CentianBinaryPath: binaryPath,
@@ -63,11 +67,56 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
 	})
+	if result != nil {
+		fmt.Printf("Agent run finished. UI: %s\n", result.UIPublicURL)
+		shutdownErr := promptDemoShutdown(os.Stdin, os.Stdout, result)
+		if err != nil {
+			return errors.Join(err, shutdownErr)
+		}
+		return shutdownErr
+	}
 	if err != nil {
 		return err
 	}
-	fmt.Println("Agent run finished. Centian is still running.")
 	return nil
+}
+
+func promptDemoShutdown(input io.Reader, output io.Writer, result *agentrunner.DemoResult) error {
+	if result == nil || result.PID <= 0 {
+		return nil
+	}
+	_, _ = fmt.Fprint(output, "Shut down the Centian server now? (Y/n): ")
+	if !shouldShutdownDemo(input) {
+		return nil
+	}
+	process, err := os.FindProcess(result.PID)
+	if err != nil {
+		return fmt.Errorf("resolve centian process: %w", err)
+	}
+	if err := process.Signal(os.Interrupt); err != nil {
+		return fmt.Errorf("shut down centian server: %w", err)
+	}
+	return nil
+}
+
+func shouldShutdownDemo(input io.Reader) bool {
+	if input == nil {
+		return true
+	}
+	line, err := bufio.NewReader(input).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return true
+	}
+	switch value := normalizePromptAnswer(line); value {
+	case "", "y", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizePromptAnswer(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func resolveDemoRoot(flagValue string) (string, error) {
