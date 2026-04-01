@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -406,6 +406,94 @@ describe("task run detail", () => {
       expect(titles.some((title) => title.includes("Step Completed"))).toBe(true);
     });
   }, 8000);
+
+  it("keeps the detail duration counter ticking while the run is active", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 5_000,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200124_0000000002",
+            createdAtUnixMilli: 8_000,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "execution.step_1",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    await act(async () => {});
+    expect(screen.getByText("Run Detail")).toBeInTheDocument();
+    expect(screen.getByText("5s")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(screen.getByText("7s")).toBeInTheDocument();
+  });
+
+  it("freezes the detail duration counter once the run times out", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 5_000,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200124_0000000002",
+            createdAtUnixMilli: 8_000,
+            eventType: "task_timed_out",
+            outcome: "failed",
+            phasePath: "execution.step_1",
+            resultingPhasePath: "execution.step_1",
+            payloadJson: { status: "timed_out" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    await act(async () => {});
+    expect(screen.getByText("Run Detail")).toBeInTheDocument();
+    expect(screen.getByText("3s")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(screen.getByText("3s")).toBeInTheDocument();
+  });
 
   it("stops polling the detail timeline after the run reaches a terminal state", async () => {
     globalThis.fetch = vi.fn(() =>
@@ -928,9 +1016,135 @@ describe("task run detail", () => {
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Onboarding Completed")).toBeInTheDocument();
+    expect(within(onboardingSection).getByText("− passed")).toBeInTheDocument();
 
     const planningSection = screen.getByLabelText("Planning");
     expect(within(planningSection).getByText("Planning Completed")).toBeInTheDocument();
+    expect(within(planningSection).getByText("− passed")).toBeInTheDocument();
+  });
+
+  it("normalizes inspector status labels to success", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "scaffolding.step_1",
+            payloadJson: {},
+          },
+          {
+            source: "action",
+            id: "ae_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            requestId: "req_1742947201123_0000000002",
+            direction: "response",
+            toolName: "execute_command",
+            success: true,
+            serverName: "shell",
+            payloadJson: { output: "ok" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show event details for planning completed/i }));
+    expect(screen.getAllByText("success").length).toBeGreaterThan(0);
+    expect(screen.queryByText("succeeded")).not.toBeInTheDocument();
+    expect(screen.queryByText("ok")).not.toBeInTheDocument();
+  });
+
+  it("uses terminal inspector labels for centian task events even when payload status stays active", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "scaffolding.step_1",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_completed",
+            outcome: "failed",
+            phasePath: "execution.step_1",
+            resultingPhasePath: "execution.step_1",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show event details for planning completed/i }));
+    const inspector = screen.getByText("Inspector").closest(".task-detail-panel__surface");
+    expect(inspector).not.toBeNull();
+    expect(within(inspector as HTMLElement).getAllByText("success").length).toBeGreaterThan(0);
+    expect(within(inspector as HTMLElement).queryByText("active")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show event details for step completed/i }));
+    expect(within(inspector as HTMLElement).getAllByText("error").length).toBeGreaterThan(0);
+    expect(within(inspector as HTMLElement).queryByText("active")).not.toBeInTheDocument();
+  });
+
+  it("shows success for successful start events in the inspector even while the run stays active", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200124_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "scaffolding.step_1",
+            payloadJson: { status: "active", step: 1 },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show event details for step started/i }));
+    const inspector = screen.getByText("Inspector").closest(".task-detail-panel__surface");
+    expect(inspector).not.toBeNull();
+    expect(within(inspector as HTMLElement).getAllByText("success").length).toBeGreaterThan(0);
+    expect(within(inspector as HTMLElement).queryByText("active")).not.toBeInTheDocument();
   });
 
   it("collapses and expands phase sections", async () => {
