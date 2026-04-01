@@ -48,7 +48,7 @@ func (g geminiAdapter) command(_ *demoLayout, prompt string) ([]string, error) {
 		"gemini",
 		"-p",
 		prompt,
-		"--debug",
+		// "--debug", // add this back in if there is Gemini trouble again
 		"--output-format", "json",
 		"--sandbox",
 		"--approval-mode", "default",

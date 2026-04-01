@@ -244,7 +244,8 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.DeepEqual(t, completeOnboardingStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
 	assert.Equal(t, completeOnboardingStructured["hasPlanning"], false)
-	assert.Equal(t, completeOnboardingStructured["nextAction"], "Call centian.task_complete_planning to freeze the execution contract.")
+	assert.Equal(t, completeOnboardingStructured["nextAction"], "Call centian.task_complete_planning with planning.parameters containing every required planning parameter. Execution cannot begin until the full planning contract is provided, and Centian enforces it.")
+	assert.DeepEqual(t, completeOnboardingStructured["requiredPlanningParameters"], map[string]any{})
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -259,6 +260,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		Arguments: map[string]any{
 			"planning": map[string]any{
 				"selectedFiles": []string{"tests/test_mathlib.py"},
+				"parameters":    map[string]any{},
 			},
 		},
 	})
@@ -281,6 +283,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		"invariantCount": float64(0),
 	})
 	assert.Assert(t, completePlanningStructured["steps"] != nil)
+	assert.Assert(t, completePlanningStructured["stepContract"] != nil)
 
 	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -425,10 +428,12 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	assert.DeepEqual(t, commonCommandItems["required"], []any{"command", "purpose"})
 
 	planningSchema := byName[taskCompletePlanningTool].InputSchema.(map[string]any)
-	planningProps := planningSchema["properties"].(map[string]any)["planning"].(map[string]any)["properties"].(map[string]any)
+	planningObject := planningSchema["properties"].(map[string]any)["planning"].(map[string]any)
+	planningProps := planningObject["properties"].(map[string]any)
 	assert.Assert(t, planningProps["selectedFiles"] != nil)
 	assert.Assert(t, planningProps["parameters"] != nil)
 	assert.Assert(t, planningProps["invariants"] != nil)
+	assert.DeepEqual(t, planningObject["required"], []any{"parameters"})
 
 	listTool := byName[taskListTemplatesTool]
 	assert.Assert(t, listTool.Annotations != nil)
@@ -465,13 +470,26 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
 	defer cleanup()
 
-	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+	registerResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
 			"templateId": "parameterized_task",
 		},
 	})
 	assert.NilError(t, err)
+	registerStructured := registerResult.StructuredContent.(map[string]any)
+	assert.DeepEqual(t, registerStructured["requiredPlanningParameters"], map[string]any{
+		"expectedError": map[string]any{
+			"name":        "expectedError",
+			"description": "Expected error",
+			"required":    true,
+		},
+		"testCommand": map[string]any{
+			"name":        "testCommand",
+			"description": "Command name",
+			"required":    true,
+		},
+	})
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompleteOnboardingTool,
@@ -498,6 +516,7 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	completePlanningStructured := completePlanningResult.StructuredContent.(map[string]any)
 	assert.Equal(t, completePlanningStructured["phase"], "execution.step_one")
 	assert.Equal(t, completePlanningStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindExecution))
+	assert.Assert(t, completePlanningStructured["stepContract"] != nil)
 
 	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskStartStepTool,
@@ -515,6 +534,97 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	completeStepStructured := completeStepResult.StructuredContent.(map[string]any)
 	assert.Equal(t, completeStepStructured["stepStatus"], string(taskverification.StepStatusPassed))
 	assert.Equal(t, completeStepStructured["status"], string(taskverification.TaskStatusCompleted))
+}
+
+func TestTaskCompletePlanningReturnsStructuredPlanningValidationFailure(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, parameterizedPlanningTaskTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "parameterized_task"},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteOnboardingTool,
+		Arguments: map[string]any{"onboarding": map[string]any{"taskSummary": "Ready"}},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"parameters": map[string]any{
+					"expectedError": "boom",
+					"unknown":       "value",
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result.IsError)
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["planningParametersField"], "planning.parameters")
+	assert.DeepEqual(t, structured["missingRequiredPlanningParameters"], []any{"testCommand"})
+	assert.DeepEqual(t, structured["unknownPlanningParameters"], []any{"unknown"})
+	assert.DeepEqual(t, structured["requiredPlanningParameterNames"], []any{"expectedError", "testCommand"})
+	assert.DeepEqual(t, structured["providedPlanningParameterNames"], []any{"expectedError", "unknown"})
+	assert.Equal(t, structured["nextAction"], "Resend centian.task_complete_planning with a complete planning.parameters object containing every required planning parameter. Execution remains blocked until the enforced planning contract is satisfied.")
+}
+
+func TestStepContractIncludesDescriptionsAndTechnicalDetails(t *testing.T) {
+	_, session := newTaskToolTestProxy(t, stepContractTemplate())
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "step_contract"},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteOnboardingTool,
+		Arguments: map[string]any{"onboarding": map[string]any{"taskSummary": "Ready"}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"parameters": map[string]any{
+					"testFile": "test_score_parentheses.py",
+				},
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, !result.IsError)
+	structured := result.StructuredContent.(map[string]any)
+	stepContract := structured["stepContract"].(map[string]any)
+	assert.Equal(t, stepContract["description"], "Ensures the failing baseline is prepared.")
+	assert.Equal(t, stepContract["instructions"], "Prepare the baseline before implementation.")
+
+	checks := stepContract["checks"].([]any)
+	check := checks[0].(map[string]any)
+	assert.Equal(t, check["description"], "Makes sure the planned test scaffold exists.")
+	preConditions := check["preConditions"].([]any)
+	preCondition := preConditions[0].(map[string]any)
+	assert.Equal(t, preCondition["technicalDescription"], "Checks that a file is available at \"test_score_parentheses.py\".")
+
+	invariants := stepContract["invariants"].([]any)
+	invariant := invariants[0].(map[string]any)
+	assert.Equal(t, invariant["description"], "Keeps the chosen test file stable during implementation.")
+	assert.Equal(t, invariant["technicalDescription"], "Captures the command output when the step starts and requires it to remain unchanged until the step completes.")
 }
 
 func TestTaskLifecycleEventsRecorded(t *testing.T) {
@@ -540,7 +650,7 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"testTarget": "pytest -q"},
+			"planning": map[string]any{"parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -654,7 +764,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"testTarget": "pytest -q"},
+			"planning": map[string]any{"parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -690,7 +800,7 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"testTarget": "pytest -q"},
+			"planning": map[string]any{"parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -887,7 +997,7 @@ workflow:
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
-				"testTarget": "pytest -q",
+				"parameters": map[string]any{},
 			},
 		},
 	})
@@ -994,7 +1104,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"testTarget": "pytest -q"},
+			"planning": map[string]any{"parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -1065,7 +1175,7 @@ func TestWorkflowNodeToolGovernanceDeniesCompletedTask(t *testing.T) {
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskCompletePlanningTool,
-		Arguments: map[string]any{"planning": map[string]any{"testTarget": "pytest -q"}},
+		Arguments: map[string]any{"planning": map[string]any{"parameters": map[string]any{}}},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1223,7 +1333,7 @@ func TestTaskResumeRequiresTimedOutRunAndPreservesWorkflowProgress(t *testing.T)
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskCompletePlanningTool,
-		Arguments: map[string]any{"planning": map[string]any{"testTarget": "pytest -q"}},
+		Arguments: map[string]any{"planning": map[string]any{"parameters": map[string]any{}}},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1452,7 +1562,7 @@ workflow:
 	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"testTarget": "pytest -q"},
+			"planning": map[string]any{"parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -1518,7 +1628,7 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"testTarget": "pytest -q"},
+			"planning": map[string]any{"parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -1575,7 +1685,7 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
-				"testTarget": "pytest -q",
+				"parameters": map[string]any{},
 			},
 		},
 	})
@@ -1666,6 +1776,45 @@ workflow:
           post_conditions:
             - type: stdout_contains
               value: "pytest:boom"
+`
+}
+
+func stepContractTemplate() string {
+	return `
+version: "0.1"
+task:
+  id: "step_contract"
+  name: "Step Contract"
+  description: "Template exposing rich step metadata."
+parameters:
+  - name: "testFile"
+    description: "The test file kept stable."
+workflow:
+  onboarding:
+    tools_allowed: ["shell__*", "filesystem__*"]
+  planning:
+    tools_allowed: ["shell__*", "filesystem__*"]
+    required_inputs: ["testFile"]
+  execution:
+    - id: "prepare_baseline"
+      name: "Prepare baseline"
+      description: "Ensures the failing baseline is prepared."
+      instructions: "Prepare the baseline before implementation."
+      tools_allowed: ["shell__*", "filesystem__*"]
+      checks:
+        - id: "scaffold_exists"
+          description: "Makes sure the planned test scaffold exists."
+          command: "printf ok"
+          pre_conditions:
+            - type: file_exists
+              path: "${testFile}"
+          post_conditions:
+            - type: output_contains
+              value: "ok"
+      invariants:
+        - id: "stable_test_file"
+          description: "Keeps the chosen test file stable during implementation."
+          command: "cat ${testFile}"
 `
 }
 

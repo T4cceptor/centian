@@ -477,6 +477,7 @@ func cloneChecks(checks []Check) []Check {
 	for _, check := range checks {
 		cloned = append(cloned, Check{
 			ID:             check.ID,
+			Description:    check.Description,
 			Command:        check.Command,
 			PreConditions:  append([]Condition(nil), check.PreConditions...),
 			PostConditions: append([]Condition(nil), check.PostConditions...),

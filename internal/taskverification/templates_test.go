@@ -1,6 +1,7 @@
 package taskverification
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -520,7 +521,79 @@ func TestValidatePlanningParametersRequiresDeclaredInputs(t *testing.T) {
 		},
 	}
 	err := validatePlanningParameters(template, map[string]string{})
-	assert.ErrorContains(t, err, "planning.parameters.expectedError is required")
+	var validationErr *PlanningValidationError
+	assert.Assert(t, errors.As(err, &validationErr))
+	assert.DeepEqual(t, validationErr.MissingParameters, []string{"expectedError", "testTarget"})
+	assert.DeepEqual(t, validationErr.RequiredParameterNames, []string{"expectedError", "testTarget"})
+	assert.ErrorContains(t, err, "planning.parameters is invalid")
+}
+
+func TestValidatePlanningParametersReturnsUnknownAndMissingDetails(t *testing.T) {
+	template := &Template{
+		Parameters: []TemplateParameter{
+			{Name: "expectedError"},
+			{Name: "testTarget"},
+		},
+		Workflow: &Workflow{
+			Execution: []ExecutionNodeSpec{{
+				ID: "step_one",
+				Checks: []Check{{
+					ID:      "check_one",
+					Command: "printf '%s' '${testTarget}:${expectedError}'",
+				}},
+			}},
+		},
+	}
+
+	err := validatePlanningParameters(template, map[string]string{
+		"expectedError": "boom",
+		"unknown":       "value",
+	})
+	var validationErr *PlanningValidationError
+	assert.Assert(t, errors.As(err, &validationErr))
+	assert.DeepEqual(t, validationErr.MissingParameters, []string{"testTarget"})
+	assert.DeepEqual(t, validationErr.UnknownParameters, []string{"unknown"})
+	assert.DeepEqual(t, validationErr.ProvidedParameterNames, []string{"expectedError", "unknown"})
+	assert.ErrorContains(t, err, "planning.parameters is invalid")
+}
+
+func TestResolvePreservesCheckAndInvariantDescriptions(t *testing.T) {
+	template := mustCompileTemplate(t, &Template{
+		Version: "0.1",
+		Task: Task{
+			ID:          "task",
+			Name:        "Task",
+			Description: "desc",
+		},
+		Parameters: []TemplateParameter{
+			{Name: "testFile"},
+		},
+		Workflow: &Workflow{
+			Onboarding: &LifecycleNodeSpec{},
+			Planning:   &PlanningNodeSpec{},
+			Execution: []ExecutionNodeSpec{{
+				ID: "step_one",
+				Checks: []Check{{
+					ID:          "check_one",
+					Description: "Explains the check",
+					Command:     "printf ok",
+					PostConditions: []Condition{
+						{Type: "file_exists", Path: "${testFile}"},
+					},
+				}},
+				Invariants: []Invariant{{
+					ID:          "stable_test_file",
+					Description: "Keeps the selected test file stable",
+					Command:     "cat ${testFile}",
+				}},
+			}},
+		},
+	})
+
+	resolved, err := template.Resolve(map[string]string{"testFile": "test_score_parentheses.py"})
+	assert.NilError(t, err)
+	assert.Equal(t, resolved.CompiledWorkflow.WorkflowSteps[0].Checks[0].Description, "Explains the check")
+	assert.Equal(t, resolved.CompiledWorkflow.WorkflowSteps[0].Invariants[0].Description, "Keeps the selected test file stable")
 }
 
 func TestPlanningCanAdvanceToConfiguredWaitingNode(t *testing.T) {
@@ -719,4 +792,11 @@ func newTemplateTestService(t *testing.T, content, fileName string) *Service {
 	err := os.WriteFile(filepath.Join(dir, fileName), []byte(content), 0o644)
 	assert.NilError(t, err)
 	return NewService(dir, dir)
+}
+
+func mustCompileTemplate(t *testing.T, template *Template) *Template {
+	t.Helper()
+	err := template.Validate()
+	assert.NilError(t, err)
+	return template
 }

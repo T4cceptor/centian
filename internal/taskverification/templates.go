@@ -422,6 +422,9 @@ func validateCheck(stepID string, checkIndex int, check *Check, checkIDs map[str
 	if strings.TrimSpace(check.Command) == "" {
 		return fmt.Errorf("step %q check %q command is required", stepID, check.ID)
 	}
+	if check.Description != "" && strings.TrimSpace(check.Description) == "" {
+		return fmt.Errorf("step %q check %q description must not be blank", stepID, check.ID)
+	}
 	if err := validateConditions(stepID, check.ID, "pre_conditions", check.PreConditions); err != nil {
 		return err
 	}
@@ -440,6 +443,9 @@ func validateInvariants(step *Step) error {
 		invariantIDs[invariant.ID] = struct{}{}
 		if strings.TrimSpace(invariant.Command) == "" {
 			return fmt.Errorf("step %q invariant %q command is required", step.ID, invariant.ID)
+		}
+		if invariant.Description != "" && strings.TrimSpace(invariant.Description) == "" {
+			return fmt.Errorf("step %q invariant %q description must not be blank", step.ID, invariant.ID)
 		}
 	}
 	return nil
@@ -757,15 +763,22 @@ func validatePlanningParameters(template *Template, parameters map[string]string
 		parameters = map[string]string{}
 	}
 	defined := parameterNameSet(template)
+	provided := make([]string, 0, len(parameters))
+	unknown := make([]string, 0)
 	for name := range parameters {
+		provided = append(provided, name)
 		if _, exists := defined[name]; !exists {
-			return fmt.Errorf("planning.parameters.%s is unknown", name)
+			unknown = append(unknown, name)
 		}
 	}
+	missing := make([]string, 0)
 	for _, name := range orderedPlanningInputs(template) {
-		if err := validateNonEmptyPlanningField("parameters."+name, parameters[name]); err != nil {
-			return err
+		if strings.TrimSpace(parameters[name]) == "" {
+			missing = append(missing, name)
 		}
+	}
+	if len(missing) > 0 || len(unknown) > 0 {
+		return newPlanningValidationError(orderedPlanningInputs(template), provided, missing, unknown)
 	}
 	return nil
 }
@@ -792,17 +805,6 @@ func orderedPlanningInputs(template *Template) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-func validateNonEmptyPlanningField(output, value string) error {
-	fieldName := "planning." + output
-	if value == "" {
-		return fmt.Errorf("%s is required", fieldName)
-	}
-	if strings.TrimSpace(value) == "" {
-		return fmt.Errorf("%s is required", fieldName)
-	}
-	return nil
 }
 
 func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {

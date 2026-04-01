@@ -128,6 +128,8 @@ type Step struct {
 type Check struct {
 	// ID is the author-defined identifier for this check.
 	ID string `yaml:"id" json:"id"`
+	// Description is the optional human-facing explanation of what this check enforces.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	// Command is the shell command Centian executes when evaluating the check.
 	Command string `yaml:"command" json:"command"`
 	// PreConditions are assertions that must pass before the step action is accepted.
@@ -140,6 +142,8 @@ type Check struct {
 type Invariant struct {
 	// ID is the author-defined identifier for this invariant.
 	ID string `yaml:"id" json:"id"`
+	// Description is the optional human-facing explanation of what this invariant protects.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 	// Command is the shell command whose output Centian snapshots and compares for drift.
 	Command string `yaml:"command" json:"command"`
 }
