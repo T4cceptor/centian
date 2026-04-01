@@ -120,6 +120,43 @@ workflow:
 	assert.Equal(t, run.ExpiresAt, int64(0))
 }
 
+func TestListTemplatesIncludesEmbeddedDefaultsWhenDirectoryMissing(t *testing.T) {
+	service := NewService(filepath.Join(t.TempDir(), "missing"), t.TempDir())
+
+	summaries, err := service.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 3)
+	assert.Equal(t, summaries[0].ID, "minimal")
+	assert.Equal(t, summaries[1].ID, "python_tdd_workflow")
+	assert.Equal(t, summaries[2].ID, "simple_tdd")
+}
+
+func TestListTemplatesAllowsDiskOverrideOfEmbeddedTemplate(t *testing.T) {
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "simple_tdd.yaml"), []byte(`
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Simple TDD Override"
+  description: "Override the embedded template."
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "override_step"
+      name: "Override step"
+`), 0o644)
+	assert.NilError(t, err)
+
+	service := NewService(dir, dir)
+	summaries, err := service.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 3)
+	assert.Equal(t, summaries[2].ID, "simple_tdd")
+	assert.Equal(t, summaries[2].Name, "Simple TDD Override")
+	assert.Equal(t, summaries[2].Steps[0].ID, "override_step")
+}
+
 func TestListTemplatesAllowsExecutionStepWithoutChecks(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
@@ -795,7 +832,7 @@ func newTemplateTestService(t *testing.T, content, fileName string) *Service {
 	dir := t.TempDir()
 	err := os.WriteFile(filepath.Join(dir, fileName), []byte(content), 0o644)
 	assert.NilError(t, err)
-	return NewService(dir, dir)
+	return NewServiceWithOptions(dir, dir, ServiceOptions{})
 }
 
 func mustCompileTemplate(t *testing.T, template *Template) *Template {

@@ -59,7 +59,7 @@ func newTaskToolTestProxyWithTimeout(t *testing.T, templateContent string, enabl
 				},
 			},
 			Logger:           logger,
-			TaskVerification: taskverification.NewService(templateDir, workingDir),
+			TaskVerification: taskverification.NewServiceWithOptions(templateDir, workingDir, taskverification.ServiceOptions{}),
 		},
 		config:           &config.GatewayConfig{},
 		upstreamSessions: make(map[string]*UpstreamSession),
