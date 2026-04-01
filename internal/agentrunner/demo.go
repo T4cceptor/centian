@@ -21,8 +21,12 @@ import (
 const (
 	// AgentClaude is the supported public agent identifier for the Claude CLI.
 	AgentClaude = "claude"
+	// AgentGemini is the supported public agent identifier for the Gemini CLI.
+	AgentGemini = "gemini"
 	// DefaultClaudeModel is the default Claude model alias for demo runs.
 	DefaultClaudeModel = "sonnet"
+	// DefaultGeminiModel is the default Gemini model alias for demo runs.
+	DefaultGeminiModel = "flash" //"gemini-3.1-pro-preview"
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
 	DefaultAgentTimeout = 5 * time.Minute
 )
@@ -36,6 +40,7 @@ type DemoOptions struct {
 	CentianBinaryPath string
 	Timeout           time.Duration
 	ClaudeModel       string
+	GeminiModel       string
 	OpenBrowser       bool
 	Stdout            io.Writer
 	Stderr            io.Writer
@@ -78,6 +83,7 @@ type demoLayout struct {
 	EventStorePath  string
 	PIDPath         string
 	ClaudeConfig    string
+	GeminiConfig    string
 	BaseURL         string
 	MCPURL          string
 	Port            string
@@ -152,6 +158,9 @@ func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	if strings.TrimSpace(opts.ClaudeModel) == "" {
 		opts.ClaudeModel = DefaultClaudeModel
 	}
+	if strings.TrimSpace(opts.GeminiModel) == "" {
+		opts.GeminiModel = DefaultGeminiModel
+	}
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
@@ -185,6 +194,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 		EventStorePath:  filepath.Join(root, "logs", "events.sqlite"),
 		PIDPath:         filepath.Join(root, "centian.pid"),
 		ClaudeConfig:    filepath.Join(root, "claude_mcp_config.json"),
+		GeminiConfig:    filepath.Join(root, "workspace", ".gemini", "settings.json"),
 	}
 	for _, dir := range []string{layout.RootPath, layout.WorkspacePath, layout.TemplatesPath, layout.LogsPath} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -269,8 +279,10 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 	switch strings.ToLower(strings.TrimSpace(opts.Agent)) {
 	case AgentClaude:
 		return claudeAdapter{model: opts.ClaudeModel}, nil
+	case AgentGemini:
+		return geminiAdapter{model: opts.GeminiModel}, nil
 	default:
-		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q only", opts.Agent, AgentClaude)
+		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q and %q only", opts.Agent, AgentClaude, AgentGemini)
 	}
 }
 

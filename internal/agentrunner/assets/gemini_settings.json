@@ -1,0 +1,15 @@
+{
+  "mcp": {
+    "allowed": ["centian"]
+  },
+  "mcpServers": {
+    "centian": {
+      "httpUrl": "__MCP_URL__",
+      "trust": false
+    }
+  },
+  "tools": {
+    "core": []
+  },
+  "ideMode": false
+}

@@ -51,6 +51,9 @@ func TestPrepareLayoutAllowsEmptyExistingDir(t *testing.T) {
 	if layout.AgentStdoutPath == "" || layout.AgentStderrPath == "" {
 		t.Fatal("expected agent log paths to be initialized")
 	}
+	if filepath.Base(layout.GeminiConfig) != "settings.json" {
+		t.Fatalf("unexpected gemini config path: %s", layout.GeminiConfig)
+	}
 }
 
 func TestRenderAssetsWritesExpectedFiles(t *testing.T) {
@@ -109,6 +112,53 @@ func TestClaudeCommandConstruction(t *testing.T) {
 			t.Fatalf("unexpected unsafe flag %q in %q", forbidden, joined)
 		}
 	}
+}
+
+func TestGeminiCommandConstruction(t *testing.T) {
+	layout := &demoLayout{
+		GeminiConfig:  "/tmp/demo/workspace/.gemini/settings.json",
+		WorkspacePath: "/tmp/demo/workspace",
+	}
+	command, err := geminiAdapter{model: "flash"}.command(layout, "solve the task")
+	if err != nil {
+		t.Fatalf("command: %v", err)
+	}
+	joined := strings.Join(command, " ")
+	for _, expected := range []string{
+		"gemini",
+		"-p solve the task",
+		"--output-format json",
+		"--sandbox",
+		"--approval-mode default",
+		"--allowed-mcp-server-names centian",
+		"--model flash",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in command %q", expected, joined)
+		}
+	}
+	for _, forbidden := range []string{"yolo", "auto_edit"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("unexpected unsafe or broad approval mode %q in %q", forbidden, joined)
+		}
+	}
+}
+
+func TestGeminiWriteConfig(t *testing.T) {
+	allocateFreePortFunc = func() (string, error) { return "40123", nil }
+	defer func() { allocateFreePortFunc = allocateFreePort }()
+
+	root := filepath.Join(t.TempDir(), "demo")
+	layout, err := prepareLayout(&DemoOptions{RootPath: root})
+	if err != nil {
+		t.Fatalf("prepareLayout: %v", err)
+	}
+	if err := (geminiAdapter{}).writeConfig(layout); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+	assertFileContains(t, layout.GeminiConfig, `"httpUrl": "`+layout.MCPURL+`"`)
+	assertFileContains(t, layout.GeminiConfig, `"allowed": [`)
+	assertFileContains(t, layout.GeminiConfig, `"core": []`)
 }
 
 func TestWritePIDAndStopHint(t *testing.T) {

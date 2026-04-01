@@ -20,6 +20,7 @@ coding agent against it, and print the live UI URL.
 
 Examples:
   centian demo --agent claude
+  centian demo --agent gemini
   centian demo --agent claude --path ./my-demo
 `,
 	Action: handleDemoCommand,
@@ -27,7 +28,7 @@ Examples:
 		&cli.StringFlag{
 			Name:     "agent",
 			Aliases:  []string{"a"},
-			Usage:    "Agent to run for the demo (v1 supports: claude)",
+			Usage:    "Agent to run for the demo (v1 supports: claude, gemini)",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -58,6 +59,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		CentianBinaryPath: binaryPath,
 		Timeout:           5 * time.Minute,
 		ClaudeModel:       agentrunner.DefaultClaudeModel,
+		GeminiModel:       agentrunner.DefaultGeminiModel,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
 	})
