@@ -393,6 +393,7 @@ func taskCompletePlanningSchema() map[string]any {
 			"planning": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"planSummary": map[string]any{"type": "string"},
 					"selectedFiles": map[string]any{
 						"type":  "array",
 						"items": map[string]any{"type": "string"},
@@ -406,7 +407,7 @@ func taskCompletePlanningSchema() map[string]any {
 						"items": map[string]any{"type": "string"},
 					},
 				},
-				"required": []string{"parameters"},
+				"required": []string{"planSummary", "parameters"},
 			},
 		},
 		"required": []string{"planning"},
@@ -942,8 +943,9 @@ func addArtifactSummaries(structured map[string]any, run *taskverification.RunSt
 		return
 	}
 	structured["planningSummary"] = map[string]any{
-		"selectedFiles": run.Planning.SelectedFiles,
-		"parameters":    run.Planning.Parameters,
+		"planSummary":   run.Planning.PlanSummary,
+		"selectedFiles": append([]string{}, run.Planning.SelectedFiles...),
+		"parameters":    cloneStringMap(run.Planning.Parameters),
 	}
 	structured["frozenContractSummary"] = frozenContractSummary(run)
 }
@@ -1126,6 +1128,7 @@ func contractConditions(conditions []taskverification.Condition) []map[string]an
 
 func frozenContractSummary(run *taskverification.RunState) map[string]any {
 	summary := map[string]any{
+		"planSummary":   "",
 		"selectedFiles":  []string{},
 		"parameters":     map[string]string{},
 		"invariantCount": 0,
@@ -1134,6 +1137,7 @@ func frozenContractSummary(run *taskverification.RunState) map[string]any {
 		return summary
 	}
 
+	summary["planSummary"] = run.Planning.PlanSummary
 	summary["selectedFiles"] = append([]string{}, run.Planning.SelectedFiles...)
 	summary["parameters"] = cloneStringMap(run.Planning.Parameters)
 	if run.RunnableTemplate != nil && run.RunnableTemplate.CompiledWorkflow != nil {

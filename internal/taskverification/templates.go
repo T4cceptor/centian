@@ -746,6 +746,9 @@ func validatePlanningArtifact(template *Template, artifact *PlanningArtifact) er
 	if artifact == nil {
 		return fmt.Errorf("planning artifact is required")
 	}
+	if strings.TrimSpace(artifact.PlanSummary) == "" {
+		return fmt.Errorf("planning.planSummary is required")
+	}
 	if err := validatePlanningParameters(template, artifact.Parameters); err != nil {
 		return err
 	}
@@ -812,9 +815,10 @@ func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
 		return PlanningArtifact{}
 	}
 	return PlanningArtifact{
+		PlanSummary:  artifact.PlanSummary,
 		SelectedFiles: append([]string(nil), artifact.SelectedFiles...),
-		Parameters:    cloneParameterMap(artifact.Parameters),
-		Invariants:    append([]string(nil), artifact.Invariants...),
+		Parameters:   cloneParameterMap(artifact.Parameters),
+		Invariants:   append([]string(nil), artifact.Invariants...),
 	}
 }
 

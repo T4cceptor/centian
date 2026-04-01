@@ -198,6 +198,7 @@ workflow:
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
+		PlanSummary: "Freeze the resolved planning parameters before execution.",
 		Parameters: map[string]string{
 			"testName":      "TestThing",
 			"expectedError": "boom",
@@ -236,7 +237,8 @@ workflow:
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
-		Parameters: map[string]string{"taskName": "Investigate issue"},
+		PlanSummary: "Freeze the resolved task-specific execution path.",
+		Parameters:  map[string]string{"taskName": "Investigate issue"},
 	})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("execution.Task Investigate issue"))
@@ -279,6 +281,7 @@ workflow:
 	assert.NilError(t, err)
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
+		PlanSummary: "Freeze the editable planning parameters before execution.",
 		Parameters: map[string]string{
 			"testCommand":   "pytest",
 			"expectedError": "boom",
@@ -463,7 +466,7 @@ workflow:
 	run, err := service.RegisterTask("simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{})
+	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "Attempt to complete planning before onboarding should still fail by phase."})
 	assert.ErrorContains(t, err, "cannot transition to")
 }
 
@@ -495,10 +498,11 @@ workflow:
 
 	err = service.CompletePlanning(run, &PlanningArtifact{})
 	assert.Assert(t, err != nil)
-	assert.ErrorContains(t, err, "planning.parameters.testTarget is required")
+	assert.ErrorContains(t, err, "planning.planSummary is required")
 
 	err = service.CompletePlanning(run, &PlanningArtifact{
-		Parameters:    map[string]string{"testTarget": "pytest -q"},
+		PlanSummary:  "Freeze the targeted test command and selected files before execution.",
+		Parameters:   map[string]string{"testTarget": "pytest -q"},
 		SelectedFiles: []string{"a.go", "a.go"},
 	})
 	assert.ErrorContains(t, err, `planning.selectedFiles contains duplicate value "a.go"`)
@@ -621,7 +625,7 @@ workflow:
 	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{})
+	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "Freeze the plan before waiting for approval."})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("waiting_for_approval.review_plan"))
 	node, exists := run.CurrentNode()

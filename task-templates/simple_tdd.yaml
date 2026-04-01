@@ -12,13 +12,9 @@ parameters:
     description: "A stable substring expected in the initial failing test output."
 workflow:
   onboarding:
-    tools_allowed:
-      - "shell__*"
-      - "filesystem__*"
+    tools_allowed: ["*"]
   planning:
-    tools_allowed:
-      - "shell__*"
-      - "filesystem__*"
+    tools_allowed: ["*"]
     editable_fields:
       - "parameters.testCommand"
       - "parameters.testFile"
@@ -30,9 +26,7 @@ workflow:
   execution:
     - id: "create_failing_test_baseline"
       name: "Create failing test baseline"
-      tools_allowed:
-        - "shell__*"
-        - "filesystem__*"
+      tools_allowed: ["*"]
       checks:
         - id: "selected_test_fails"
           command: "${testCommand} ${testFile}"
@@ -49,9 +43,7 @@ workflow:
           command: "cat ${testFile}"
     - id: "implement_fix"
       name: "Implement production fix"
-      tools_allowed:
-        - "shell__*"
-        - "filesystem__*"
+      tools_allowed: ["*"]
       checks:
         - id: "selected_test_passes"
           command: "${testCommand} ${testFile}"

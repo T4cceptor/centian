@@ -202,6 +202,8 @@ type OnboardingCommand struct {
 
 // PlanningArtifact stores the frozen execution inputs produced during planning.
 type PlanningArtifact struct {
+	// PlanSummary captures the execution-defining planning summary that is frozen at planning completion.
+	PlanSummary string `json:"planSummary,omitempty"`
 	// SelectedFiles lists the project-relative files the agent expects to inspect or edit during execution.
 	SelectedFiles []string `json:"selectedFiles,omitempty"`
 	// Parameters stores the template placeholder values the agent freezes at planning completion.

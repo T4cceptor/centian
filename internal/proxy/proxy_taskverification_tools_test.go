@@ -259,6 +259,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
+				"planSummary":   "Stored plan",
 				"selectedFiles": []string{"tests/test_mathlib.py"},
 				"parameters":    map[string]any{},
 			},
@@ -281,6 +282,7 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 		"selectedFiles":  []any{"tests/test_mathlib.py"},
 		"parameters":     map[string]any{},
 		"invariantCount": float64(0),
+		"planSummary":    string("Stored plan"),
 	})
 	assert.Assert(t, completePlanningStructured["steps"] != nil)
 	assert.Assert(t, completePlanningStructured["stepContract"] != nil)
@@ -367,6 +369,7 @@ func TestTaskToolFlowAllowsNoCheckTemplate(t *testing.T) {
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
+				"planSummary": "Stored plan",
 				"parameters": map[string]any{
 					"taskName": "Investigate issue",
 				},
@@ -430,10 +433,11 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	planningSchema := byName[taskCompletePlanningTool].InputSchema.(map[string]any)
 	planningObject := planningSchema["properties"].(map[string]any)["planning"].(map[string]any)
 	planningProps := planningObject["properties"].(map[string]any)
+	assert.Assert(t, planningProps["planSummary"] != nil)
 	assert.Assert(t, planningProps["selectedFiles"] != nil)
 	assert.Assert(t, planningProps["parameters"] != nil)
 	assert.Assert(t, planningProps["invariants"] != nil)
-	assert.DeepEqual(t, planningObject["required"], []any{"parameters"})
+	assert.DeepEqual(t, planningObject["required"], []any{"planSummary", "parameters"})
 
 	listTool := byName[taskListTemplatesTool]
 	assert.Assert(t, listTool.Annotations != nil)
@@ -505,6 +509,7 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
+				"planSummary": "Stored plan",
 				"parameters": map[string]any{
 					"testCommand":   "pytest",
 					"expectedError": "boom",
@@ -516,6 +521,17 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	completePlanningStructured := completePlanningResult.StructuredContent.(map[string]any)
 	assert.Equal(t, completePlanningStructured["phase"], "execution.step_one")
 	assert.Equal(t, completePlanningStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindExecution))
+	assert.DeepEqual(t, completePlanningStructured["planningSummary"], map[string]any{
+		"planSummary":   "Stored plan",
+		"parameters":    map[string]any{"expectedError": "boom", "testCommand": "pytest"},
+		"selectedFiles": []any{},
+	})
+	assert.DeepEqual(t, completePlanningStructured["frozenContractSummary"], map[string]any{
+		"planSummary":    "Stored plan",
+		"selectedFiles":  []any{},
+		"parameters":     map[string]any{"expectedError": "boom", "testCommand": "pytest"},
+		"invariantCount": float64(0),
+	})
 	assert.Assert(t, completePlanningStructured["stepContract"] != nil)
 
 	startStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -557,6 +573,7 @@ func TestTaskCompletePlanningReturnsStructuredPlanningValidationFailure(t *testi
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
+				"planSummary": "Stored plan",
 				"parameters": map[string]any{
 					"expectedError": "boom",
 					"unknown":       "value",
@@ -595,6 +612,7 @@ func TestStepContractIncludesDescriptionsAndTechnicalDetails(t *testing.T) {
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
+				"planSummary": "Stored plan",
 				"parameters": map[string]any{
 					"testFile": "test_score_parentheses.py",
 				},
@@ -650,7 +668,8 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"parameters": map[string]any{}},
+			"planning": map[string]any{
+				"planSummary": "Stored plan", "parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -708,6 +727,10 @@ func TestTaskLifecycleEventsRecorded(t *testing.T) {
 	assert.Equal(t, events[1].ResultingPhasePath, taskverification.TaskPhasePlanning)
 	assert.Equal(t, events[2].PhasePath, taskverification.TaskPhasePlanning)
 	assert.Equal(t, events[2].ResultingPhasePath, taskverification.TaskPhase("execution.step_one"))
+	planningPayload := map[string]any{}
+	assert.NilError(t, json.Unmarshal(events[2].Payload, &planningPayload))
+	planningArtifact := planningPayload["planning"].(map[string]any)
+	assert.Equal(t, planningArtifact["planSummary"], "Stored plan")
 	assert.Equal(t, events[3].PhasePath, taskverification.TaskPhase("execution.step_one"))
 	assert.Equal(t, events[3].ResultingPhasePath, taskverification.TaskPhase("execution.step_one"))
 	assert.Equal(t, events[4].PhasePath, taskverification.TaskPhase("execution.step_one"))
@@ -764,7 +787,8 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"parameters": map[string]any{}},
+			"planning": map[string]any{
+				"planSummary": "Stored plan", "parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -800,7 +824,8 @@ func TestActionEventTaskContextCreatedForBuiltInTaskTools(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"parameters": map[string]any{}},
+			"planning": map[string]any{
+				"planSummary": "Stored plan", "parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -997,7 +1022,8 @@ workflow:
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
-				"parameters": map[string]any{},
+				"planSummary": "Stored plan",
+				"parameters":  map[string]any{},
 			},
 		},
 	})
@@ -1104,7 +1130,8 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"parameters": map[string]any{}},
+			"planning": map[string]any{
+				"planSummary": "Stored plan", "parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -1174,8 +1201,9 @@ func TestWorkflowNodeToolGovernanceDeniesCompletedTask(t *testing.T) {
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      taskCompletePlanningTool,
-		Arguments: map[string]any{"planning": map[string]any{"parameters": map[string]any{}}},
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{"planning": map[string]any{
+			"planSummary": "Stored plan", "parameters": map[string]any{}}},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1332,8 +1360,9 @@ func TestTaskResumeRequiresTimedOutRunAndPreservesWorkflowProgress(t *testing.T)
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      taskCompletePlanningTool,
-		Arguments: map[string]any{"planning": map[string]any{"parameters": map[string]any{}}},
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{"planning": map[string]any{
+			"planSummary": "Stored plan", "parameters": map[string]any{}}},
 	})
 	assert.NilError(t, err)
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -1562,7 +1591,8 @@ workflow:
 	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"parameters": map[string]any{}},
+			"planning": map[string]any{
+				"planSummary": "Stored plan", "parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -1628,7 +1658,8 @@ workflow:
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
-			"planning": map[string]any{"parameters": map[string]any{}},
+			"planning": map[string]any{
+				"planSummary": "Stored plan", "parameters": map[string]any{}},
 		},
 	})
 	assert.NilError(t, err)
@@ -1685,7 +1716,8 @@ func TestTaskToolCallsAreWrittenToRequestLog(t *testing.T) {
 		Name: taskCompletePlanningTool,
 		Arguments: map[string]any{
 			"planning": map[string]any{
-				"parameters": map[string]any{},
+				"planSummary": "Stored plan",
+				"parameters":  map[string]any{},
 			},
 		},
 	})

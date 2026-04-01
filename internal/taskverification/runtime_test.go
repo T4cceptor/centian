@@ -580,7 +580,7 @@ func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
 	assert.NilError(t, err)
 	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{})
+	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "Freeze the runtime test plan before execution."})
 	assert.NilError(t, err)
 	return service, run
 }
