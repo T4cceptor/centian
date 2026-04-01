@@ -13,6 +13,7 @@ type LoadState = "loading" | "ready" | "invalid" | "not-found" | "error" | "unau
 // Represents one rendered phase section in the timeline.
 export type TimelineGroup = {
   key: string;
+  phasePath: string;
   label: string;
   items: TimelineItem[];
 };
@@ -850,9 +851,10 @@ function groupEventsByPhase(items: TimelineItem[]): TimelineGroup[] {
     lastKnownPhase = effectivePhase;
 
     const existingGroup = groups.length > 0 ? groups[groups.length - 1] : undefined;
-    if (existingGroup == null || existingGroup.key !== effectivePhase) {
+    if (existingGroup == null || existingGroup.phasePath !== effectivePhase) {
       groups.push({
-        key: effectivePhase,
+        key: `${effectivePhase}:${item.id}`,
+        phasePath: effectivePhase,
         label: humanizePhase(effectivePhase),
         items: [item],
       });

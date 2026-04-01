@@ -3,6 +3,7 @@ package taskverification
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	tasktemplates "github.com/T4cceptor/centian/task-templates"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,15 +26,31 @@ type Service struct {
 	WorkingDir     string
 	EventStore     EventStore
 	CommandTimeout time.Duration
+	builtinFS      fs.FS
 }
+
+// ServiceOptions configures non-runtime dependencies for the task verification service.
+type ServiceOptions struct {
+	BuiltinTemplates fs.FS
+}
+
+const builtinTemplatesDir = "integrated"
 
 // NewService creates a task verification service rooted at the given directories.
 func NewService(templateDir, workingDir string) *Service {
+	return NewServiceWithOptions(templateDir, workingDir, ServiceOptions{
+		BuiltinTemplates: tasktemplates.FS,
+	})
+}
+
+// NewServiceWithOptions creates a task verification service with explicit loader configuration.
+func NewServiceWithOptions(templateDir, workingDir string, options ServiceOptions) *Service {
 	return &Service{
 		TemplateDir:    templateDir,
 		WorkingDir:     workingDir,
 		EventStore:     NewInMemoryEventStore(),
 		CommandTimeout: DefaultCommandTimeout,
+		builtinFS:      options.BuiltinTemplates,
 	}
 }
 
@@ -233,16 +251,72 @@ func (s *Service) loadTemplateByID(templateID string) (*Template, error) {
 }
 
 func (s *Service) loadTemplates() ([]*Template, error) {
+	registry := make(map[string]loadedTemplate)
+
+	if err := s.loadTemplatesFromFS(registry); err != nil {
+		return nil, err
+	}
+	if err := s.loadTemplatesFromDir(registry); err != nil {
+		return nil, err
+	}
+
+	templates := make([]*Template, 0, len(registry))
+	for _, record := range registry {
+		templates = append(templates, record.template)
+	}
+	sort.Slice(templates, func(i, j int) bool {
+		return templates[i].Task.ID < templates[j].Task.ID
+	})
+	return templates, nil
+}
+
+type loadedTemplate struct {
+	template *Template
+	source   string
+	builtin  bool
+}
+
+func (s *Service) loadTemplatesFromFS(registry map[string]loadedTemplate) error {
+	if s.builtinFS == nil {
+		return nil
+	}
+
+	entries, err := fs.ReadDir(s.builtinFS, builtinTemplatesDir)
+	if err != nil {
+		return fmt.Errorf("failed to read built-in task templates: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(entry.Name()))
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+
+		path := filepath.Join(builtinTemplatesDir, entry.Name())
+		source := "embedded:" + path
+		template, err := loadTemplateFSFile(s.builtinFS, path, source)
+		if err != nil {
+			return err
+		}
+		if err := registerTemplate(registry, template, source, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) loadTemplatesFromDir(registry map[string]loadedTemplate) error {
 	entries, err := os.ReadDir(s.TemplateDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil
 		}
-		return nil, fmt.Errorf("failed to read task template directory: %w", err)
+		return fmt.Errorf("failed to read task template directory: %w", err)
 	}
 
-	templates := make([]*Template, 0)
-	seenIDs := make(map[string]string)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -255,19 +329,13 @@ func (s *Service) loadTemplates() ([]*Template, error) {
 		path := filepath.Join(s.TemplateDir, entry.Name())
 		template, err := loadTemplateFile(path)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if previous, exists := seenIDs[template.Task.ID]; exists {
-			return nil, fmt.Errorf("duplicate task template id %q in %s and %s", template.Task.ID, previous, path)
+		if err := registerTemplate(registry, template, path, false); err != nil {
+			return err
 		}
-		seenIDs[template.Task.ID] = path
-		templates = append(templates, template)
 	}
-
-	sort.Slice(templates, func(i, j int) bool {
-		return templates[i].Task.ID < templates[j].Task.ID
-	})
-	return templates, nil
+	return nil
 }
 
 func loadTemplateFile(path string) (*Template, error) {
@@ -276,15 +344,52 @@ func loadTemplateFile(path string) (*Template, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read task template %s: %w", path, err)
 	}
+	return loadTemplateContent(content, path)
+}
 
+func loadTemplateFSFile(templateFS fs.FS, path, source string) (*Template, error) {
+	content, err := fs.ReadFile(templateFS, path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read task template %s: %w", source, err)
+	}
+	return loadTemplateContent(content, source)
+}
+
+func loadTemplateContent(content []byte, source string) (*Template, error) {
 	var template Template
 	if err := yaml.Unmarshal(content, &template); err != nil {
-		return nil, fmt.Errorf("failed to parse task template %s: %w", path, err)
+		return nil, fmt.Errorf("failed to parse task template %s: %w", source, err)
 	}
 	if err := template.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid task template %s: %w", path, err)
+		return nil, fmt.Errorf("invalid task template %s: %w", source, err)
 	}
 	return &template, nil
+}
+
+func registerTemplate(registry map[string]loadedTemplate, template *Template, source string, builtin bool) error {
+	if template == nil {
+		return fmt.Errorf("task template %s is nil", source)
+	}
+
+	existing, exists := registry[template.Task.ID]
+	if exists {
+		if existing.builtin && !builtin {
+			registry[template.Task.ID] = loadedTemplate{
+				template: template,
+				source:   source,
+				builtin:  false,
+			}
+			return nil
+		}
+		return fmt.Errorf("duplicate task template id %q in %s and %s", template.Task.ID, existing.source, source)
+	}
+
+	registry[template.Task.ID] = loadedTemplate{
+		template: template,
+		source:   source,
+		builtin:  builtin,
+	}
+	return nil
 }
 
 // Validate checks whether the template is structurally valid before registration.

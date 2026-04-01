@@ -319,6 +319,45 @@ func TestNewCentianServer_DefaultEventStorageCreatesSQLiteStore(t *testing.T) {
 	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "task-templates"))
 }
 
+func TestNewCentianServer_UsesEmbeddedTaskTemplatesWhenDirectoryMissing(t *testing.T) {
+	authDisabled := false
+	logDir := t.TempDir()
+	workDir := t.TempDir()
+	originalWD := mustGetwd(t)
+	assert.NilError(t, os.Chdir(workDir))
+	t.Cleanup(func() {
+		assert.NilError(t, os.Chdir(originalWD))
+	})
+	t.Setenv("CENTIAN_LOG_DIR", logDir)
+
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Gateways: map[string]*config.GatewayConfig{},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+
+	summaries, err := server.TaskVerification.ListTemplates()
+	assert.NilError(t, err)
+	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "task-templates"))
+	assert.Equal(t, len(summaries), 3)
+	assert.Equal(t, summaries[0].ID, "minimal")
+	assert.Equal(t, summaries[1].ID, "python_tdd_workflow")
+	assert.Equal(t, summaries[2].ID, "simple_tdd")
+}
+
 func TestCentianServerSetup_OmitsAPIRoutesWhenEventStorageDisabled(t *testing.T) {
 	// Given: a config with event storage disabled
 	authDisabled := false

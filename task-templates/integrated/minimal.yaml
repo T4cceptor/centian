@@ -4,7 +4,7 @@ task:
   id: "minimal"
   name: "Minimal"
   description: |
-    Smallest task template that still allows work. 
+    Smallest task template that still allows work.
   instructions: |
     Use this if you can't find any other more fitting task template.
     This template does NOT impose any governance restrictions,

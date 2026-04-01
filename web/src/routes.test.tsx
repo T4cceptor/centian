@@ -1189,6 +1189,73 @@ describe("task run detail", () => {
     expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
   });
 
+  it("collapses only the selected repeated phase section after a restart", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200123_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "execution.step_1",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200123_0000000003",
+            createdAtUnixMilli: 1742947202123,
+            eventType: "restarted",
+            outcome: "succeeded",
+            phasePath: "execution.step_1",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200123_0000000004",
+            createdAtUnixMilli: 1742947203123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "execution.step_1",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+
+    const planningSections = screen.getAllByLabelText("Planning");
+    expect(planningSections).toHaveLength(2);
+    expect(within(planningSections[0] as HTMLElement).getByText("Planning Completed")).toBeInTheDocument();
+    expect(within(planningSections[1] as HTMLElement).getByText("Planning Completed")).toBeInTheDocument();
+
+    const planningButtons = screen.getAllByRole("button", { name: /planning 1 events/i });
+    expect(planningButtons).toHaveLength(2);
+
+    await user.click(planningButtons[0] as HTMLElement);
+
+    expect(within(planningSections[0] as HTMLElement).queryByText("Planning Completed")).not.toBeInTheDocument();
+    expect(within(planningSections[1] as HTMLElement).getByText("Planning Completed")).toBeInTheDocument();
+  });
+
   it("renders a not-found state for 404 responses", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(createFetchResponse({ error: "missing" }, 404))) as typeof fetch;
 

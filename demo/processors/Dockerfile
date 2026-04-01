@@ -1,15 +1,11 @@
-FROM python:3.12-slim
+FROM t4ce/centian:latest
 
 WORKDIR /workspace
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates nodejs npm \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY build/centian /usr/local/bin/centian
-COPY demo/requirements.txt /tmp/demo-requirements.txt
+COPY demo/processors/requirements.txt /tmp/demo-requirements.txt
 RUN python -m pip install --no-cache-dir -r /tmp/demo-requirements.txt \
   && rm -f /tmp/demo-requirements.txt
+COPY demo/processors/src/ /opt/centian/processors/
 RUN chmod +x /usr/local/bin/centian
 
 ENTRYPOINT ["centian", "start"]

@@ -19,6 +19,7 @@ func TestPrintServerInfo(t *testing.T) {
 	tests := []struct {
 		name           string
 		config         *config.GlobalConfig
+		taskWorkingDir string
 		wantError      bool
 		expectInOutput []string
 	}{
@@ -42,7 +43,8 @@ func TestPrintServerInfo(t *testing.T) {
 					},
 				},
 			},
-			wantError: false,
+			taskWorkingDir: "",
+			wantError:      false,
 			expectInOutput: []string{
 				"Test Server",
 				"Port: 8080",
@@ -76,7 +78,8 @@ func TestPrintServerInfo(t *testing.T) {
 					},
 				},
 			},
-			wantError: false,
+			taskWorkingDir: "",
+			wantError:      false,
 			expectInOutput: []string{
 				"Multi-Gateway Server",
 				"Port: 9000",
@@ -104,9 +107,38 @@ func TestPrintServerInfo(t *testing.T) {
 					},
 				},
 			},
-			wantError: false,
+			taskWorkingDir: "",
+			wantError:      false,
 			expectInOutput: []string{
 				"Centian Proxy Server",
+			},
+		},
+		{
+			name: "task verification logs working directory",
+			config: &config.GlobalConfig{
+				Name:    "Task Server",
+				Version: "1.0.0",
+				Proxy: &config.ProxySettings{
+					Port:    "8080",
+					Timeout: 30,
+					Capabilities: &config.CapabilitiesSettings{
+						TaskVerification: &config.TaskVerificationCapabilitySettings{
+							Enabled: boolPtr(true),
+						},
+					},
+				},
+				Gateways: map[string]*config.GatewayConfig{
+					"gateway1": {
+						MCPServers: map[string]*config.MCPServerConfig{
+							"server1": {Name: "server1", URL: "https://api.example.com"},
+						},
+					},
+				},
+			},
+			taskWorkingDir: "/tmp/taskverification-workdir",
+			wantError:      false,
+			expectInOutput: []string{
+				"Task verification cwd: /tmp/taskverification-workdir",
 			},
 		},
 		{
@@ -124,6 +156,7 @@ func TestPrintServerInfo(t *testing.T) {
 					},
 				},
 			},
+			taskWorkingDir: "",
 			wantError:      true,
 			expectInOutput: []string{},
 		},
@@ -135,6 +168,7 @@ func TestPrintServerInfo(t *testing.T) {
 				Proxy:    &config.ProxySettings{Port: "8080", Timeout: 30},
 				Gateways: map[string]*config.GatewayConfig{},
 			},
+			taskWorkingDir: "",
 			wantError:      true,
 			expectInOutput: []string{},
 		},
@@ -147,7 +181,7 @@ func TestPrintServerInfo(t *testing.T) {
 			assertServerLogger(t, &logOutput)
 
 			// When: printing server info.
-			err := printServerInfo(tt.config)
+			err := printServerInfo(tt.config, tt.taskWorkingDir)
 
 			// Then: verify error expectation.
 			if tt.wantError {
@@ -458,7 +492,7 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 			assertServerLogger(t, &logOutput)
 
 			// When: printing server info.
-			_ = printServerInfo(tt.config)
+			_ = printServerInfo(tt.config, "")
 
 			// Then: if we reach here without panic, test passes.
 			if tt.expectPanic {
@@ -482,4 +516,8 @@ func assertServerLogger(t *testing.T, writer *bytes.Buffer) {
 	t.Cleanup(func() {
 		_ = common.CloseLogger()
 	})
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }

@@ -76,7 +76,7 @@ make demo-down
 
 ## Commands
 
-- `make demo-up` builds Centian and starts Postgres, Jaeger, and the unified demo container.
+- `make demo-up` builds the demo image locally and starts Postgres, Jaeger, and the unified demo container.
 - `make demo-test` runs smoke checks for both gateways.
 - `make demo-down` stops all demo services.
 - `make clean` removes local Python cache artifacts.

@@ -76,7 +76,7 @@ Examples:
 	},
 }
 
-func printServerInfo(globalConfig *config.GlobalConfig) error {
+func printServerInfo(globalConfig *config.GlobalConfig, taskWorkingDir string) error {
 	serverName := globalConfig.Name
 	if serverName == "" {
 		serverName = "Centian Proxy Server"
@@ -102,6 +102,9 @@ func printServerInfo(globalConfig *config.GlobalConfig) error {
 	common.LogInfo("Host: %s", host)
 	common.LogInfo("Port: %s", globalConfig.Proxy.Port)
 	common.LogInfo("Timeout: %ds", globalConfig.Proxy.Timeout)
+	if globalConfig.Proxy.TaskVerificationEnabled() && taskWorkingDir != "" {
+		common.LogInfo("Task verification cwd: %s", taskWorkingDir)
+	}
 	common.LogInfo("Gateways: %d", len(globalConfig.Gateways))
 	common.LogInfo("Total MCP servers: %d", totalServers)
 	common.LogInfo("Configured endpoints:")
@@ -178,7 +181,7 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	errChan := make(chan error, 1)
 
 	// Display server information.
-	if err := printServerInfo(globalConfig); err != nil {
+	if err := printServerInfo(globalConfig, server.TaskVerification.WorkingDir); err != nil {
 		return err
 	}
 	go func() {
