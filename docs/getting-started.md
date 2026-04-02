@@ -1,0 +1,176 @@
+# Getting Started
+
+This guide walks from a fresh install to a working Centian endpoint that an MCP client can use.
+
+## 1. Install Centian
+
+Install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
+```
+
+Or build from source in this repository:
+
+```bash
+go build -o build/centian ./cmd/main.go
+```
+
+## 2. Create Config
+
+The fastest path is:
+
+```bash
+centian init -q
+```
+
+`centian init` also has an interactive mode if you want to choose settings manually.
+
+The quick-start flow creates:
+
+- `~/.centian/config.json`
+- at least one gateway and downstream MCP server entry
+- an API key for proxy authentication
+- an MCP client snippet you can paste into your agent or MCP client
+
+If you need another key later:
+
+```bash
+centian auth new-key
+```
+
+## 3. Minimal Config Example
+
+This is the smallest practical config for a local Centian instance that fronts one stdio MCP server:
+
+```json
+{
+  "name": "Centian Server",
+  "version": "1.0.0",
+  "auth": true,
+  "authHeader": "X-Centian-Auth",
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "8080",
+    "timeout": 30,
+    "logLevel": "info",
+    "logOutput": "file"
+  },
+  "gateways": {
+    "default": {
+      "mcpServers": {
+        "sequential-thinking": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-sequential-thinking"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+## 4. Gateway Example
+
+Gateways let you expose multiple downstream servers behind one Centian endpoint while still keeping single-server routes available.
+
+```json
+{
+  "name": "Centian Server",
+  "version": "1.0.0",
+  "auth": true,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "8080",
+    "timeout": 30
+  },
+  "gateways": {
+    "workbench": {
+      "mcpServers": {
+        "filesystem": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-filesystem",
+            "/tmp"
+          ]
+        },
+        "memory": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-memory"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+With this config, Centian serves:
+
+- the aggregated gateway at `/mcp/workbench`
+- single-server endpoints at `/mcp/workbench/filesystem` and `/mcp/workbench/memory`
+
+The aggregated gateway is the usual choice for agents because Centian namespaces the tools it exposes from multiple downstream servers.
+
+## 5. Start the Proxy
+
+```bash
+centian start
+```
+
+Useful checks:
+
+```bash
+centian config validate
+centian server list
+```
+
+At startup Centian logs:
+
+- the config path
+- the bind address
+- auth status
+- enabled optional capabilities
+- the taskverification working directory when taskverification is enabled
+
+## 6. Connect an MCP Client
+
+For the aggregated gateway:
+
+```json
+{
+  "mcpServers": {
+    "centian-workbench": {
+      "url": "http://127.0.0.1:8080/mcp/workbench",
+      "headers": {
+        "X-Centian-Auth": "<your-api-key>"
+      }
+    }
+  }
+}
+```
+
+If you disabled auth for local testing, omit the header.
+
+## 7. Optional Capabilities
+
+Centian can expose additional proxy-owned behavior through `proxy.capabilities`:
+
+- `taskVerification` enables `centian.task_*` MCP tools.
+- `eventStorage` persists task and action events to SQLite.
+- `ui` serves the embedded read-only UI under `/ui`.
+- `testTools` exposes Centian-owned test/debug tools.
+
+Taskverification is usually paired with `eventStorage`, and the UI only appears when both persistence and `ui.enabled` are active.
+
+## 8. Next Reads
+
+- [Configuration Reference](configuration-reference.md)
+- [Processor Development](processor-development.md)
+- [Taskverification Runtime](TASKVERIFICATION.md)
+- [Task Template Authoring](task-template-authoring.md)
