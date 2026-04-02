@@ -51,7 +51,7 @@ This is the smallest practical config for a local Centian instance that fronts o
   "authHeader": "X-Centian-Auth",
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info",
     "logOutput": "file"
@@ -83,7 +83,7 @@ Gateways let you expose multiple downstream servers behind one Centian endpoint 
   "auth": true,
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30
   },
   "gateways": {
@@ -146,7 +146,7 @@ For the aggregated gateway:
 {
   "mcpServers": {
     "centian-workbench": {
-      "url": "http://127.0.0.1:8080/mcp/workbench",
+      "url": "http://127.0.0.1:9666/mcp/workbench",
       "headers": {
         "X-Centian-Auth": "<your-api-key>"
       }

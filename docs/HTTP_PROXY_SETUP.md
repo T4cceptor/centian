@@ -2,7 +2,7 @@
 
 The `centian start` command launches an HTTP proxy server that forwards requests to configured MCP servers and, optionally, exposes Centian-owned capabilities such as taskverification and the embedded UI.
 
-This guide focuses on practical setup and deployment. For the full config surface, use [configuration-reference.md](./configuration-reference.md).
+This guide focuses on practical setup and deployment. For the full config surface, use [configuration_reference.md](./configuration_reference.md).
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ Create `~/.centian/config.json` with at least one gateway and one active MCP ser
   "authHeader": "X-Centian-Auth",
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info",
     "logOutput": "file"
@@ -106,8 +106,8 @@ Centian exposes two route styles:
 Examples:
 
 - config path `gateways.production.mcpServers.github`
-- aggregated endpoint `http://localhost:8080/mcp/production`
-- single-server endpoint `http://localhost:8080/mcp/production/github`
+- aggregated endpoint `http://localhost:9666/mcp/production`
+- single-server endpoint `http://localhost:9666/mcp/production/github`
 
 The aggregated route is usually the better MCP client target because Centian namespaces downstream tools to avoid collisions.
 
@@ -120,7 +120,7 @@ curl -i \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'X-Centian-Auth: <your-api-key>' \
-  http://127.0.0.1:8080/mcp/production
+  http://127.0.0.1:9666/mcp/production
 ```
 
 For most setups, the more useful real test is from the MCP client itself: point the client at the aggregated route first, confirm tool discovery works, then narrow to a single-server route only if you need to isolate one downstream.
@@ -136,7 +136,7 @@ For most setups, the more useful real test is from the MCP client itself: point 
   "auth": true,
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30
   },
   "gateways": {
@@ -162,7 +162,7 @@ For most setups, the more useful real test is from the MCP client itself: point 
   "auth": true,
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30
   },
   "gateways": {
@@ -193,7 +193,7 @@ For most setups, the more useful real test is from the MCP client itself: point 
   "auth": true,
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "capabilities": {
       "taskVerification": {
@@ -259,7 +259,7 @@ Minimal shape:
 {
   "proxy": {
     "web": {
-      "publicBaseUrl": "http://127.0.0.1:8080"
+      "publicBaseUrl": "http://127.0.0.1:9666"
     }
   },
   "gateways": {
@@ -332,7 +332,7 @@ This only shuts down the Centian HTTP server gracefully. Any downstream behavior
 
 ## Recommended Reads
 
-- [getting-started.md](./getting-started.md)
-- [configuration-reference.md](./configuration-reference.md)
+- [getting_started.md](./getting_started.md)
+- [configuration_reference.md](./configuration_reference.md)
 - [TASKVERIFICATION.md](./TASKVERIFICATION.md)
-- [mcp-proxy-best-practices.md](./mcp-proxy-best-practices.md)
+- [mcp_proxy_best_practices.md](./mcp_proxy_best_practices.md)

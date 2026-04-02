@@ -32,7 +32,7 @@ Add `proxy.capabilities.taskVerification` to your Centian config. If you also wa
 {
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "capabilities": {
       "taskVerification": {

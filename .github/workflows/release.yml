@@ -37,10 +37,6 @@ jobs:
             goarch: amd64
             name: windows_amd64
             ext: .exe
-          - goos: freebsd
-            goarch: amd64
-            name: freebsd_amd64
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -158,15 +154,28 @@ jobs:
             ### Download Binary
             Download the appropriate binary for your platform from the assets below.
 
-            ### Using Go
+            ### Using the installer script
             ```bash
-            go install github.com/T4cceptor/centian@${{ steps.version.outputs.version }}
+            curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
             ```
 
-            ### Using curl (Linux/macOS)
+            ### Using a release binary
             ```bash
             curl -L https://github.com/T4cceptor/centian/releases/download/${{ steps.version.outputs.version }}/centian_${{ steps.version.outputs.version }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz | tar -xz
             sudo mv centian /usr/local/bin/
+            ```
+
+            ### Using Docker
+            ```bash
+            docker run --rm -p 9666:9666 t4ce/centian:${{ steps.version.outputs.version }}
+            docker run --rm -p 9666:9666 t4ce/centian:${{ steps.version.outputs.version }}-alpine
+            ```
+
+            ### Building from source
+            ```bash
+            git clone https://github.com/T4cceptor/centian.git
+            cd centian
+            make install
             ```
 
             ## Checksums

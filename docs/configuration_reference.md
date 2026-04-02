@@ -29,7 +29,7 @@ Centian validates config in two different ways:
 | Field | Type | Required | Default | Validation / runtime behavior |
 | --- | --- | --- | --- | --- |
 | `host` | string | No | `127.0.0.1` | Bind address for the HTTP server. |
-| `port` | string | No | `"8080"` | HTTP listen port. |
+| `port` | string | No | `"9666"` | HTTP listen port. |
 | `timeout` | integer | No | `30` | Used for HTTP read and write timeouts in seconds. |
 | `logLevel` | string | No | `info` | Must be `debug`, `info`, `warn`, or `error`. |
 | `logOutput` | string | No | `file` | Must be `file`, `console`, or `both`. |
@@ -206,7 +206,7 @@ Webhook runtime behavior:
   "authHeader": "X-Centian-Auth",
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info",
     "logOutput": "file"
@@ -236,7 +236,7 @@ Webhook runtime behavior:
   "auth": true,
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 45,
     "logLevel": "info",
     "logOutput": "both",
@@ -255,7 +255,7 @@ Webhook runtime behavior:
       }
     },
     "web": {
-      "publicBaseUrl": "http://127.0.0.1:8080"
+      "publicBaseUrl": "http://127.0.0.1:9666"
     }
   },
   "processors": [

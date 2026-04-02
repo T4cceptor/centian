@@ -535,4 +535,4 @@ It demonstrates:
 
 - MCP Specification: https://spec.modelcontextprotocol.io/
 - Processor demo: [demo/processors/README.md](../demo/processors/README.md)
-- Config reference: [configuration-reference.md](./configuration-reference.md)
+- Config reference: [configuration_reference.md](./configuration_reference.md)

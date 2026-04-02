@@ -51,6 +51,25 @@ func TestMainEntryPoint(t *testing.T) {
 	}
 }
 
+func TestMainVersionHasNoStderrNoise(t *testing.T) {
+	originalArgs := os.Args
+	os.Args = []string{"centian", "--version"}
+	t.Cleanup(func() {
+		os.Args = originalArgs
+	})
+
+	stdout, stderr := captureStdoutAndStderr(t, func() {
+		main()
+	})
+
+	if !strings.Contains(stdout, "dev") {
+		t.Fatalf("expected version output on stdout; got %q", stdout)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output; got %q", stderr)
+	}
+}
+
 func captureStdoutAndStderr(t *testing.T, fn func()) (string, string) {
 	t.Helper()
 

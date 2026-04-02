@@ -4,8 +4,9 @@
 
 Centian sits between your AI agents and their MCP servers. All tool calls flow through Centian's proxy, giving you a single point of control for aggregation, middleware processing, workflow enforcement, and full observability.
 
-![Centian Demo — AI agent completing a TDD task under Centian governance](docs/images/readme_hq.gif)
-
+<div align="center">
+  <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance" width="80%">
+</div>
 
 ---
 
@@ -27,6 +28,8 @@ Centian solves all four.
 ```bash
 curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
+
+For more options see [Installation Options](#installation---options)
 
 ## Quick Start
 
@@ -119,7 +122,7 @@ The agent now has access to `centian.task_*` tools alongside your normal MCP too
 
 ### 1. One gateway, all your MCP servers
 
-Configure your MCP servers once in Centian. Point every client at `localhost:8080`. Tool namespacing (`<server>_<tool>`) eliminates collisions automatically.
+Configure your MCP servers once in Centian. Point every client at `localhost:9666`. Tool namespacing (`<server>_<tool>`) eliminates collisions automatically.
 
 ```json
 {
@@ -140,7 +143,7 @@ Every client connects to one endpoint:
 {
   "mcpServers": {
     "centian": {
-      "url": "http://127.0.0.1:8080/mcp/default",
+      "url": "http://127.0.0.1:9666/mcp/default",
       "headers": { "X-Centian-Auth": "<your-api-key>" }
     }
   }
@@ -183,9 +186,6 @@ The frozen execution contract is key: once planning completes, the agent reads f
 
 **Per-phase tool governance:** each workflow node can declare which MCP tools the agent is allowed to call. During an approval-wait phase, all downstream tools are blocked. During scaffolding, you might allow filesystem access but block shell commands.
 
-<!-- TODO: Add screenshot of task run UI showing phases, events, and inspector -->
-<!-- ![Task Run Detail](docs/images/task_run_detail.png) -->
-
 ### 4. Full observability
 
 Every MCP tool call is captured with timestamps, session IDs, request/response payloads, and — when task verification is active — the workflow context that produced it.
@@ -202,7 +202,7 @@ Without task verification, Centian logs events via structured JSONL and a querya
 centian logs
 
 # Embedded UI (when task verification + UI are enabled)
-# http://localhost:8080/ui/tasks
+# http://localhost:9666/ui/tasks
 ```
 
 ---
@@ -211,12 +211,12 @@ centian logs
 
 The deep documentation lives under [`docs/`](docs/README.md).
 
-- [Getting Started](docs/getting-started.md)
-- [Configuration Reference](docs/configuration-reference.md)
-- [Processor Development](docs/processor-development.md)
+- [Getting Started](docs/getting_started.md)
+- [Configuration Reference](docs/configuration_reference.md)
+- [Processor Development](docs/processor_development_guide.md)
 - [Task Template Authoring](docs/task-template-authoring.md)
 - [Taskverification Runtime](docs/TASKVERIFICATION.md)
-- [MCP Proxy Best Practices](docs/mcp-proxy-best-practices.md)
+- [MCP Proxy Best Practices](docs/mcp_proxy_best_practices.md)
 
 ## Task Templates
 
@@ -248,7 +248,7 @@ Centian uses a single JSON config at `~/.centian/config.json`.
   "authHeader": "X-Centian-Auth",
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info",
     "capabilities": {
@@ -274,8 +274,8 @@ Centian uses a single JSON config at `~/.centian/config.json`.
 
 ### Endpoints
 
-- Aggregated gateway: `http://127.0.0.1:8080/mcp/<gateway>`
-- Individual server: `http://127.0.0.1:8080/mcp/<gateway>/<server>`
+- Aggregated gateway: `http://127.0.0.1:9666/mcp/<gateway>`
+- Individual server: `http://127.0.0.1:9666/mcp/<gateway>/<server>`
 
 In aggregated mode, tools are namespaced to avoid collisions.
 
@@ -300,12 +300,28 @@ Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured. This pr
 
 ---
 
-## Installation - From source
+## Installation - Options
+
+### Release binaries
+
+Download the appropriate archive from the [latest release](https://github.com/T4cceptor/centian/releases/latest), extract it, and place `centian` on your `PATH`.
+
+### Docker
+
+```bash
+# Full image
+docker run --rm -p 9666:9666 t4ce/centian:latest
+
+# Alpine image
+docker run --rm -p 9666:9666 t4ce/centian:latest-alpine
+```
+
+### Build from source
 
 ```bash
 git clone https://github.com/T4cceptor/centian.git
 cd centian
-go build -o build/centian ./cmd/main.go
+make install
 ```
 
 ---
