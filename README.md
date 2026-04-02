@@ -1,12 +1,18 @@
 # Centian
 
-**Control plane for AI agents** — enforce structured workflows, govern tool access, and inspect every action your agent takes.
+[![Release](https://img.shields.io/github/v/release/T4cceptor/centian)](https://github.com/T4cceptor/centian/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/T4cceptor/centian/ci.yml?branch=main)](https://github.com/T4cceptor/centian/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/T4cceptor/centian)](./LICENSE)
 
-Centian sits between your AI agents and their MCP servers. All tool calls flow through Centian's proxy, giving you a single point of control for aggregation, middleware processing, workflow enforcement, and full observability.
+
+**Control plane for AI agents** — enforce structured workflows, govern tool access, and inspect every action your agent takes.
 
 <div align="center">
   <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance" width="80%">
 </div>
+<br>
+
+Centian sits between your AI agents and their MCP servers. All tool calls flow through Centian's proxy, giving you a single point of control for aggregation, middleware processing, workflow enforcement, and full observability.
 
 ---
 
