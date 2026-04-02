@@ -35,29 +35,37 @@ Centian solves all four.
 curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-For more options see [Installation Options](#installation---options)
+For other options (release binaries, Docker, source build) see [Installation Options](#installation-options)
 
 ## Quick Start
 
-### Local Demo (requires npx + claude/gemini)
-- Claude code (using sonnet):
+### Local Demo
+
+**Prerequisites**: Before running `centian demo`, make sure you have:
+
+- `npx` available on your `PATH` - required to launch filesystem and shell MCP servers
+- Claude Code or Gemini CLI installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or not signed in.
+
+**Claude Code** (sonnet)
 ```bash
 centian demo -a claude
 ```
-- Gemini CLI (using gemini-2.5-flash):
+
+**Gemini CLI** (gemini-2.5-flash)
 ```bash
 centian demo -a gemini
 ```
-- Codex: coming soon
 
-What this does:
+**Codex:** coming soon
+
+**What the demo shows**
 - Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
 - Start Centian server locally at an available port (selected automatically).
 - Start selected coding agent in headless mode with [prompt](internal/agentrunner/assets/prompt.md).
 - The Centian UI is opened in a new browser window showing the task overview page UI - once the agent registers the task at Centian you can check what the agent is doing by clicking on it and observing the MCP events.
 - After the agent is done the CLI will prompt you if you want to close the server. Feel free to do so, you can run the demo multiple times, also with different agents - previous runs will be preserved.
 
-**Note:** the demo is intended to showcase Centians capabilities and get a first impression, it is NOT a production-grade setup (e.g. `auth = false`, using `127.0.0.1`). If you want to use Centian do NOT copy-paste or reference the created config, checkout [Configuration](#configuration) for how to setup your own centian proxy.
+**Note:** the demo is intended to showcase Centian's capabilities and get a first impression, it is NOT a production-grade setup (e.g. `auth = false`, using `127.0.0.1`). If you want to use Centian do NOT copy-paste or reference the created config, check out [Configuration](#configuration) for how to setup your own centian proxy.
 
 ### Using `init` for basic proxy setup (no task verification)
 
@@ -306,7 +314,7 @@ Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured. This pr
 
 ---
 
-## Installation - Options
+## Installation Options
 
 ### Release binaries
 
