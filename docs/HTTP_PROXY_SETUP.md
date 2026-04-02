@@ -1,12 +1,14 @@
 # HTTP Proxy Server Setup
 
-The `centian start` command launches an HTTP proxy server that forwards requests to configured MCP servers.
+The `centian start` command launches an HTTP proxy server that forwards requests to configured MCP servers and, optionally, exposes Centian-owned capabilities such as taskverification and the embedded UI.
+
+This guide focuses on practical setup and deployment. For the full config surface, use [configuration-reference.md](./configuration-reference.md).
 
 ## Quick Start
 
-### 1. Create a Configuration File
+### 1. Create a configuration file
 
-Create `~/.centian/config.json` with your MCP server configurations:
+Create `~/.centian/config.json` with at least one gateway and one active MCP server:
 
 ```json
 {
@@ -15,9 +17,11 @@ Create `~/.centian/config.json` with your MCP server configurations:
   "auth": true,
   "authHeader": "X-Centian-Auth",
   "proxy": {
+    "host": "127.0.0.1",
     "port": "8080",
     "timeout": 30,
-    "logLevel": "info"
+    "logLevel": "info",
+    "logOutput": "file"
   },
   "gateways": {
     "production": {
@@ -25,8 +29,7 @@ Create `~/.centian/config.json` with your MCP server configurations:
         "github": {
           "url": "https://api.githubcopilot.com/mcp/",
           "headers": {
-            "Authorization": "Bearer ${GITHUB_PAT}",
-            "Content-Type": "application/json"
+            "Authorization": "Bearer ${GITHUB_PAT}"
           },
           "enabled": true,
           "description": "GitHub MCP server"
@@ -37,28 +40,41 @@ Create `~/.centian/config.json` with your MCP server configurations:
 }
 ```
 
-### 2. Create API Keys (Required When auth=true)
+### 2. Create API keys when `auth=true`
 
-Generate a key and store its hash:
+Generate a key:
 
 ```bash
 centian auth new-key
 ```
 
-This prints the API key once and writes the hashed entry to:
-`~/.centian/api_keys.json`.
+This prints the API key once and writes the hashed entry to `~/.centian/api_keys.json`.
 
-If you want to disable auth for local testing, set `"auth": false` in your config instead.
+The file stores bcrypt hashes plus metadata, not plaintext keys. The on-disk shape is:
+
+```json
+{
+  "keys": [
+    {
+      "id": "key_0123456789abcdef",
+      "hash": "$2a$10$...",
+      "created_at": "2026-04-02T10:30:00Z"
+    }
+  ]
+}
+```
+
+If you disable auth for local testing, set `"auth": false` in your config instead.
 
 Clients must include the proxy auth header in requests:
 
-```
+```text
 X-Centian-Auth: <your-api-key>
 ```
 
 This header is reserved for proxy auth and is not forwarded to downstream servers.
 
-### 3. Set Environment Variables
+### 3. Set environment variables
 
 If your configuration uses environment variable substitution:
 
@@ -66,7 +82,9 @@ If your configuration uses environment variable substitution:
 export GITHUB_PAT=your_github_personal_access_token
 ```
 
-### 4. Start the Server
+Centian currently expands both `${VAR}` and `$VAR` inside HTTP header values. Expansion uses the current process environment, so unset variables become empty strings rather than causing config load to fail.
+
+### 4. Start the server
 
 ```bash
 # Using default config path (~/.centian/config.json)
@@ -76,127 +94,57 @@ centian start
 centian start --config-path ./my-config.json
 ```
 
-### 5. Access Your MCP Servers
+### 5. Access your MCP servers
 
-Your configured servers are now accessible at:
+Centian exposes two route styles:
 
-```
-http://localhost:{port}/mcp/{gateway}/{server}
-```
+- aggregated gateway route:
+  - `http://localhost:{port}/mcp/{gateway}`
+- single-server route:
+  - `http://localhost:{port}/mcp/{gateway}/{server}`
 
-Example:
-- Config: `gateways.production.mcpServers.github`
-- Endpoint: `http://localhost:8080/mcp/production/github`
+Examples:
 
-## Configuration Reference
+- config path `gateways.production.mcpServers.github`
+- aggregated endpoint `http://localhost:8080/mcp/production`
+- single-server endpoint `http://localhost:8080/mcp/production/github`
 
-### Global Config Structure
+The aggregated route is usually the better MCP client target because Centian namespaces downstream tools to avoid collisions.
 
-```json
-{
-  "name": "string",           // Server name for identification
-  "version": "string",        // Config schema version (required)
-  "auth": boolean,            // Enable/disable proxy auth (default: true)
-  "authHeader": "string",     // Header name for proxy auth (default: X-Centian-Auth)
-  "proxy": {
-    "port": "string",         // HTTP server port (e.g., "8080")
-    "timeout": number,        // Request timeout in seconds
-    "logLevel": "string"      // Log level: debug, info, warn, error
-  },
-  "gateways": {
-    "{gateway-name}": {
-      "mcpServers": {
-        "{server-name}": {
-          "url": "string",              // MCP server URL
-          "headers": {                  // HTTP headers to forward
-            "key": "value"
-          },
-          "enabled": boolean,           // Whether server is active
-          "description": "string"       // Human-readable description
-        }
-      }
-    }
-  },
-  "processors": [],           // Optional processor chain for proxied tool-call handling
-  "metadata": {}             // Additional metadata
-}
+### 6. Smoke-test the endpoint
+
+Once Centian is running, confirm the proxy responds before wiring it into an MCP client:
+
+```bash
+curl -i \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'X-Centian-Auth: <your-api-key>' \
+  http://127.0.0.1:8080/mcp/production
 ```
 
-### Environment Variable Substitution
+For most setups, the more useful real test is from the MCP client itself: point the client at the aggregated route first, confirm tool discovery works, then narrow to a single-server route only if you need to isolate one downstream.
 
-Headers support automatic environment variable substitution:
+## Practical Setup Patterns
 
-```json
-{
-  "headers": {
-    "Authorization": "Bearer ${GITHUB_PAT}",
-    "X-API-Key": "${API_KEY}",
-    "X-Custom": "prefix-${ENV_VAR}-suffix"
-  }
-}
-```
-
-Supports both `${VAR}` and `$VAR` syntax.
-
-### API Key Storage Format
-
-API keys are stored hashed with bcrypt in `~/.centian/api_keys.json`:
-
-```json
-{
-  "keys": [
-    {
-      "id": "key_8f2a9c4d2f5b1a0c",
-      "hash": "$2a$10$...",
-      "created_at": "2026-01-30T12:00:00Z"
-    }
-  ]
-}
-```
-
-### Multiple Gateways
-
-Organize servers by environment, team, or purpose:
-
-```json
-{
-  "gateways": {
-    "production": {
-      "mcpServers": {
-        "github": { "url": "https://api.githubcopilot.com/mcp/" }
-      }
-    },
-    "staging": {
-      "mcpServers": {
-        "github-staging": { "url": "https://staging.api.github.com/mcp/" }
-      }
-    },
-    "development": {
-      "mcpServers": {
-        "local-server": { "url": "http://localhost:3000/mcp/" }
-      }
-    }
-  }
-}
-```
-
-## Usage Examples
-
-### Example 1: Single Server Setup
+### Single local stdio server
 
 ```json
 {
   "name": "Simple Setup",
   "version": "1.0.0",
+  "auth": true,
   "proxy": {
+    "host": "127.0.0.1",
     "port": "8080",
     "timeout": 30
   },
   "gateways": {
     "main": {
       "mcpServers": {
-        "my-server": {
-          "url": "http://localhost:3000/mcp/",
+        "memory": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-memory"],
           "enabled": true
         }
       }
@@ -205,34 +153,30 @@ Organize servers by environment, team, or purpose:
 }
 ```
 
-Access at: `http://localhost:8080/mcp/main/my-server`
-
-### Example 2: Multiple Servers with Authentication
+### Aggregated gateway with multiple downstreams
 
 ```json
 {
-  "name": "Multi-Server Setup",
+  "name": "Workbench Setup",
   "version": "1.0.0",
+  "auth": true,
   "proxy": {
+    "host": "127.0.0.1",
     "port": "8080",
     "timeout": 30
   },
   "gateways": {
-    "apis": {
+    "workbench": {
       "mcpServers": {
-        "github": {
-          "url": "https://api.githubcopilot.com/mcp/",
-          "headers": {
-            "Authorization": "Bearer ${GITHUB_PAT}"
-          },
-          "enabled": true
+        "filesystem": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
         },
-        "anthropic": {
-          "url": "https://api.anthropic.com/mcp/",
+        "remote-docs": {
+          "url": "https://example.com/mcp",
           "headers": {
-            "X-API-Key": "${ANTHROPIC_API_KEY}"
-          },
-          "enabled": true
+            "Authorization": "Bearer ${REMOTE_DOCS_TOKEN}"
+          }
         }
       }
     }
@@ -240,37 +184,38 @@ Access at: `http://localhost:8080/mcp/main/my-server`
 }
 ```
 
-Access at:
-- `http://localhost:8080/mcp/apis/github`
-- `http://localhost:8080/mcp/apis/anthropic`
-
-### Example 3: Development vs Production
+### Taskverification-enabled setup
 
 ```json
 {
-  "name": "Multi-Environment Setup",
+  "name": "Task Setup",
   "version": "1.0.0",
+  "auth": true,
   "proxy": {
+    "host": "127.0.0.1",
     "port": "8080",
-    "timeout": 30
+    "timeout": 30,
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "task-templates",
+        "idleTimeoutSeconds": 900
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite"
+      },
+      "ui": {
+        "enabled": true
+      }
+    }
   },
   "gateways": {
-    "production": {
+    "default": {
       "mcpServers": {
-        "api": {
-          "url": "https://api.production.com/mcp/",
-          "headers": {
-            "Authorization": "Bearer ${PROD_TOKEN}"
-          },
-          "enabled": true
-        }
-      }
-    },
-    "development": {
-      "mcpServers": {
-        "api": {
-          "url": "http://localhost:3000/mcp/",
-          "enabled": true
+        "filesystem": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
         }
       }
     }
@@ -278,88 +223,116 @@ Access at:
 }
 ```
 
-Switch between environments by changing the endpoint:
-- Production: `http://localhost:8080/mcp/production/api`
-- Development: `http://localhost:8080/mcp/development/api`
+## Current Auth Behavior
 
-## Testing
+- `auth` defaults to `true`
+- if auth is enabled, clients must send a valid API key in the configured auth header
+- if auth is disabled, Centian allows unauthenticated access to the proxy
+- binding to `0.0.0.0` requires `auth` to be set explicitly in config
 
-### Integration Tests
+## Current Capability Notes
 
-Run the integration tests to verify your setup:
+### Taskverification
 
-```bash
-# Run server integration tests
-go test -v ./internal/cli -run TestServerStartIntegration
+- `taskVerification.enabled` exposes `centian.task_*` tools
+- runtime disk templates load from `task-templates/` by default
+- embedded templates also load from `task-templates/integrated/`
+- taskverification command execution uses Centian's startup working directory
 
-# Run config validation tests
-go test -v ./internal/cli -run TestConfigFileValidation
+### Event storage and UI
+
+- `eventStorage.enabled` persists task and action events to SQLite
+- the task run API depends on event storage
+- the embedded UI depends on event storage plus `ui.enabled`
+
+## Downstream OAuth
+
+Centian supports downstream OAuth for HTTP MCP servers. When any downstream server enables OAuth:
+
+- `proxy.web.publicBaseUrl` becomes required
+- it must be a valid `http://` or `https://` URL
+- the downstream server must be configured with `url`, not `command`
+
+Minimal shape:
+
+```json
+{
+  "proxy": {
+    "web": {
+      "publicBaseUrl": "http://127.0.0.1:8080"
+    }
+  },
+  "gateways": {
+    "default": {
+      "mcpServers": {
+        "protected-server": {
+          "url": "https://example.com/mcp",
+          "oauth": {
+            "enabled": true,
+            "clientId": "${OAUTH_CLIENT_ID}",
+            "clientSecret": "${OAUTH_CLIENT_SECRET}",
+            "resource": "https://example.com/mcp",
+            "issuer": "https://issuer.example"
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
-### Manual Testing
+## Operational Notes
 
-1. Start the server:
-   ```bash
-   centian start --config-path ./tests/test_configs/example_http_proxy_config.json
-   ```
-
-2. In another terminal, test with curl:
-   ```bash
-   # List tools
-   curl -X POST http://localhost:8080/mcp/production/github \
-     -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-   ```
-
-## Troubleshooting
-
-### Server Won't Start
-
-**Problem**: `failed to load config: configuration file not found`
-
-**Solution**:
-- Run `centian init` to create default config
-- Or specify config path: `centian start --config-path ./config.json`
-
-You can also run `centian config init` to create an empty config and work from there.
-
-### Connection Refused
-
-**Problem**: Client can't connect to proxy
-
-**Solution**:
-- Check server is running
-- Verify port isn't already in use: `lsof -i :{port}`
-- Check firewall settings
-
-### Authentication Errors
-
-**Problem**: Downstream server returns 401/403
-
-**Solution**:
-- Verify environment variables are set: `echo $GITHUB_PAT`
-- Check header syntax in config
-- Ensure variable names match exactly (case-sensitive)
-
-### Invalid Configuration
-
-**Problem**: `invalid configuration: version field is required`
-
-**Solution**:
-- Add `"version": "1.0.0"` to your config
-- Validate JSON syntax
-- Check required fields are present
+- gateway and server names must be URL-safe
+- each server must define exactly one transport: `command` or `url`
+- HTTP server headers support `${VAR}` and `$VAR` environment substitution
+- Centian always registers the aggregated gateway route and the single-server routes for active servers
 
 ## Graceful Shutdown
 
-Press `Ctrl+C` to gracefully shutdown the server. The server will:
-1. Stop accepting new connections
-2. Wait for active requests to complete (up to 10 seconds)
-3. Close all connections
-4. Exit cleanly
+Centian handles `SIGINT` and `SIGTERM` and attempts a graceful HTTP shutdown with a 10 second timeout.
 
-## Next Steps
+Normal local flow:
 
-- [Configuration Management](./CONFIG_MANAGEMENT.md)
-- [Processor Chains](./PROCESSORS.md)
-- [API Reference](./API_REFERENCE.md)
+- start with `centian start`
+- stop with `Ctrl+C`
+- wait for the shutdown log line before assuming the listener is gone
+
+This only shuts down the Centian HTTP server gracefully. Any downstream behavior still depends on the specific stdio or HTTP server being proxied.
+
+## Troubleshooting
+
+`401 unauthorized`
+
+- confirm `auth` is enabled or intentionally disabled
+- confirm the client sends the configured auth header name
+- confirm the plaintext key you copied is the one printed by `centian auth new-key`
+
+`api key auth enabled but key file not found`
+
+- run `centian auth new-key`
+- confirm `~/.centian/api_keys.json` exists and is readable by the current user
+
+`missing downstream auth header`
+
+- confirm the relevant environment variables are exported in the same shell that starts Centian
+- remember that unset variables expand to empty strings in HTTP headers
+
+`404` on `/mcp/...`
+
+- confirm the gateway and server names match the config exactly
+- confirm the server is `enabled: true`
+- prefer testing the aggregated `/mcp/{gateway}` route first
+
+`downstream OAuth does not start`
+
+- confirm the downstream server uses `url`, not `command`
+- confirm `proxy.web.publicBaseUrl` is set to the externally reachable proxy base URL
+- confirm the OAuth-enabled downstream block includes the expected client and issuer settings
+
+## Recommended Reads
+
+- [getting-started.md](./getting-started.md)
+- [configuration-reference.md](./configuration-reference.md)
+- [TASKVERIFICATION.md](./TASKVERIFICATION.md)
+- [mcp-proxy-best-practices.md](./mcp-proxy-best-practices.md)

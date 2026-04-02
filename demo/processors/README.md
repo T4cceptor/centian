@@ -20,7 +20,7 @@ Published ports are bound to `127.0.0.1` by default.
 
 Both gateways are served by the same Centian instance on `localhost:8576`.
 
-For the general processor contract and configuration model, see [../../docs/processor-development.md](../../docs/processor-development.md).
+For the general processor contract and configuration model, see [../../docs/processor_development_guide.md](../../docs/processor_development_guide.md).
 
 ## Quickstart
 

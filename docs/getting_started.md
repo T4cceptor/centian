@@ -170,7 +170,7 @@ Taskverification is usually paired with `eventStorage`, and the UI only appears 
 
 ## 8. Next Reads
 
-- [Configuration Reference](configuration-reference.md)
-- [Processor Development](processor-development.md)
+- [Configuration Reference](configuration_reference.md)
+- [Processor Development Guide](processor_development_guide.md)
 - [Taskverification Runtime](TASKVERIFICATION.md)
-- [Task Template Authoring](task-template-authoring.md)
+- [Task Template Authoring](TASK_TEMPLATE_AUTHORING.md)

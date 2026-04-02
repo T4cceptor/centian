@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Centian uses a single JSON config, usually at `~/.centian/config.json`.
+Centian uses a single JSON config, by default at `~/.centian/config.json`.
 
 This page describes the current user-facing configuration surface as implemented in `internal/config/config.go` and the server startup path.
 
@@ -90,8 +90,6 @@ Each gateway is keyed by its gateway name. Gateway names must be URL-safe: lette
 
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `allowDynamic` | boolean | No | `false` | Accepted in config but not currently used by `centian start`. Treat as reserved. |
-| `setupGateway` | boolean | No | `false` | Accepted in config but not currently used by `centian start`. Aggregated gateway routes are registered regardless. |
 | `mcpServers` | object | Yes in strict mode | none | Map of server name to MCP server config. |
 | `processors` | array | No | `[]` | Gateway-level processor chain appended after global processors. |
 
@@ -312,7 +310,7 @@ Webhook runtime behavior:
 
 ## Related Guides
 
-- [Getting Started](getting-started.md)
-- [Processor Development](processor-development.md)
+- [Getting Started](getting_started.md)
+- [Processor Development Guide](processor_development_guide.md)
 - [Taskverification Runtime](TASKVERIFICATION.md)
-- [Task Template Authoring](task-template-authoring.md)
+- [Task Template Authoring](TASK_TEMPLATE_AUTHORING.md)

@@ -21,7 +21,7 @@ Use a single-server route when:
 
 Use the aggregated gateway when:
 
-- an agent needs several tools at once
+- an agent needs several tools at once - e.g. for workflow management (taskverification)
 - you want Centian to namespace tools cleanly
 - you want one MCP client entry instead of several
 
@@ -152,7 +152,7 @@ Treat them as reserved fields for now rather than active controls.
 
 ## Related Reads
 
-- [Getting Started](getting-started.md)
-- [Configuration Reference](configuration-reference.md)
-- [Processor Development](processor-development.md)
-- [Task Template Authoring](task-template-authoring.md)
+- [Getting Started](getting_started.md)
+- [Configuration Reference](configuration_reference.md)
+- [Processor Development Guide](processor_development_guide.md)
+- [Task Template Authoring](TASK_TEMPLATE_AUTHORING.md)

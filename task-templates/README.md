@@ -4,7 +4,7 @@ Task templates are YAML files used by Centian taskverification to define a task 
 
 Canonical authoring guide:
 
-- [Task Template Authoring](../docs/task-template-authoring.md)
+- [Task Template Authoring](../docs/TASK_TEMPLATE_AUTHORING.md)
 
 Packaging rule:
 

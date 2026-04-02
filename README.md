@@ -12,7 +12,7 @@ Centian sits between your AI agents and their MCP servers. All tool calls flow t
 
 ## The Problem
 
-AI agents calling MCP tools today operate without guardrails:
+AI agents calling MCP tools today operate with:
 
 - **No structure.** The agent decides what to do based on prompt text alone. There's no contract, no phased workflow, no verification that it followed a process.
 - **No visibility.** You see the final output, but not the 47 tool calls the agent made along the way — or the 3 it shouldn't have made.
@@ -23,17 +23,15 @@ Centian solves all four.
 
 ---
 
+## Installation
 
-## Quick Start
-
-The fastes way to get centian running and see what it does (requires npx and claude or gemini):
-
-#### 1. Install
 ```bash
 curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-#### 2. Run the demo
+## Quick Start
+
+### Local Demo (requires npx + claude/gemini)
 - Claude code (using sonnet):
 ```bash
 centian demo -a claude
@@ -44,18 +42,12 @@ centian demo -a gemini
 ```
 - Codex: coming soon
 
-#### 3. Watch the agent perform a small TDD task - what happens:
-1. A local demo folder is created at: `.centian/demo`
-2. Required assets are copied or created (see [here](internal/agentrunner/assets)), this includes:
-    - centian config file, containing filesystem and shell MCP servers
-    - agent config file, containing MCP configuration to point to centian
-    - task template for Python TDD - see [here](task-templates/integrated/python_tdd_workflow.yaml)
-    - logs directory for centian logs
-    - workspace directory for the agent to operate in
-3. Centian server is launched locally at an available port (selected automatically)
-4. Coding agent is launched in headless mode with [prompt](internal/agentrunner/assets/prompt.md)
-5. A Browser is opened showing the task overview page UI - once the agent registers the task at Centian you can check what the agent is doing by clicking on it and observing the MCP events.
-6. After the agent is done the CLI will prompt you if you want to close the server. Feel free to do so, you can run the demo multiple times, also with different agents - previous runs will be preserved.
+What this does:
+- Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
+- Start Centian server locally at an available port (selected automatically).
+- Start selected coding agent in headless mode with [prompt](internal/agentrunner/assets/prompt.md).
+- The Centian UI is opened in a new browser window showing the task overview page UI - once the agent registers the task at Centian you can check what the agent is doing by clicking on it and observing the MCP events.
+- After the agent is done the CLI will prompt you if you want to close the server. Feel free to do so, you can run the demo multiple times, also with different agents - previous runs will be preserved.
 
 **Note:** the demo is intended to showcase Centians capabilities and get a first impression, it is NOT a production-grade setup (e.g. `auth = false`, using `127.0.0.1`). If you want to use Centian do NOT copy-paste or reference the created config, checkout [Configuration](#configuration) for how to setup your own centian proxy.
 
@@ -67,6 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/inst
 
 # 2. Initialize with a starter MCP server
 centian init -q
+# Optional: check created config at ~/.centian/config.json
 
 # 3. Add your own MCP servers
 centian server add --name "filesystem" --command "npx" --args "-y,@modelcontextprotocol/server-filesystem,/path/to/project"
@@ -213,6 +206,17 @@ centian logs
 
 ---
 
+## Documentation
+
+The deep documentation lives under [`docs/`](docs/README.md).
+
+- [Getting Started](docs/getting-started.md)
+- [Configuration Reference](docs/configuration-reference.md)
+- [Processor Development](docs/processor-development.md)
+- [Task Template Authoring](docs/task-template-authoring.md)
+- [Taskverification Runtime](docs/TASKVERIFICATION.md)
+- [MCP Proxy Best Practices](docs/mcp-proxy-best-practices.md)
+
 ## Task Templates
 
 Templates are YAML files that define structured agent workflows. Each template specifies:
@@ -295,25 +299,13 @@ Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured. This pr
 
 ---
 
-## Installation
-
-### Script (recommended)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
-```
-
-### From source
+## Installation - From source
 
 ```bash
 git clone https://github.com/T4cceptor/centian.git
 cd centian
 go build -o build/centian ./cmd/main.go
 ```
-
-### Homebrew
-
-Coming soon.
 
 ---
 
@@ -335,7 +327,7 @@ Centian is usable and actively developed, but it's pre-1.0 with deliberate gaps.
 - Task run state is in-memory only (not restorable after restart)
 - Governance is tool-level, not semantic (no read vs. write distinction within a tool)
 - SQLite is the only storage backend (Postgres planned)
-- OAuth for downstream MCP servers is not yet supported
+- OAuth support or downstream MCP servers is limited, not all flows are supported yet
 - The UI is read-only (no task control actions from the UI yet)
 - Approval-wait phases block tools but have no dedicated approve/resume mechanism yet
 
@@ -369,86 +361,3 @@ If you're using AI agents in environments where process matters — regulated in
 ## License
 
 Apache-2.0
-
-
-
-## Quick Start
-
-1. Install Centian:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
-```
-
-Or build it locally:
-
-```bash
-go build -o build/centian ./cmd/main.go
-```
-
-2. Initialize config:
-
-```bash
-centian init -q
-```
-
-This creates `~/.centian/config.json`, adds a starter MCP server, and prints a client config snippet.
-
-3. Create another API key if needed:
-
-```bash
-centian auth new-key
-```
-
-4. Start the proxy:
-
-```bash
-centian start
-```
-
-By default Centian binds to `127.0.0.1:8080`.
-
-5. Point your MCP client at Centian:
-
-```json
-{
-  "mcpServers": {
-    "centian-default": {
-      "url": "http://127.0.0.1:8080/mcp/default",
-      "headers": {
-        "X-Centian-Auth": "<your-api-key>"
-      }
-    }
-  }
-}
-```
-
-## What Centian Adds
-
-- Gateway aggregation behind a single MCP endpoint.
-- Processor hooks for proxied `tools/call` requests and results.
-- Taskverification workflows with `centian.task_*` tools.
-- Durable task and action timelines when event storage is enabled.
-- An embedded read-only UI for persisted task runs.
-
-## Documentation
-
-The deep documentation lives under [`docs/`](docs/README.md).
-
-- [Getting Started](docs/getting-started.md)
-- [Configuration Reference](docs/configuration-reference.md)
-- [Processor Development](docs/processor-development.md)
-- [Task Template Authoring](docs/task-template-authoring.md)
-- [Taskverification Runtime](docs/TASKVERIFICATION.md)
-- [MCP Proxy Best Practices](docs/mcp-proxy-best-practices.md)
-
-## Demos
-
-- `centian demo` creates a self-contained local taskverification demo workspace.
-- [`demo/processors/`](demo/processors/README.md) shows gateway-level processors for logging and response redaction.
-
-## Notes
-
-- `auth` defaults to `true`.
-- Binding to `0.0.0.0` requires `auth` to be set explicitly in config.
-- Taskverification, event storage, test tools, and the UI are separate capability toggles.
