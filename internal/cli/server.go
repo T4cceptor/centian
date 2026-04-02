@@ -41,14 +41,14 @@ configured HTTP MCP server at:
 
 Configuration is loaded from ~/.centian/config.json by default.
 
-Example config structure:
-  {
-    "version": "1.0.0",
-    "name": "My Centian Server",
-    "proxy": {
-      "port": "8080",
-      "timeout": 30
-    },
+	Example config structure:
+	  {
+	    "version": "1.0.0",
+	    "name": "My Centian Server",
+	    "proxy": {
+	      "port": "9666",
+	      "timeout": 30
+	    },
     "gateways": {
       "my-gateway": {
         "mcpServers": {

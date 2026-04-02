@@ -1,10 +1,9 @@
 # How To Create a Taskverification Template
 
 **Version:** 1.0
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-04-02
 
-This guide explains how to create a new taskverification template for Centian.
-The template itself is a YAML file. This document is the Markdown authoring guide for that YAML file.
+This guide explains how to create a taskverification template for Centian. The template itself is a YAML file. This document is the Markdown authoring guide for that YAML file.
 
 Use this guide together with [TASKVERIFICATION.md](./TASKVERIFICATION.md).
 
@@ -13,7 +12,7 @@ Use this guide together with [TASKVERIFICATION.md](./TASKVERIFICATION.md).
 A taskverification template defines:
 
 - the task identity shown to the agent
-- the parameters the agent can provide
+- the parameters the agent must determine during onboarding and planning
 - the onboarding and planning phases
 - the executable workflow steps
 - the checks and invariants Centian uses to verify each step
@@ -21,20 +20,40 @@ A taskverification template defines:
 
 At runtime, Centian:
 
-1. Loads the YAML file from the configured templates directory.
-2. Validates and compiles the workflow.
-3. Registers a task run from that template.
-4. Freezes a runnable version of the template when planning completes.
-5. Uses the compiled checks and invariants to gate step execution.
+1. Loads embedded templates from `task-templates/integrated/`.
+2. Loads runtime disk templates from the configured template directory.
+3. Validates and compiles the workflow.
+4. Registers a task run from that template.
+5. Freezes a runnable version of the template when planning completes.
+6. Uses the compiled checks and invariants to gate step execution.
 
-## Where to Put the File
+## Where To Put the File
 
-Create the template as a `.yaml` or `.yml` file in the task template directory:
+There are two template locations:
 
-- default: `<current-working-directory>/task-templates`
-- override: `proxy.capabilities.taskVerification.templatesPath`
+- `task-templates/integrated/`
+  Templates here are embedded into the Centian binary.
+- `task-templates/`
+  Templates here are loaded at runtime from disk.
 
-Template IDs must be unique across every YAML file in that directory.
+By default, runtime disk templates are loaded from:
+
+```text
+<current-working-directory>/task-templates
+```
+
+You can override the runtime disk template directory with:
+
+- `proxy.capabilities.taskVerification.templatesPath`
+
+Load order:
+
+1. embedded templates from `integrated/`
+2. runtime disk templates from the configured templates directory
+
+If a runtime disk template uses the same `task.id` as an embedded template, the disk template wins.
+
+Template IDs must be unique across the final loaded template set.
 
 ## Authoring Flow
 
@@ -43,14 +62,16 @@ Create templates in this order:
 1. Define top-level metadata: `version`, `task`, `workflow`.
 2. Add `parameters` for every placeholder you want to substitute.
 3. Define `workflow.onboarding` and `workflow.planning`.
-4. Add optional `workflow.scaffolding` steps.
-5. Add required `workflow.execution` steps.
-6. Add `checks` for every executable step.
+4. Add optional `workflow.scaffolding` nodes.
+5. Add required `workflow.execution` nodes.
+6. Add `checks` for any executable node that should be verified.
 7. Add `invariants` only where output must remain stable between start and complete.
 8. Add explicit `next` edges only when the default linear order is not what you want.
-9. Load the template through Centian and fix any validation errors before using it.
+9. Load the template through Centian and fix any validation errors before using it in a real workflow.
 
 ## Minimal Working Template
+
+This example matches the current validator and runtime:
 
 ```yaml
 version: "0.1"
@@ -68,18 +89,18 @@ parameters:
     description: "Concrete test target."
   - name: "expectedError"
     description: "Stable failing output expected before the fix."
-  - name: "sourceFile"
-    description: "Implementation file expected to change."
 
 workflow:
   onboarding:
     instructions: |
-      Identify the relevant package, test target, and implementation file.
+      Identify the relevant package, test target, and expected baseline failure.
     tools_allowed:
       - "shell__*"
       - "filesystem__*"
 
   planning:
+    instructions: |
+      Freeze the commands, test target, and expected failure output.
     tools_allowed:
       - "shell__*"
       - "filesystem__*"
@@ -87,12 +108,10 @@ workflow:
       - "parameters.testCommand"
       - "parameters.testTarget"
       - "parameters.expectedError"
-      - "parameters.sourceFile"
     required_inputs:
-      - "selectedFiles"
-      - "testTarget"
       - "expectedError"
-      - "implementationTarget"
+      - "testCommand"
+      - "testTarget"
 
   execution:
     - id: "establish_failing_baseline"
@@ -106,7 +125,7 @@ workflow:
           post_conditions:
             - type: exit_code
               value: 1
-            - type: stdout_contains
+            - type: output_contains
               value: "${expectedError}"
 
     - id: "implement_fix"
@@ -117,14 +136,11 @@ workflow:
       checks:
         - id: "selected_test_passes"
           command: "${testCommand} ${testTarget}"
-          pre_conditions:
-            - type: exit_code
-              value: 1
           post_conditions:
             - type: exit_code
               value: 0
       invariants:
-        - id: "test_target_stable"
+        - id: "selected_target_stable"
           command: "printf '%s' '${testTarget}'"
 ```
 
@@ -143,7 +159,7 @@ Every template must include:
 - `workflow.planning`
 - `workflow.execution`
 
-`workflow.execution` must contain at least one executable node.
+`workflow.execution` must contain at least one executable leaf node.
 
 ### `task`
 
@@ -167,7 +183,7 @@ Rules:
 
 ## Parameters and Placeholders
 
-Use `parameters` when you want a value substituted into the YAML before execution:
+Use `parameters` when you want a value substituted into execution or scaffolding strings:
 
 ```yaml
 parameters:
@@ -175,7 +191,7 @@ parameters:
     description: "Command prefix used to run the selected test."
 ```
 
-Reference parameters with `${name}` inside any string field:
+Reference parameters with `${name}` inside string fields:
 
 ```yaml
 command: "${testCommand} ${testTarget}"
@@ -185,18 +201,25 @@ path: "${relativePath}"
 
 Rules:
 
-- Placeholder names must match `${[a-zA-Z0-9_]+}`.
-- Parameter names must be unique.
-- If `parameters` is present, every defined parameter must be used by at least one placeholder.
-- If a placeholder is used, it must be declared in `parameters`.
-- Unknown parameters passed during task registration are rejected.
-- Missing parameter values are tolerated at registration time, but planning completion fails if placeholder substitution still leaves unresolved `${...}` values.
+- placeholder names must match `${[a-zA-Z0-9_]+}`
+- parameter names must be unique
+- if `parameters` is present, every defined parameter must be used by at least one placeholder
+- if a placeholder is used, it must be declared in `parameters`
+- unknown parameters passed during planning are rejected
+- planning completion fails if required parameters are missing or blank
+
+Important:
+
+- placeholders are not allowed in `task`
+- placeholders are not allowed in `parameters`
+- placeholders are not allowed in `workflow.onboarding`
+- placeholders are not allowed in `workflow.planning`
 
 Practical guidance:
 
-- Keep parameters focused on values that vary per task run.
-- Do not create parameters for static strings that belong in the template itself.
-- Prefer relative file paths in parameters when they are later used by `file_*` conditions.
+- keep parameters focused on values that vary per task run
+- do not create parameters for static strings that belong in the template itself
+- prefer relative file paths in parameters when they are later used by `file_*` conditions
 
 ## Workflow Structure
 
@@ -229,6 +252,39 @@ Supported fields:
 - `tools_allowed`
 - `checkpoint.enabled`
 
+Onboarding completion currently stores this artifact shape:
+
+```json
+{
+  "taskSummary": "Investigate the flaky OAuth reconnect flow and identify the affected tests.",
+  "artifactMap": [
+    {
+      "path": "internal/oauth/store.go",
+      "kind": "source",
+      "notes": "Token persistence and refresh handling."
+    }
+  ],
+  "commonCommands": [
+    {
+      "command": "GOCACHE=/tmp/centian-gocache go test ./tests/integrationtests/oauth",
+      "purpose": "Run OAuth integration coverage."
+    }
+  ],
+  "constraints": [
+    "Do not change public CLI behavior."
+  ],
+  "openQuestions": [
+    "Is the bug specific to reconnect after refresh expiry?"
+  ]
+}
+```
+
+Rules:
+
+- `taskSummary` is required
+- `artifactMap`, `commonCommands`, `constraints`, and `openQuestions` are optional
+- onboarding artifacts are stored as task context only; they do not substitute placeholders directly
+
 ### Planning
 
 Use planning to freeze the execution contract.
@@ -236,7 +292,7 @@ Use planning to freeze the execution contract.
 ```yaml
 planning:
   instructions: |
-    Confirm the concrete target files and expected failure mode.
+    Confirm the concrete target values and expected failure mode.
   tools_allowed:
     - "shell__*"
     - "filesystem__*"
@@ -244,7 +300,7 @@ planning:
     - "parameters.testCommand"
     - "parameters.testTarget"
   required_inputs:
-    - "selectedFiles"
+    - "testCommand"
     - "testTarget"
   next: "execution.establish_failing_baseline"
 ```
@@ -260,37 +316,54 @@ Supported fields:
 
 Rules for `editable_fields`:
 
-- Each value must be unique.
-- Only `parameters.<name>` is supported.
-- `<name>` must refer to a declared or placeholder-derived parameter.
+- each value must be unique
+- only `parameters.<name>` is supported
+- `<name>` must refer to a declared or placeholder-derived parameter
 
 Rules for `required_inputs`:
 
-- Each value must be unique.
-- Only these outputs are supported:
-  - `selectedFiles`
-  - `testTarget`
-  - `lintCommand`
-  - `expectedError`
-  - `implementationTarget`
-  - `invariants`
+- each value must be unique
+- the set of values must match the template parameter names exactly
 
-These outputs map to fields on the planning artifact sent to `centian.task_complete_planning`.
+These names refer to entries that must be present in `planning.parameters` when `centian.task_complete_planning` is called.
 
-In addition to any template-specific planning parameters, every planning artifact must include:
+Every planning artifact must include:
 
-- `planSummary`: non-empty string describing the execution-defining plan that should be frozen at planning completion
+- `planSummary`
 
-Template-derived planning outputs map to these artifact fields:
+Optional planning artifact fields are:
 
-- `selectedFiles`: non-empty `[]string`, each entry trimmed and unique
-- `testTarget`: non-empty string
-- `lintCommand`: non-empty string
-- `expectedError`: non-empty string
-- `implementationTarget`: non-empty string
-- `invariants`: non-empty `[]string`, each entry trimmed and unique
+- `selectedFiles`
+- `parameters`
+- `invariants`
 
-If `planning.next` is omitted, Centian automatically advances to the first executable step after planning.
+Typical planning completion payload:
+
+```json
+{
+  "planSummary": "Reproduce the failing target, patch refresh handling, then rerun the focused tests.",
+  "selectedFiles": [
+    "internal/oauth/store.go",
+    "tests/integrationtests/oauth/reconnect_test.go"
+  ],
+  "parameters": {
+    "testCommand": "GOCACHE=/tmp/centian-gocache go test",
+    "testTarget": "./tests/integrationtests/oauth -run TestOAuthExpiredTokenRefreshesDuringReconnect",
+    "expectedError": "token refresh failed"
+  },
+  "invariants": [
+    "Do not change the reconnect API contract."
+  ]
+}
+```
+
+Important:
+
+- `planning.parameters` is where template parameter values are frozen
+- the artifact-level `invariants` list is descriptive contract metadata, separate from step-level executable `invariants`
+- `required_inputs` is checked against the template parameter names, not against `selectedFiles` or any other artifact field
+
+If `planning.next` is omitted, Centian automatically advances to the first executable node after planning.
 
 ### Scaffolding
 
@@ -336,8 +409,7 @@ execution:
             value: 0
 ```
 
-Executable leaf nodes may omit `checks` entirely.
-This is useful for free-form templates that are intended to track and monitor a task run without enforcing verification at each step.
+Executable leaf nodes may omit `checks` entirely. This is useful for free-form templates that are intended to track a task run without enforcing verification at each step.
 
 ## Execution Nodes
 
@@ -359,8 +431,8 @@ Scaffolding and execution lists use the same node schema:
     - id: "selected_test_passes"
       command: "${testCommand} ${testTarget}"
   invariants:
-    - id: "test_file_stable"
-      command: "cat ${testFile}"
+    - id: "target_stable"
+      command: "printf '%s' '${testTarget}'"
   next: "waiting_for_approval.review_plan"
 ```
 
@@ -380,18 +452,16 @@ Supported fields:
 
 Rules:
 
-- `id` is required.
-- Node IDs must be unique across the whole workflow, not just inside one list.
-- `kind` defaults to the containing list kind:
-  - nodes under `scaffolding` default to `scaffolding`
-  - nodes under `execution` default to `execution`
-- The only non-default `kind` currently allowed is `waiting_for_approval`.
-- `checks` are optional. If provided, they must be valid.
-- `invariants` are optional. If provided, they must be valid.
+- `id` is required
+- node IDs must be unique across the whole workflow, not just inside one list
+- `kind` defaults to the containing list kind
+- the only non-default `kind` currently allowed is `waiting_for_approval`
+- `checks` are optional; if provided, they must be valid
+- `invariants` are optional; if provided, they must be valid
 
 ## Checks
 
-Checks are the actual verification units run by Centian.
+Checks are the verification units run by Centian.
 
 ```yaml
 checks:
@@ -403,17 +473,17 @@ checks:
     post_conditions:
       - type: exit_code
         value: 1
-      - type: stdout_contains
+      - type: output_contains
         value: "${expectedError}"
 ```
 
 Rules:
 
-- Each check needs `id`.
-- Check IDs must be unique within the step.
-- Each check needs `command`.
-- `pre_conditions` are evaluated when `centian.task_start_step` runs.
-- `post_conditions` are evaluated when `centian.task_complete_step` runs.
+- each check needs `id`
+- check IDs must be unique within the step
+- each check needs `command`
+- `pre_conditions` are evaluated when `centian.task_start_step` runs
+- `post_conditions` are evaluated when `centian.task_complete_step` runs
 
 ### Supported Condition Types
 
@@ -437,26 +507,43 @@ Rules:
 - required field: `value`
 - `value` must be a non-empty string
 
+`output_contains`
+
+- required field: `value`
+- `value` must be a non-empty string
+
+`output_not_contains`
+
+- required field: `value`
+- `value` must be a non-empty string
+
+Condition semantics:
+
+- `stdout_*` conditions only evaluate captured stdout
+- `output_*` conditions evaluate the combined command output, meaning stdout plus stderr when both are present
+- use `stdout_*` when the command has a stable stdout contract
+- use `output_*` when the relevant failure signal may appear on stderr
+
 `file_exists`
 
 - required field: `path`
-- `path` must be relative to the service working directory
+- `path` must be relative to the taskverification working directory
 
 `file_not_exists`
 
 - required field: `path`
-- `path` must be relative to the service working directory
+- `path` must be relative to the taskverification working directory
 
 `file_contains`
 
 - required fields: `path`, `value`
-- `path` must be relative to the service working directory
+- `path` must be relative to the taskverification working directory
 - `value` must be a non-empty string
 
 `file_not_contains`
 
 - required fields: `path`, `value`
-- `path` must be relative to the service working directory
+- `path` must be relative to the taskverification working directory
 - `value` must be a non-empty string
 
 Path safety rules for all `file_*` conditions:
@@ -470,17 +557,17 @@ Invariants capture stdout at step start and require the same stdout at step comp
 
 ```yaml
 invariants:
-  - id: "test_file_stable"
-    command: "cat ${testFile}"
+  - id: "target_stable"
+    command: "printf '%s' '${testTarget}'"
 ```
 
 Rules:
 
-- Each invariant needs `id`.
-- Invariant IDs must be unique within the step.
-- Each invariant needs `command`.
-- Invariant commands must exit with code `0` during capture and verification.
-- Verification compares stdout exactly.
+- each invariant needs `id`
+- invariant IDs must be unique within the step
+- each invariant needs `command`
+- invariant commands must exit with code `0` during capture and verification
+- verification compares stdout exactly
 
 Use invariants when a file, selector, or other derived output must remain unchanged for the duration of a step.
 
@@ -504,11 +591,9 @@ execution:
 
 Behavior:
 
-- Centian compiles only leaf nodes into executable steps.
-- Leaf workflow paths are built from IDs:
-  - `execution.implement.update_tests`
-  - `execution.implement.update_code`
-- Step order follows leaf discovery order.
+- Centian compiles only leaf nodes into executable steps
+- leaf workflow paths are built from IDs
+- step order follows leaf discovery order
 
 Rules for nodes with `sub_steps`:
 
@@ -523,213 +608,72 @@ You can insert manual approval pauses by using `kind: waiting_for_approval` insi
 
 ```yaml
 execution:
+  - id: "implement_fix"
+    next: "waiting_for_approval.review_plan"
+
   - id: "review_plan"
     kind: "waiting_for_approval"
+    name: "Review plan"
     instructions: |
-      Wait for approval before implementation starts.
-    next: "execution.implement_fix"
-
-  - id: "implement_fix"
-    checks:
-      - id: "selected_test_passes"
-        command: "${testCommand} ${testTarget}"
+      Wait for external review before continuing.
+    next: "execution.finalize"
 ```
+
+Behavior:
+
+- active workflow paths for these nodes are under `waiting_for_approval.<id>`
+- all proxied downstream tools are blocked while the run is in an approval-wait node
+- approval-wait nodes may target later executable nodes through `next`
 
 Rules:
 
-- waiting nodes cannot define `checks`
-- waiting nodes cannot define `invariants`
-- a waiting node cannot be terminal; it must define or inherit a valid next step
-- active workflow paths for these nodes are under `waiting_for_approval.<id>`
+- `waiting_for_approval` nodes cannot define `checks`
+- `waiting_for_approval` nodes cannot define `invariants`
+- `waiting_for_approval` nodes cannot define `sub_steps`
+- `waiting_for_approval` nodes must not be terminal; they need a valid `next`
 
-Step execution is not allowed while the run is parked in a waiting-for-approval node.
+## Working Directory Behavior
 
-## Transition Rules
+Task template commands run from Centian's taskverification working directory, which is the current working directory of the Centian process at startup.
 
-Centian wires transitions like this:
+That working directory affects:
 
-- `onboarding` always moves to `planning`
-- `planning` moves to `planning.next` if set, otherwise to the first executable leaf node
-- each executable leaf node moves to its explicit `next` if set
-- otherwise each executable leaf node moves to the next compiled leaf node in order
-- the final executable leaf node completes the task if it has no next node
+- `checks[].command`
+- `invariants[].command`
+- `file_*` conditions
+- the default runtime disk template directory
 
-Validation rules:
+When authoring file-based checks, use project-relative paths and assume the working directory is the task workspace root Centian was started in.
 
-- `next` must target an existing compiled node
-- `next` may target only `scaffolding`, `execution`, or `waiting_for_approval` nodes
-- a node cannot target itself
-- the workflow cannot contain cycles
-- every compiled node must be reachable from onboarding
+## Canonical Examples
 
-## Command Execution Model
+The embedded templates in `task-templates/integrated/` are the best current examples of real templates:
 
-Template commands are executed as shell commands:
+- `minimal`
+- `simple_tdd`
+- `python_tdd_workflow`
 
-- runtime shell: `/bin/sh -c`
-- working directory: the taskverification service working directory
-- default timeout per command: `30s`
+Use them as references for:
 
-Important behavior:
-
-- a non-zero process exit does not automatically fail the check
-- Centian records the exit code and lets conditions decide whether that result passes
-- command execution failures are reserved for OS-level failures and timeouts
-
-Design commands and conditions together. If failure is expected, declare it with conditions instead of assuming the runtime will reject the command automatically.
-
-## Common Validation Failures
-
-These are the errors template authors hit most often:
-
-- missing required fields such as `task.id` or `workflow.execution`
-- duplicate template IDs across files
-- duplicate parameter names
-- parameter declared but never referenced by a placeholder
-- placeholder used but missing from `parameters`
-- unsupported `editable_fields` entry
-- unsupported `required_inputs` value
-- executable step with no checks
-- duplicate check or invariant IDs within a step
-- unsupported condition type
-- absolute or escaping paths in `file_*` conditions
-- `waiting_for_approval` node with no valid next target
-- explicit `next` pointing at an unknown node
-- workflow cycles or unreachable nodes
-
-## Authoring Recommendations
-
-- Keep step scope narrow. One verification intent per step is easier to debug.
-- Prefer `post_conditions` for outcome verification and `pre_conditions` for baseline verification.
-- Use `scaffolding` only for additive setup work.
-- Use `invariants` sparingly and only when the exact stdout comparison is meaningful.
-- Keep file-based conditions relative to the project working directory.
-- Use stable substrings in `stdout_contains` checks instead of brittle full-output matches.
-- If planning is expected to refine task inputs, list those specific parameter fields in `editable_fields`.
-- If a workflow needs a pause for human review, model it explicitly with `waiting_for_approval`.
-
-## A Larger Example
-
-```yaml
-version: "0.1"
-task:
-  id: "go_tdd_with_review"
-  name: "Go TDD With Review"
-  description: "Create a failing Go test, implement the fix, then pause for review."
-  instructions: |
-    Use the task runtime as the authoritative workflow.
-
-parameters:
-  - name: "testCommand"
-    description: "Go test command prefix, for example `go test ./... -run`."
-  - name: "testTarget"
-    description: "Concrete Go test selector."
-  - name: "testFile"
-    description: "Relative path to the Go test file."
-  - name: "expectedError"
-    description: "Stable failing output before the fix."
-  - name: "implementationTarget"
-    description: "Relative path to the implementation file."
-
-workflow:
-  onboarding:
-    instructions: |
-      Identify the package under test, test file, and implementation target.
-    tools_allowed:
-      - "shell__*"
-      - "filesystem__*"
-
-  planning:
-    tools_allowed:
-      - "shell__*"
-      - "filesystem__*"
-    editable_fields:
-      - "parameters.testCommand"
-      - "parameters.testTarget"
-      - "parameters.testFile"
-      - "parameters.expectedError"
-      - "parameters.implementationTarget"
-    required_inputs:
-      - "selectedFiles"
-      - "testTarget"
-      - "expectedError"
-      - "implementationTarget"
-
-  scaffolding:
-    - id: "create_test_file"
-      name: "Create test file"
-      checks:
-        - id: "test_file_created"
-          command: "printf 'test-file-created'"
-          pre_conditions:
-            - type: file_not_exists
-              path: "${testFile}"
-          post_conditions:
-            - type: file_exists
-              path: "${testFile}"
-
-  execution:
-    - id: "establish_failing_baseline"
-      name: "Establish failing baseline"
-      checks:
-        - id: "target_fails"
-          command: "${testCommand} ${testTarget}"
-          post_conditions:
-            - type: exit_code
-              value: 1
-            - type: stdout_contains
-              value: "${expectedError}"
-
-    - id: "implement_fix"
-      name: "Implement fix"
-      next: "waiting_for_approval.review_changes"
-      checks:
-        - id: "target_passes"
-          command: "${testCommand} ${testTarget}"
-          pre_conditions:
-            - type: exit_code
-              value: 1
-          post_conditions:
-            - type: exit_code
-              value: 0
-      invariants:
-        - id: "test_file_stable"
-          command: "cat ${testFile}"
-
-    - id: "review_changes"
-      kind: "waiting_for_approval"
-      instructions: |
-        Wait for review approval before any follow-up work.
-      next: "execution.final_verification"
-
-    - id: "final_verification"
-      name: "Final verification"
-      checks:
-        - id: "target_still_passes"
-          command: "${testCommand} ${testTarget}"
-          post_conditions:
-            - type: exit_code
-              value: 0
-        - id: "implementation_file_exists"
-          command: "printf 'check-file'"
-          post_conditions:
-            - type: file_exists
-              path: "${implementationTarget}"
-```
+- parameter design
+- planning contract shape
+- scaffolding versus execution sequencing
+- checks and invariants that are stable enough to automate
 
 ## Validation Checklist
 
-Before using a new template, confirm:
+Before promoting a template to real use:
 
-- the file is in the configured template directory
-- the file extension is `.yaml` or `.yml`
-- `task.id` is unique
-- every placeholder has a matching parameter definition
-- every declared parameter is actually used
-- planning outputs match what `centian.task_complete_planning` will provide
-- every executable leaf node has at least one check
-- every `file_*` condition path is relative
-- every `next` target exists and is reachable
-- no `waiting_for_approval` node is terminal
+1. load it through Centian and confirm it validates
+2. confirm `required_inputs` equals the parameter set
+3. confirm each declared parameter is used by a placeholder
+4. confirm file paths are relative and safe
+5. confirm checks are deterministic enough to pass repeatedly
+6. confirm approval nodes are non-terminal
 
-If the template loads successfully through `centian.task_list_templates`, the structural validation pass has succeeded.
+## Related Files
+
+- Runtime guide: [TASKVERIFICATION.md](./TASKVERIFICATION.md)
+- Packaging note: [task-templates/README.md](../task-templates/README.md)
+- Embedded examples: [task-templates/integrated](../task-templates/integrated)
+- Runtime code: [internal/taskverification](../internal/taskverification)

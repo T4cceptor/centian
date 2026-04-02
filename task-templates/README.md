@@ -1,8 +1,14 @@
-# Centian - Task Tempaltes
+# Centian Task Templates
 
-Task templates are simple yaml files that outline the process for a specific task - e.g. test-driven development, technical research spike, report generation, etc.
+Task templates are YAML files used by Centian taskverification to define a task workflow, its parameters, tool boundaries, checks, and invariants.
 
-They are used in the taskverification functionality of centian to define the overall process, boundaries for each step in the process (e.g. limiting MCP capabilities of an agent), checks and verifications.
+Canonical authoring guide:
 
-**Important**
-File included in the `integrated/` directory are included in the final binary build of centian. Do not move any templates there for testing, development, or prototyping. Only refined, and properly tested templates should be included in `integrated/`.
+- [Task Template Authoring](../docs/TASK_TEMPLATE_AUTHORING.md)
+
+Packaging rule:
+
+- files in `task-templates/integrated/` are embedded into the Centian binary
+- files in `task-templates/` outside `integrated/` are runtime disk templates only
+
+Only refined and tested templates should be moved into `integrated/`.

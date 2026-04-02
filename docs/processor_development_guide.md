@@ -1,196 +1,96 @@
 # Processor Development Guide
 
 **Version:** 1.0
-**Last Updated:** 2026-03-16
+**Last Updated:** 2026-04-02
 
 A guide to developing custom processors for Centian.
 
----
+## Getting Started
 
-## Table of Contents
+Processors are the Centian extension point for proxied `tools/call` traffic. They can inspect, modify, or reject request and result payloads as those tool calls pass through the proxy.
 
-0. [Getting Started](#getting-started)
-1. [What is a Processor?](#what-is-a-processor)
-2. [Understanding the Processor Contract](#understanding-the-processor-contract)
-3. [Setup & Prerequisites](#setup--prerequisites)
-4. [Input Structure](#input-structure)
-5. [Output Structure](#output-structure)
-6. [Status Codes](#status-codes)
-7. [Common Processor Patterns](#common-processor-patterns)
-8. [Step-by-Step Development](#step-by-step-development)
-9. [Testing Your Processor](#testing-your-processor)
-10. [Configuration in Centian](#configuration-in-centian)
-11. [Debugging Tips](#debugging-tips)
-12. [Performance Considerations](#performance-considerations)
-13. [Examples](#examples)
+Centian currently supports two processor runtimes:
 
----
+- **CLI processors**
+  Local executables or scripts invoked by Centian.
+- **Webhook processors**
+  Remote HTTP endpoints that accept a synchronous JSON `POST`.
 
-## Quick Start
+Quick-start path:
 
-### Prerequisites
+1. choose a runtime
+2. for local CLI processors, start with `centian processor new` when you want a scaffold
+3. implement the processor logic
+4. test it standalone with a sample `DataContext`
+5. register it in `~/.centian/config.json`, via `centian processor new`, or via `centian processor add`
+6. start Centian and verify behavior through a real proxied tool call
 
-Before you start, ensure you have:
-
-1. **Centian installed** - Download from [releases](https://github.com/T4cceptor/centian/releases) or build from source
-2. **Choose a processor runtime**:
-   - **CLI processor** - local executable/script invoked by Centian
-   - **Webhook processor** - remote HTTP endpoint that accepts JSON `POST` requests
-3. **Language runtime available in PATH** (CLI processors only):
-   - **Python 3.x** (recommended) - `python3 --version`
-   - **Node.js** (for JavaScript/TypeScript) - `node --version`
-   - **Bash with `jq`** (for shell scripts) - `jq --version`
-4. **Text editor** - Any editor (VS Code, vim, nano, etc.)
-5. **Command line access** - Terminal or shell
-
-**Optional but recommended:**
-- `jq` - JSON validation and formatting tool
-- `chmod` - Make scripts executable (pre-installed on Unix-like systems)
-
-### Steps
-Quick-start to get a processor running in minutes:
-
-1. Choose a runtime:
-   - **CLI**: generate a scaffold
-   ```bash
-   centian processor new
-   ```
-   - **Webhook**: implement an HTTP handler that accepts and returns `DataContext` JSON.
-2. Implement your processor logic.
-3. Register it in config (`~/.centian/config.json`) or via `centian processor add`:
-   ```json
-   {
-     "processors": [
-       {
-          "name": "my_processor",
-          "type": "cli",
-         "enabled": true,
-         "config": {
-           "command": "python3",
-           "args": ["./processors/my_processor.py"]
-         }
-       },
-       {
-         "name": "audit-webhook",
-         "type": "webhook",
-         "enabled": true,
-         "config": {
-           "url": "https://example.com/processors/audit",
-           "headers": {
-             "Authorization": "Bearer ${TOKEN}"
-           }
-         }
-       }
-     ]
-   }
-   ```
-4. Test the processor with a sample `DataContext` and verify JSON output:
-   ```bash
-   echo '{"version":"1.0","payload":{"request":{"Params":{"name":"ping","arguments":{"hello":"world"}}}}}' | ./my_processor.py | jq
-   ```
-5. Ensure it returns valid JSON. Processors modify the current context by returning an updated `DataContext`.
-
-## What is a Processor?
+## What a Processor Is
 
 A **processor** is a composable unit that intercepts, validates, modifies, rejects, or otherwise processes proxied `tools/call` traffic as it flows through Centian's proxy layer.
 
-**Potential Capabilities:**
-- 🔍 Inspect proxied tool call requests and downstream tool results
-- ✏️ Modify tool call payloads
-- 🛡️ Enforce security policies
-- 📊 Log and analyze tool call communication
-- ⛔ Reject tool calls based on custom rules
+Potential uses:
 
-**How it Works:**
-```
-MCP Client → Centian Proxy → [Processor 1] → [Processor 2] → MCP Server
-                                     ↓              ↓
-                              Can modify      Can reject
-```
+- inspect proxied tool call requests and downstream tool results
+- modify tool call payloads
+- enforce security or policy rules
+- log or export tool-call telemetry
+- inject an error result when a request should be blocked
 
-- Processors execute sequentially in the order defined in your configuration (see `~/.centian/config.json`).
-- Processors receive a reduced `DataContext` JSON document built from the configured parts (`payload`, `meta`, `routing`, `auth`).
-- A processor modifies the current tool call by returning an updated `DataContext`.
-- Processors are currently invoked for proxied `tools/call` traffic only. They are not run for `initialize`, resources, prompts, completions, or other non-tool protocol surfaces.
-- If a processor execution fails:
-  - required processors stop the chain
-  - non-required processors are skipped and later processors still run
+Processors execute sequentially in configuration order. The full order is:
 
-### Communication Model
+1. global `processors`
+2. gateway-level `gateways.<name>.processors`
 
-Centian supports two processor transports that share the same JSON contract:
+Processors are currently invoked for proxied `tools/call` traffic only. They are not run for `initialize`, resources, prompts, completions, or other non-tool protocol surfaces.
 
-- **CLI processors**
-  - Input: JSON via `stdin`
-  - Output: JSON via `stdout`
-  - Errors: `stderr` is ignored by Centian and can be used for debugging
-  - Exit code: non-zero means processor execution failed
-- **Webhook processors**
-  - Transport: synchronous HTTP `POST`
-  - Request body: JSON `DataContext`
-  - Response body: JSON `DataContext`
-  - Non-2xx responses, invalid JSON, transport failures, and timeouts are treated as processor execution failures
+If a processor execution fails:
 
-Webhook processor v1 constraints:
+- required processors stop the chain
+- non-required processors are skipped and later processors still run
+
+## Processor Transports
+
+Centian supports two processor transports that share the same JSON contract.
+
+### CLI processors
+
+- input: JSON via `stdin`
+- output: JSON via `stdout`
+- errors: `stderr` is ignored by the processor contract and can be used for diagnostics
+- exit code: non-zero means processor execution failed
+- working directory: Centian currently executes CLI processors from the user's home directory by default
+
+### Webhook processors
+
+- transport: synchronous HTTP `POST`
+- request body: JSON `DataContext`
+- response body: JSON `DataContext`
+- failure modes: non-2xx responses, invalid JSON, transport failures, and timeouts
+
+Webhook processor constraints:
 
 - synchronous request/response only
 - `POST` only
 - one HTTP request per invocation
 - no retries or backoff
 - no streaming or callback workflows
-- `http` and `https` are allowed, but `https` is recommended outside local development
+- `http` and `https` are allowed, though `https` is recommended outside local development
 
----
+## Understanding the Processor Contract
 
-## Setup & Prerequisites
+Processors receive a reduced JSON document called `DataContext`.
 
-### Language Requirements
+### Input structure
 
-Your processor can be written in **any language** that can:
-1. Read JSON from stdin
-2. Write JSON to stdout
-3. Exit with appropriate exit codes
-
-Important: since Centian spawns the processor as a child process, ensure that the command used to call the processor is in your PATH, otherwise the call will fail.
-
-**Recommended Languages:**
-- **Python** - Rich JSON support, easy to learn
-- **JavaScript/Node.js** - Fast execution, good JSON handling
-- **TypeScript** - Type safety with Node.js runtime
-- **Go** - High performance, compiled binary
-- **Bash** - Simple scripts with `jq` for JSON processing
-
-### Script Setup
-
-For interpreted languages (Python, JavaScript):
-
-1. **Add shebang line** at the top:
-   ```python
-   #!/usr/bin/env python3
-   ```
-
-2. **Make executable**:
-   ```bash
-   chmod +x your-processor.py
-   ```
-
-3. **Test standalone**:
-   ```bash
-   echo '{"test": "input"}' | ./your-processor.py
-   ```
-
----
-
-## Input Structure
-
-Processors receive a JSON object with this structure. CLI processors read it from `stdin`; webhook processors receive it as the HTTP request body.
+CLI processors read it from `stdin`. Webhook processors receive it as the HTTP request body.
 
 ```json
 {
   "version": "1.0",
   "event": {
     "status": 0,
-    "timestamp": "2025-12-14T10:30:00Z",
+    "timestamp": "2026-04-02T10:30:00Z",
     "transport": "http",
     "request_id": "req-abc123",
     "direction": "[CLIENT -> SERVER]",
@@ -204,9 +104,6 @@ Processors receive a JSON object with this structure. CLI processors read it fro
         "name": "query",
         "arguments": {
           "query": "SELECT * FROM users"
-        },
-        "_meta": {
-          "progressToken": "abc123"
         }
       }
     },
@@ -233,29 +130,27 @@ Processors receive a JSON object with this structure. CLI processors read it fro
 }
 ```
 
-### Field Descriptions
+### Field descriptions
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `version` | string | Data contract version (e.g. `"1.0"`). Follows major.minor: major is breaking, minor is additive |
-| `event` | object | MCP event metadata when the `meta` part is enabled. Key fields: `direction` (`"[CLIENT -> SERVER]"` or `"[SERVER -> CLIENT]"`), `message_type` (`"request"` or `"response"`), `transport`, `timestamp`, `success` |
-| `payload.request` | object | Current `tools/call` request payload when the `payload` part is enabled |
-| `payload.original_request` | object | Original upstream request snapshot (read-only) |
-| `payload.result` | object | Current downstream tool result if one exists |
-| `payload.original_result` | object | Original downstream result snapshot (read-only) |
-| `routing` | object | Current and original server/tool routing data |
-| `auth` | object | Read-only auth context |
+| --- | --- | --- |
+| `version` | string | Data contract version. Current value is `"1.0"`. |
+| `event` | object | MCP event metadata when the `meta` part is enabled. |
+| `payload.request` | object | Current `tools/call` request payload when the `payload` part is enabled. |
+| `payload.original_request` | object | Original upstream request snapshot. |
+| `payload.result` | object | Current downstream tool result if one exists. |
+| `payload.original_result` | object | Original downstream result snapshot. |
+| `routing` | object | Current and original server/tool routing data. |
+| `auth` | object | Read-only auth context. |
 
 Notes:
 
-- Only configured parts are present.
-- For `tools/call`, request parameters are serialized under `payload.request.Params` (note capital `P`).
-- The `event.direction` value is `"[CLIENT -> SERVER]"` for requests and `"[SERVER -> CLIENT]"` for responses.
-- Processors should return the full structures they want Centian to apply. Partial request patching is not supported by the default payload handler.
+- only configured parts are present
+- for `tools/call`, request parameters are serialized under `payload.request.Params`
+- `event.direction` is `"[CLIENT -> SERVER]"` for request-phase processing and `"[SERVER -> CLIENT]"` for response-phase processing
+- `auth` is informational; it is not a writable control surface
 
----
-
-## Output Structure
+### Output structure
 
 Processors must return a JSON object with the same `DataContext` shape. CLI processors write it to `stdout`; webhook processors return it as the HTTP response body.
 
@@ -282,269 +177,59 @@ Processors must return a JSON object with the same `DataContext` shape. CLI proc
 }
 ```
 
-### Field Descriptions
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `payload` | No | Updated request/result data to apply |
-| `event` | No | Updated event metadata to apply |
-| `routing` | No | Updated routing data to apply |
-| `auth` | No | Ignored by Centian today; auth is read-only |
-
----
-
-## Status Codes
-
-The current processor contract does not use a top-level `status` field.
-
-- Successful processors return a valid `DataContext` JSON document.
-- Processor execution failure is signaled by runtime or transport failure.
-- To block or reshape a tool call, return an updated MCP request or result payload.
-
-### CLI Failure Signals
-
-- non-zero exit code
-- invalid JSON on `stdout`
-
-### Webhook Failure Signals
-
-- non-2xx HTTP response
-- invalid JSON response body
-- timeout or transport error
-
-### Required vs Non-Required
-
-- Required processor failure stops the chain.
-- Non-required processor failure is logged and later processors continue.
-- Timeouts follow the same rule: required timeouts fail the current phase, non-required timeouts are logged and skipped.
-
-### Example
-
-```json
-{
-  "payload": {
-    "result": {
-      "isError": true,
-      "content": [
-        {
-          "type": "text",
-          "text": "Blocked by security policy"
-        }
-      ]
-    }
-  }
-}
-```
-
----
-
-
-## Common Processor Patterns
-
-### 1. Passthrough (No-Op)
-
-Simply return the input unchanged:
-
-```python
-import sys, json
-ctx = json.load(sys.stdin)
-print(json.dumps(ctx))
-```
-
-**Use Case**: Testing, debugging, placeholder
-
----
-
-### 2. Validator
-
-Check conditions and inject a blocking result:
-
-```python
-import sys, json
-
-ctx = json.load(sys.stdin)
-payload = ctx.get("payload") or {}
-request = payload.get("request") or {}
-params = request.get("Params") or {}
-tool_name = params.get("name", "")
-
-if "delete" in tool_name.lower():
-    payload["result"] = {
-        "content": [{"type": "text", "text": "Delete operations not allowed"}],
-        "isError": True
-    }
-    ctx["payload"] = payload
-
-print(json.dumps(ctx))
-```
-
-**Use Cases**: Security policies, input validation, rate limiting
-
----
-
-### 3. Transformer
-
-Modify the payload before forwarding:
-
-```python
-import sys, json
-
-ctx = json.load(sys.stdin)
-payload = ctx.get("payload") or {}
-request = payload.get("request") or {}
-params = request.get("Params") or {}
-arguments = params.get("arguments") or {}
-
-if isinstance(arguments, dict):
-    arguments["x-processor"] = "transformer"
-    params["arguments"] = arguments
-    request["Params"] = params
-    payload["request"] = request
-    ctx["payload"] = payload
-
-print(json.dumps(ctx))
-```
-
-**Use Cases**: Data sanitization, enrichment, normalization
-
----
-
-### 4. Logger
-
-Record data and pass through:
-
-```python
-import sys, json
-from datetime import datetime
-
-ctx = json.load(sys.stdin)
-
-payload = ctx.get("payload") or {}
-request = payload.get("request") or {}
-params = request.get("Params") or {}
-tool_name = params.get("name", "unknown")
-direction = (ctx.get("event") or {}).get("direction", "unknown")
-
-# Log to file (stderr is also available for debug output)
-with open("/tmp/centian-processor.log", "a") as f:
-    f.write(json.dumps({"timestamp": datetime.now().isoformat(), "direction": direction, "tool": tool_name}) + "\n")
-
-# Pass through unchanged
-print(json.dumps(ctx))
-```
-
-**Use Cases**: Audit logging, analytics, monitoring
-
----
-
-### 5. Request Filter
-
-Only apply logic for specific event directions:
-
-```python
-import sys, json
-
-ctx = json.load(sys.stdin)
-event = ctx.get("event") or {}
-
-# Only act on requests (client → server direction)
-if event.get("direction") == "[CLIENT -> SERVER]":
-    payload = ctx.get("payload") or {}
-    request = payload.get("request") or {}
-    params = request.get("Params") or {}
-    tool_name = params.get("name", "")
-
-    if not tool_name:
-        payload["result"] = {
-            "content": [{"type": "text", "text": "Tool name is required"}],
-            "isError": True
-        }
-        ctx["payload"] = payload
-
-print(json.dumps(ctx))
-```
-
-**Use Cases**: Direction-specific validation, server-specific logic
-
----
-
-## Testing Your Processor
-
-### Manual Testing
-
-**1. Create Test Cases**
-
-Create multiple test input files for different scenarios:
-
-```bash
-# test-success.json - Should pass
-# test-blocked.json - Should be rejected
-# test-malformed.json - Should handle gracefully
-```
-
-**2. Run Tests**
-
-```bash
-cat test-success.json | ./my_processor.py | jq
-cat test-blocked.json | ./my_processor.py | jq
-cat test-malformed.json | ./my_processor.py | jq
-```
-
-**3. Verify Output**
-
-Check:
-- ✅ Valid JSON structure
-- ✅ Expected `payload.request` / `payload.result` mutations
-- ✅ Appropriate error messages
-- ✅ Exit code is 0 when the processor intentionally returns a rejection result
-
-### Automated Testing
-
-Create a simple test script:
-
-```bash
-#!/bin/bash
-# test-processor.sh
-
-PROCESSOR="./my_processor.py"
-FAILED=0
-
-test_case() {
-    local name=$1
-    local input=$2
-    local expect_error=$3  # "true" or "false"
-
-    result=$(echo "$input" | $PROCESSOR)
-    is_error=$(echo "$result" | jq -r '.payload.result.isError // false')
-
-    if [ "$is_error" = "$expect_error" ]; then
-        echo "✅ $name"
-    else
-        echo "❌ $name (expected isError=$expect_error, got isError=$is_error)"
-        FAILED=1
-    fi
-}
-
-# Test cases: use the DataContext format (version + event + payload + routing + auth)
-SAFE='{"version":"1.0","event":{"direction":"[CLIENT -> SERVER]","message_type":"request","success":true},"payload":{"request":{"Params":{"name":"safe_tool","arguments":{}}}}}'
-DANGEROUS='{"version":"1.0","event":{"direction":"[CLIENT -> SERVER]","message_type":"request","success":true},"payload":{"request":{"Params":{"name":"delete_user","arguments":{}}}}}'
-
-test_case "Allow normal request" "$SAFE" "false"
-test_case "Block dangerous tool" "$DANGEROUS" "true"
-
-if [ $FAILED -eq 0 ]; then
-    echo "All tests passed!"
-else
-    echo "Some tests failed!"
-    exit 1
-fi
-```
-
----
+Fields you return are applied back into the current call context according to the configured `parts`.
 
 ## Configuration in Centian
 
-### Add to Config File
+### Scaffold a new local CLI processor
+
+If you want a local processor script to start from, use:
+
+```bash
+centian processor new
+```
+
+This is an interactive scaffold flow for CLI processors. It currently asks for:
+
+1. language
+   Python, JavaScript, TypeScript, or Bash
+2. processor type
+   passthrough, validator, transformer, logger, or custom
+3. processor name
+   sanitized to alphanumeric, `_`, and `-`
+4. output directory
+   defaults to Centian's current working directory
+5. whether to add the new processor to `~/.centian/config.json`
+
+What it generates:
+
+- one executable processor file such as `my_processor.py`, `my_processor.js`, `my_processor.ts`, or `my_processor.sh`
+- a starter implementation shaped for the selected processor type
+- an overwrite prompt if the target file already exists
+
+What it does not currently generate:
+
+- webhook processors
+- test fixtures or sample `DataContext` JSON files
+- gateway-scoped processor config
+
+If you choose "add to config", Centian adds a global CLI processor entry with:
+
+- `type: "cli"`
+- `enabled: true`
+- `timeout: 15`
+- `required: false`
+- an inferred command for the selected language:
+  - `python3`
+  - `node`
+  - `ts-node`
+  - `bash`
+
+If you decline the config update, the scaffold prints a next-steps block showing how it expects the processor to be wired. Treat the config schema in this guide as the source of truth.
+
+Use the scaffold when you want a correct contract-shaped starting point quickly. Use `centian processor add` when you already have an existing script or want to register a webhook processor directly.
+
+### Add a processor to config
 
 Edit `~/.centian/config.json`:
 
@@ -552,20 +237,24 @@ Edit `~/.centian/config.json`:
 {
   "processors": [
     {
-      "name": "security_policy",
+      "name": "security-policy",
       "type": "cli",
       "enabled": true,
       "parts": ["payload", "meta"],
+      "timeout": 15,
+      "required": true,
       "config": {
         "command": "python3",
-        "args": ["./processors/my_processor.py"]
+        "args": ["./processors/security.py"]
       }
     },
     {
-      "name": "audit_webhook",
+      "name": "audit-webhook",
       "type": "webhook",
       "enabled": true,
-      "parts": ["payload", "routing"],
+      "parts": ["meta", "routing", "auth"],
+      "timeout": 10,
+      "required": false,
       "config": {
         "url": "https://example.com/processors/audit",
         "headers": {
@@ -577,59 +266,53 @@ Edit `~/.centian/config.json`:
 }
 ```
 
-### Configuration Fields
+### Configuration fields
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | ✅ Yes | Unique processor identifier |
-| `type` | string | ✅ Yes | `"cli"` or `"webhook"` |
-| `enabled` | boolean | ✅ Yes | Whether to execute this processor |
-| `parts` | array | No | Context parts to provide; defaults to `["payload","meta"]` |
-| `timeout` | number | No | Per-invocation timeout in seconds; defaults to `15` |
-| `config.command` | string | CLI only | Executable to run (`python3`, `node`, etc.) |
-| `config.args` | array | CLI only | Arguments including script path |
-| `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST` |
-| `config.headers` | object | Webhook only | Optional string headers; supports `${VAR}` and `$VAR` env substitution |
+| --- | --- | --- | --- |
+| `name` | string | Yes | Unique processor identifier within the processor list. |
+| `type` | string | Yes | `"cli"` or `"webhook"`. |
+| `enabled` | boolean | Yes | Whether the processor is active. |
+| `parts` | array | No | Context parts to provide. Defaults to `["payload","meta"]`. |
+| `timeout` | number | No | Per-invocation timeout in seconds. Defaults to `15`. |
+| `required` | boolean | No | If `true`, processor failure stops the chain. |
+| `config.command` | string | CLI only | Executable to run. |
+| `config.args` | array | CLI only | Arguments including script path. |
+| `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST`. |
+| `config.headers` | object | Webhook only | Optional string headers. |
 
-### Timeout Behavior
+Important runtime notes:
 
-- `timeout` is enforced separately for each processor invocation.
-- A processor can run twice for one MCP tool call:
-  - once in the request phase with `event.direction == "[CLIENT -> SERVER]"`
-  - once in the response phase with `event.direction == "[SERVER -> CLIENT]"`
-- If `timeout` is omitted or set to `0`, Centian defaults it to `15` seconds during config validation.
-- For CLI processors, the timeout covers the spawned process execution. Centian cancels the command context and returns an error like `processor '<name>' timed out after <n> seconds`.
-- For webhook processors, the timeout covers the synchronous HTTP request/response round trip and returns the same timeout-style error.
-- There are no automatic retries after a timeout.
-- Timeouts are treated like any other processor execution failure:
-  - required processors stop the current phase immediately
-  - non-required processors are logged and skipped, and later processors still run
+- supported processor types are only `cli` and `webhook`
+- supported parts are only `payload`, `meta`, `routing`, and `auth`
+- webhook `config` only supports `url` and `headers`
 
-Example:
+### Timeout behavior
 
-```json
-{
-  "name": "audit_webhook",
-  "type": "webhook",
-  "enabled": true,
-  "required": false,
-  "timeout": 5,
-  "parts": ["payload", "routing"],
-  "config": {
-    "url": "https://example.com/processors/audit"
-  }
-}
+- `timeout` is enforced separately for each processor invocation
+- a processor can run twice for one MCP tool call:
+  - once in the request phase
+  - once in the response phase
+- if `timeout` is omitted or set to `0`, Centian defaults it to `15`
+- for CLI processors, the timeout covers the spawned process execution
+- for webhook processors, the timeout covers the synchronous HTTP request/response round trip
+- there are no automatic retries after a timeout
+
+### Registration helpers
+
+Interactive scaffold for a new local CLI processor:
+
+```bash
+centian processor new
 ```
 
-With this config, Centian waits up to 5 seconds for the request-phase run and up to 5 seconds again for the response-phase run of the same tool call.
-
-### CLI Registration
+CLI registration:
 
 ```bash
 centian processor add --path ./processors/security.py
 ```
 
-### Webhook Registration
+Webhook registration:
 
 ```bash
 centian processor add --type webhook --url https://example.com/processors/audit \
@@ -637,336 +320,219 @@ centian processor add --type webhook --url https://example.com/processors/audit 
   --header "X-Trace=trace-1"
 ```
 
-### Webhook Constraints
+Practical guidance:
 
-- synchronous `POST` only
-- JSON in, JSON out
-- no retries
-- no streaming or async callbacks
+- use `processor new` to generate a local CLI starting point
+- use `processor add --path ...` to register an existing local script
+- use `processor add --type webhook --url ...` for remote HTTP processors
 
-### Multiple Processors
+## Practical Development Flow
 
-Processors execute in order:
+### CLI processor example
 
-```json
-{
-  "processors": [
-    {
-      "name": "logger",
-      "type": "cli",
-      "enabled": true,
-      "config": {
-        "command": "python3",
-        "args": ["~/centian/processors/logger.py"]
-      }
-    },
-    {
-      "name": "security_check",
-      "type": "webhook",
-      "enabled": true,
-      "config": {
-        "url": "https://example.com/processors/security"
-      }
-    },
-    {
-      "name": "sanitizer",
-      "type": "cli",
-      "enabled": true,
-      "config": {
-        "command": "node",
-        "args": ["~/centian/processors/sanitizer.js"]
-      }
-    }
-  ]
-}
+```python
+#!/usr/bin/env python3
+import json
+import sys
+
+ctx = json.load(sys.stdin)
+payload = ctx.get("payload") or {}
+result = payload.get("result") or {}
+content = result.get("content") or []
+
+for item in content:
+    if item.get("type") == "text":
+        item["text"] = item["text"].replace("secret", "[REDACTED]")
+
+json.dump(ctx, sys.stdout)
 ```
 
-**Execution Flow:**
-1. Request arrives at Centian
-2. `logger` receives the current `DataContext` and can modify it
-3. `security_check` receives the updated context next
-4. `sanitizer` receives the latest context after that
-5. Updated context is forwarded to the MCP server
-6. Response is attached to the same context and later processors can modify it
+### Webhook processor example
 
----
+Any language is fine as long as it:
+
+1. accepts a JSON `POST`
+2. returns valid JSON `DataContext`
+3. completes within the configured timeout
+
+### Common processor patterns
+
+Passthrough:
+
+- read input
+- return it unchanged
+
+Validator:
+
+- inspect request or result data
+- inject an error result when a policy is violated
+
+Transformer:
+
+- modify tool arguments or result content deterministically
+
+Logger or telemetry exporter:
+
+- record metadata
+- pass the context through unchanged
+
+Direction-specific logic:
+
+- only run enforcement on request phase
+- only run redaction on response phase
+
+Concrete high-value patterns:
+
+- SQL or shell guard:
+  inspect `payload.request.Params.arguments` for obviously dangerous inputs and replace the downstream result with a structured error before forwarding
+- result redactor:
+  scrub secrets or PII from `payload.result.content[*].text` on the response phase only
+- route-aware policy:
+  branch on `routing.server_name` or `routing.tool_name` to enforce different logic for different downstreams inside one processor
+- auth-aware telemetry:
+  include `auth.gateway` and `auth.principal_type` in exported spans or audit events without mutating the call
+
+## Testing Your Processor
+
+### Manual testing
+
+Test the processor standalone before adding it to config.
+
+CLI example:
+
+```bash
+echo '{"version":"1.0","payload":{"request":{"Params":{"name":"ping","arguments":{"hello":"world"}}}}}' \
+  | python3 ./processor.py | jq
+```
+
+Webhook example:
+
+```bash
+curl -sS \
+  -H 'Content-Type: application/json' \
+  -d '{"version":"1.0","routing":{"server_name":"demo","tool_name":"query"}}' \
+  http://127.0.0.1:9000/process | jq
+```
+
+Check:
+
+- valid JSON structure
+- expected `payload.request` or `payload.result` mutations
+- no accidental extra stdout output
+- correct exit behavior for CLI processors
+
+### What to test before wiring it in
+
+1. request-phase handling
+2. response-phase handling
+3. invalid JSON handling
+4. timeout behavior
+5. no-op behavior when required fields are absent
+
+### Lightweight regression harness
+
+For CLI processors, keep a small fixture-based test loop next to the processor code:
+
+1. store sample request-phase and response-phase `DataContext` JSON payloads under a `testdata/` directory
+2. invoke the processor executable with each fixture on `stdin`
+3. assert the output JSON is valid
+4. assert the expected fields changed and unrelated fields remained stable
+
+Even a shell-based harness is useful:
+
+```bash
+for f in ./testdata/*.json; do
+  python3 ./processor.py < "$f" | jq >/dev/null || exit 1
+done
+```
+
+That catches the most common failures early: invalid JSON output, accidental stdout logging, and missing `payload` wrappers.
 
 ## Debugging Tips
 
-### 1. Use stderr for Debug Logging
+### Use stderr for CLI diagnostics
 
 ```python
-import sys, json
-
-ctx = json.load(sys.stdin)
-event = ctx.get("event") or {}
-
-# This won't affect Centian (stderr ignored by Centian v1)
-print(f"DEBUG: direction={event.get('direction')} message_type={event.get('message_type')}", file=sys.stderr)
+import sys
+print("debug message", file=sys.stderr)
 ```
 
-### 2. Test in Isolation
+Centian does not treat `stderr` as the processor output payload.
 
-Always test your processor standalone before adding to config:
-
-```bash
-cat test-input.json | ./processor.py
-```
-
-### 3. Validate JSON Output
-
-Use `jq` to validate and format JSON:
+### Validate JSON output
 
 ```bash
 cat test-input.json | ./processor.py | jq
 ```
 
-If `jq` fails, your output isn't valid JSON.
+If `jq` fails, your output is not valid JSON.
 
-### 4. Check Exit Codes
+### Check exit behavior
 
 ```bash
 cat test-input.json | ./processor.py
-echo "Exit code: $?"  # Should always be 0
+echo "Exit code: $?"
 ```
 
-### 5. Enable Centian Logging
+### Common issues
 
-Centian logs processor execution:
+`permission denied`
 
-```
-[INFO] Executing processor: security_check
-[INFO] Processor security_check completed: status=200, duration=15ms
-```
+- make the script executable with `chmod +x`
 
-### 6. Common Issues
+`command not found`
 
-**Problem**: `permission denied` error
-**Solution**: Make script executable: `chmod +x processor.py`
+- ensure the configured command is available in `PATH`, or use an absolute path
 
-**Problem**: `command not found`
-**Solution**: Use full path to interpreter: `/usr/bin/python3` instead of `python3`
+`timed out`
 
-**Problem**: Processor times out
-**Solution**: Ensure processor completes within 15 seconds (default timeout)
+- reduce processor latency or increase `timeout`
 
-**Problem**: Invalid JSON error
-**Solution**: Check for extra print statements. Only output the result JSON.
+`invalid JSON`
 
----
+- ensure only the final JSON document is written to `stdout`
+
+`processor appears to do nothing`
+
+- confirm the processor is attached to the right scope: global `processors` versus `gateways.<name>.processors`
+- confirm the selected `parts` include the fields you expect to read or mutate
+- remember that processors only run for proxied `tools/call`, not for every MCP method
 
 ## Performance Considerations
 
 ### Timeout
 
-- **Default**: 15 seconds per processor
-- **Config**: Set per processor via the `timeout` field; `0` or omitted defaults to `15`
-- **Best Practice**: Keep processors fast (<100ms ideal)
+- default timeout is `15` seconds per invocation
+- keep processors fast; sub-100ms work is a good target when possible
 
-### Execution Frequency
+### Execution frequency
 
-**Important**: Processors run on proxied `tools/call` traffic only:
-- Once on the request phase before the downstream tool call is sent
-- Once on the response phase after a downstream result is returned
-- They are not invoked for initialization, prompts, resources, completions, or other non-tool methods
+Processors run on proxied `tools/call` traffic only:
 
-**Impact**: A slow processor will slow down proxied tool call handling.
+- once before the downstream tool call is sent
+- once after a downstream result is returned
 
-### Optimization Tips
+A slow processor therefore directly slows the tool-call path.
 
-**1. Avoid Blocking I/O**
+### Optimization tips
 
-```python
-# ❌ Bad: Network call on every request
-response = requests.get("https://api.example.com/validate")
+- avoid unnecessary blocking I/O
+- cache expensive local reads where practical
+- return early when the current direction or part set is irrelevant
+- use compiled languages for heavy or high-frequency logic
 
-# ✅ Good: Use local validation
-if validate_locally(payload):
-    ...
-```
+## Repository Examples
 
-**2. Cache Expensive Operations**
+The maintained local processor demo lives in [demo/processors](../demo/processors).
 
-```python
-import functools
+It demonstrates:
 
-@functools.lru_cache(maxsize=128)
-def load_blocked_list():
-    with open("blocked.json") as f:
-        return json.load(f)
-```
-
-**3. Early Return**
-
-```python
-# Skip processing if not relevant (e.g. only act on client→server requests)
-event = ctx.get("event") or {}
-if event.get("direction") != "[CLIENT -> SERVER]":
-    print(json.dumps(ctx))
-    sys.exit(0)
-
-# Now do expensive work
-```
-
-**4. Use Compiled Languages for Heavy Work**
-
-For high-throughput scenarios, consider Go or Rust:
-- Python/Node: ~10-50ms startup overhead
-- Go binary: ~1-5ms startup overhead
-
----
-
-## Examples
-
-### Example 1: Request Logger (Python)
-
-```python
-#!/usr/bin/env python3
-import sys
-import json
-from datetime import datetime
-
-ctx = json.load(sys.stdin)
-
-event = ctx.get("event") or {}
-routing = ctx.get("routing") or {}
-payload = ctx.get("payload") or {}
-request = payload.get("request") or {}
-params = request.get("Params") or {}
-
-# Log to file
-log_entry = {
-    "timestamp": datetime.now().isoformat(),
-    "direction": event.get("direction", "unknown"),
-    "server": routing.get("server_name", "unknown"),
-    "tool": params.get("name", "unknown")
-}
-
-with open("/tmp/centian-requests.log", "a") as f:
-    f.write(json.dumps(log_entry) + "\n")
-
-# Pass through unchanged
-print(json.dumps(ctx))
-```
-
-### Example 2: SQL Injection Filter (Python)
-
-```python
-#!/usr/bin/env python3
-import sys
-import json
-import re
-
-ctx = json.load(sys.stdin)
-
-event = ctx.get("event") or {}
-# Only check client→server requests
-if event.get("direction") != "[CLIENT -> SERVER]":
-    print(json.dumps(ctx))
-    sys.exit(0)
-
-payload = ctx.get("payload") or {}
-request = payload.get("request") or {}
-params = request.get("Params") or {}
-arguments = params.get("arguments") or {}
-
-# Check for SQL injection patterns
-sql_patterns = [
-    r";\s*DROP\s+TABLE",
-    r"'\s*OR\s+'1'\s*=\s*'1",
-    r"--\s*$",
-    r"UNION\s+SELECT"
-]
-
-args_str = json.dumps(arguments)
-
-for pattern in sql_patterns:
-    if re.search(pattern, args_str, re.IGNORECASE):
-        payload["result"] = {
-            "content": [{"type": "text", "text": "Potential SQL injection detected"}],
-            "isError": True
-        }
-        ctx["payload"] = payload
-        print(json.dumps(ctx))
-        sys.exit(0)
-
-# Safe - pass through
-print(json.dumps(ctx))
-```
-
-### Example 3: Rate Limiter (JavaScript)
-
-```javascript
-#!/usr/bin/env node
-const fs = require('fs');
-
-const RATE_LIMIT_FILE = '/tmp/centian-rate-limit.json';
-const MAX_REQUESTS = 10;
-const WINDOW_MS = 60000; // 1 minute
-
-// Read stdin
-let input = '';
-process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
-  const ctx = JSON.parse(input);
-  const event = ctx.event || {};
-  const routing = ctx.routing || {};
-
-  // Only rate limit client→server requests
-  if (event.direction !== '[CLIENT -> SERVER]') {
-    console.log(JSON.stringify(ctx));
-    return;
-  }
-
-  const serverId = routing.server_name || 'unknown';
-  const now = Date.now();
-
-  // Load rate limit state
-  let state = {};
-  if (fs.existsSync(RATE_LIMIT_FILE)) {
-    state = JSON.parse(fs.readFileSync(RATE_LIMIT_FILE, 'utf8'));
-  }
-
-  // Initialize server entry
-  if (!state[serverId]) {
-    state[serverId] = { count: 0, windowStart: now };
-  }
-
-  // Check if window expired
-  if (now - state[serverId].windowStart > WINDOW_MS) {
-    state[serverId] = { count: 0, windowStart: now };
-  }
-
-  // Check rate limit
-  if (state[serverId].count >= MAX_REQUESTS) {
-    const payload = ctx.payload || {};
-    payload.result = {
-      content: [{ type: 'text', text: 'Rate limit exceeded' }],
-      isError: true
-    };
-    ctx.payload = payload;
-  } else {
-    state[serverId].count++;
-    fs.writeFileSync(RATE_LIMIT_FILE, JSON.stringify(state));
-  }
-
-  console.log(JSON.stringify(ctx));
-});
-```
-
----
-
----
+- OpenTelemetry span export for MCP tool calls
+- response redaction with a gateway-level processor
+- a local Docker Compose flow that builds the demo image and bundles the demo processor code
 
 ## Further Reading
 
-- **MCP Specification**: https://spec.modelcontextprotocol.io/
-- **Issue Tracker**: [GitHub Issues](https://github.com/T4cceptor/centian/issues)
-
----
-
-## Contributing
-
-Found a bug or have a feature request? Please [open an issue](https://github.com/T4cceptor/centian/issues/new).
-
-Want to contribute a processor example? Submit a PR with your processor in `examples/processors/`.
+- MCP Specification: https://spec.modelcontextprotocol.io/
+- Processor demo: [demo/processors/README.md](../demo/processors/README.md)
+- Config reference: [configuration_reference.md](./configuration_reference.md)

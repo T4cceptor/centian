@@ -601,13 +601,13 @@ func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
 		{
 			name: "defaults log settings when omitted",
 			proxy: &ProxySettings{
-				Port: "8080",
+				Port: "9666",
 			},
 		},
 		{
 			name: "accepts supported log output",
 			proxy: &ProxySettings{
-				Port:      "8080",
+				Port:      "9666",
 				LogLevel:  "DEBUG",
 				LogOutput: "BOTH",
 			},
@@ -615,7 +615,7 @@ func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
 		{
 			name: "rejects unsupported log level",
 			proxy: &ProxySettings{
-				Port:     "8080",
+				Port:     "9666",
 				LogLevel: "trace",
 			},
 			wantError: "proxy.logLevel",
@@ -623,7 +623,7 @@ func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
 		{
 			name: "rejects unsupported log output",
 			proxy: &ProxySettings{
-				Port:      "8080",
+				Port:      "9666",
 				LogOutput: "syslog",
 			},
 			wantError: "proxy.logOutput",
@@ -667,7 +667,7 @@ func TestValidateConfig_RequiresPublicBaseURLForOAuth(t *testing.T) {
 	cfg := &GlobalConfig{
 		Version:     "1.0.0",
 		AuthEnabled: &authDisabled,
-		Proxy:       &ProxySettings{Port: "8080"},
+		Proxy:       &ProxySettings{Port: "9666"},
 		Gateways: map[string]*GatewayConfig{
 			"gw": {
 				MCPServers: map[string]*MCPServerConfig{

@@ -1,208 +1,258 @@
-# Centian - the MCP Proxy
+# Centian
 
-Centian is a lightweight MCP ([Model Context Protocol](https://modelcontextprotocol.io/)) proxy that adds **processing hooks**, **gateway aggregation**, **workflow-driven task verification**, and **structured logging** to MCP server traffic.
-
-<p align="center">
-  <img src="docs/images/centian_simple_diag.png" alt="Centian Proxy Diagram" width="100%">
-</p>
+[![Release](https://img.shields.io/github/v/release/T4cceptor/centian)](https://github.com/T4cceptor/centian/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/T4cceptor/centian/ci.yml?branch=main)](https://github.com/T4cceptor/centian/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/T4cceptor/centian)](./LICENSE)
 
 
-## Highlights
+**Control plane for AI agents** — enforce structured workflows, govern tool access, and inspect every action your agent takes.
 
-- **Programmable tool-call processing** – inspect, modify, block, or enrich proxied `tools/call` requests and results with processor scripts.
-- **Unified gateway for multiple servers** – expose many downstream MCP servers through one clean endpoint (DRY config).
-- **Workflow-driven taskverification** – expose `centian.task_*` tools for onboarding, planning, execution, and approval-gated task flows.
-- **Structured logging & visibility** – capture MCP events for debugging, auditing, and analysis.
-- **Built-in task run explorer** – persist task/action timelines and inspect them through the API or embedded UI.
-- **Fast setup via auto‑discovery** – import existing MCP configs from common tools to get started quickly.
+<div align="center">
+  <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance" width="80%">
+</div>
+<br>
 
-## Quick Start
+Centian sits between your AI agents and their MCP servers. All tool calls flow through Centian's proxy, giving you a single point of control for aggregation, middleware processing, workflow enforcement, and full observability.
 
-Note: if you do not already have an MCP setup locally you can also look into the next section Demo.
+---
 
-1) **Install**
+## The Problem
+
+AI agents calling MCP tools today operate with:
+
+- **No structure.** The agent decides what to do based on prompt text alone. There's no contract, no phased workflow, no verification that it followed a process.
+- **No visibility.** You see the final output, but not the 47 tool calls the agent made along the way — or the 3 it shouldn't have made.
+- **No enforcement.** You can't restrict which tools an agent uses during which phase of work, or block a tool call that violates policy.
+- **Config sprawl.** Every MCP client needs separate configuration for every MCP server. Adding a server means updating every client.
+
+Centian solves all four.
+
+---
+
+## Installation
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-2) **Initialize quickstart config (npx required)**
+For other options (release binaries, Docker, source build) see [Installation Options](#installation-options)
+
+## Quick Start
+
+### Local Demo
+
+**Prerequisites**: Before running `centian demo`, make sure you have:
+
+- `npx` available on your `PATH` - required to launch filesystem and shell MCP servers
+- Claude Code or Gemini CLI installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or not signed in.
+
+**Claude Code** (sonnet)
+```bash
+centian demo -a claude
+```
+
+**Gemini CLI** (gemini-2.5-flash)
+```bash
+centian demo -a gemini
+```
+
+**Codex:** coming soon
+
+**What the demo shows**
+- Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
+- Start Centian server locally at an available port (selected automatically).
+- Start selected coding agent in headless mode with [prompt](internal/agentrunner/assets/prompt.md).
+- The Centian UI is opened in a new browser window showing the task overview page UI - once the agent registers the task at Centian you can check what the agent is doing by clicking on it and observing the MCP events.
+- After the agent is done the CLI will prompt you if you want to close the server. Feel free to do so, you can run the demo multiple times, also with different agents - previous runs will be preserved.
+
+**Note:** the demo is intended to showcase Centian's capabilities and get a first impression, it is NOT a production-grade setup (e.g. `auth = false`, using `127.0.0.1`). If you want to use Centian do NOT copy-paste or reference the created config, check out [Configuration](#configuration) for how to setup your own centian proxy.
+
+### Using `init` for basic proxy setup (no task verification)
 
 ```bash
+# 1. Install
+curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
+
+# 2. Initialize with a starter MCP server
 centian init -q
-```
+# Optional: check created config at ~/.centian/config.json
 
-This does the following:
-* Creates centian config at `~/.centian/config.json`
-* Adds the `@modelcontextprotocol/server-sequential-thinking` MCP server to the config
-* You can add more MCP servers by running `centian server add`:
-    
-    ```
-    centian server add --name "my-local-memory" --command "npx" --args "-y,@modelcontextprotocol/server-memory"
+# 3. Add your own MCP servers
+centian server add --name "filesystem" --command "npx" --args "-y,@modelcontextprotocol/server-filesystem,/path/to/project"
+centian server add --name "deepwiki" --url "https://mcp.deepwiki.com/mcp"
 
-    centian server add --name "my-deepwiki" --url "https://mcp.deepwiki.com/mcp"
-    ```
-* Creates an API key to authenticate at the centian proxy
-* Displays MCP client configurations including API key header
-    * NOTE: the API key is only shown ONCE, afterwards its hashed, so be sure to copy it here
-    * Alternatively you can create another API key using `centian auth new-key`
-
-3) **Start the proxy**
-
-```bash
+# 4. Start the proxy
 centian start
+
+# 5. Point your MCP client at Centian (use the config shown during init)
 ```
 
-Default bind: `127.0.0.1:8080`.
+### With task verification
 
-> **Security note**
-> Binding to `0.0.0.0` is allowed only if `auth` is explicitly set in the config (true or false). This is enforced to reduce accidental exposure.
+Add capabilities to your config at `~/.centian/config.json`:
 
-4) **Point your MCP client to Centian**
-
-Copy the provided config json into your MCP client/AI agent settings, and start the agent.
-
-Example:
 ```json
 {
-  "mcpServers": {
-    "centian-default": {
-      "url": "http://127.0.0.1:8080/mcp/default",
-      "headers": {
-        "X-Centian-Auth": "<your-api-key>"
+  "proxy": {
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "/path/to/task-templates"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite"
+      },
+      "ui": {
+        "enabled": true
       }
     }
   }
 }
 ```
 
-5) **Done!** - you can now log and process proxied MCP tool calls with centian.
-    - (Optional): to process downstream `tools/call` requests and results, add a processor via `centian processor add` or scaffold a CLI processor via `centian processor new`.
+Note: by default task-templates/integrated are automatically integrated in centian, but can/will be overwritten by templates using the same task.id
 
-
-## Demo
-
-For the fastest end-to-end product demo, use the built-in `centian demo` command.
-
-### `centian demo`
-
-`centian demo` creates a self-contained demo workspace, starts a local Centian instance, launches a supported coding agent against that instance, and shows the live task UI.
-
-Current v1 support:
-
-- `claude`
-- `gemini`
-
-Example:
+Start Centian and open the UI:
 
 ```bash
-centian demo --agent claude
+centian start
+# UI available at http://localhost:9666/ui/tasks
 ```
+
+The agent now has access to `centian.task_*` tools alongside your normal MCP tools. The task lifecycle:
+
+1. `centian.task_list_templates` — discover available workflow templates
+2. `centian.task_register` — start a task run from a template
+3. `centian.task_complete_onboarding` — submit project context
+4. `centian.task_complete_planning` — freeze the execution contract
+5. `centian.task_start_step` / `centian.task_complete_step` — execute with verification
+6. `centian.task_fail` / `centian.task_restart` — handle failures
+
+---
+
+
+## How It Works
+
+### 1. One gateway, all your MCP servers
+
+Configure your MCP servers once in Centian. Point every client at `localhost:9666`. Tool namespacing (`<server>_<tool>`) eliminates collisions automatically.
+
+```json
+{
+  "gateways": {
+    "default": {
+      "mcpServers": {
+        "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/project"] },
+        "github": { "url": "https://api.github.com/mcp", "headers": { "Authorization": "Bearer <token>" } }
+      }
+    }
+  }
+}
+```
+
+Every client connects to one endpoint:
+
+```json
+{
+  "mcpServers": {
+    "centian": {
+      "url": "http://127.0.0.1:9666/mcp/default",
+      "headers": { "X-Centian-Auth": "<your-api-key>" }
+    }
+  }
+}
+```
+
+### 2. Programmable middleware for tool calls
+
+Processors intercept every tool call before and after execution. They receive the full request/response context, can modify payloads, and can abort the chain.
+
+Use cases:
+- Audit logging every tool call to a database
+- Rate limiting calls that exceed thresholds
+- Stripping secrets or environment variables from tool arguments
+- Redacting PII from responses
+- Enforcing allow-lists for which tools an agent can call
+
+Scaffold a new processor:
 
 ```bash
-centian demo --agent gemini
+centian processor new
 ```
 
-Optional path override:
+### 3. Structured task verification
+
+![Centian Demo — AI agent trying to cheat its way around TDD](docs/images/agent_modifying_test_script.jpeg)
+
+This is what makes Centian a control plane, not just a proxy.
+
+Task verification lets you define **declarative workflow templates** in YAML. Each template describes a structured lifecycle — onboarding, planning, scaffolding, execution — with preconditions, postconditions, invariants, and per-phase tool permissions.
+
+When an agent registers a task from a template:
+
+1. **Onboarding** — the agent gathers project context and constraints
+2. **Planning** — the agent proposes an approach, which gets **frozen into an execution contract**
+3. **Execution** — the agent works through defined steps, with Centian verifying correctness at each gate
+4. **Completion** — postconditions confirm the task was done right
+
+The frozen execution contract is key: once planning completes, the agent reads from an immutable contract rather than mutable prompt context. You can prove what the agent committed to doing, and verify whether it actually did it.
+
+**Per-phase tool governance:** each workflow node can declare which MCP tools the agent is allowed to call. During an approval-wait phase, all downstream tools are blocked. During scaffolding, you might allow filesystem access but block shell commands.
+
+### 4. Full observability
+
+Every MCP tool call is captured with timestamps, session IDs, request/response payloads, and — when task verification is active — the workflow context that produced it.
+
+Without task verification, Centian logs events via structured JSONL and a queryable SQLite event store. With task verification enabled, Centian serves an embedded UI that shows agent activity **in the context of what the agent was supposed to be doing**:
+
+- Timeline grouped by workflow phase
+- Tool calls correlated to task steps
+- Failed postcondition checks with detailed failure metadata
+- Full request/response inspection
 
 ```bash
-centian demo --agent claude --path ./my-centian-demo
+# CLI log access
+centian logs
+
+# Embedded UI (when task verification + UI are enabled)
+# http://localhost:9666/ui/tasks
 ```
 
-By default this creates the demo under:
+---
 
-```text
-{cwd}/.centian/demo
-```
+## Documentation
 
-The command creates:
+The deep documentation lives under [`docs/`](docs/README.md).
 
-- `workspace/` for the agent task
-- `templates/` with the taskverification workflow
-- `logs/` with Centian-generated logs and event storage
-- `config.json`, `prompt.md`, `claude_mcp_config.json`, and `centian.pid`
-- `workspace/.gemini/settings.json` when using the Gemini demo
-- `agent.stdout.log` and `agent.stderr.log` for the headless agent process output
+- [Getting Started](docs/getting_started.md)
+- [Configuration Reference](docs/configuration_reference.md)
+- [Processor Development](docs/processor_development_guide.md)
+- [Task Template Authoring](docs/task-template-authoring.md)
+- [Taskverification Runtime](docs/TASKVERIFICATION.md)
+- [MCP Proxy Best Practices](docs/mcp_proxy_best_practices.md)
 
-Behavior:
+## Task Templates
 
-- starts Centian locally
-- prints the live UI URL
-- best-effort opens the browser on macOS
-- runs the agent headlessly
-- keeps Centian running after the agent finishes
+Templates are YAML files that define structured agent workflows. Each template specifies:
 
-To stop the demo server later:
+- **Required parameters** the agent must provide at registration
+- **Onboarding requirements** — what context the agent needs to gather
+- **Planning requirements** — what the agent must define before execution begins
+- **Workflow nodes** — scaffolding, execution, and approval-wait phases
+- **Tool allowlists** — which MCP tools are permitted in each phase
+- **Preconditions and postconditions** — verification checks at each step boundary
+- **Invariants** — conditions that must hold throughout execution
 
-```bash
-kill $(cat ./.centian/demo/centian.pid)
-```
+Example templates for TDD workflows are included in the repository under `task-templates/`.
 
-This is a safe, isolated demo flow intended to showcase Centian taskverification. It is not yet a hardened sandbox boundary and does not currently support Codex in the public command.
+The template schema is documented and designed for extensibility. Community contributions of templates for common workflows are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-When using Gemini, note that the CLI may still maintain some of its own local state outside the demo directory. Centian only controls the generated demo workspace and project-level Gemini settings.
-
-### `demo/` walkthroughs
-
-The `demo/` folder contains three walkthroughs:
-- `demo/logging_demo/` for OpenTelemetry span export on MCP tool calls.
-- `demo/modification_demo/` for regex-based redaction of sensitive response values.
-- `demo/taskverification/` for workflow-driven task execution with persisted timelines and approval waits.
-
-Quick local setup:
-
-```bash
-cd demo
-make setup
-```
-
-Then run either `make demo-logging-up` or `make demo-modification-up`.
-
-These examples are intended to demonstrate extension patterns and are not production-hardened security/monitoring implementations.
-
-For further details, check out `demo/README.md`.
-
-The taskverification demo has its own setup and run flow documented in [demo/taskverification/README.md](demo/taskverification/README.md).
-
-Taskverification documentation is available in [docs/TASKVERIFICATION.md](docs/TASKVERIFICATION.md).
-
-## Taskverification
-
-Centian can expose a workflow-driven task runtime on top of the normal MCP proxy surface.
-When `proxy.capabilities.taskVerification.enabled` is true, Centian adds `centian.task_*` tools that guide an agent through:
-
-- template selection and task registration
-- onboarding and planning artifacts
-- step-by-step execution with checks and invariants
-- approval-wait nodes that block downstream tool usage
-
-Taskverification is opt-in. The task runtime, persisted history, and embedded UI are separate capability toggles.
-
-When event storage is enabled, Centian persists lifecycle and MCP action history and exposes:
-
-- `GET /api/task-runs`
-- `GET /api/task-runs/{runID}/events`
-
-When `proxy.capabilities.ui.enabled` is true, Centian serves an embedded read-only UI under `/ui`, including:
-
-- `/ui/tasks`
-- `/ui/tasks/:runID`
-
-The embedded UI is an observer only. It does not register tasks, advance workflow steps, or mutate run state.
-
-For local builds, `make build` rebuilds and embeds the full frontend, while `make build-go` skips the frontend rebuild and uses the fallback embedded UI.
-
-See:
-
-- [docs/TASKVERIFICATION.md](docs/TASKVERIFICATION.md)
-- [demo/taskverification/README.md](demo/taskverification/README.md)
-
+---
 
 ## Configuration
 
 Centian uses a single JSON config at `~/.centian/config.json`.
-
-Minimal example:
 
 ```json
 {
@@ -212,20 +262,21 @@ Minimal example:
   "authHeader": "X-Centian-Auth",
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info",
-    "logOutput": "file",
-    "logFile": "~/.centian/centian.log"
+    "capabilities": {
+      "taskVerification": { "enabled": false },
+      "eventStorage": { "enabled": true, "driver": "sqlite" },
+      "ui": { "enabled": false }
+    }
   },
   "gateways": {
     "default": {
       "mcpServers": {
         "my-server": {
           "url": "https://example.com/mcp",
-          "headers": {
-            "Authorization": "Bearer <token>"
-          },
+          "headers": { "Authorization": "Bearer <token>" },
           "enabled": true
         }
       }
@@ -235,297 +286,108 @@ Minimal example:
 }
 ```
 
-### Valid Configuration Requirements
-
-At a minimum (for config management commands), a config must include:
-
-- `version` (non-empty string)
-- `proxy` (object)
-
-For `centian start` (strict validation), the config must also include:
-
-- At least one gateway in `gateways`
-- Each gateway must have at least one active MCP server
-- Gateway names and server names must be URL-safe (`a-z`, `A-Z`, `0-9`, `_`, `-`)
-- Each server must define exactly one transport:
-  - `command` for stdio, or
-  - `url` for HTTP(S)
-- If `url` is used, it must be a valid `http://` or `https://` URL
-- Header keys and values must be non-empty
-
-You can validate your current config with:
-
-```bash
-centian config validate
-```
-
-### Environment Variable Interpolation
-
-Centian supports environment variable interpolation in `mcpServers.<server>.headers` values.
-
-Example:
-```json
-{
-  "gateways": {
-    "default": {
-      "mcpServers": {
-        "github": {
-          "url": "https://api.githubcopilot.com/mcp/",
-          "headers": {
-            "Authorization": "Bearer ${GITHUB_PAT}",
-            "X-Api-Key": "$API_KEY",
-            "X-Custom": "prefix-${ENV}-suffix"
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-### Downstream OAuth
-
-Centian supports downstream OAuth for HTTP MCP servers. When enabled, Centian handles token storage, refresh, and browser-based authorization for the configured downstream.
-
-Currently supported:
-
-- Browser-based Authorization Code flow
-- PKCE with `S256` only
-- Refresh-token based reauthorization after the initial login
-- Client authentication via `client_secret_post` or `client_secret_basic`
-
-Minimal example:
-
-```json
-{
-  "proxy": {
-    "host": "127.0.0.1",
-    "port": "8080",
-    "web": {
-      "publicBaseUrl": "http://127.0.0.1:8080"
-    }
-  },
-  "gateways": {
-    "default": {
-      "mcpServers": {
-        "protected-server": {
-          "url": "https://example.com/mcp",
-          "oauth": {
-            "enabled": true,
-            "clientId": "${OAUTH_CLIENT_ID}",
-            "clientSecret": "${OAUTH_CLIENT_SECRET}",
-            "clientAuthMethod": "client_secret_post",
-            "resource": "https://example.com/mcp",
-            "issuer": "https://issuer.example"
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-Notes:
-
-- Downstream OAuth is supported for HTTP MCP servers only. Stdio servers do not use this flow.
-- `proxy.web.publicBaseUrl` is required when any downstream server enables OAuth. It must be the externally reachable base URL for Centian's hosted `/oauth/start`, `/oauth/status`, and `/oauth/callback` routes.
-- You must set `oauth.clientId`, `oauth.clientSecret`, and `oauth.resource`.
-- For metadata discovery, provide either `oauth.issuer` or both `oauth.authorizationEndpoint` and `oauth.tokenEndpoint`.
-- Centian always sends PKCE `S256` during downstream browser login. Providers that only support `plain` PKCE, or that do not support `S256`, are not supported yet.
-- Supported client auth methods are `client_secret_post` and `client_secret_basic`.
-- After a downstream challenge, Centian exposes `centian.auth_status` and `centian.login.<server>` so clients can inspect auth state and start or resume login.
-
-Be aware of:
-
-- Tokens are stored locally in Centian's config directory in encrypted form, with a locally managed master key.
-- If proxy auth is disabled, Centian uses one shared local identity per endpoint. In that mode, downstream OAuth tokens are also shared per endpoint identity.
-- The login flow depends on the browser being able to reach `proxy.web.publicBaseUrl`.
-- If you configure explicit `oauth.authorizationEndpoint` / `oauth.tokenEndpoint` values instead of issuer discovery, Centian still uses PKCE `S256`; it just cannot pre-verify support from issuer metadata ahead of time.
-- For OAuth-enabled downstreams, Centian manages the downstream `Authorization` header itself instead of forwarding the client's auth header to that server.
-- Not all downstream OAuth patterns are implemented yet. In particular, Dynamic Client Registration (DCR), machine-to-machine `client_credentials` flows, device flows, non-browser grant types, and non-`S256` PKCE variants are not currently supported. Those are expected roadmap items on the way to v1.0.
-
 ### Endpoints
 
-- Aggregated gateway endpoint: `http://localhost:8080/mcp/<gateway>`
-- Individual server endpoint: `http://localhost:8080/mcp/<gateway>/<server>`
+- Aggregated gateway: `http://127.0.0.1:9666/mcp/<gateway>`
+- Individual server: `http://127.0.0.1:9666/mcp/<gateway>/<server>`
 
-In aggregated mode, tools and prompts are namespaced to avoid collisions.
-Resources and resource templates are not namespaced. If multiple downstreams expose
-the same resource URI or resource-template URI, Centian hides that entry from the
-aggregated surface and logs a warning instead of silently letting one downstream win.
+In aggregated mode, tools are namespaced to avoid collisions.
 
-## Session Management
+### Security
 
-Centian manages two different session layers:
+Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured. This prevents accidental exposure.
 
-- **Upstream sessions** are the sessions between an MCP client and Centian.
-- **Downstream sessions** are the sessions Centian opens to the configured MCP servers behind a gateway.
+---
 
-These two layers are intentionally managed separately. An upstream session still exists per MCP client session, but the downstream connections attached to it can be reused from a pool.
+## Commands
 
-### Current Behavior
+| Command | Description |
+|---------|-------------|
+| `centian init` | Initialize config (use `-q` for quickstart) |
+| `centian start` | Start the proxy |
+| `centian auth new-key` | Generate a new API key |
+| `centian server add` | Add an MCP server |
+| `centian server ...` | Manage MCP servers |
+| `centian config ...` | Manage configuration |
+| `centian processor new` | Scaffold a new processor |
+| `centian logs` | View recent MCP logs |
 
-- If `auth` is `true`, Centian identifies the caller by the matched API key ID.
-- If `auth` is `false`, Centian uses one shared local identity per endpoint.
-- Downstream session reuse is keyed by `endpoint + identity`.
+---
 
-This means:
+## Installation Options
 
-- Reconnects from the same authenticated client reuse the same downstream MCP session set for that endpoint.
-- Unauthenticated local traffic shares one downstream MCP session set per endpoint.
-- Different endpoints do not share downstream sessions with each other.
+### Release binaries
 
-### Why This Exists
+Download the appropriate archive from the [latest release](https://github.com/T4cceptor/centian/releases/latest), extract it, and place `centian` on your `PATH`.
 
-Some MCP clients reconnect frequently or do not reliably reuse `Mcp-Session-Id`. If downstream sessions were tied directly to every upstream reconnect, Centian would repeatedly re-initialize downstream MCP servers.
-
-The current pooling model avoids that by keeping upstream session handling separate from downstream session ownership:
-
-- the upstream session keeps references to downstream connections
-- the pool owns downstream lifecycle and reuse
-
-This applies to both stateful and stateless upstream MCP traffic. Even if the upstream side is stateless, Centian can still reuse downstream sessions internally when the identity and endpoint match.
-
-
-## Processors
-
-Processors let you enforce policies or transform proxied `tools/call` traffic. Centian supports two processor runtimes:
-
-- `cli`: Centian runs a local executable and exchanges JSON over `stdin`/`stdout`
-- `webhook`: Centian sends the same reduced `DataContext` JSON to a remote HTTP endpoint via synchronous `POST`
-
-You can scaffold a CLI processor with:
+### Docker
 
 ```bash
-centian processor new
+# Full image
+docker run --rm -p 9666:9666 t4ce/centian:latest
+
+# Alpine image
+docker run --rm -p 9666:9666 t4ce/centian:latest-alpine
 ```
 
-You can also register existing processors directly:
-
-```bash
-centian processor add --path ./processors/audit.py
-centian processor add --type webhook --url https://example.com/processors/audit --header "Authorization=Bearer ${TOKEN}"
-```
-
-CLI and webhook processors use the same `DataContext` contract and can coexist in the same chain.
-That contract centers on `event`, `payload`, `routing`, and optional read-only `auth` context, as documented in [`docs/processor_development_guide.md`](docs/processor_development_guide.md).
-Processors currently run only around proxied `tools/call` handling: once before the downstream call and once after the downstream result is returned.
-Processor `timeout` values are configured in seconds per processor and default to `15`. The timeout is enforced per invocation, so the same processor may consume that budget once on the request phase and again on the response phase of a single tool call. Required processor timeouts fail the current phase; non-required processor timeouts are logged and skipped.
-
-## Logging
-
-Centian has two different logging/observability paths, and they serve different purposes.
-
-### Internal Proxy Logging
-
-These logs are for Centian's own internal runtime behavior only: proxy startup, downstream connection state, processor execution failures, and similar implementation details.
-
-Configure them under `proxy`:
-
-```json
-{
-  "proxy": {
-    "logLevel": "info",
-    "logOutput": "file",
-    "logFile": "~/.centian/centian.log"
-  }
-}
-```
-
-- `logLevel`: `debug`, `info`, `warn`, `error`
-- `logOutput`: `file`, `console`, `both`
-- `logFile`: optional file path when file output is enabled
-
-By default, internal proxy logs are written to `~/.centian/centian.log`.
-
-### MCP Communication Logging
-
-Logs about actual MCP requests/responses are separate from the internal logger. They are written to `~/.centian/logs/` as MCP event records:
-
-- `requests.jsonl` – MCP requests with timestamps and session IDs
-
-Use this path when you want to inspect or retain MCP traffic.
-
-### Processor-Based Observability
-
-If you want to log, export, redact, or otherwise process proxied tool-call details, use processors rather than the internal proxy logger. This is the correct place for tool-call-specific observability, audit enrichment, and custom telemetry.
-
-See:
-
-- [demo/README.md](demo/README.md) for end-to-end examples
-- `demo/src/otel_span_logger.py` for telemetry export
-- `demo/src/response_redactor.py` for response transformation/redaction
-
-## Commands (Quick Reference)
-
-- `centian init` – initialize config
-- `centian start` – start the proxy
-- `centian auth new-key` – generate API key
-- `centian server ...` – manage MCP servers
-- `centian config ...` – manage config
-- `centian logs` – view recent logs
-
-## Installation (More Options)
-
-### Script (recommended)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
-```
-
-### Homebrew
-
-Coming soon.
-
-### From source
+### Build from source
 
 ```bash
 git clone https://github.com/T4cceptor/centian.git
 cd centian
-make build-go      # Go-only build using the embedded fallback UI
-make build         # Full build, requires Node 22 and embeds the real UI
+make install
 ```
 
-## Troubleshooting & Known Limitations
+---
 
-### Known Limitations
-- stdio servers run locally: Stdio MCP servers run on the host under the same user context as Centian. Only configure stdio servers if you trust the clients using Centian, since they can access local resources through those servers. For the future, we are looking into starting stdio-based servers in a virtualized environment.
-- OAuth scope is currently limited: Centian supports downstream HTTP OAuth for browser-based Authorization Code + PKCE `S256` flows with refresh handling. It does not currently provide a general upstream OAuth layer for authenticating MCP clients to Centian itself, and it does not yet implement DCR, `client_credentials`, device flow, other non-browser downstream grant types, or non-`S256` PKCE variants.
-- Shared credentials reduce auditability: If you set auth headers at the proxy level, all downstream requests share the same identity. Prefer per‑client credentials so downstream servers can audit and rate‑limit correctly, or provide appropriate processors and logging to ensure auditability.
-- Unauthenticated mode shares downstream identity: If `auth` is disabled, Centian uses one shared local identity per endpoint. That simplifies local use, but it also means downstream session state and downstream OAuth tokens are shared within that endpoint.
-- Future changes: please be aware that the APIs and especially data structures we are using to log events and provide information to processors are still evolving and might change in the future, especially before version 1.0.0. Further, changes in MCP are reflected by the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) and are dependent on it.
+## Current Status
+
+Centian is usable and actively developed, but it's pre-1.0 with deliberate gaps. We're transparent about what works and what doesn't yet.
+
+**Working today:**
+- MCP proxy with gateway aggregation and tool namespacing
+- Programmable processor chain (CLI and webhook)
+- Task verification with template-based workflows, frozen execution contracts, and per-phase tool governance
+- SQLite event persistence with task/action correlation
+- Embedded read-only UI for task run inspection
+- Structured JSONL request logging
+- Auto-discovery of existing MCP configs (`centian init -p <path>`)
+- API key authentication
+
+**Known limitations:**
+- Task run state is in-memory only (not restorable after restart)
+- Governance is tool-level, not semantic (no read vs. write distinction within a tool)
+- SQLite is the only storage backend (Postgres planned)
+- OAuth support or downstream MCP servers is limited, not all flows are supported yet
+- The UI is read-only (no task control actions from the UI yet)
+- Approval-wait phases block tools but have no dedicated approve/resume mechanism yet
+
+APIs and data structures may change before v1.0, particularly the processor interface and event schemas.
+
+---
 
 ## Development
 
 ```bash
 make build          # Build to build/centian
-make build-go       # Build without rebuilding the frontend
 make install        # Install to ~/.local/bin/centian
 make test-all       # Run unit + integration tests
-make test-coverage  # Runs test coverage report
+make test-coverage  # Test coverage report
 make lint           # Run linting
 make dev            # Clean, fmt, vet, test, build
 ```
 
-`make build` stages the frontend and expects Node 22 plus npm to be installed. Use `make build-go` when you only need the Go binary and the fallback embedded UI is sufficient.
+---
 
-## Contributing
+## Why "Control Plane"?
 
-Centian is still evolving, and contributions are useful across the proxy, processor, OAuth, taskverification, and UI surfaces.
+MCP proxies route traffic. Centian governs it.
 
-Good contribution areas include:
+The proxy is the mechanism — it's how Centian sees and controls every tool call. But the point isn't routing. The point is knowing what your agent is doing, constraining what it's allowed to do, and verifying that it did what you asked.
 
-- new processors and policy examples
-- taskverification templates and demo scenarios
-- docs, onboarding, and configuration clarity
-- UI polish around task runs and observability
-- bug fixes, tests, and performance work
+If you're using AI agents in environments where process matters — regulated industries, mission-critical workflows, or anywhere you need to answer "what did the agent do and why?" — that's what Centian is for.
 
-To contribute:
-
-- read [CONTRIBUTING.md](CONTRIBUTING.md)
-- follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- report security issues through [SECURITY.md](SECURITY.md)
+---
 
 ## License
 

@@ -290,7 +290,7 @@ func printInitSuccess(configPath string, imported int) {
 	fmt.Printf(`
     {
         "mcpServers": { "centian": { 
-            "url": "http://localhost:8080/mcp/default",
+            "url": "http://localhost:9666/mcp/default",
             "headers": { "X-Centian-Auth": <your api key - see step 2> }
         }}
     }

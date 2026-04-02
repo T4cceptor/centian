@@ -400,7 +400,7 @@ All HTTP proxy configs follow this structure:
   "auth": true,
   "authHeader": "X-Centian-Auth",
   "proxy": {
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info"
   },
@@ -430,7 +430,7 @@ Servers are accessible at: `http://localhost:{port}/mcp/{gateway}/{server}`
 
 Example:
 - Config: `gateways.production.mcpServers.github`
-- Endpoint: `http://localhost:8080/mcp/production/github`
+- Endpoint: `http://localhost:9666/mcp/production/github`
 
 #### Environment Variables
 

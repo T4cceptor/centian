@@ -213,7 +213,7 @@ func TestNewCentianServer_RequiresAuthWhenBindingAllInterfaces(t *testing.T) {
 		Version: "1.0.0",
 		Proxy: &config.ProxySettings{
 			Host:    "0.0.0.0",
-			Port:    "8080",
+			Port:    "9666",
 			Timeout: 5,
 		},
 	}
@@ -652,7 +652,7 @@ func TestGetServerForRequest_DoesNotRetryAuthorizationFailures(t *testing.T) {
 						Gateway:     "gateway",
 						Server:      "server1",
 					},
-					AuthURL: "http://127.0.0.1:8080/oauth/start?id=test",
+					AuthURL: "http://127.0.0.1:9666/oauth/start?id=test",
 					Reason:  tc.reason,
 				},
 			}

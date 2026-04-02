@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.0 - 2026-04-03
+
+### Major
+- Overhauled the public documentation surface around the newer "control plane for AI agents" positioning, including a rewritten top-level `README`, a canonical docs index, and dedicated guides for getting started, configuration, processor development, HTTP proxy setup, taskverification, and MCP proxy best practices.
+- Expanded the product-facing taskverification and demo presentation with new checked-in README media assets, updated task template guidance, and clearer README/demo/processors documentation so the current local evaluation path is easier to understand and promote.
+- Standardized Centian's default proxy port to `9666` across runtime defaults, generated snippets, examples, fixtures, and operator-facing startup output so the product surface now has one canonical default endpoint.
+
+### Minor
+- Updated the release/install story to focus on the supported paths for v0.3: installer script, release binaries, Docker images, and source builds via `make install`.
+- Removed the FreeBSD artifact from the automated GitHub release workflow and aligned generated release notes with the actual support matrix.
+- Added regression coverage for the new default-port expectations, the init command's MCP client snippet output, and quiet metadata/help CLI behavior.
+- Added a short bridge page for task template authoring and refreshed related docs/readmes so the canonical documentation paths are easier to discover.
+
+### Bugfixes
+- Fixed broken internal documentation links and corrected the README hero asset reference to use checked-in media that actually exists in the repository.
+- Fixed `centian --version` and `centian --help` so they no longer initialize the internal logger or emit permission-related warnings in restricted environments.
+- Moved duplicate taskverification prompt fixtures out of the visible test surface into archived `.tmp` storage to reduce repository noise in promotion-facing paths.
+
 ## v0.2.5 - 2026-04-02
 
 ### Major

@@ -84,7 +84,7 @@ func TestCreateTransport_HTTP(t *testing.T) {
 func TestCreateTransport_HTTPOAuthSkipsForwardedAuthHeaders(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	manager, err := centoauth.NewManager("http://127.0.0.1:8080", nil, nil)
+	manager, err := centoauth.NewManager("http://127.0.0.1:9666", nil, nil)
 	assert.NilError(t, err)
 
 	cfg := &config.MCPServerConfig{

@@ -14,7 +14,7 @@ import (
 )
 
 func TestTransportRoundTripInjectsStoredTokenAndPreservesBody(t *testing.T) {
-	manager := newTestManager(t, "http://127.0.0.1:8080")
+	manager := newTestManager(t, "http://127.0.0.1:9666")
 	binding := Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}
 	assert.NilError(t, manager.SaveToken(binding, &StoredToken{
 		AccessToken: "access-token",
@@ -56,7 +56,7 @@ func TestTransportRoundTripInjectsStoredTokenAndPreservesBody(t *testing.T) {
 }
 
 func TestTransportRoundTripRefreshesExpiredStoredToken(t *testing.T) {
-	manager := newTestManager(t, "http://127.0.0.1:8080")
+	manager := newTestManager(t, "http://127.0.0.1:9666")
 	manager.httpClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		assert.Equal(t, req.URL.String(), "https://issuer.example/token")
 		assert.Equal(t, req.Method, http.MethodPost)
@@ -105,7 +105,7 @@ func TestTransportRoundTripRefreshesExpiredStoredToken(t *testing.T) {
 }
 
 func TestTransportRoundTripCreatesPendingAuthorizationOnChallenge(t *testing.T) {
-	manager := newTestManager(t, "http://127.0.0.1:8080")
+	manager := newTestManager(t, "http://127.0.0.1:9666")
 	binding := Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}
 
 	transport := manager.NewTransport(roundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -138,7 +138,7 @@ func TestTransportRoundTripCreatesPendingAuthorizationOnChallenge(t *testing.T) 
 }
 
 func TestTransportRoundTripReportsRefreshFailureAsAuthorizationRequired(t *testing.T) {
-	manager := newTestManager(t, "http://127.0.0.1:8080")
+	manager := newTestManager(t, "http://127.0.0.1:9666")
 	manager.httpClient = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		return newTextResponse(http.StatusBadGateway, "refresh failed"), nil
 	})}
@@ -222,7 +222,7 @@ func TestHandlerHelpers(t *testing.T) {
 	assert.Assert(t, isAuthorizationResponse(http.StatusForbidden))
 	assert.Assert(t, !isAuthorizationResponse(http.StatusOK))
 
-	authErr := &AuthorizationRequiredError{Binding: Binding{Gateway: "gw", Server: "srv"}, AuthURL: "http://127.0.0.1:8080/oauth/start?id=test"}
+	authErr := &AuthorizationRequiredError{Binding: Binding{Gateway: "gw", Server: "srv"}, AuthURL: "http://127.0.0.1:9666/oauth/start?id=test"}
 	assert.Assert(t, strings.Contains(authErr.Error(), "gw/srv"))
 	unwrapped, ok := IsAuthorizationRequired(authErr)
 	assert.Assert(t, ok)

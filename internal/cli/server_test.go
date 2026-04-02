@@ -29,7 +29,7 @@ func TestPrintServerInfo(t *testing.T) {
 				Name:    "Test Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					Port:    "8080",
+					Port:    "9666",
 					Timeout: 30,
 				},
 				Gateways: map[string]*config.GatewayConfig{
@@ -47,7 +47,7 @@ func TestPrintServerInfo(t *testing.T) {
 			wantError:      false,
 			expectInOutput: []string{
 				"Test Server",
-				"Port: 8080",
+				"Port: 9666",
 				"Timeout: 30s",
 				"Gateways: 1",
 				"Total MCP servers: 1",
@@ -96,7 +96,7 @@ func TestPrintServerInfo(t *testing.T) {
 			config: &config.GlobalConfig{
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					Port:    "8080",
+					Port:    "9666",
 					Timeout: 30,
 				},
 				Gateways: map[string]*config.GatewayConfig{
@@ -119,7 +119,7 @@ func TestPrintServerInfo(t *testing.T) {
 				Name:    "Task Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					Port:    "8080",
+					Port:    "9666",
 					Timeout: 30,
 					Capabilities: &config.CapabilitiesSettings{
 						TaskVerification: &config.TaskVerificationCapabilitySettings{
@@ -147,7 +147,7 @@ func TestPrintServerInfo(t *testing.T) {
 				Name:    "Empty Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					Port:    "8080",
+					Port:    "9666",
 					Timeout: 30,
 				},
 				Gateways: map[string]*config.GatewayConfig{
@@ -165,7 +165,7 @@ func TestPrintServerInfo(t *testing.T) {
 			config: &config.GlobalConfig{
 				Name:     "No Gateways",
 				Version:  "1.0.0",
-				Proxy:    &config.ProxySettings{Port: "8080", Timeout: 30},
+				Proxy:    &config.ProxySettings{Port: "9666", Timeout: 30},
 				Gateways: map[string]*config.GatewayConfig{},
 			},
 			taskWorkingDir: "",
@@ -219,12 +219,12 @@ func TestHandleServerStartCommandValidation(t *testing.T) {
 		},
 		{
 			name:        "no gateways configured",
-			config:      &config.GlobalConfig{Version: "1.0.0", Proxy: &config.ProxySettings{Port: "8080"}, Gateways: map[string]*config.GatewayConfig{}},
+			config:      &config.GlobalConfig{Version: "1.0.0", Proxy: &config.ProxySettings{Port: "9666"}, Gateways: map[string]*config.GatewayConfig{}},
 			expectedErr: "no gateways configured",
 		},
 		{
 			name:        "nil gateways",
-			config:      &config.GlobalConfig{Version: "1.0.0", Proxy: &config.ProxySettings{Port: "8080"}, Gateways: nil},
+			config:      &config.GlobalConfig{Version: "1.0.0", Proxy: &config.ProxySettings{Port: "9666"}, Gateways: nil},
 			expectedErr: "no gateways configured",
 		},
 	}
@@ -288,7 +288,7 @@ func TestHandleServerStartCommandConfigLoading(t *testing.T) {
 				path := filepath.Join(dir, "invalid_structure.json")
 				// Missing required version field.
 				invalidConfig := map[string]interface{}{
-					"proxy": map[string]interface{}{"port": "8080"},
+					"proxy": map[string]interface{}{"port": "9666"},
 				}
 				data, _ := json.Marshal(invalidConfig)
 				os.WriteFile(path, data, 0o644)
@@ -345,7 +345,7 @@ func TestHandleServerStartCommandWithDefaultPath(t *testing.T) {
 		Name:    "Default Path Test",
 		Version: "1.0.0",
 		Proxy: &config.ProxySettings{
-			Port:    "8080",
+			Port:    "9666",
 			Timeout: 30,
 		},
 		Gateways: map[string]*config.GatewayConfig{
@@ -431,7 +431,7 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 			config: &config.GlobalConfig{
 				Name:    "Test",
 				Version: "1.0.0",
-				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+				Proxy:   &config.ProxySettings{Port: "9666", Timeout: 30},
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": nil,
 				},
@@ -443,7 +443,7 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 			config: &config.GlobalConfig{
 				Name:    "Test",
 				Version: "1.0.0",
-				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+				Proxy:   &config.ProxySettings{Port: "9666", Timeout: 30},
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway1": {
 						MCPServers: map[string]*config.MCPServerConfig{
@@ -459,7 +459,7 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 			config: &config.GlobalConfig{
 				Name:    "Test",
 				Version: "1.0.0",
-				Proxy:   &config.ProxySettings{Port: "8080", Timeout: 30},
+				Proxy:   &config.ProxySettings{Port: "9666", Timeout: 30},
 				Gateways: map[string]*config.GatewayConfig{
 					"gateway-with-dashes": {
 						MCPServers: map[string]*config.MCPServerConfig{

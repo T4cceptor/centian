@@ -267,7 +267,7 @@ func TestSyncUpstreamLoggingLevel_FlushesQueuedOAuthNotification(t *testing.T) {
 		PrincipalID: "principal-1",
 		Gateway:     "gateway",
 		Server:      "protected",
-	}, "http://127.0.0.1:8080/oauth/start?id=test")
+	}, "http://127.0.0.1:9666/oauth/start?id=test")
 
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, len(recorder.snapshot()), 0)
@@ -277,7 +277,7 @@ func TestSyncUpstreamLoggingLevel_FlushesQueuedOAuthNotification(t *testing.T) {
 
 	messages := waitForSingleLog(t, recorder)
 	assert.Assert(t, messages[0] != nil)
-	assert.Equal(t, messages[0].Data.(string), "OAuth required for downstream gateway/protected. Use centian.login.protected or open http://127.0.0.1:8080/oauth/start?id=test")
+	assert.Equal(t, messages[0].Data.(string), "OAuth required for downstream gateway/protected. Use centian.login.protected or open http://127.0.0.1:9666/oauth/start?id=test")
 }
 
 func TestFlushPendingSessionLogs_RetainsRetryableFailures(t *testing.T) {
