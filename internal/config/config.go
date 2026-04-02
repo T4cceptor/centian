@@ -217,7 +217,7 @@ func NewDefaultProxySettings() ProxySettings {
 	uiEnabled := false
 	return ProxySettings{
 		Host:      DefaultProxyHost,
-		Port:      "8080",
+		Port:      "9666",
 		Timeout:   30,
 		LogLevel:  DefaultProxyLogLevel,
 		LogOutput: DefaultProxyLogOutput,

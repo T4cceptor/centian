@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -198,4 +199,30 @@ func TestHandleQuickstart(t *testing.T) {
 	cfg := config.DefaultConfig()
 	err := handleQuickstart("/tmp/config.json", cfg)
 	assert.NilError(t, err)
+}
+
+func TestPrintInitSuccessUsesDefaultProxyPortInSnippet(t *testing.T) {
+	setTempStdin(t, "\n")
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	assert.NilError(t, err)
+	os.Stdout = writer
+	t.Cleanup(func() {
+		os.Stdout = originalStdout
+	})
+
+	done := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(reader)
+		done <- string(data)
+	}()
+
+	printInitSuccess("/tmp/config.json", 0)
+
+	_ = writer.Close()
+	output := <-done
+	_ = reader.Close()
+
+	assert.Assert(t, strings.Contains(output, "http://localhost:9666/mcp/default"))
 }

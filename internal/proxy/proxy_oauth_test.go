@@ -32,11 +32,11 @@ func TestHandleDownstreamAuthorizationRequired_NotifiesMatchingEndpoints(t *test
 	otherEndpoint.server = server
 	server.Endpoints = []*CentianEndpoint{matchingEndpoint, nil, otherEndpoint}
 
-	server.handleDownstreamAuthorizationRequired(binding, "http://127.0.0.1:8080/oauth/start?id=test")
+	server.handleDownstreamAuthorizationRequired(binding, "http://127.0.0.1:9666/oauth/start?id=test")
 
 	messages := waitForSingleLog(t, matchingRecorder)
 	assert.Assert(t, len(messages) == 1)
-	assert.Equal(t, messages[0].Data.(string), "OAuth required for downstream gateway/protected. Use centian.login.protected or open http://127.0.0.1:8080/oauth/start?id=test")
+	assert.Equal(t, messages[0].Data.(string), "OAuth required for downstream gateway/protected. Use centian.login.protected or open http://127.0.0.1:9666/oauth/start?id=test")
 
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, len(otherRecorder.snapshot()), 0)

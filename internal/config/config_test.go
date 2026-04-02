@@ -31,6 +31,9 @@ func TestConfigLifecycle(t *testing.T) {
 	if config != nil && config.Proxy == nil {
 		t.Fatal("Expected proxy settings to be initialized")
 	}
+	if config != nil && config.Proxy != nil && config.Proxy.Port != "9666" {
+		t.Fatalf("Expected default proxy port 9666, got %s", config.Proxy.Port)
+	}
 	if config != nil && config.Proxy != nil && config.Proxy.Capabilities == nil {
 		t.Fatal("Expected proxy capabilities to be initialized")
 	}

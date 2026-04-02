@@ -20,7 +20,7 @@ func newOAuthToolTestProxy(t *testing.T, enableTestTools bool) (*CentianEndpoint
 
 	t.Setenv("HOME", t.TempDir())
 	testToolsEnabled := enableTestTools
-	manager, err := centoauth.NewManager("http://127.0.0.1:8080", nil, nil)
+	manager, err := centoauth.NewManager("http://127.0.0.1:9666", nil, nil)
 	assert.NilError(t, err)
 	logger, err := logging.NewLogger()
 	assert.NilError(t, err)

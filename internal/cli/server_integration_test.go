@@ -327,7 +327,7 @@ func TestConfigFileValidation(t *testing.T) {
 				Name:    "Valid Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					Port:    "8080",
+					Port:    "9666",
 					Timeout: 30,
 				},
 				Gateways: map[string]*config.GatewayConfig{
@@ -347,7 +347,7 @@ func TestConfigFileValidation(t *testing.T) {
 			config: &config.GlobalConfig{
 				Name: "Invalid Server",
 				Proxy: &config.ProxySettings{
-					Port: "8080",
+					Port: "9666",
 				},
 			},
 			expectError: true,
@@ -359,7 +359,7 @@ func TestConfigFileValidation(t *testing.T) {
 				Name:    "No Gateways Server",
 				Version: "1.0.0",
 				Proxy: &config.ProxySettings{
-					Port: "8080",
+					Port: "9666",
 				},
 				Gateways: map[string]*config.GatewayConfig{},
 			},

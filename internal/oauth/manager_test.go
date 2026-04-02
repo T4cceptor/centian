@@ -16,7 +16,7 @@ import (
 func TestEnsurePendingReplacesOlderFlowForBinding(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
-	manager, err := NewManager("http://127.0.0.1:8080", nil, nil)
+	manager, err := NewManager("http://127.0.0.1:9666", nil, nil)
 	assert.NilError(t, err)
 
 	binding := Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}
@@ -48,7 +48,7 @@ func TestEnsurePendingReplacesOlderFlowForBinding(t *testing.T) {
 }
 
 func TestManagerURLsTransportAndTokenWrappers(t *testing.T) {
-	manager := newTestManager(t, "http://127.0.0.1:8080/")
+	manager := newTestManager(t, "http://127.0.0.1:9666/")
 	binding := Binding{PrincipalID: "principal-1", Gateway: "gw", Server: "srv"}
 	token := &StoredToken{
 		AccessToken: "access-token",
@@ -56,9 +56,9 @@ func TestManagerURLsTransportAndTokenWrappers(t *testing.T) {
 		Expiry:      time.Now().Add(time.Hour),
 	}
 
-	assert.Equal(t, trimTrailingSlash("http://127.0.0.1:8080/"), "http://127.0.0.1:8080")
-	assert.Equal(t, manager.StartURL("abc"), "http://127.0.0.1:8080/oauth/start?id=abc")
-	assert.Equal(t, manager.StatusURL("abc"), "http://127.0.0.1:8080/oauth/status?id=abc")
+	assert.Equal(t, trimTrailingSlash("http://127.0.0.1:9666/"), "http://127.0.0.1:9666")
+	assert.Equal(t, manager.StartURL("abc"), "http://127.0.0.1:9666/oauth/start?id=abc")
+	assert.Equal(t, manager.StatusURL("abc"), "http://127.0.0.1:9666/oauth/status?id=abc")
 
 	transport := manager.NewTransport(nil, binding, "https://resource.example/mcp", nil, nil)
 	assert.Assert(t, transport != nil)
@@ -74,7 +74,7 @@ func TestManagerURLsTransportAndTokenWrappers(t *testing.T) {
 }
 
 func TestManagerHandleStartAndStatus(t *testing.T) {
-	manager := newTestManager(t, "http://127.0.0.1:8080")
+	manager := newTestManager(t, "http://127.0.0.1:9666")
 	metadata := &ResolvedMetadata{
 		Resource:              "https://resource.example/mcp",
 		Scopes:                []string{"tool:echo"},
@@ -117,7 +117,7 @@ func TestManagerHandleStartAndStatus(t *testing.T) {
 func TestManagerHandleCallbackSuccessAndErrors(t *testing.T) {
 	authorized := make(chan Binding, 1)
 	t.Setenv("HOME", t.TempDir())
-	manager, err := NewManager("http://127.0.0.1:8080", func(binding Binding) {
+	manager, err := NewManager("http://127.0.0.1:9666", func(binding Binding) {
 		authorized <- binding
 	}, nil)
 	assert.NilError(t, err)
