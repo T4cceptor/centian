@@ -5,7 +5,7 @@
   "authHeader": "X-Centian-Auth",
   "proxy": {
     "host": "127.0.0.1",
-    "port": "8080",
+    "port": "9666",
     "timeout": 30,
     "logLevel": "info"
   },
@@ -44,7 +44,7 @@
       "This is an example configuration showing HTTP proxy setup",
       "Environment variables like ${GITHUB_PAT} are automatically substituted",
       "Multiple gateways can organize servers by environment or purpose",
-      "Endpoints are accessible at: http://127.0.0.1:8080/mcp/<gateway>/<server>"
+      "Endpoints are accessible at: http://127.0.0.1:9666/mcp/<gateway>/<server>"
     ]
   }
 }
