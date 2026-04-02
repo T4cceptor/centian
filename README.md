@@ -183,7 +183,7 @@ centian processor new
 
 ### 3. Structured task verification
 
-![Centian Demo — AI agent making a planning error](docs/images/centian_inspector_view.jpeg)
+![Centian Demo — AI agent trying to cheat its way around TDD](docs/images/agent_modifying_test_script.jpeg)
 
 This is what makes Centian a control plane, not just a proxy.
 
