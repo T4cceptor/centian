@@ -4,7 +4,7 @@
 
 Centian sits between your AI agents and their MCP servers. All tool calls flow through Centian's proxy, giving you a single point of control for aggregation, middleware processing, workflow enforcement, and full observability.
 
-![Centian Demo — AI agent completing a TDD task under Centian governance](docs/images/centian_demo.gif)
+![Centian Demo — AI agent completing a TDD task under Centian governance](docs/images/readme_hq.gif)
 
 
 ---
