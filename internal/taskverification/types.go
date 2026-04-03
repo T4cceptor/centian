@@ -510,6 +510,10 @@ type TaskEvent struct {
 	TemplateID string `json:"templateId"`
 	// PrincipalID records the authenticated principal associated with the event when available.
 	PrincipalID string `json:"principalId,omitempty"`
+	// ClientName is the MCP client name reported during session initialization.
+	ClientName string `json:"clientName,omitempty"`
+	// ClientVersion is the MCP client version reported during session initialization.
+	ClientVersion string `json:"clientVersion,omitempty"`
 	// PhasePath is the workflow path active when the lifecycle event was recorded.
 	PhasePath TaskPhase `json:"phasePath"`
 	// NodeKind is the semantic workflow node kind active when the event was recorded.

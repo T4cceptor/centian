@@ -175,6 +175,7 @@ export function TaskRunListPage() {
         <div className="task-run-table__header" role="row">
           <span>Run</span>
           <span>Template</span>
+          <span>Agent</span>
           <span>Status</span>
           <span>Phase</span>
           <span>Started</span>
@@ -197,6 +198,12 @@ export function TaskRunListPage() {
                 </span>
                 <span className="task-run-row__template" title={run.templateId}>
                   {run.templateId}
+                </span>
+                <span
+                  className="task-run-row__agent"
+                  title={[run.clientName, run.clientVersion].filter(Boolean).join(" ")}
+                >
+                  {run.clientName ?? "—"}
                 </span>
                 <span className="task-run-row__status">
                   <span className={`status-badge status-badge--${uiStatus}`}>{uiStatus}</span>

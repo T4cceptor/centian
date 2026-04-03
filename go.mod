@@ -1,9 +1,12 @@
 module github.com/T4cceptor/centian
 
-go 1.25.6
+go 1.25.1
 
 require (
 	github.com/modelcontextprotocol/go-sdk v1.4.1
+	github.com/uptrace/bun v1.2.18
+	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
+	github.com/uptrace/bun/driver/sqliteshim v1.2.18
 	github.com/urfave/cli/v3 v3.6.2
 	golang.org/x/crypto v0.24.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -22,9 +25,6 @@ require (
 	github.com/segmentio/asm v1.1.3 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
-	github.com/uptrace/bun v1.2.18 // indirect
-	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18 // indirect
-	github.com/uptrace/bun/driver/sqliteshim v1.2.18 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
@@ -39,6 +39,6 @@ require (
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.6.0
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	golang.org/x/oauth2 v0.34.0 // indirect
+	golang.org/x/oauth2 v0.34.0
 	gotest.tools v2.2.0+incompatible
 )

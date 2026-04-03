@@ -5,6 +5,8 @@ export type TaskRunSummary = {
   templateId: string;
   principalId?: string;
   sessionId?: string;
+  clientName?: string;
+  clientVersion?: string;
   startedAt: number;
   endedAt?: number;
   status: string;

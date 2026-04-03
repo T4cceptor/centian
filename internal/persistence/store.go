@@ -20,7 +20,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -46,6 +46,8 @@ type TaskRunSummary struct {
 	TemplateID       string `json:"templateId"`
 	PrincipalID      string `json:"principalId,omitempty"`
 	SessionID        string `json:"sessionId,omitempty"`
+	ClientName       string `json:"clientName,omitempty"`
+	ClientVersion    string `json:"clientVersion,omitempty"`
 	StartedAt        int64  `json:"startedAt"`
 	EndedAt          *int64 `json:"endedAt,omitempty"`
 	Status           string `json:"status"`
@@ -103,6 +105,8 @@ type taskEventRow struct {
 	SessionID              string
 	TemplateID             string
 	PrincipalID            string
+	ClientName             string
+	ClientVersion          string
 	PhasePath              string
 	NodeKind               string
 	ResultingPhasePath     string
@@ -155,6 +159,8 @@ type taskRunSummaryRow struct {
 	TemplateID         string
 	PrincipalID        string
 	SessionID          string
+	ClientName         string
+	ClientVersion      string
 	StartedAt          int64
 	LatestEventAt      int64
 	Status             string
@@ -276,6 +282,8 @@ func (s *Store) createTables(ctx context.Context) error {
 			session_id TEXT,
 			template_id TEXT NOT NULL,
 			principal_id TEXT,
+			client_name TEXT,
+			client_version TEXT,
 			phase_path TEXT NOT NULL,
 			node_kind TEXT,
 			resulting_phase_path TEXT NOT NULL,
@@ -325,8 +333,20 @@ func (s *Store) createTables(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) migrateSchema(_ context.Context, fromVersion int) error {
+func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 	if fromVersion == schemaVersion {
+		return nil
+	}
+	if fromVersion == 3 {
+		stmts := []string{
+			`ALTER TABLE task_events ADD COLUMN client_name TEXT`,
+			`ALTER TABLE task_events ADD COLUMN client_version TEXT`,
+		}
+		for _, stmt := range stmts {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("failed to migrate event store schema from v3 to v4: %w", err)
+			}
+		}
 		return nil
 	}
 	return &SchemaMigrationRequiredError{
@@ -348,6 +368,8 @@ func (s *Store) AppendTaskEvent(event *taskverification.TaskEvent) error {
 		SessionID:              event.SessionID,
 		TemplateID:             event.TemplateID,
 		PrincipalID:            event.PrincipalID,
+		ClientName:             event.ClientName,
+		ClientVersion:          event.ClientVersion,
 		PhasePath:              string(event.PhasePath),
 		NodeKind:               string(event.NodeKind),
 		ResultingPhasePath:     string(event.ResultingPhasePath),
@@ -445,6 +467,8 @@ SELECT
 	latest.template_id,
 	latest.principal_id,
 	latest.session_id,
+	latest.client_name,
+	latest.client_version,
 	agg.started_at,
 	latest.created_at_unix_milli AS latest_event_at,
 	latest.outcome AS status,
@@ -471,6 +495,8 @@ ORDER BY agg.started_at DESC, agg.task_run_id DESC
 			TemplateID:       row.TemplateID,
 			PrincipalID:      row.PrincipalID,
 			SessionID:        row.SessionID,
+			ClientName:       row.ClientName,
+			ClientVersion:    row.ClientVersion,
 			StartedAt:        row.StartedAt,
 			Status:           taskRunStatus(row.LatestEventType, row.LatestEventPayload, row.Status),
 			CurrentPhase:     row.CurrentPhase,

@@ -73,6 +73,8 @@ func (p *CentianEndpoint) recordTaskEvent(
 		run,
 		session.id,
 		session.identityKey,
+		session.clientName,
+		session.clientVersion,
 		sourcePhase,
 		sourceNodeKind,
 		resultingPhase,
