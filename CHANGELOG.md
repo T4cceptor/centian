@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.2 - 2026-04-03
+
+### Minor
+- Removed the Python runtime dependency from the local `centian demo` task flow by switching the bundled prompt and integrated taskverification template from a Python-specific TDD exercise to a language-agnostic guided TDD workflow that runs on stock Node.js tooling.
+- Renamed and propagated the bundled demo task template to `guided_tdd_workflow`, updated the agent-runner assets accordingly, and refreshed the related regression fixtures/tests so the demo and taskverification coverage stay aligned.
+
+### Bugfixes
+- Fixed the README demo section to better explain the showcased workflow and to document the actual local prerequisites and behavior for the updated Node-based demo task.
+
 ## v0.3.1 - 2026-04-03
 
 ### Major
