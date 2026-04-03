@@ -41,8 +41,12 @@ For all install methods see [Installation Options](#installation-options).
 
 ### Local Demo
 
+The demo showcases centian as the agent control plane within a familiar setting: test-driven development.
+The agent is given a task to implement `score_paranthesis` - see [prompt](internal/agentrunner/assets/prompt.md) - and is then guided through the task using centian. All actions are visualized for you in a web-based UI - allowing you to monitor what exactly the agent is doing.
+
 **Prerequisites**: Before running `centian demo`, make sure you have:
 
+- `python` available on your `PATH` - required for the task to be completed
 - `npx` available on your `PATH` - required to launch filesystem and shell MCP servers
 - Claude Code or Gemini CLI installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or not signed in.
 
