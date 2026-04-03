@@ -1,8 +1,9 @@
-Connect to the MCP server named `centian` and solve this Python TDD task through the Centian workflow.
+Connect to the MCP server named `centian` and solve this JavaScript TDD task through the Centian workflow.
+Use `javascript_tdd_workflow` for your task registration.
 
 Problem:
 
-Implement a Python function named `score_parentheses(text: str) -> int`.
+Implement a JavaScript function named `scoreParentheses(text)` and export it as the default export.
 
 The input string is guaranteed to be balanced and consists only of `(` and `)`.
 
@@ -15,9 +16,10 @@ Scoring rules:
 Requirements:
 
 - Start from the problem statement only. There is no provided implementation or test for this exercise.
-- Create `score_parentheses.py` and `test_score_parentheses.py` in the same directory.
+- Create `scoreParentheses.js` and `scoreParentheses.test.js` in the same directory.
 - Treat the Centian project root as the working directory and use project-relative paths.
-- The environment only guarantees `python`; do not assume any third-party packages are installed.
+- The environment only guarantees `node` (v18+); do not assume any third-party packages or test frameworks are installed. Use Node's built-in `node:test` and `node:assert` modules.
+- Do not use any non-Node tooling.
 - Establish a failing test first, then implement the solution.
 
 Use Centian lifecycle tools as the source of truth, rely only on Centian-exposed project tools, and stop after the task is completed.

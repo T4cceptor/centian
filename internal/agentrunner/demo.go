@@ -368,11 +368,11 @@ func renderAssets(layout *demoLayout) error {
 		return fmt.Errorf("write prompt.md: %w", err)
 	}
 
-	template, err := asset("python_tdd_workflow.yaml")
+	template, err := asset("javascript_tdd_workflow.yaml")
 	if err != nil {
 		return err
 	}
-	templatePath := filepath.Join(layout.TemplatesPath, "python_tdd_workflow.yaml")
+	templatePath := filepath.Join(layout.TemplatesPath, "javascript_tdd_workflow.yaml")
 	if err := os.WriteFile(templatePath, []byte(template), 0o600); err != nil {
 		return fmt.Errorf("write template: %w", err)
 	}
