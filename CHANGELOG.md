@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.1 - 2026-04-03
+
+### Major
+- Added a Codex adapter to the `centian demo` runner, including bundled Codex config assets, `CODEX_HOME` propagation, demo-local auth material handling, and supporting regression coverage so local demo runs now support Codex alongside the existing agent adapters.
+- Added per-gateway `forceReadOnlyHints` proxy configuration to override exposed tool annotations to `readOnlyHint=true` at registration time for both downstream proxied tools and Centian's built-in auth/taskverification tools, making Codex-oriented demo flows safer to run through Centian as the trust boundary.
+
+### Minor
+- Added GitHub bug-report and feature-request issue templates plus a pull request template with a standard checklist for repository contributions.
+- Added UTC build timestamp and short commit-hash metadata to the default `dev` version string used by local builds, while leaving explicitly versioned release builds unchanged.
+
+### Bugfixes
+- Moved the CLI entrypoint from `cmd/main.go` to repo-root `main.go` so `go install github.com/T4cceptor/centian@latest` now produces a `centian` binary instead of `main`, and aligned the Makefile, CI workflow, release workflow, and installation documentation with the corrected entrypoint path.
+
 ## v0.3.0 - 2026-04-03
 
 ### Major
