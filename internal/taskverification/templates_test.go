@@ -131,6 +131,42 @@ func TestListTemplatesIncludesEmbeddedDefaultsWhenDirectoryMissing(t *testing.T)
 	assert.Equal(t, summaries[2].ID, "simple_tdd")
 }
 
+func TestEmbeddedSimpleTDDTemplateExposesRefinedContract(t *testing.T) {
+	service := NewService(filepath.Join(t.TempDir(), "missing"), t.TempDir())
+
+	template, err := service.loadTemplateByID("simple_tdd")
+	assert.NilError(t, err)
+
+	assert.DeepEqual(t, template.RequiredParameterNames(), []string{
+		"expectedError",
+		"testCommand",
+		"testFile",
+		"testTarget",
+	})
+	assert.Equal(t, len(template.CompiledWorkflow.WorkflowSteps), 3)
+	assert.Equal(t, template.CompiledWorkflow.WorkflowSteps[0].ID, "verify_failing_baseline")
+	assert.Equal(t, template.CompiledWorkflow.WorkflowSteps[1].ID, "implement_green")
+	assert.Equal(t, template.CompiledWorkflow.WorkflowSteps[2].ID, "refactor_while_green")
+
+	resolved, err := template.Resolve(map[string]string{
+		"testCommand":   "go test ./pkg/foo -run TestBar",
+		"testTarget":    "./pkg/foo -run TestBar",
+		"testFile":      "pkg/foo/foo_test.go",
+		"expectedError": "undefined: Thing",
+	})
+	assert.NilError(t, err)
+
+	steps := resolved.CompiledWorkflow.WorkflowSteps
+	assert.Equal(t, steps[0].Checks[0].Command, "go test ./pkg/foo -run TestBar")
+	assert.Equal(t, steps[1].Checks[0].Command, "go test ./pkg/foo -run TestBar")
+	assert.Equal(t, steps[2].Checks[0].Command, "go test ./pkg/foo -run TestBar")
+	assert.Equal(t, steps[0].Checks[0].PostConditions[0].Type, "exit_code_in")
+	assert.Equal(t, steps[0].Checks[0].PostConditions[1].Type, "output_contains")
+	assert.Equal(t, steps[0].Invariants[0].Command, "cat pkg/foo/foo_test.go")
+	assert.Equal(t, steps[1].Invariants[0].Command, "cat pkg/foo/foo_test.go")
+	assert.Equal(t, steps[2].Invariants[0].Command, "cat pkg/foo/foo_test.go")
+}
+
 func TestListTemplatesAllowsDiskOverrideOfEmbeddedTemplate(t *testing.T) {
 	dir := t.TempDir()
 	err := os.WriteFile(filepath.Join(dir, "simple_tdd.yaml"), []byte(`

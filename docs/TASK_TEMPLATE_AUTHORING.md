@@ -78,70 +78,109 @@ version: "0.1"
 task:
   id: "go_bugfix"
   name: "Go Bugfix Task"
-  description: "Drive a focused bugfix with an explicit failing baseline and implementation step."
+  description: "Drive a focused bugfix with explicit red, green, and refactor steps."
   instructions: |
     Register the task first, finish onboarding and planning, then follow the workflow steps in order.
+    Use this shape when the red baseline already exists before execution begins.
 
 parameters:
   - name: "testCommand"
-    description: "Command prefix used to run the targeted test."
+    description: "Full runnable command used to execute the selected baseline."
   - name: "testTarget"
-    description: "Concrete test target."
+    description: "Human-facing target metadata for the selected baseline."
+  - name: "testFile"
+    description: "Concrete baseline test file kept invariant during execution."
   - name: "expectedError"
-    description: "Stable failing output expected before the fix."
+    description: "Stable failing output expected before the fix, including compile failures."
 
 workflow:
   onboarding:
     instructions: |
-      Identify the relevant package, test target, and expected baseline failure.
+      Identify the relevant package, the full runnable test command, the human-facing target metadata, the locked baseline test file, and the expected baseline failure.
     tools_allowed:
       - "shell__*"
       - "filesystem__*"
 
   planning:
     instructions: |
-      Freeze the commands, test target, and expected failure output.
+      Freeze the full runnable test command, the human-facing target metadata, the locked baseline test file, and the expected failure output.
     tools_allowed:
       - "shell__*"
       - "filesystem__*"
     editable_fields:
       - "parameters.testCommand"
       - "parameters.testTarget"
+      - "parameters.testFile"
       - "parameters.expectedError"
     required_inputs:
       - "expectedError"
       - "testCommand"
+      - "testFile"
       - "testTarget"
 
   execution:
-    - id: "establish_failing_baseline"
-      name: "Establish failing baseline"
+    - id: "verify_failing_baseline"
+      name: "Verify failing baseline"
       tools_allowed:
         - "shell__*"
         - "filesystem__*"
+      instructions: |
+        Verify the selected baseline already exists and is red for the intended reason.
+        Do not edit the selected baseline test file in this step.
       checks:
         - id: "selected_test_fails"
-          command: "${testCommand} ${testTarget}"
-          post_conditions:
-            - type: exit_code
-              value: 1
+          command: "${testCommand}"
+          pre_conditions:
+            - type: exit_code_in
+              values: [1, 2]
             - type: output_contains
               value: "${expectedError}"
+          post_conditions:
+            - type: exit_code_in
+              values: [1, 2]
+            - type: output_contains
+              value: "${expectedError}"
+      invariants:
+        - id: "baseline_test_file_stable"
+          command: "cat ${testFile}"
 
-    - id: "implement_fix"
-      name: "Implement fix"
+    - id: "implement_green"
+      name: "Implement green"
       tools_allowed:
         - "shell__*"
         - "filesystem__*"
       checks:
         - id: "selected_test_passes"
-          command: "${testCommand} ${testTarget}"
+          command: "${testCommand}"
+          pre_conditions:
+            - type: exit_code_in
+              values: [1, 2]
+            - type: output_contains
+              value: "${expectedError}"
           post_conditions:
             - type: exit_code
               value: 0
       invariants:
-        - id: "selected_target_stable"
-          command: "printf '%s' '${testTarget}'"
+        - id: "baseline_test_file_stable"
+          command: "cat ${testFile}"
+
+    - id: "refactor_while_green"
+      name: "Refactor while green"
+      tools_allowed:
+        - "shell__*"
+        - "filesystem__*"
+      checks:
+        - id: "selected_test_stays_green"
+          command: "${testCommand}"
+          pre_conditions:
+            - type: exit_code
+              value: 0
+          post_conditions:
+            - type: exit_code
+              value: 0
+      invariants:
+        - id: "baseline_test_file_stable"
+          command: "cat ${testFile}"
 ```
 
 ## Template Schema
@@ -188,13 +227,13 @@ Use `parameters` when you want a value substituted into execution or scaffolding
 ```yaml
 parameters:
   - name: "testCommand"
-    description: "Command prefix used to run the selected test."
+    description: "Full runnable command used to run the selected baseline."
 ```
 
 Reference parameters with `${name}` inside string fields:
 
 ```yaml
-command: "${testCommand} ${testTarget}"
+command: "${testCommand}"
 value: "${expectedError}"
 path: "${relativePath}"
 ```
@@ -299,10 +338,12 @@ planning:
   editable_fields:
     - "parameters.testCommand"
     - "parameters.testTarget"
+    - "parameters.testFile"
   required_inputs:
     - "testCommand"
+    - "testFile"
     - "testTarget"
-  next: "execution.establish_failing_baseline"
+  next: "execution.verify_failing_baseline"
 ```
 
 Supported fields:
@@ -347,8 +388,9 @@ Typical planning completion payload:
     "tests/integrationtests/oauth/reconnect_test.go"
   ],
   "parameters": {
-    "testCommand": "GOCACHE=/tmp/centian-gocache go test",
+    "testCommand": "GOCACHE=/tmp/centian-gocache go test ./tests/integrationtests/oauth -run TestOAuthExpiredTokenRefreshesDuringReconnect",
     "testTarget": "./tests/integrationtests/oauth -run TestOAuthExpiredTokenRefreshesDuringReconnect",
+    "testFile": "tests/integrationtests/oauth/oauth_reconnect_test.go",
     "expectedError": "token refresh failed"
   },
   "invariants": [
@@ -392,18 +434,28 @@ Use execution for the steps that define task success.
 
 ```yaml
 execution:
-  - id: "establish_failing_baseline"
+  - id: "verify_failing_baseline"
     checks:
       - id: "selected_test_fails"
-        command: "${testCommand} ${testTarget}"
+        command: "${testCommand}"
         post_conditions:
-          - type: exit_code
-            value: 1
+          - type: exit_code_in
+            values: [1, 2]
+          - type: output_contains
+            value: "${expectedError}"
 
-  - id: "implement_fix"
+  - id: "implement_green"
     checks:
       - id: "selected_test_passes"
-        command: "${testCommand} ${testTarget}"
+        command: "${testCommand}"
+        post_conditions:
+          - type: exit_code
+            value: 0
+
+  - id: "refactor_while_green"
+    checks:
+      - id: "selected_test_stays_green"
+        command: "${testCommand}"
         post_conditions:
           - type: exit_code
             value: 0
@@ -416,9 +468,9 @@ Executable leaf nodes may omit `checks` entirely. This is useful for free-form t
 Scaffolding and execution lists use the same node schema:
 
 ```yaml
-- id: "implement_fix"
+- id: "implement_green"
   kind: "execution"
-  name: "Implement fix"
+  name: "Implement green"
   description: "Make the selected test pass."
   instructions: |
     Start the step before editing code.
@@ -429,10 +481,10 @@ Scaffolding and execution lists use the same node schema:
     enabled: true
   checks:
     - id: "selected_test_passes"
-      command: "${testCommand} ${testTarget}"
+      command: "${testCommand}"
   invariants:
-    - id: "target_stable"
-      command: "printf '%s' '${testTarget}'"
+    - id: "baseline_test_file_stable"
+      command: "cat ${testFile}"
   next: "waiting_for_approval.review_plan"
 ```
 
@@ -466,13 +518,15 @@ Checks are the verification units run by Centian.
 ```yaml
 checks:
   - id: "selected_test_fails"
-    command: "${testCommand} ${testTarget}"
+    command: "${testCommand}"
     pre_conditions:
       - type: exit_code_in
-        values: [0, 1]
+        values: [1, 2]
+      - type: output_contains
+        value: "${expectedError}"
     post_conditions:
-      - type: exit_code
-        value: 1
+      - type: exit_code_in
+        values: [1, 2]
       - type: output_contains
         value: "${expectedError}"
 ```
@@ -523,6 +577,17 @@ Condition semantics:
 - `output_*` conditions evaluate the combined command output, meaning stdout plus stderr when both are present
 - use `stdout_*` when the command has a stable stdout contract
 - use `output_*` when the relevant failure signal may appear on stderr
+- compile-failure red baselines are a common reason to prefer `output_*` conditions
+
+Example compile-failure baseline:
+
+```yaml
+parameters:
+  testCommand: "go test ./internal/oauth -run TestReconnect"
+  testTarget: "./internal/oauth -run TestReconnect"
+  testFile: "internal/oauth/reconnect_test.go"
+  expectedError: "undefined: PlanSummary"
+```
 
 `file_exists`
 
@@ -557,8 +622,8 @@ Invariants capture stdout at step start and require the same stdout at step comp
 
 ```yaml
 invariants:
-  - id: "target_stable"
-    command: "printf '%s' '${testTarget}'"
+  - id: "baseline_test_file_stable"
+    command: "cat ${testFile}"
 ```
 
 Rules:
@@ -570,6 +635,8 @@ Rules:
 - verification compares stdout exactly
 
 Use invariants when a file, selector, or other derived output must remain unchanged for the duration of a step.
+
+For `simple_tdd`, the selected baseline test file is intentionally frozen once execution starts. That invariant makes step 1 a verification step, not a test-authoring step.
 
 ## Nested Steps with `sub_steps`
 
@@ -608,7 +675,7 @@ You can insert manual approval pauses by using `kind: waiting_for_approval` insi
 
 ```yaml
 execution:
-  - id: "implement_fix"
+  - id: "implement_green"
     next: "waiting_for_approval.review_plan"
 
   - id: "review_plan"
