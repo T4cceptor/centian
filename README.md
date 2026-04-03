@@ -56,7 +56,11 @@ centian demo -a claude
 centian demo -a gemini
 ```
 
-**Codex:** coming soon
+**Codex:** (using default option)
+```bash
+centian demo -a codex
+```
+Note: for the codex demo centian will copy (and later cleanup) existing auth material for the OpenAI API.
 
 **What the demo shows**
 - Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.

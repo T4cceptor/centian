@@ -81,16 +81,21 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 	if p.taskVerificationToolsEnabled() {
 		p.registerTaskVerificationTools(session, server)
 	}
+	forceRO := p.config.ForceReadOnlyHintsEnabled()
 	if p.hasOAuthDownstreams() {
 		if _, exists := session.registeredStaticTools[authStatusToolName]; !exists {
-			server.AddTool(&mcp.Tool{
+			authTool := &mcp.Tool{
 				Name:        authStatusToolName,
 				Description: "Show downstream OAuth connection state for this Centian endpoint.",
 				InputSchema: map[string]any{
 					"type":       "object",
 					"properties": map[string]any{},
 				},
-			}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			}
+			if forceRO {
+				applyForceReadOnlyHints(authTool)
+			}
+			server.AddTool(authTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return p.handleAuthStatusTool(ctx, session, req)
 			})
 			session.registeredStaticTools[authStatusToolName] = struct{}{}
@@ -102,7 +107,7 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 	if _, exists := session.registeredStaticTools[testNotificationsTool]; exists {
 		return
 	}
-	server.AddTool(&mcp.Tool{
+	notifTool := &mcp.Tool{
 		Name:        testNotificationsTool,
 		Description: "Emit test log notifications on a timer for this session.",
 		InputSchema: map[string]any{
@@ -118,7 +123,11 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 				},
 			},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	}
+	if forceRO {
+		applyForceReadOnlyHints(notifTool)
+	}
+	server.AddTool(notifTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return p.handleTestNotificationsTool(ctx, session, req)
 	})
 	session.registeredStaticTools[testNotificationsTool] = struct{}{}
@@ -342,14 +351,18 @@ func (p *CentianEndpoint) registerLoginTool(session *UpstreamSession, serverName
 		return
 	}
 	session.registeredTools[name] = struct{}{}
-	session.upstreamServer.AddTool(&mcp.Tool{
+	loginTool := &mcp.Tool{
 		Name:        name,
 		Description: fmt.Sprintf("Start or resume login for downstream %s.", serverName),
 		InputSchema: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-	}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	}
+	if p.config.ForceReadOnlyHintsEnabled() {
+		applyForceReadOnlyHints(loginTool)
+	}
+	session.upstreamServer.AddTool(loginTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return p.handleLoginTool(ctx, session, serverName, req)
 	})
 }

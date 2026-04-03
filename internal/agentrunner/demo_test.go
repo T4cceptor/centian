@@ -17,9 +17,11 @@ type fakeAdapter struct {
 func (f fakeAdapter) name() string                { return f.agentName }
 func (fakeAdapter) isAvailable() error            { return nil }
 func (fakeAdapter) writeConfig(*demoLayout) error { return nil }
+func (fakeAdapter) cleanup(*demoLayout) error     { return nil }
 func (f fakeAdapter) command(layout *demoLayout, prompt string) ([]string, error) {
 	return f.commandFn(layout, prompt)
 }
+func (fakeAdapter) env(*demoLayout) []string { return nil }
 
 func TestPrepareLayoutRejectsNonDemoNonEmptyDir(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
@@ -395,12 +397,12 @@ func TestRunDemoUnsupportedAgent(t *testing.T) {
 	defer func() { allocateFreePortFunc = allocateFreePort }()
 
 	_, err := (DemoRunner{}).RunDemo(context.Background(), &DemoOptions{
-		Agent:             "codex",
+		Agent:             "unsupported-agent",
 		RootPath:          filepath.Join(t.TempDir(), "demo"),
 		CentianBinaryPath: "/tmp/centian",
 		Timeout:           time.Second,
 	})
-	if err == nil || !strings.Contains(err.Error(), "supports") {
+	if err == nil || !strings.Contains(err.Error(), "unsupported agent") {
 		t.Fatalf("expected unsupported agent error, got %v", err)
 	}
 }
@@ -413,5 +415,186 @@ func assertFileContains(t *testing.T, path, fragment string) {
 	}
 	if !strings.Contains(string(data), fragment) {
 		t.Fatalf("expected %q in %s", fragment, path)
+	}
+}
+
+func TestCodexCommandConstruction(t *testing.T) {
+	// Given: a Codex adapter with a demo layout
+	layout := &demoLayout{
+		WorkspacePath: "/tmp/demo/workspace",
+		RootPath:      "/tmp/demo",
+		CodexConfig:   "/tmp/demo/codex-home/config.toml",
+	}
+
+	// When: constructing the command
+	command, err := codexAdapter{}.command(layout, "prompt")
+	if err != nil {
+		t.Fatalf("command: %v", err)
+	}
+
+	// Then: the command includes expected Codex flags
+	joined := strings.Join(command, " ")
+	for _, expected := range []string{
+		"codex",
+		"exec",
+		"--skip-git-repo-check",
+		"--json",
+		"-C /tmp/demo/workspace",
+		"-o /tmp/demo/codex_output.txt",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in command %q", expected, joined)
+		}
+	}
+
+	// Then: no dangerous bypass flags are present
+	for _, forbidden := range []string{"--full-auto", "--dangerously-bypass-approvals-and-sandbox"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("unexpected unsafe flag %q in %q", forbidden, joined)
+		}
+	}
+}
+
+func TestCodexEnvSetsCODEXHOME(t *testing.T) {
+	// Given: a Codex adapter with a layout
+	layout := &demoLayout{
+		CodexConfig: "/tmp/demo/codex-home/config.toml",
+	}
+
+	// When: requesting env vars
+	envVars := codexAdapter{}.env(layout)
+
+	// Then: CODEX_HOME points to the parent of the config file
+	if len(envVars) != 1 {
+		t.Fatalf("expected 1 env var, got %d", len(envVars))
+	}
+	if envVars[0] != "CODEX_HOME=/tmp/demo/codex-home" {
+		t.Fatalf("expected CODEX_HOME=/tmp/demo/codex-home, got %q", envVars[0])
+	}
+}
+
+func TestCodexWriteConfig(t *testing.T) {
+	// Given: a Codex adapter and a temporary layout
+	tmpDir := t.TempDir()
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	// When: writing the config
+	err := codexAdapter{model: "o3"}.writeConfig(layout)
+	if err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	// Then: the config file is written with placeholders replaced
+	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
+	assertFileContains(t, layout.CodexConfig, `model = "o3"`)
+	assertFileContains(t, layout.CodexConfig, "/tmp/demo/workspace")
+	assertFileContains(t, layout.CodexConfig, `default_tools_approval_mode = "auto"`)
+}
+
+func TestCodexWriteConfigNoModel(t *testing.T) {
+	// Given: a Codex adapter without a model
+	tmpDir := t.TempDir()
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	// When: writing the config with empty model
+	err := codexAdapter{model: ""}.writeConfig(layout)
+	if err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	// Then: no model line appears
+	data, err := os.ReadFile(layout.CodexConfig)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "model =") {
+		t.Fatalf("expected no model line, got:\n%s", string(data))
+	}
+}
+
+func TestCodexWriteConfigCopiesAuthJSON(t *testing.T) {
+	// Given: a user Codex home with auth.json and a temporary demo layout
+	tmpDir := t.TempDir()
+	homeDir := filepath.Join(tmpDir, "home")
+	authPath := filepath.Join(homeDir, ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o755); err != nil {
+		t.Fatalf("mkdir auth dir: %v", err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"access_token":"test-token"}`), 0o600); err != nil {
+		t.Fatalf("write auth.json: %v", err)
+	}
+	t.Setenv("HOME", homeDir)
+
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	// When: writing the demo Codex config
+	if err := (codexAdapter{model: "o3"}).writeConfig(layout); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	// Then: auth.json is copied into the isolated CODEX_HOME
+	copiedAuthPath := filepath.Join(filepath.Dir(layout.CodexConfig), "auth.json")
+	data, err := os.ReadFile(copiedAuthPath)
+	if err != nil {
+		t.Fatalf("read copied auth.json: %v", err)
+	}
+	if string(data) != `{"access_token":"test-token"}` {
+		t.Fatalf("unexpected auth.json contents: %s", string(data))
+	}
+}
+
+func TestCodexCleanupRemovesDemoHome(t *testing.T) {
+	// Given: a demo CODEX_HOME containing auth material and config
+	tmpDir := t.TempDir()
+	codexHome := filepath.Join(tmpDir, "codex-home")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
+	for path, contents := range map[string]string{
+		filepath.Join(codexHome, "auth.json"):   `{"access_token":"test-token"}`,
+		filepath.Join(codexHome, "config.toml"): `model = "o3"`,
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	layout := &demoLayout{CodexConfig: filepath.Join(codexHome, "config.toml")}
+
+	// When: cleaning up after the Codex run
+	if err := (codexAdapter{}).cleanup(layout); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+
+	// Then: the isolated demo home is removed
+	if _, err := os.Stat(codexHome); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be removed, got %v", codexHome, err)
+	}
+}
+
+func TestSelectAdapterCodex(t *testing.T) {
+	// Given: demo options with agent "codex"
+	opts := &DemoOptions{Agent: "codex", CodexModel: "o3"}
+
+	// When: selecting the adapter
+	adapter, err := selectAdapter(opts)
+
+	// Then: a codex adapter is returned
+	if err != nil {
+		t.Fatalf("selectAdapter: %v", err)
+	}
+	if adapter.name() != AgentCodex {
+		t.Fatalf("expected codex adapter, got %q", adapter.name())
 	}
 }

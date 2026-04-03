@@ -24,10 +24,14 @@ const (
 	AgentClaude = "claude"
 	// AgentGemini is the supported public agent identifier for the Gemini CLI.
 	AgentGemini = "gemini"
+	// AgentCodex is the supported public agent identifier for the Codex CLI.
+	AgentCodex = "codex"
 	// DefaultClaudeModel is the default Claude model alias for demo runs.
 	DefaultClaudeModel = "sonnet"
 	// DefaultGeminiModel is the default Gemini model alias for demo runs.
 	DefaultGeminiModel = "gemini-2.5-flash"
+	// DefaultCodexModel is the default Codex model alias for demo runs (empty uses Codex default).
+	DefaultCodexModel = ""
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
 	DefaultAgentTimeout = 5 * time.Minute
 )
@@ -42,6 +46,8 @@ var disposableDemoPaths = []string{
 	"prompt.md",
 	"centian.pid",
 	"claude_mcp_config.json",
+	"codex-home",
+	"codex_output.txt",
 }
 
 var allowedDemoRootEntries = map[string]struct{}{
@@ -54,6 +60,8 @@ var allowedDemoRootEntries = map[string]struct{}{
 	"agent.stderr.log":       {},
 	"centian.pid":            {},
 	"claude_mcp_config.json": {},
+	"codex-home":             {},
+	"codex_output.txt":       {},
 	".DS_Store":              {},
 }
 
@@ -65,6 +73,7 @@ type DemoOptions struct {
 	Timeout           time.Duration
 	ClaudeModel       string
 	GeminiModel       string
+	CodexModel        string
 	OpenBrowser       bool
 	Stdout            io.Writer
 	Stderr            io.Writer
@@ -91,7 +100,9 @@ type agentAdapter interface {
 	name() string
 	isAvailable() error
 	writeConfig(*demoLayout) error
+	cleanup(*demoLayout) error
 	command(*demoLayout, string) ([]string, error)
+	env(*demoLayout) []string
 }
 
 type demoLayout struct {
@@ -108,6 +119,7 @@ type demoLayout struct {
 	PIDPath         string
 	ClaudeConfig    string
 	GeminiConfig    string
+	CodexConfig     string
 	BaseURL         string
 	MCPURL          string
 	Port            string
@@ -135,6 +147,11 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 	if err := adapter.writeConfig(layout); err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := adapter.cleanup(layout); err != nil && options.Stderr != nil {
+			_, _ = fmt.Fprintf(options.Stderr, "warning: cleanup %s demo artifacts: %v\n", adapter.name(), err)
+		}
+	}()
 
 	centianCmd, errCh, err := startCentianProcess(layout, options)
 	if err != nil {
@@ -219,6 +236,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 		PIDPath:         filepath.Join(root, "centian.pid"),
 		ClaudeConfig:    filepath.Join(root, "claude_mcp_config.json"),
 		GeminiConfig:    filepath.Join(root, "workspace", ".gemini", "settings.json"),
+		CodexConfig:     filepath.Join(root, "codex-home", "config.toml"),
 	}
 	for _, dir := range []string{layout.RootPath, layout.WorkspacePath, layout.TemplatesPath, layout.LogsPath} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -367,8 +385,10 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 		return claudeAdapter{model: opts.ClaudeModel}, nil
 	case AgentGemini:
 		return geminiAdapter{model: opts.GeminiModel}, nil
+	case AgentCodex:
+		return codexAdapter{model: opts.CodexModel}, nil
 	default:
-		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q and %q only", opts.Agent, AgentClaude, AgentGemini)
+		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, and %q", opts.Agent, AgentClaude, AgentGemini, AgentCodex)
 	}
 }
 
@@ -449,6 +469,9 @@ func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opt
 	//nolint:gosec // The command is constructed by the selected internal agent adapter.
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = layout.WorkspacePath
+	if envVars := adapter.env(layout); len(envVars) > 0 {
+		cmd.Env = append(os.Environ(), envVars...)
+	}
 	cmd.Stdout = io.MultiWriter(stdoutFile, &stdout)
 	cmd.Stderr = io.MultiWriter(stderrFile, &stderr)
 	cmd.Stdin = strings.NewReader(loadPrompt(layout.PromptPath))

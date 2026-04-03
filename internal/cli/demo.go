@@ -32,7 +32,7 @@ Examples:
 		&cli.StringFlag{
 			Name:     "agent",
 			Aliases:  []string{"a"},
-			Usage:    "Agent to run for the demo (v1 supports: claude, gemini)",
+			Usage:    "Agent to run for the demo (v1 supports: claude, gemini, codex)",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -64,6 +64,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		Timeout:           5 * time.Minute,
 		ClaudeModel:       agentrunner.DefaultClaudeModel,
 		GeminiModel:       agentrunner.DefaultGeminiModel,
+		CodexModel:        agentrunner.DefaultCodexModel,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
 	})

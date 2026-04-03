@@ -39,6 +39,10 @@ func (c claudeAdapter) writeConfig(layout *demoLayout) error {
 	return nil
 }
 
+func (claudeAdapter) env(*demoLayout) []string { return nil }
+
+func (claudeAdapter) cleanup(*demoLayout) error { return nil }
+
 func (c claudeAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	command := []string{
 		"claude",

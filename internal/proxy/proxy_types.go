@@ -243,6 +243,16 @@ func sanitizeLogValue(value string) string {
 	return strings.TrimSpace(sanitized)
 }
 
+// applyForceReadOnlyHints overrides a tool's annotations so that it appears
+// read-only to upstream clients. Used when the gateway's ForceReadOnlyHints
+// flag is enabled (e.g. for Codex demo runs where Centian is the trust boundary).
+func applyForceReadOnlyHints(tool *mcp.Tool) {
+	if tool.Annotations == nil {
+		tool.Annotations = &mcp.ToolAnnotations{}
+	}
+	tool.Annotations.ReadOnlyHint = true
+}
+
 func copyToolForRegistration(tool *mcp.Tool) *mcp.Tool {
 	return &mcp.Tool{
 		Name:         tool.Name,

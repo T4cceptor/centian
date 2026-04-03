@@ -1,0 +1,21 @@
+__MODEL_BLOCK__
+sandbox_mode = "workspace-write"
+
+[mcp_servers.centian]
+url = "__MCP_URL__"
+enabled = true
+destructive_enabled = true
+open_world_enabled = true
+default_tools_approval_mode = "auto"
+
+[projects."__WORK_DIR__"]
+trust_level = "trusted"
+destructive_enabled = true
+open_world_enabled = true
+default_tools_approval_mode = "auto"
+
+[apps._default]
+enabled = true
+destructive_enabled = true
+open_world_enabled = true
+default_tools_approval_mode = "auto"

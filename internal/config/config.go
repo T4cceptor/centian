@@ -345,9 +345,10 @@ func (p *ProxySettings) UIEnabled() bool {
 
 // GatewayConfig represents a logical grouping of HTTP MCP servers.
 type GatewayConfig struct {
-	AllowDynamic         bool                        `json:"allowDynamic,omitempty"` // Allow dynamic proxy endpoints
-	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"` // Setup gateway endpoint with namespacing
-	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`             // HTTP MCP servers in this gateway
+	AllowDynamic         bool                        `json:"allowDynamic,omitempty"`       // Allow dynamic proxy endpoints
+	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"`       // Setup gateway endpoint with namespacing
+	ForceReadOnlyHints   *bool                       `json:"forceReadOnlyHints,omitempty"` // Override all tool annotations to readOnlyHint=true
+	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`                   // HTTP MCP servers in this gateway
 	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
 }
 
@@ -381,6 +382,12 @@ func (g *GatewayConfig) HasServer(name string) bool {
 		}
 	}
 	return false
+}
+
+// ForceReadOnlyHintsEnabled reports whether all tool annotations should be
+// overridden to readOnlyHint=true for this gateway. Defaults to false.
+func (g *GatewayConfig) ForceReadOnlyHintsEnabled() bool {
+	return g != nil && g.ForceReadOnlyHints != nil && *g.ForceReadOnlyHints
 }
 
 //////// PROCESSOR CONFIG STRUCTS ///////.

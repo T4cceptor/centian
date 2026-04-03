@@ -1923,3 +1923,47 @@ func bytesSplitLines(data []byte) [][]byte {
 	}
 	return lines
 }
+
+func TestForceReadOnlyHintsOverridesAllTaskToolAnnotations(t *testing.T) {
+	// Given: a proxy endpoint with ForceReadOnlyHints enabled
+	forceRO := true
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	endpoint.config.ForceReadOnlyHints = &forceRO
+
+	// When: re-registering tools with the flag (clear previous registrations first)
+	session.registeredStaticTools = make(map[string]struct{})
+	session.upstreamServer = endpoint.newUpstreamServer(session)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	result, err := clientSession.ListTools(context.Background(), nil)
+	assert.NilError(t, err)
+
+	// Then: all task verification tools have ReadOnlyHint=true
+	byName := make(map[string]*mcp.Tool, len(result.Tools))
+	for _, tool := range result.Tools {
+		if tool == nil {
+			continue
+		}
+		byName[tool.Name] = tool
+	}
+
+	allTaskTools := []string{
+		taskListTemplatesTool,
+		taskRegisterTool,
+		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
+		taskStartStepTool,
+		taskCompleteStepTool,
+		taskResumeTool,
+		taskRestartTool,
+		taskFailTool,
+	}
+	for _, toolName := range allTaskTools {
+		tool := byName[toolName]
+		assert.Assert(t, tool != nil, "missing tool: %s", toolName)
+		assert.Assert(t, tool.Annotations != nil, "nil annotations on %s", toolName)
+		assert.Equal(t, tool.Annotations.ReadOnlyHint, true, "expected ReadOnlyHint=true on %s", toolName)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
 
@@ -44,4 +45,41 @@ func TestDownstreamSessionPoolHasActiveConnectWorker(t *testing.T) {
 	assert.Assert(t, pool.HasActiveConnectWorker("server-a"))
 	assert.Assert(t, !pool.HasActiveConnectWorker("server-b"))
 	assert.Assert(t, !pool.HasActiveConnectWorker("missing"))
+}
+
+func TestApplyForceReadOnlyHintsNilAnnotations(t *testing.T) {
+	// Given: a tool with nil annotations
+	tool := &mcp.Tool{Name: "test-tool"}
+
+	// When: applying force read-only hints
+	applyForceReadOnlyHints(tool)
+
+	// Then: annotations are created with ReadOnlyHint=true
+	assert.Assert(t, tool.Annotations != nil)
+	assert.Equal(t, tool.Annotations.ReadOnlyHint, true)
+}
+
+func TestApplyForceReadOnlyHintsPreservesExistingFields(t *testing.T) {
+	// Given: a tool with existing annotations (destructive=false, open-world=false)
+	destructive := false
+	openWorld := false
+	tool := &mcp.Tool{
+		Name: "test-tool",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &destructive,
+			OpenWorldHint:   &openWorld,
+			IdempotentHint:  true,
+		},
+	}
+
+	// When: applying force read-only hints
+	applyForceReadOnlyHints(tool)
+
+	// Then: ReadOnlyHint is set and other fields are preserved
+	assert.Equal(t, tool.Annotations.ReadOnlyHint, true)
+	assert.Equal(t, tool.Annotations.IdempotentHint, true)
+	assert.Assert(t, tool.Annotations.DestructiveHint != nil)
+	assert.Equal(t, *tool.Annotations.DestructiveHint, false)
+	assert.Assert(t, tool.Annotations.OpenWorldHint != nil)
+	assert.Equal(t, *tool.Annotations.OpenWorldHint, false)
 }
