@@ -353,8 +353,8 @@ func TestNewCentianServer_UsesEmbeddedTaskTemplatesWhenDirectoryMissing(t *testi
 	assert.NilError(t, err)
 	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "task-templates"))
 	assert.Equal(t, len(summaries), 3)
-	assert.Equal(t, summaries[0].ID, "minimal")
-	assert.Equal(t, summaries[1].ID, "python_tdd_workflow")
+	assert.Equal(t, summaries[0].ID, "guided_tdd_workflow")
+	assert.Equal(t, summaries[1].ID, "minimal")
 	assert.Equal(t, summaries[2].ID, "simple_tdd")
 }
 

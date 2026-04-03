@@ -126,8 +126,8 @@ func TestListTemplatesIncludesEmbeddedDefaultsWhenDirectoryMissing(t *testing.T)
 	summaries, err := service.ListTemplates()
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 3)
-	assert.Equal(t, summaries[0].ID, "minimal")
-	assert.Equal(t, summaries[1].ID, "python_tdd_workflow")
+	assert.Equal(t, summaries[0].ID, "guided_tdd_workflow")
+	assert.Equal(t, summaries[1].ID, "minimal")
 	assert.Equal(t, summaries[2].ID, "simple_tdd")
 }
 
