@@ -100,6 +100,7 @@ type agentAdapter interface {
 	name() string
 	isAvailable() error
 	writeConfig(*demoLayout) error
+	cleanup(*demoLayout) error
 	command(*demoLayout, string) ([]string, error)
 	env(*demoLayout) []string
 }
@@ -146,6 +147,11 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 	if err := adapter.writeConfig(layout); err != nil {
 		return nil, err
 	}
+	defer func() {
+		if err := adapter.cleanup(layout); err != nil && options.Stderr != nil {
+			_, _ = fmt.Fprintf(options.Stderr, "warning: cleanup %s demo artifacts: %v\n", adapter.name(), err)
+		}
+	}()
 
 	centianCmd, errCh, err := startCentianProcess(layout, options)
 	if err != nil {

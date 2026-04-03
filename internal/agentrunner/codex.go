@@ -70,6 +70,10 @@ func (codexAdapter) env(layout *demoLayout) []string {
 	return []string{"CODEX_HOME=" + filepath.Dir(layout.CodexConfig)}
 }
 
+func (codexAdapter) cleanup(layout *demoLayout) error {
+	return os.RemoveAll(filepath.Dir(layout.CodexConfig))
+}
+
 func (c codexAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	command := []string{
 		"codex",

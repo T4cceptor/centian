@@ -17,6 +17,7 @@ type fakeAdapter struct {
 func (f fakeAdapter) name() string                { return f.agentName }
 func (fakeAdapter) isAvailable() error            { return nil }
 func (fakeAdapter) writeConfig(*demoLayout) error { return nil }
+func (fakeAdapter) cleanup(*demoLayout) error     { return nil }
 func (f fakeAdapter) command(layout *demoLayout, prompt string) ([]string, error) {
 	return f.commandFn(layout, prompt)
 }
@@ -551,6 +552,34 @@ func TestCodexWriteConfigCopiesAuthJSON(t *testing.T) {
 	}
 	if string(data) != `{"access_token":"test-token"}` {
 		t.Fatalf("unexpected auth.json contents: %s", string(data))
+	}
+}
+
+func TestCodexCleanupRemovesDemoHome(t *testing.T) {
+	// Given: a demo CODEX_HOME containing auth material and config
+	tmpDir := t.TempDir()
+	codexHome := filepath.Join(tmpDir, "codex-home")
+	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
+	for path, contents := range map[string]string{
+		filepath.Join(codexHome, "auth.json"):   `{"access_token":"test-token"}`,
+		filepath.Join(codexHome, "config.toml"): `model = "o3"`,
+	} {
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	layout := &demoLayout{CodexConfig: filepath.Join(codexHome, "config.toml")}
+
+	// When: cleaning up after the Codex run
+	if err := (codexAdapter{}).cleanup(layout); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+
+	// Then: the isolated demo home is removed
+	if _, err := os.Stat(codexHome); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to be removed, got %v", codexHome, err)
 	}
 }
 

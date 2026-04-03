@@ -45,6 +45,8 @@ func (g geminiAdapter) writeConfig(layout *demoLayout) error {
 
 func (geminiAdapter) env(*demoLayout) []string { return nil }
 
+func (geminiAdapter) cleanup(*demoLayout) error { return nil }
+
 func (g geminiAdapter) command(_ *demoLayout, prompt string) ([]string, error) {
 	command := []string{
 		"gemini",
