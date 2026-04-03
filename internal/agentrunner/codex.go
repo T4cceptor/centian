@@ -36,10 +36,34 @@ func (c codexAdapter) writeConfig(layout *demoLayout) error {
 	if err := os.MkdirAll(filepath.Dir(layout.CodexConfig), 0o750); err != nil {
 		return fmt.Errorf("create codex config dir: %w", err)
 	}
+	if err := copyCodexAuth(filepath.Dir(layout.CodexConfig)); err != nil {
+		return err
+	}
 	if err := os.WriteFile(layout.CodexConfig, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write codex config.toml: %w", err)
 	}
 	return nil
+}
+
+func copyCodexAuth(codexHome string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve user home dir: %w", err)
+	}
+	sourcePath := filepath.Join(homeDir, ".codex", "auth.json")
+	authData, err := os.ReadFile(sourcePath)
+	switch {
+	case err == nil:
+		targetPath := filepath.Join(codexHome, "auth.json")
+		if err := os.WriteFile(targetPath, authData, 0o600); err != nil {
+			return fmt.Errorf("write codex auth.json: %w", err)
+		}
+		return nil
+	case os.IsNotExist(err):
+		return nil
+	default:
+		return fmt.Errorf("read codex auth.json: %w", err)
+	}
 }
 
 func (codexAdapter) env(layout *demoLayout) []string {

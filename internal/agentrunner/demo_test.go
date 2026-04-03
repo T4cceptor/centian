@@ -519,6 +519,41 @@ func TestCodexWriteConfigNoModel(t *testing.T) {
 	}
 }
 
+func TestCodexWriteConfigCopiesAuthJSON(t *testing.T) {
+	// Given: a user Codex home with auth.json and a temporary demo layout
+	tmpDir := t.TempDir()
+	homeDir := filepath.Join(tmpDir, "home")
+	authPath := filepath.Join(homeDir, ".codex", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o755); err != nil {
+		t.Fatalf("mkdir auth dir: %v", err)
+	}
+	if err := os.WriteFile(authPath, []byte(`{"access_token":"test-token"}`), 0o600); err != nil {
+		t.Fatalf("write auth.json: %v", err)
+	}
+	t.Setenv("HOME", homeDir)
+
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	// When: writing the demo Codex config
+	if err := (codexAdapter{model: "o3"}).writeConfig(layout); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	// Then: auth.json is copied into the isolated CODEX_HOME
+	copiedAuthPath := filepath.Join(filepath.Dir(layout.CodexConfig), "auth.json")
+	data, err := os.ReadFile(copiedAuthPath)
+	if err != nil {
+		t.Fatalf("read copied auth.json: %v", err)
+	}
+	if string(data) != `{"access_token":"test-token"}` {
+		t.Fatalf("unexpected auth.json contents: %s", string(data))
+	}
+}
+
 func TestSelectAdapterCodex(t *testing.T) {
 	// Given: demo options with agent "codex"
 	opts := &DemoOptions{Agent: "codex", CodexModel: "o3"}

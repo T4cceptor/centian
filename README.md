@@ -56,7 +56,11 @@ centian demo -a claude
 centian demo -a gemini
 ```
 
-**Codex:** coming soon
+**Codex:** (using default option)
+```bash
+centian demo -a codex
+```
+Note: for codex a new `CODEX_HOME` directory is created in the demo folder and auth.json moved over for authentication at the OpenAI API.
 
 **What the demo shows**
 - Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
