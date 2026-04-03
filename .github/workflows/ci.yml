@@ -55,7 +55,7 @@ jobs:
         run: make test
 
       - name: Generate coverage
-        run: go test -coverprofile=coverage.out ./internal/... ./cmd/...
+        run: go test -coverprofile=coverage.out ./internal/... .
 
       - name: Generate coverage report
         run: go tool cover -html=coverage.out -o coverage.html
@@ -225,5 +225,5 @@ jobs:
 
       - name: Test build with version
         run: |
-          go build -ldflags "-X main.version=test-build" -o centian ./cmd/main.go
+          go build -ldflags "-X main.version=test-build" -o centian ./main.go
           ./centian --version

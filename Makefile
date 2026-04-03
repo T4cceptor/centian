@@ -1,7 +1,7 @@
 # Build variables
 BINARY_NAME=centian
 BUILD_DIR=build
-MAIN_PATH=./cmd/main.go
+MAIN_PATH=./main.go
 LOG_DIR=$(HOME)/.centian/logs
 WEB_DIR=web
 UI_DIST_DIR=internal/ui/dist
@@ -46,11 +46,11 @@ clean: web-clean ## Clean build artifacts
 test: ## Run unit tests
 	@echo "Running unit tests..."
 	@if command -v gotestsum >/dev/null 2>&1; then \
-		gotestsum --format testname -- -race ./internal/... ./cmd/...; \
+		gotestsum --format testname -- -race ./internal/... .; \
 	else \
 		echo "Note: gotestsum not found, using default go test output"; \
 		echo "Install with: go install gotest.tools/gotestsum@latest"; \
-		go test -v -race ./internal/... ./cmd/...; \
+		go test -v -race ./internal/... .; \
 	fi
 
 test-integration: ## Run integration tests
@@ -102,7 +102,7 @@ test-all: test test-integration ## Run all tests (unit + integration)
 test-coverage: ## Run tests with coverage report
 	@echo "Running tests with coverage..."
 	@mkdir -p build
-	@go test -coverprofile=build/coverage.out -covermode=atomic ./internal/... ./cmd/...
+	@go test -coverprofile=build/coverage.out -covermode=atomic ./internal/... .
 	@echo ""
 	@echo "=== Coverage by File ==="
 	@go tool cover -func=build/coverage.out

@@ -86,7 +86,7 @@ jobs:
           
           # Build binary
           BINARY_NAME="centian${{ matrix.ext }}"
-          go build -ldflags "-s -w -X main.version=${VERSION}" -o "${BINARY_NAME}" ./cmd/main.go
+          go build -ldflags "-s -w -X main.version=${VERSION}" -o "${BINARY_NAME}" ./main.go
 
           # Create archive
           ARCHIVE_NAME="centian_${VERSION}_${{ matrix.name }}"
@@ -151,27 +151,30 @@ jobs:
           body: |
             ## Installation
 
-            ### Download Binary
-            Download the appropriate binary for your platform from the assets below.
-
-            ### Using the installer script
+            ### Shell script (recommended)
             ```bash
             curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
             ```
 
-            ### Using a release binary
+            ### Release binary
             ```bash
             curl -L https://github.com/T4cceptor/centian/releases/download/${{ steps.version.outputs.version }}/centian_${{ steps.version.outputs.version }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/').tar.gz | tar -xz
             sudo mv centian /usr/local/bin/
             ```
 
-            ### Using Docker
+            ### go install (no UI)
+            ```bash
+            go install github.com/T4cceptor/centian@latest
+            ```
+            > The embedded web UI is not included in `go install` builds. Use a release binary or Docker for the full UI.
+
+            ### Docker
             ```bash
             docker run --rm -p 9666:9666 t4ce/centian:${{ steps.version.outputs.version }}
             docker run --rm -p 9666:9666 t4ce/centian:${{ steps.version.outputs.version }}-alpine
             ```
 
-            ### Building from source
+            ### Build from source
             ```bash
             git clone https://github.com/T4cceptor/centian.git
             cd centian

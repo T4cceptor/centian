@@ -29,15 +29,15 @@ Centian solves all four.
 
 ---
 
-## Installation
+## Quick Start
+
+### Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-For other options (release binaries, Docker, source build) see [Installation Options](#installation-options)
-
-## Quick Start
+For all install methods see [Installation Options](#installation-options).
 
 ### Local Demo
 
@@ -316,27 +316,47 @@ Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured. This pr
 
 ## Installation Options
 
+| Method | Platform | Full UI | Command |
+|--------|----------|---------|---------|
+| Shell script | Linux, macOS | ✓ | `curl -fsSL .../install.sh \| bash` |
+| Release binary | Linux, macOS, Windows | ✓ | Download from [releases](https://github.com/T4cceptor/centian/releases) |
+| `go install` | Any | ✗ | `go install github.com/T4cceptor/centian@latest` |
+| Docker | Linux, macOS, Windows | ✓ | `docker run t4ce/centian:latest` |
+| Homebrew | — | — | Planned |
+
+### Shell script (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
+```
+
+Supports `--version` and `--install-dir` flags. Installs to `~/.local/bin` by default.
+
 ### Release binaries
 
 Download the appropriate archive from the [latest release](https://github.com/T4cceptor/centian/releases/latest), extract it, and place `centian` on your `PATH`.
 
+### `go install`
+
+```bash
+go install github.com/T4cceptor/centian@latest
+```
+
+Requires Go 1.25+. Builds without the embedded web UI — use a release binary or Docker for the full UI.
+
 ### Docker
 
 ```bash
-# Full image
+# Full image (Linux, macOS, Windows)
 docker run --rm -p 9666:9666 t4ce/centian:latest
 
 # Alpine image
 docker run --rm -p 9666:9666 t4ce/centian:latest-alpine
 ```
 
-### Build from source
+### Homebrew
 
-```bash
-git clone https://github.com/T4cceptor/centian.git
-cd centian
-make install
-```
+Homebrew support is planned.
 
 ---
 
