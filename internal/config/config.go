@@ -345,10 +345,10 @@ func (p *ProxySettings) UIEnabled() bool {
 
 // GatewayConfig represents a logical grouping of HTTP MCP servers.
 type GatewayConfig struct {
-	AllowDynamic         bool                        `json:"allowDynamic,omitempty"`         // Allow dynamic proxy endpoints
-	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"`         // Setup gateway endpoint with namespacing
-	ForceReadOnlyHints   *bool                       `json:"forceReadOnlyHints,omitempty"`   // Override all tool annotations to readOnlyHint=true
-	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`                     // HTTP MCP servers in this gateway
+	AllowDynamic         bool                        `json:"allowDynamic,omitempty"`       // Allow dynamic proxy endpoints
+	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"`       // Setup gateway endpoint with namespacing
+	ForceReadOnlyHints   *bool                       `json:"forceReadOnlyHints,omitempty"` // Override all tool annotations to readOnlyHint=true
+	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`                   // HTTP MCP servers in this gateway
 	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
 }
 
