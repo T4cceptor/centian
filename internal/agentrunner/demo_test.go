@@ -163,7 +163,7 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 	for _, regenerated := range []string{
 		layout.ConfigPath,
 		layout.PromptPath,
-		filepath.Join(layout.TemplatesPath, "javascript_tdd_workflow.yaml"),
+		filepath.Join(layout.TemplatesPath, TaskTemplateFile),
 		layout.ClaudeConfig,
 	} {
 		if _, err := os.Stat(regenerated); err != nil {
@@ -236,7 +236,7 @@ func TestRenderAssetsWritesExpectedFiles(t *testing.T) {
 	assertFileContains(t, layout.ConfigPath, `"port": "`+layout.Port+`"`)
 	assertFileContains(t, layout.ConfigPath, layout.WorkspacePath)
 	assertFileContains(t, layout.PromptPath, "scoreParentheses")
-	assertFileContains(t, filepath.Join(layout.TemplatesPath, "javascript_tdd_workflow.yaml"), "JavaScript TDD Workflow")
+	assertFileContains(t, filepath.Join(layout.TemplatesPath, TaskTemplateFile), "Guided TDD Workflow")
 	if filepath.Base(layout.AgentStdoutPath) != "agent.stdout.log" {
 		t.Fatalf("unexpected agent stdout path: %s", layout.AgentStdoutPath)
 	}

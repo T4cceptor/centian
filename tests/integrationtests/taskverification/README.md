@@ -28,7 +28,7 @@ This directory contains the versioned fixtures used by the harness:
 - [blackbox_test.go](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/blackbox_test.go): test harness and strict assertions
 - [centian_config.json](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/centian_config.json): Centian config template resolved into a temp run directory
 - [prompt.yaml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/prompt.yaml): shared user-style prompt
-- [javascript_tdd_workflow.yaml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/javascript_tdd_workflow.yaml): taskverification template fixture
+- [guided_tdd_workflow.yaml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/guided_tdd_workflow.yaml): taskverification template fixture
 - [codex_config.toml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/codex_config.toml): Codex config template
 - [claude_mcp_config.json](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/claude_mcp_config.json): Claude MCP config template
 

@@ -1,5 +1,5 @@
 Connect to the MCP server named `centian` and solve this JavaScript TDD task through the Centian workflow.
-Use `javascript_tdd_workflow` for your task registration.
+Use `guided_tdd_workflow` for your task registration.
 
 Problem:
 

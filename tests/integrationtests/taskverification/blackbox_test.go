@@ -261,15 +261,15 @@ func writeEmptyProject(t *testing.T, projectDir string) {
 func writeLocalTemplates(t *testing.T, assetsDir, templatesDir string) {
 	t.Helper()
 
-	data := []byte(loadAsset(t, assetsDir, "javascript_tdd_workflow.yaml"))
+	data := []byte(loadAsset(t, assetsDir, "guided_tdd_workflow.yaml"))
 	var template tv.Template
 	if err := yaml.Unmarshal(data, &template); err != nil {
-		t.Fatalf("failed to parse javascript_tdd_workflow.yaml fixture: %v", err)
+		t.Fatalf("failed to parse guided_tdd_workflow.yaml fixture: %v", err)
 	}
 	if err := template.Validate(); err != nil {
-		t.Fatalf("javascript_tdd_workflow.yaml fixture is invalid: %v", err)
+		t.Fatalf("guided_tdd_workflow.yaml fixture is invalid: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(templatesDir, "javascript_tdd_workflow.yaml"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(templatesDir, "guided_tdd_workflow.yaml"), data, 0o644); err != nil {
 		t.Fatalf("failed to write template fixture: %v", err)
 	}
 }
