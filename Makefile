@@ -17,6 +17,11 @@ VERSION ?= dev
 COMMIT_HASH ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# For dev builds, append build timestamp and commit hash
+ifeq ($(VERSION),dev)
+VERSION := dev+$(BUILD_DATE).$(COMMIT_HASH)
+endif
+
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
