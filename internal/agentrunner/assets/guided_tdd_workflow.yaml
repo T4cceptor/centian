@@ -1,8 +1,8 @@
 version: "0.1"
 task:
-  id: "python_tdd_workflow"
-  name: "Python TDD Workflow"
-  description: "Use Centian to drive a Python TDD loop with explicit scaffolding, a failing-baseline step, and an implementation step."
+  id: "guided_tdd_workflow"
+  name: "Guided TDD Workflow"
+  description: "Use Centian to drive a structured TDD loop with explicit scaffolding, a failing-baseline step, and an implementation step."
   instructions: |
     Use Centian task verification as the authoritative process for this task.
 
@@ -13,24 +13,24 @@ task:
     - Treat `centian.task_complete_step` as the source of truth for whether a step passes.
     - The Centian taskverification working directory is the project root.
     - Use paths relative to the project root when filling template parameters.
-    - This workflow runs in a host-native test environment with only `python` guaranteed to exist.
-    - Do not assume `pytest` or `ruff` are installed; choose commands that work with plain `python`.
+    - Choose commands and files that fit the task's stack and the tools guaranteed by the task context.
+    - Prefer dependency-free or already-available project tooling unless the task explicitly states otherwise.
     - Once the implementation step has started, keep the selected test file stable.
 parameters:
   - name: "testCommand"
-    description: "The command prefix used to run the selected test target with standard-library-only Python, for example `python`."
+    description: "The command prefix used to run the selected test target with the chosen stack's available tooling."
   - name: "testTarget"
-    description: "The test target to execute with the selected command. Use a plain file path such as `test_x.py`."
+    description: "The test target to execute with the selected command. Use a concrete, project-relative target."
   - name: "testFile"
-    description: "The concrete path to the test file used for invariants, for example `test_x.py`."
+    description: "The concrete path to the test file used for invariants."
   - name: "testName"
-    description: "The test entrypoint name that scaffolding should create inside the selected test file."
+    description: "The test entrypoint or case name that scaffolding should create inside the selected test file."
   - name: "lintCommand"
-    description: "The command used to run a dependency-free syntax check for the project, for example `python -m py_compile score_parentheses.py test_score_parentheses.py`."
+    description: "The command used to run a fast validation pass for the project, such as a syntax check, type check, or lint step that fits the chosen stack."
   - name: "expectedError"
-    description: "A stable substring expected in the combined test output for the initial failing baseline, for example `FAIL`."
+    description: "A stable substring expected in the combined test output for the initial failing baseline."
   - name: "implementationTarget"
-    description: "The concrete implementation file path that scaffolding and execution will operate on. Use a path relative to the project root, for example `score_parentheses.py`."
+    description: "The concrete implementation file path that scaffolding and execution will operate on. Use a path relative to the project root."
 workflow:
   onboarding:
     instructions: |

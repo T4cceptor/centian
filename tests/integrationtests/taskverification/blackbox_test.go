@@ -261,15 +261,15 @@ func writeEmptyProject(t *testing.T, projectDir string) {
 func writeLocalTemplates(t *testing.T, assetsDir, templatesDir string) {
 	t.Helper()
 
-	data := []byte(loadAsset(t, assetsDir, "python_tdd_workflow.yaml"))
+	data := []byte(loadAsset(t, assetsDir, "guided_tdd_workflow.yaml"))
 	var template tv.Template
 	if err := yaml.Unmarshal(data, &template); err != nil {
-		t.Fatalf("failed to parse python_tdd_workflow.yaml fixture: %v", err)
+		t.Fatalf("failed to parse guided_tdd_workflow.yaml fixture: %v", err)
 	}
 	if err := template.Validate(); err != nil {
-		t.Fatalf("python_tdd_workflow.yaml fixture is invalid: %v", err)
+		t.Fatalf("guided_tdd_workflow.yaml fixture is invalid: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(templatesDir, "python_tdd_workflow.yaml"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(templatesDir, "guided_tdd_workflow.yaml"), data, 0o644); err != nil {
 		t.Fatalf("failed to write template fixture: %v", err)
 	}
 }
@@ -736,17 +736,18 @@ func assertStrictSuccess(
 		t.Fatalf("%s task run lifecycle events are incomplete: %v", agentName, eventTypes)
 	}
 
-	scorePath := filepath.Join(h.projectDir, "score_parentheses.py")
+	scorePath := filepath.Join(h.projectDir, "scoreParentheses.js")
 	if _, err := os.Stat(scorePath); err != nil {
 		t.Fatalf("%s did not create %s: %v", agentName, scorePath, err)
 	}
-	testPath := filepath.Join(h.projectDir, "test_score_parentheses.py")
+	testPath := filepath.Join(h.projectDir, "scoreParentheses.test.js")
 	if _, err := os.Stat(testPath); err != nil {
 		t.Fatalf("%s did not create %s: %v", agentName, testPath, err)
 	}
 
-	runProjectCommand(t, h.projectDir, "python", "test_score_parentheses.py")
-	runProjectCommand(t, h.projectDir, "python", "-m", "py_compile", "score_parentheses.py", "test_score_parentheses.py")
+	runProjectCommand(t, h.projectDir, "node", "--test", "scoreParentheses.test.js")
+	runProjectCommand(t, h.projectDir, "node", "--check", "scoreParentheses.js")
+	runProjectCommand(t, h.projectDir, "node", "--check", "scoreParentheses.test.js")
 }
 
 func runProjectCommand(t *testing.T, dir, name string, args ...string) {

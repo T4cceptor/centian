@@ -34,6 +34,8 @@ const (
 	DefaultCodexModel = ""
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
 	DefaultAgentTimeout = 5 * time.Minute
+	// TaskTemplateFile is the default task template file name for the task.
+	TaskTemplateFile = "guided_tdd_workflow.yaml"
 )
 
 var allocateFreePortFunc = allocateFreePort
@@ -368,11 +370,11 @@ func renderAssets(layout *demoLayout) error {
 		return fmt.Errorf("write prompt.md: %w", err)
 	}
 
-	template, err := asset("python_tdd_workflow.yaml")
+	template, err := asset(TaskTemplateFile)
 	if err != nil {
 		return err
 	}
-	templatePath := filepath.Join(layout.TemplatesPath, "python_tdd_workflow.yaml")
+	templatePath := filepath.Join(layout.TemplatesPath, TaskTemplateFile)
 	if err := os.WriteFile(templatePath, []byte(template), 0o600); err != nil {
 		return fmt.Errorf("write template: %w", err)
 	}

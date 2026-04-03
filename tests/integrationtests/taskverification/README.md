@@ -28,7 +28,7 @@ This directory contains the versioned fixtures used by the harness:
 - [blackbox_test.go](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/blackbox_test.go): test harness and strict assertions
 - [centian_config.json](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/centian_config.json): Centian config template resolved into a temp run directory
 - [prompt.yaml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/prompt.yaml): shared user-style prompt
-- [python_tdd_workflow.yaml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/python_tdd_workflow.yaml): taskverification template fixture
+- [guided_tdd_workflow.yaml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/guided_tdd_workflow.yaml): taskverification template fixture
 - [codex_config.toml](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/codex_config.toml): Codex config template
 - [claude_mcp_config.json](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/claude_mcp_config.json): Claude MCP config template
 
@@ -68,7 +68,7 @@ For each selected agent, the harness does the following:
    - `/api/task-runs`
    - `/api/task-runs/{runID}/events`
    - the latest `requests_*.jsonl`
-10. Verifies both Centian lifecycle behavior and the produced Python files in `project/`.
+10. Verifies both Centian lifecycle behavior and the produced JavaScript files in `project/`.
 
 ## Strict Success Criteria
 
@@ -86,11 +86,12 @@ The black-box test currently requires all of the following:
 - `centian.task_fail` was not used
 - no terminal failure or timeout event was recorded
 - the agent created:
-  - `score_parentheses.py`
-  - `test_score_parentheses.py`
+  - `scoreParentheses.js`
+  - `scoreParentheses.test.js`
 - the final project passes:
-  - `python test_score_parentheses.py`
-  - `python -m py_compile score_parentheses.py test_score_parentheses.py`
+  - `node --test scoreParentheses.test.js`
+  - `node --check scoreParentheses.js`
+  - `node --check scoreParentheses.test.js`
 
 ## Running The Test
 

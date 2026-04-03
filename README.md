@@ -46,8 +46,7 @@ The agent is given a task to implement `score_paranthesis` - see [prompt](intern
 
 **Prerequisites**: Before running `centian demo`, make sure you have:
 
-- `python` available on your `PATH` - required for the task to be completed
-- `npx` available on your `PATH` - required to launch filesystem and shell MCP servers
+- `node` (tested with `v24.2.0`) and `npx` (tested with `11.3.0`) available on your `PATH` - required to launch filesystem and shell MCP servers, and run test
 - Claude Code or Gemini CLI installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or not signed in.
 
 **Claude Code** (sonnet)
@@ -66,7 +65,7 @@ centian demo -a codex
 ```
 Note: for the codex demo centian will copy (and later cleanup) existing auth material for the OpenAI API.
 
-**What the demo shows**
+**What the demo does**
 - Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
 - Start Centian server locally at an available port (selected automatically).
 - Start selected coding agent in headless mode with [prompt](internal/agentrunner/assets/prompt.md).

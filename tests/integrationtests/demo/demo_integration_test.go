@@ -16,6 +16,7 @@ import (
 )
 
 const runDemoIntegrationEnv = "CENTIAN_RUN_DEMO_INTEGRATION"
+const demoTaskTemplateFile = "guided_tdd_workflow.yaml"
 
 func TestCentianDemoClaude(t *testing.T) {
 	if os.Getenv(runDemoIntegrationEnv) != "1" {
@@ -47,7 +48,7 @@ func TestCentianDemoClaude(t *testing.T) {
 
 	for _, path := range []string{
 		filepath.Join(demoRoot, "workspace"),
-		filepath.Join(demoRoot, "templates", "python_tdd_workflow.yaml"),
+		filepath.Join(demoRoot, "templates", demoTaskTemplateFile),
 		filepath.Join(demoRoot, "logs"),
 		filepath.Join(demoRoot, "config.json"),
 		filepath.Join(demoRoot, "prompt.md"),
@@ -109,7 +110,7 @@ func TestCentianDemoGemini(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(demoRoot, "workspace"),
 		filepath.Join(demoRoot, "workspace", ".gemini", "settings.json"),
-		filepath.Join(demoRoot, "templates", "python_tdd_workflow.yaml"),
+		filepath.Join(demoRoot, "templates", demoTaskTemplateFile),
 		filepath.Join(demoRoot, "logs"),
 		filepath.Join(demoRoot, "config.json"),
 		filepath.Join(demoRoot, "prompt.md"),
