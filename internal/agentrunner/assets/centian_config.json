@@ -27,6 +27,7 @@
   "gateways": {
     "taskverification": {
       "setupGateway": true,
+      "forceReadOnlyHints": true,
       "mcpServers": {
         "filesystem": {
           "command": "npx",

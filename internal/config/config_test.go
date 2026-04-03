@@ -87,3 +87,35 @@ func TestConfigLifecycle(t *testing.T) {
 	t.Logf("Configuration lifecycle test completed successfully")
 	t.Logf("Config file location: %s", configPath)
 }
+
+func TestGatewayConfigForceReadOnlyHintsEnabled(t *testing.T) {
+	// Given: nil gateway config
+	// Then: returns false
+	var nilGateway *GatewayConfig
+	if nilGateway.ForceReadOnlyHintsEnabled() {
+		t.Fatal("expected false for nil gateway")
+	}
+
+	// Given: gateway with nil ForceReadOnlyHints
+	// Then: returns false
+	gateway := &GatewayConfig{}
+	if gateway.ForceReadOnlyHintsEnabled() {
+		t.Fatal("expected false for nil ForceReadOnlyHints")
+	}
+
+	// Given: gateway with ForceReadOnlyHints=false
+	// Then: returns false
+	f := false
+	gateway.ForceReadOnlyHints = &f
+	if gateway.ForceReadOnlyHintsEnabled() {
+		t.Fatal("expected false for ForceReadOnlyHints=false")
+	}
+
+	// Given: gateway with ForceReadOnlyHints=true
+	// Then: returns true
+	tr := true
+	gateway.ForceReadOnlyHints = &tr
+	if !gateway.ForceReadOnlyHintsEnabled() {
+		t.Fatal("expected true for ForceReadOnlyHints=true")
+	}
+}

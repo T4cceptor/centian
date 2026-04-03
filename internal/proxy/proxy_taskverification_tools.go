@@ -56,7 +56,17 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		return
 	}
 
-	server.AddTool(&mcp.Tool{
+	forceRO := p.config.ForceReadOnlyHintsEnabled()
+
+	addTaskTool := func(tool *mcp.Tool, name string, handler taskToolHandler) {
+		if forceRO {
+			applyForceReadOnlyHints(tool)
+		}
+		server.AddTool(tool, p.wrapTaskToolHandler(session, name, handler))
+		session.registeredStaticTools[name] = struct{}{}
+	}
+
+	addTaskTool(&mcp.Tool{
 		Name:        taskListTemplatesTool,
 		Description: taskToolDescription("List available task verification templates."),
 		Annotations: taskReadOnlyAnnotations(),
@@ -64,10 +74,9 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-	}, p.wrapTaskToolHandler(session, taskListTemplatesTool, p.handleTaskListTemplatesTool))
-	session.registeredStaticTools[taskListTemplatesTool] = struct{}{}
+	}, taskListTemplatesTool, p.handleTaskListTemplatesTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskRegisterTool,
 		Description: taskToolDescription("Register a task verification run from a template."),
 		Annotations: taskStateTransitionAnnotations(),
@@ -78,26 +87,23 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			},
 			"required": []string{"templateId"},
 		},
-	}, p.wrapTaskToolHandler(session, taskRegisterTool, p.handleTaskRegisterTool))
-	session.registeredStaticTools[taskRegisterTool] = struct{}{}
+	}, taskRegisterTool, p.handleTaskRegisterTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskCompleteOnboardingTool,
 		Description: taskToolDescription("Persist onboarding context and advance the task into planning."),
 		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: taskCompleteOnboardingSchema(),
-	}, p.wrapTaskToolHandler(session, taskCompleteOnboardingTool, p.handleTaskCompleteOnboardingTool))
-	session.registeredStaticTools[taskCompleteOnboardingTool] = struct{}{}
+	}, taskCompleteOnboardingTool, p.handleTaskCompleteOnboardingTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskCompletePlanningTool,
 		Description: taskToolDescription("Persist planning context, freeze the execution contract, and enter execution. planning.parameters must contain every required planning parameter before execution can begin, and Centian enforces that contract."),
 		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: taskCompletePlanningSchema(),
-	}, p.wrapTaskToolHandler(session, taskCompletePlanningTool, p.handleTaskCompletePlanningTool))
-	session.registeredStaticTools[taskCompletePlanningTool] = struct{}{}
+	}, taskCompletePlanningTool, p.handleTaskCompletePlanningTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskStartStepTool,
 		Description: taskToolDescription("Start a task step by running preconditions and capturing invariant baselines."),
 		Annotations: taskStateTransitionAnnotations(),
@@ -108,10 +114,9 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			},
 			"required": []string{"step"},
 		},
-	}, p.wrapTaskToolHandler(session, taskStartStepTool, p.handleTaskStartStepTool))
-	session.registeredStaticTools[taskStartStepTool] = struct{}{}
+	}, taskStartStepTool, p.handleTaskStartStepTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskCompleteStepTool,
 		Description: taskToolDescription("Complete a task step by running postconditions and invariant checks."),
 		Annotations: taskStateTransitionAnnotations(),
@@ -122,10 +127,9 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			},
 			"required": []string{"step"},
 		},
-	}, p.wrapTaskToolHandler(session, taskCompleteStepTool, p.handleTaskCompleteStepTool))
-	session.registeredStaticTools[taskCompleteStepTool] = struct{}{}
+	}, taskCompleteStepTool, p.handleTaskCompleteStepTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskResumeTool,
 		Description: taskToolDescription("Resume a timed-out task verification run without resetting workflow progress."),
 		Annotations: taskStateTransitionAnnotations(),
@@ -133,10 +137,9 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-	}, p.wrapTaskToolHandler(session, taskResumeTool, p.handleTaskResumeTool))
-	session.registeredStaticTools[taskResumeTool] = struct{}{}
+	}, taskResumeTool, p.handleTaskResumeTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskRestartTool,
 		Description: taskToolDescription("Restart the active task verification run and clear step state."),
 		Annotations: taskStateTransitionAnnotations(),
@@ -144,10 +147,9 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-	}, p.wrapTaskToolHandler(session, taskRestartTool, p.handleTaskRestartTool))
-	session.registeredStaticTools[taskRestartTool] = struct{}{}
+	}, taskRestartTool, p.handleTaskRestartTool)
 
-	server.AddTool(&mcp.Tool{
+	addTaskTool(&mcp.Tool{
 		Name:        taskFailTool,
 		Description: taskToolDescription("Explicitly fail the active task verification run."),
 		Annotations: taskStateTransitionAnnotations(),
@@ -157,8 +159,7 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 				"reason": map[string]any{"type": "string"},
 			},
 		},
-	}, p.wrapTaskToolHandler(session, taskFailTool, p.handleTaskFailTool))
-	session.registeredStaticTools[taskFailTool] = struct{}{}
+	}, taskFailTool, p.handleTaskFailTool)
 }
 
 func taskToolDescription(base string) string {
