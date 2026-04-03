@@ -8,7 +8,7 @@
 **Control plane for AI agents** — enforce structured workflows, govern tool access, and inspect every action your agent takes.
 
 <div align="center">
-  <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance" width="80%">
+  <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance">
 </div>
 <br>
 
