@@ -51,10 +51,12 @@ func copyCodexAuth(codexHome string) error {
 		return fmt.Errorf("resolve user home dir: %w", err)
 	}
 	sourcePath := filepath.Join(homeDir, ".codex", "auth.json")
+	//nolint:gosec // sourcePath is the fixed auth file under the current user's Codex home.
 	authData, err := os.ReadFile(sourcePath)
 	switch {
 	case err == nil:
 		targetPath := filepath.Join(codexHome, "auth.json")
+		//nolint:gosec // targetPath is the fixed auth file inside the demo-specific CODEX_HOME.
 		if err := os.WriteFile(targetPath, authData, 0o600); err != nil {
 			return fmt.Errorf("write codex auth.json: %w", err)
 		}
