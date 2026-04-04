@@ -140,6 +140,7 @@ func newTaskVerificationService(
 		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
 	}
 	taskService.EventStore = store
+	taskService.RunStore = store
 	logger.SetActionEventStore(store)
 	return taskService, store, store, nil
 }

@@ -42,6 +42,7 @@ func TestHandler_ListTaskRuns(t *testing.T) {
 				return []persistence.TaskRunSummary{{
 					RunID:        identifiers.New(identifiers.KindTaskRun),
 					TemplateID:   "template-a",
+					TemplateName: "Template A",
 					StartedAt:    1234,
 					Status:       "succeeded",
 					CurrentPhase: "planning",
@@ -66,6 +67,7 @@ func TestHandler_ListTaskRuns(t *testing.T) {
 		assert.NilError(t, err)
 		assert.Equal(t, len(summaries), 1)
 		assert.Equal(t, summaries[0].TemplateID, "template-a")
+		assert.Equal(t, summaries[0].TemplateName, "Template A")
 	})
 
 	t.Run("returns json error on store failure", func(t *testing.T) {
