@@ -2,51 +2,105 @@ version: "0.1"
 task:
   id: "simple_tdd"
   name: "Simple TDD Task"
-  description: "A small two-step TDD workflow with parameterized test commands."
+  description: "A small red-green-refactor TDD workflow with a locked baseline test file."
+  instructions: |
+    Use this template for a narrow TDD slice where the red baseline already exists.
+
+    Expectations:
+    - Determine the full runnable test command during planning and freeze it in `planning.parameters.testCommand`.
+    - Treat `planning.parameters.testTarget` as a human-facing description of the selected baseline target, not as a command fragment.
+    - Treat `planning.parameters.testFile` as the concrete baseline test file that must remain unchanged once execution starts.
+    - Compile failures are valid red baselines when the selected command exits non-zero and the combined output contains the expected failure text.
+    - If the baseline test file still needs to be created or edited, use a scaffolding-capable template instead of `simple_tdd`.
 parameters:
   - name: "testCommand"
-    description: "The command prefix used to execute the targeted test, for example `npm run test -- -g`."
+    description: "The full runnable command used to execute the selected baseline, for example `go test ./pkg/foo -run TestBar`."
+  - name: "testTarget"
+    description: "The human-facing baseline target or selector, for example `./pkg/foo -run TestBar` or `tests/test_x.py::test_case`."
   - name: "testFile"
-    description: "The path or selector for the test file or test target."
+    description: "The concrete path to the baseline test file that must remain unchanged during execution."
   - name: "expectedError"
-    description: "A stable substring expected in the initial failing test output."
+    description: "A stable substring expected in the combined red baseline output, including compile failures."
 workflow:
   onboarding:
+    instructions: |
+      Identify the full runnable test command, the human-facing baseline target, the locked baseline test file, and the expected red failure signal.
     tools_allowed: ["*"]
   planning:
+    instructions: |
+      Freeze the full runnable test command, the human-facing target metadata, the locked baseline test file, and the expected failure signal.
     tools_allowed: ["*"]
     editable_fields:
       - "parameters.testCommand"
+      - "parameters.testTarget"
       - "parameters.testFile"
       - "parameters.expectedError"
     required_inputs:
       - "expectedError"
       - "testCommand"
+      - "testTarget"
       - "testFile"
   execution:
-    - id: "create_failing_test_baseline"
-      name: "Create failing test baseline"
+    - id: "verify_failing_baseline"
+      name: "Verify failing baseline"
+      description: "Confirm the selected baseline already exists and is red for the intended reason."
+      instructions: |
+        Verify that `${testTarget}` already fails for the intended reason before implementation begins.
+        Do not author or edit the selected baseline test file during this step.
+        Compile failures are valid baselines when `${testCommand}` exits non-zero and combined output contains `${expectedError}`.
       tools_allowed: ["*"]
       checks:
         - id: "selected_test_fails"
-          command: "${testCommand} ${testFile}"
+          command: "${testCommand}"
           pre_conditions:
             - type: exit_code_in
-              values: [0, 1]
+              values: [1, 2]
+            - type: output_contains
+              value: "${expectedError}"
           post_conditions:
-            - type: exit_code
-              value: 1
-            - type: stdout_contains
+            - type: exit_code_in
+              values: [1, 2]
+            - type: output_contains
               value: "${expectedError}"
       invariants:
         - id: "test_file_stable"
           command: "cat ${testFile}"
-    - id: "implement_fix"
-      name: "Implement production fix"
+    - id: "implement_green"
+      name: "Implement green"
+      description: "Make the selected baseline pass without changing the locked baseline test file."
+      instructions: |
+        Start this step before changing production code.
+        Make `${testTarget}` pass by changing production code and any supporting files except the selected baseline test file.
+        Additional tests in other files are allowed, but `${testCommand}` must finish green.
       tools_allowed: ["*"]
       checks:
         - id: "selected_test_passes"
-          command: "${testCommand} ${testFile}"
+          command: "${testCommand}"
+          pre_conditions:
+            - type: exit_code_in
+              values: [1, 2]
+            - type: output_contains
+              value: "${expectedError}"
+          post_conditions:
+            - type: exit_code
+              value: 0
+      invariants:
+        - id: "test_file_stable"
+          command: "cat ${testFile}"
+    - id: "refactor_while_green"
+      name: "Refactor while green"
+      description: "Refactor while keeping the selected baseline green and the locked baseline test file unchanged."
+      instructions: |
+        Refactor while keeping `${testTarget}` green.
+        Do not edit the selected baseline test file during this step.
+        Additional tests in other files are allowed if `${testCommand}` stays green.
+      tools_allowed: ["*"]
+      checks:
+        - id: "selected_test_stays_green"
+          command: "${testCommand}"
+          pre_conditions:
+            - type: exit_code
+              value: 0
           post_conditions:
             - type: exit_code
               value: 0

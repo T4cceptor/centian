@@ -196,7 +196,9 @@ Examples:
 - `onboarding`
 - `planning`
 - `scaffolding.setup_test_file`
-- `execution.implement_fix`
+- `execution.verify_failing_baseline`
+- `execution.implement_green`
+- `execution.refactor_while_green`
 - `waiting_for_approval.review_plan`
 
 The path tells you where the run is. The node kind tells you what that path means.
