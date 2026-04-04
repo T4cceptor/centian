@@ -1,0 +1,8 @@
+prompt: |
+  Implement the missing production behavior using the selected command as the source of truth.
+
+  Requirements:
+  - Verify the authored red baseline first.
+  - Do not modify the locked baseline test file.
+  - Make the selected command pass.
+  - If you perform a small refactor after green, keep the selected command green.
