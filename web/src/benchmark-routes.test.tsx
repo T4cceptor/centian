@@ -1,0 +1,280 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { clearStoredApiAuth } from "./api/api-auth";
+import { AppRoutes } from "./routes";
+
+const originalFetch = globalThis.fetch;
+
+function createFetchResponse(body: unknown, status: number = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: new Headers(),
+    json: async () => body,
+  } as Response;
+}
+
+function renderApp(initialEntries: string[]) {
+  return render(
+    <MemoryRouter
+      initialEntries={initialEntries}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      <AppRoutes />
+    </MemoryRouter>,
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  globalThis.fetch = originalFetch;
+  clearStoredApiAuth();
+});
+
+describe("benchmark routes", () => {
+  it("renders the suite list", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            suiteId: "simple_tdd_v1",
+            suiteName: "Simple TDD Benchmark Suite v1",
+            templateId: "simple_tdd",
+            templateName: "Simple TDD Current",
+            latestGeneratedAt: "2026-04-05T12:00:00Z",
+            sessionCount: 2,
+            runCount: 4,
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/benchmarks"]);
+
+    expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
+    expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
+    expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("renders the suite overview", async () => {
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.includes("/sessions")) {
+        return Promise.resolve(
+          createFetchResponse([
+            {
+              sessionId: "ba_session",
+              suiteId: "simple_tdd_v1",
+              suiteName: "Simple TDD Benchmark Suite v1",
+              templateId: "simple_tdd",
+              templateName: "Simple TDD Current",
+              sessionPath: "/tmp/simple_tdd/session_one",
+              generatedAt: "2026-04-05T12:00:00Z",
+              runCount: 2,
+              scoredRunCount: 2,
+              failedToScoreCount: 0,
+              aggregates: { byCase: [], byAgent: [], byTemplateVariant: [], byCaseAgentVariant: [] },
+            },
+          ]),
+        );
+      }
+      if (url.includes("/comparison")) {
+        return Promise.resolve(
+          createFetchResponse({
+            suiteId: "simple_tdd_v1",
+            suiteName: "Simple TDD Benchmark Suite v1",
+            templateId: "simple_tdd",
+            templateName: "Simple TDD Current",
+            sessionCount: 1,
+            runCount: 1,
+            sessions: [],
+            runs: [],
+            filters: {},
+            aggregates: {
+              bySession: [],
+              byCase: [],
+              byAgent: [{ key: "codex", agent: "codex", runCount: 1, scoredRunCount: 1, successRate: 1, firstPassSuccessRate: 1, finalVerificationPassRate: 1, invariantViolationRate: 0, restartFailTimeoutRate: 0, medianWallClockSeconds: 10, medianTotalToolCalls: 4, medianInputTokens: 100, medianOutputTokens: 50, medianFailedTaskToolCalls: 0, medianFailedDownstreamToolCalls: 0, medianEditedFilesCount: 1, manualActionabilityCount: 0 }],
+              byTemplateVariant: [],
+              byCaseAgentVariant: [],
+            },
+          }),
+        );
+      }
+      return Promise.resolve(
+        createFetchResponse([
+          {
+            scorecardId: "ba_score",
+            sessionId: "ba_session",
+            sessionPath: "/tmp/simple_tdd/session_one",
+            suiteId: "simple_tdd_v1",
+            suiteName: "Simple TDD Benchmark Suite v1",
+            templateId: "simple_tdd",
+            templateName: "Simple TDD Current",
+            caseId: "assertion_failure_red",
+            caseName: "Assertion-failure red baseline",
+            agent: "codex",
+            templateVariant: "current",
+            attempt: 1,
+            rawStatus: "completed",
+            completedSuccessfully: true,
+            finalVerificationPassed: true,
+            firstPassSuccess: true,
+            invariantViolation: false,
+            restartOccurred: false,
+            failOccurred: false,
+            timeoutOccurred: false,
+            wallClockSeconds: 10,
+            totalToolCalls: 4,
+            failedTaskToolCalls: 0,
+            failedDownstreamToolCalls: 0,
+            editedFilesCount: 1,
+          },
+        ]),
+      );
+    }) as typeof fetch;
+
+    renderApp(["/benchmarks/simple_tdd_v1"]);
+
+    expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
+    expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
+    expect(screen.getByText("Errors By Variant")).toBeInTheDocument();
+    expect(screen.getByText("1 Runs")).toBeInTheDocument();
+    expect(screen.getByText("1 Sessions")).toBeInTheDocument();
+    expect(screen.getByText("Run History")).toBeInTheDocument();
+    expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
+  });
+
+  it("renders the session detail", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          sessionId: "ba_session",
+          suiteId: "simple_tdd_v1",
+          suiteName: "Simple TDD Benchmark Suite v1",
+          templateId: "simple_tdd",
+          templateName: "Simple TDD Current",
+          sessionPath: "/tmp/simple_tdd/session_one",
+          generatedAt: "2026-04-05T12:00:00Z",
+          runCount: 2,
+          scoredRunCount: 2,
+          failedToScoreCount: 0,
+          agents: ["codex"],
+          templateVariants: ["current"],
+          aggregates: {
+            byCase: [{ key: "assertion_failure_red", caseId: "assertion_failure_red", runCount: 1, scoredRunCount: 1, successRate: 1, firstPassSuccessRate: 1, finalVerificationPassRate: 1, invariantViolationRate: 0, restartFailTimeoutRate: 0, medianWallClockSeconds: 10, medianTotalToolCalls: 4, medianInputTokens: 100, medianOutputTokens: 50, medianFailedTaskToolCalls: 0, medianFailedDownstreamToolCalls: 0, medianEditedFilesCount: 1, manualActionabilityCount: 0 }],
+            byAgent: [],
+            byTemplateVariant: [],
+            byCaseAgentVariant: [],
+          },
+          runs: [
+            {
+              scorecardId: "ba_score",
+              sessionId: "ba_session",
+              sessionPath: "/tmp/simple_tdd/session_one",
+              suiteId: "simple_tdd_v1",
+              suiteName: "Simple TDD Benchmark Suite v1",
+              templateId: "simple_tdd",
+              templateName: "Simple TDD Current",
+              caseId: "assertion_failure_red",
+              caseName: "Assertion-failure red baseline",
+              agent: "codex",
+              templateVariant: "current",
+              attempt: 1,
+              rawStatus: "completed",
+              completedSuccessfully: true,
+              finalVerificationPassed: true,
+              firstPassSuccess: true,
+              invariantViolation: false,
+              restartOccurred: false,
+              failOccurred: false,
+              timeoutOccurred: false,
+              wallClockSeconds: 10,
+              totalToolCalls: 4,
+              failedTaskToolCalls: 0,
+              failedDownstreamToolCalls: 0,
+              editedFilesCount: 1,
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/benchmarks/simple_tdd_v1/sessions/ba_session"]);
+
+    expect(await screen.findByText("Session Runs")).toBeInTheDocument();
+    expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
+  });
+
+  it("renders the run detail and handles unauthorized benchmark access", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: new Headers({ "X-Centian-Auth-Header": "X-Centian-Auth" }),
+      } as Response)
+      .mockResolvedValueOnce(
+        createFetchResponse({
+          scorecardId: "ba_score",
+          sessionId: "ba_session",
+          sessionPath: "/tmp/simple_tdd/session_one",
+          suiteName: "Simple TDD Benchmark Suite v1",
+          templateName: "Simple TDD Current",
+          caseName: "Assertion-failure red baseline",
+          scorecard: {
+            suiteId: "simple_tdd_v1",
+            suiteName: "Simple TDD Benchmark Suite v1",
+            caseId: "assertion_failure_red",
+            caseName: "Assertion-failure red baseline",
+            templateId: "simple_tdd",
+            templateName: "Simple TDD Current",
+            templateVariant: "current",
+            agent: "codex",
+            attempt: 1,
+            rawStatus: "completed",
+            outcome: {
+              completedSuccessfully: true,
+              finalVerificationPassed: true,
+              firstPassSuccess: true,
+              restartOccurred: false,
+              failOccurred: false,
+              timeoutOccurred: false,
+              invariantViolation: false,
+            },
+            process: {
+              failedTaskToolCalls: 0,
+              failedDownstreamToolCalls: 0,
+              totalTaskToolCalls: 2,
+              totalDownstreamToolCalls: 2,
+              totalStepRetries: 0,
+              replanningCount: 0,
+            },
+            efficiency: {
+              wallClockSeconds: 10,
+              totalToolCalls: 4,
+              inputTokens: 100,
+              outputTokens: 50,
+              editedFilesCount: 1,
+              observedCommandCalls: 1,
+            },
+            manual: {},
+            generatedAt: "2026-04-05T12:00:00Z",
+          },
+        }),
+      ) as typeof fetch;
+
+    renderApp(["/benchmarks/simple_tdd_v1/runs/ba_score"]);
+
+    expect(await screen.findByText("Benchmark run is protected")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("API key"), "plain-key");
+    await user.click(screen.getByRole("button", { name: "Save and retry" }));
+
+    expect(screen.getAllByText("Outcome").length).toBeGreaterThan(0);
+    expect(screen.getByText("Edited Files")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Assertion-failure red baseline" })).toBeInTheDocument();
+  });
+});

@@ -11,6 +11,7 @@ import (
 
 	centapi "github.com/T4cceptor/centian/internal/api"
 	centauth "github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/benchmarks"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
@@ -398,6 +399,9 @@ func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
 		return wrapWithAPIKeyAuth(c, project.Slug, next)
 	})
 
+	centapi.NewBenchmarkHandler(benchmarks.NewReadService(c.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, next)
+	})
 	if project.Config != nil && project.Config.UIEnabled() {
 		centui.NewHandler().RegisterRoutes(c.Mux)
 	}
