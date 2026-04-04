@@ -1,6 +1,7 @@
 package benchmarks
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +42,37 @@ type ManualScoreInput struct {
 	ReviewedAt              string `json:"reviewedAt,omitempty"`
 }
 
+// AgentMetadata captures parsed usage/session data from one agent run log.
+type AgentMetadata struct {
+	Format               string                     `json:"format,omitempty"`
+	LogPath              string                     `json:"logPath,omitempty"`
+	SessionID            string                     `json:"sessionId,omitempty"`
+	ThreadID             string                     `json:"threadId,omitempty"`
+	NumTurns             *int                       `json:"numTurns,omitempty"`
+	DurationMilliseconds *int64                     `json:"durationMilliseconds,omitempty"`
+	TotalCostUSD         *float64                   `json:"totalCostUsd,omitempty"`
+	Usage                AgentUsageMetadata         `json:"usage,omitempty"`
+	ModelUsage           map[string]AgentModelUsage `json:"modelUsage,omitempty"`
+}
+
+// AgentUsageMetadata stores normalized token metadata observed in agent logs.
+type AgentUsageMetadata struct {
+	InputTokens              *int64 `json:"inputTokens,omitempty"`
+	OutputTokens             *int64 `json:"outputTokens,omitempty"`
+	CachedInputTokens        *int64 `json:"cachedInputTokens,omitempty"`
+	CacheCreationInputTokens *int64 `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     *int64 `json:"cacheReadInputTokens,omitempty"`
+}
+
+// AgentModelUsage stores model-specific usage details when the agent exposes them.
+type AgentModelUsage struct {
+	InputTokens              *int64   `json:"inputTokens,omitempty"`
+	OutputTokens             *int64   `json:"outputTokens,omitempty"`
+	CacheReadInputTokens     *int64   `json:"cacheReadInputTokens,omitempty"`
+	CacheCreationInputTokens *int64   `json:"cacheCreationInputTokens,omitempty"`
+	CostUSD                  *float64 `json:"costUsd,omitempty"`
+}
+
 // RunScorecard stores derived metrics for one concrete benchmark run.
 type RunScorecard struct {
 	SuiteID          string              `json:"suiteId"`
@@ -49,9 +82,12 @@ type RunScorecard struct {
 	Agent            string              `json:"agent"`
 	Attempt          int                 `json:"attempt"`
 	RunManifestPath  string              `json:"runManifestPath"`
+	EventStorePath   string              `json:"eventStorePath,omitempty"`
 	TaskRunsPath     string              `json:"taskRunsSnapshotPath"`
 	TaskRunEventsDir string              `json:"taskRunEventsDirPath"`
 	RequestLogPath   string              `json:"requestLogPath,omitempty"`
+	AgentStdoutPath  string              `json:"agentStdoutPath,omitempty"`
+	AgentStderrPath  string              `json:"agentStderrPath,omitempty"`
 	ManualScorePath  string              `json:"manualScorePath,omitempty"`
 	RawStatus        string              `json:"rawStatus"`
 	LatestTaskRunID  string              `json:"latestTaskRunId,omitempty"`
@@ -60,6 +96,7 @@ type RunScorecard struct {
 	Process          ScorecardProcess    `json:"process"`
 	Efficiency       ScorecardEfficiency `json:"efficiency"`
 	Manual           ScorecardManual     `json:"manual"`
+	AgentMetadata    *AgentMetadata      `json:"agentMetadata,omitempty"`
 	ScoreVersion     string              `json:"scoreVersion"`
 	GeneratedAt      time.Time           `json:"generatedAt"`
 	Warnings         []string            `json:"warnings,omitempty"`
@@ -128,27 +165,28 @@ type SessionSummaryAggregates struct {
 
 // RunSummaryRow is the compact per-run row used by the session summary.
 type RunSummaryRow struct {
-	CaseID                    string   `json:"caseId"`
-	Agent                     string   `json:"agent"`
-	TemplateVariant           string   `json:"templateVariant"`
-	Attempt                   int      `json:"attempt"`
-	RawStatus                 string   `json:"rawStatus"`
-	Scored                    bool     `json:"scored"`
-	CompletedSuccessfully     bool     `json:"completedSuccessfully"`
-	FinalVerificationPassed   bool     `json:"finalVerificationPassed"`
-	FirstPassSuccess          bool     `json:"firstPassSuccess"`
-	InvariantViolation        bool     `json:"invariantViolation"`
-	RestartOccurred           bool     `json:"restartOccurred"`
-	FailOccurred              bool     `json:"failOccurred"`
-	TimeoutOccurred           bool     `json:"timeoutOccurred"`
-	WallClockSeconds          float64  `json:"wallClockSeconds"`
-	TotalToolCalls            int      `json:"totalToolCalls"`
-	FailedTaskToolCalls       int      `json:"failedTaskToolCalls"`
-	FailedDownstreamToolCalls int      `json:"failedDownstreamToolCalls"`
-	EditedFilesCount          int      `json:"editedFilesCount"`
-	ErrorActionabilityScore   *int     `json:"errorActionabilityScore,omitempty"`
-	Warnings                  []string `json:"warnings,omitempty"`
-	Errors                    []string `json:"errors,omitempty"`
+	CaseID                    string         `json:"caseId"`
+	Agent                     string         `json:"agent"`
+	TemplateVariant           string         `json:"templateVariant"`
+	Attempt                   int            `json:"attempt"`
+	RawStatus                 string         `json:"rawStatus"`
+	Scored                    bool           `json:"scored"`
+	CompletedSuccessfully     bool           `json:"completedSuccessfully"`
+	FinalVerificationPassed   bool           `json:"finalVerificationPassed"`
+	FirstPassSuccess          bool           `json:"firstPassSuccess"`
+	InvariantViolation        bool           `json:"invariantViolation"`
+	RestartOccurred           bool           `json:"restartOccurred"`
+	FailOccurred              bool           `json:"failOccurred"`
+	TimeoutOccurred           bool           `json:"timeoutOccurred"`
+	WallClockSeconds          float64        `json:"wallClockSeconds"`
+	TotalToolCalls            int            `json:"totalToolCalls"`
+	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
+	FailedDownstreamToolCalls int            `json:"failedDownstreamToolCalls"`
+	EditedFilesCount          int            `json:"editedFilesCount"`
+	ErrorActionabilityScore   *int           `json:"errorActionabilityScore,omitempty"`
+	AgentMetadata             *AgentMetadata `json:"agentMetadata,omitempty"`
+	Warnings                  []string       `json:"warnings,omitempty"`
+	Errors                    []string       `json:"errors,omitempty"`
 }
 
 // AggregateSummary stores aggregate comparison metrics for one grouping key.
@@ -359,11 +397,7 @@ func buildScoreRunContext(sessionDir string, entry SessionRunManifestEntry, case
 }
 
 func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
-	taskRuns, err := loadTaskRunsSnapshot(ctx.run.ArtifactPaths.TaskRunsSnapshot)
-	if err != nil {
-		return nil, err
-	}
-	events, err := loadRunEvents(ctx.run, taskRuns)
+	taskRuns, events, warnings, err := loadTaskData(ctx.run)
 	if err != nil {
 		return nil, err
 	}
@@ -372,12 +406,20 @@ func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	latest := findLatestLinkedTaskRun(ctx.run, taskRuns)
-	outcome, warnings, err := scoreOutcome(ctx, latest, events)
+	agentStdoutPath := filepath.Join(ctx.run.ArtifactPaths.AgentDir, "agent.stdout.log")
+	agentStderrPath := filepath.Join(ctx.run.ArtifactPaths.AgentDir, "agent.stderr.log")
+	agentMetadata, agentWarnings, err := loadAgentMetadata(agentStdoutPath, ctx.run.AgentID)
 	if err != nil {
 		return nil, err
 	}
+	warnings = append(warnings, agentWarnings...)
+
+	latest := findLatestLinkedTaskRun(ctx.run, taskRuns)
+	outcome, outcomeWarnings, err := scoreOutcome(ctx, latest, events)
+	if err != nil {
+		return nil, err
+	}
+	warnings = append(warnings, outcomeWarnings...)
 	process := scoreProcess(events, ctx.run.EndedAt)
 	editedFiles, err := collectEditedFiles(filepath.Join(ctx.caseRoot, ctx.caseDef.Fixture.SeedPath), ctx.run.ArtifactPaths.ProjectDir)
 	if err != nil {
@@ -398,9 +440,12 @@ func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
 		Agent:            ctx.run.AgentID,
 		Attempt:          ctx.entry.Attempt,
 		RunManifestPath:  ctx.runPath,
+		EventStorePath:   ctx.run.ArtifactPaths.EventStorePath,
 		TaskRunsPath:     ctx.run.ArtifactPaths.TaskRunsSnapshot,
 		TaskRunEventsDir: ctx.run.ArtifactPaths.TaskRunEventsDir,
 		RequestLogPath:   ctx.run.ArtifactPaths.RequestLogPath,
+		AgentStdoutPath:  agentStdoutPath,
+		AgentStderrPath:  agentStderrPath,
 		ManualScorePath:  manualPathValue,
 		RawStatus:        ctx.run.Status,
 		LatestTaskRunID:  ctx.run.LatestTaskRunID,
@@ -412,9 +457,10 @@ func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
 			ErrorActionabilityScore: manual.ErrorActionabilityScore,
 			ErrorActionabilityNotes: manual.Notes,
 		},
-		ScoreVersion: scoreVersion,
-		GeneratedAt:  s.Now(),
-		Warnings:     warnings,
+		AgentMetadata: agentMetadata,
+		ScoreVersion:  scoreVersion,
+		GeneratedAt:   s.Now(),
+		Warnings:      warnings,
 	}
 	return scorecard, nil
 }
@@ -498,6 +544,63 @@ func scoreProcess(events []persistence.TaskRunEvent, runEndedAt time.Time) Score
 	return process
 }
 
+func loadTaskData(run *RunManifest) ([]persistence.TaskRunSummary, []persistence.TaskRunEvent, []string, error) {
+	warnings := make([]string, 0)
+	if storePath := strings.TrimSpace(run.ArtifactPaths.EventStorePath); storePath != "" {
+		if _, err := os.Stat(storePath); err == nil {
+			taskRuns, events, err := loadTaskDataFromSQLite(storePath, run)
+			if err == nil {
+				return taskRuns, events, warnings, nil
+			}
+			warnings = append(warnings, fmt.Sprintf("failed to load task data from sqlite event store, falling back to JSON snapshots: %v", err))
+		}
+	}
+	taskRuns, err := loadTaskRunsSnapshot(run.ArtifactPaths.TaskRunsSnapshot)
+	if err != nil {
+		return nil, nil, warnings, err
+	}
+	events, err := loadRunEventsFromSnapshots(run, taskRuns)
+	if err != nil {
+		return nil, nil, warnings, err
+	}
+	return taskRuns, events, warnings, nil
+}
+
+func loadTaskDataFromSQLite(path string, run *RunManifest) ([]persistence.TaskRunSummary, []persistence.TaskRunEvent, error) {
+	store, err := persistence.NewSQLiteStore(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = store.Close() }()
+
+	taskRuns, err := store.ListTaskRuns(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	runIDs := append([]string(nil), run.LinkedTaskRunIDs...)
+	if len(runIDs) == 0 {
+		runIDs = taskRunIDs(taskRuns)
+	}
+	allEvents := make([]persistence.TaskRunEvent, 0)
+	for _, runID := range runIDs {
+		if strings.TrimSpace(runID) == "" {
+			continue
+		}
+		events, err := store.GetTaskRunEvents(context.Background(), runID)
+		if err != nil {
+			return nil, nil, err
+		}
+		allEvents = append(allEvents, events...)
+	}
+	sort.Slice(allEvents, func(i, j int) bool {
+		if allEvents[i].CreatedAtUnixMilli == allEvents[j].CreatedAtUnixMilli {
+			return allEvents[i].ID < allEvents[j].ID
+		}
+		return allEvents[i].CreatedAtUnixMilli < allEvents[j].CreatedAtUnixMilli
+	})
+	return taskRuns, allEvents, nil
+}
+
 func loadTaskRunsSnapshot(path string) ([]persistence.TaskRunSummary, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("run manifest is missing task runs snapshot path")
@@ -509,7 +612,7 @@ func loadTaskRunsSnapshot(path string) ([]persistence.TaskRunSummary, error) {
 	return runs, nil
 }
 
-func loadRunEvents(run *RunManifest, taskRuns []persistence.TaskRunSummary) ([]persistence.TaskRunEvent, error) {
+func loadRunEventsFromSnapshots(run *RunManifest, taskRuns []persistence.TaskRunSummary) ([]persistence.TaskRunEvent, error) {
 	if strings.TrimSpace(run.ArtifactPaths.TaskRunEventsDir) == "" {
 		return nil, fmt.Errorf("run manifest is missing task run events dir path")
 	}
@@ -559,6 +662,139 @@ func loadManualScore(path string) (*ManualScoreInput, string, error) {
 		}
 	}
 	return &manual, path, nil
+}
+
+func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, []string{"agent stdout log was not found"}, nil
+		}
+		return nil, nil, err
+	}
+	switch agentID {
+	case "claude":
+		metadata, err := loadClaudeAgentMetadata(path)
+		return metadata, nil, err
+	case "codex":
+		metadata, err := loadCodexAgentMetadata(path)
+		return metadata, nil, err
+	default:
+		return &AgentMetadata{
+			Format:  agentID,
+			LogPath: path,
+		}, []string{fmt.Sprintf("agent metadata parsing is not implemented for %q", agentID)}, nil
+	}
+}
+
+func loadClaudeAgentMetadata(path string) (*AgentMetadata, error) {
+	lines, err := readNonEmptyLines(path)
+	if err != nil {
+		return nil, err
+	}
+	for idx := len(lines) - 1; idx >= 0; idx-- {
+		line := lines[idx]
+		var payload map[string]any
+		if json.Unmarshal([]byte(line), &payload) != nil {
+			continue
+		}
+		if stringValue(payload["type"]) != "result" {
+			continue
+		}
+		metadata := &AgentMetadata{
+			Format:               "claude_result",
+			LogPath:              path,
+			SessionID:            stringValue(payload["session_id"]),
+			NumTurns:             intPtrFromAny(payload["num_turns"]),
+			DurationMilliseconds: int64PtrFromAny(payload["duration_ms"]),
+			TotalCostUSD:         float64PtrFromAny(payload["total_cost_usd"]),
+			Usage:                parseAgentUsageMap(anyMap(payload["usage"])),
+			ModelUsage:           parseClaudeModelUsage(anyMap(payload["modelUsage"])),
+		}
+		return metadata, nil
+	}
+	return &AgentMetadata{Format: "claude_result", LogPath: path}, nil
+}
+
+func loadCodexAgentMetadata(path string) (*AgentMetadata, error) {
+	lines, err := readNonEmptyLines(path)
+	if err != nil {
+		return nil, err
+	}
+	metadata := &AgentMetadata{
+		Format:  "codex_jsonl",
+		LogPath: path,
+	}
+	for _, line := range lines {
+		var payload map[string]any
+		if json.Unmarshal([]byte(line), &payload) != nil {
+			continue
+		}
+		switch stringValue(payload["type"]) {
+		case "thread.started":
+			metadata.ThreadID = stringValue(payload["thread_id"])
+		case "turn.completed":
+			metadata.Usage = parseCodexUsageMap(anyMap(payload["usage"]))
+		}
+	}
+	return metadata, nil
+}
+
+func readNonEmptyLines(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+
+	lines := make([]string, 0)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "=====") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func parseAgentUsageMap(payload map[string]any) AgentUsageMetadata {
+	return AgentUsageMetadata{
+		InputTokens:              int64PtrFromAny(payload["input_tokens"]),
+		OutputTokens:             int64PtrFromAny(payload["output_tokens"]),
+		CachedInputTokens:        int64PtrFromAny(payload["cached_input_tokens"]),
+		CacheCreationInputTokens: int64PtrFromAny(payload["cache_creation_input_tokens"]),
+		CacheReadInputTokens:     int64PtrFromAny(payload["cache_read_input_tokens"]),
+	}
+}
+
+func parseCodexUsageMap(payload map[string]any) AgentUsageMetadata {
+	return AgentUsageMetadata{
+		InputTokens:       int64PtrFromAny(payload["input_tokens"]),
+		OutputTokens:      int64PtrFromAny(payload["output_tokens"]),
+		CachedInputTokens: int64PtrFromAny(payload["cached_input_tokens"]),
+	}
+}
+
+func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
+	if len(payload) == 0 {
+		return nil
+	}
+	result := make(map[string]AgentModelUsage, len(payload))
+	for modelName, raw := range payload {
+		fields := anyMap(raw)
+		result[modelName] = AgentModelUsage{
+			InputTokens:              int64PtrFromAny(fields["inputTokens"]),
+			OutputTokens:             int64PtrFromAny(fields["outputTokens"]),
+			CacheReadInputTokens:     int64PtrFromAny(fields["cacheReadInputTokens"]),
+			CacheCreationInputTokens: int64PtrFromAny(fields["cacheCreationInputTokens"]),
+			CostUSD:                  float64PtrFromAny(fields["costUSD"]),
+		}
+	}
+	return result
 }
 
 func findLatestLinkedTaskRun(run *RunManifest, runs []persistence.TaskRunSummary) *persistence.TaskRunSummary {
@@ -798,6 +1034,7 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	row.FailedDownstreamToolCalls = scorecard.Process.FailedDownstreamToolCalls
 	row.EditedFilesCount = scorecard.Efficiency.EditedFilesCount
 	row.ErrorActionabilityScore = scorecard.Manual.ErrorActionabilityScore
+	row.AgentMetadata = scorecard.AgentMetadata
 	row.Warnings = append(row.Warnings, scorecard.Warnings...)
 	row.Errors = append(row.Errors, scorecard.Errors...)
 	return row
@@ -936,6 +1173,93 @@ func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 		return 0, false
 	}
 	return float64(total) / float64(count), true
+}
+
+func anyMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	typed, ok := value.(map[string]any)
+	if ok {
+		return typed
+	}
+	return nil
+}
+
+func stringValue(value any) string {
+	typed, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return typed
+}
+
+func intPtrFromAny(value any) *int {
+	if parsed, ok := parseInt64(value); ok {
+		result := int(parsed)
+		return &result
+	}
+	return nil
+}
+
+func int64PtrFromAny(value any) *int64 {
+	if parsed, ok := parseInt64(value); ok {
+		return &parsed
+	}
+	return nil
+}
+
+func float64PtrFromAny(value any) *float64 {
+	switch typed := value.(type) {
+	case float64:
+		return &typed
+	case float32:
+		result := float64(typed)
+		return &result
+	case int:
+		result := float64(typed)
+		return &result
+	case int64:
+		result := float64(typed)
+		return &result
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err == nil {
+			return &parsed
+		}
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err == nil {
+			return &parsed
+		}
+	}
+	return nil
+}
+
+func parseInt64(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed), true
+	case int32:
+		return int64(typed), true
+	case int64:
+		return typed, true
+	case float64:
+		return int64(typed), true
+	case float32:
+		return int64(typed), true
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err == nil {
+			return parsed, true
+		}
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 func readJSONFile(path string, target any) error {

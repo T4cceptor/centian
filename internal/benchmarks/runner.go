@@ -52,6 +52,8 @@ type RunOptions struct {
 	CentianBinaryPath string
 	Models            AgentModels
 	SessionLabel      string
+	OnCentianReady    func(*RunManifest)
+	AfterRun          func(*RunManifest) error
 }
 
 // SessionManifest describes one benchmark invocation and all concrete runs.
@@ -91,10 +93,13 @@ type RunManifest struct {
 	TemplateID          string           `json:"templateId"`
 	TemplateVariant     TemplateVariant  `json:"templateVariant"`
 	AgentID             string           `json:"agentId"`
+	Attempt             int              `json:"attempt"`
 	SelectedModel       string           `json:"selectedModel,omitempty"`
 	StartedAt           time.Time        `json:"startedAt"`
 	EndedAt             time.Time        `json:"endedAt"`
 	Status              string           `json:"status"`
+	UIPublicURL         string           `json:"uiPublicUrl,omitempty"`
+	CentianPID          int              `json:"centianPid,omitempty"`
 	LatestTaskRunID     string           `json:"latestTaskRunId,omitempty"`
 	LatestTaskRunStatus string           `json:"latestTaskRunStatus,omitempty"`
 	LinkedTaskRunIDs    []string         `json:"linkedTaskRunIds,omitempty"`
@@ -139,6 +144,7 @@ type StartCentianOptions struct {
 
 // StartedCentian describes a running child Centian process.
 type StartedCentian struct {
+	PID  int
 	Stop func() error
 }
 
@@ -385,6 +391,7 @@ func (r *Runner) executeRun(
 		TemplateID:      suite.Suite.TemplateID,
 		TemplateVariant: spec.TemplateVariant,
 		AgentID:         spec.Agent,
+		Attempt:         spec.Attempt,
 		SelectedModel:   selectedModel(spec.Agent, opts.Models),
 		StartedAt:       r.Now(),
 		Status:          "failed",
@@ -464,8 +471,14 @@ func (r *Runner) executeRun(
 		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
 		return manifest, err
 	}
+	manifest.UIPublicURL = baseURL + "/ui/tasks"
+	manifest.CentianPID = started.PID
+	if opts.OnCentianReady != nil {
+		opts.OnCentianReady(manifest)
+	}
+	autoStop := opts.AfterRun == nil
 	defer func() {
-		if started != nil && started.Stop != nil {
+		if autoStop && started != nil && started.Stop != nil {
 			_ = started.Stop()
 		}
 	}()
@@ -498,6 +511,15 @@ func (r *Runner) executeRun(
 	}
 	if len(captureErrs) > 0 {
 		manifest.ErrorSummary = strings.Join(captureErrs, "; ")
+	}
+	if opts.AfterRun != nil {
+		if err := opts.AfterRun(manifest); err != nil {
+			if manifest.ErrorSummary == "" {
+				manifest.ErrorSummary = err.Error()
+			} else {
+				manifest.ErrorSummary += "; " + err.Error()
+			}
+		}
 	}
 
 	manifest.EndedAt = r.Now()
@@ -841,6 +863,7 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 		return nil, err
 	}
 	return &StartedCentian{
+		PID: cmd.Process.Pid,
 		Stop: func() error {
 			if cmd.Process == nil {
 				return nil

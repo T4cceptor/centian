@@ -42,11 +42,13 @@ func TestBenchmarkRunCommandStructure(t *testing.T) {
 			flagNames[typed.Name] = true
 		case *urfavecli.DurationFlag:
 			flagNames[typed.Name] = true
+		case *urfavecli.BoolFlag:
+			flagNames[typed.Name] = true
 		}
 	}
 	for _, expected := range []string{
 		"suite", "case", "agent", "repeat", "template-dir", "timeout",
-		"output-root", "claude-model", "gemini-model", "codex-model",
+		"output-root", "claude-model", "gemini-model", "codex-model", "keep-centian-running",
 	} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on BenchmarkRunCommand", expected)

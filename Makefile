@@ -5,6 +5,12 @@ MAIN_PATH=./main.go
 LOG_DIR=$(HOME)/.centian/logs
 WEB_DIR=web
 UI_DIST_DIR=internal/ui/dist
+BENCH_SUITE ?= tests/integrationtests/taskverification/benchmarks/simple_tdd_v1
+BENCH_CASE ?= assertion_failure_red
+BENCH_AGENT ?= codex
+BENCH_REPEAT ?= 1
+BENCH_OUTPUT_ROOT ?= tests/integrationtests/taskverification/.tmp/benchmarks
+BENCH_TIMEOUT ?= 15m
 
 # Release bump (defaults to patch, can be set via `make release minor`)
 BUMP ?= patch
@@ -25,7 +31,7 @@ endif
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -101,6 +107,28 @@ test-taskverification-blackbox: ## Run opt-in host-native black-box taskverifica
 		echo "Install with: go install gotest.tools/gotestsum@latest"; \
 		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build go test -v ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
 	fi
+
+benchmark-simple-tdd: build-go ## Run one local simple_tdd benchmark case and score the newest session
+	@echo "Running benchmark suite $(BENCH_SUITE) with agent $(BENCH_AGENT) and case $(BENCH_CASE)..."
+	@mkdir -p $(BENCH_OUTPUT_ROOT)
+	@./$(BUILD_DIR)/$(BINARY_NAME) benchmark run \
+		--suite "$(BENCH_SUITE)" \
+		--agent "$(BENCH_AGENT)" \
+		--case "$(BENCH_CASE)" \
+		--repeat "$(BENCH_REPEAT)" \
+		--output-root "$(BENCH_OUTPUT_ROOT)" \
+		--timeout "$(BENCH_TIMEOUT)"
+	@$(MAKE) --no-print-directory benchmark-score-latest
+
+benchmark-score-latest: build-go ## Score the newest preserved simple_tdd benchmark session
+	@session_dir=$$(find "$(BENCH_OUTPUT_ROOT)/simple_tdd_v1" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1); \
+	if [ -z "$$session_dir" ]; then \
+		echo "No benchmark session found under $(BENCH_OUTPUT_ROOT)/simple_tdd_v1"; \
+		exit 1; \
+	fi; \
+	echo "Scoring benchmark session: $$session_dir"; \
+	./$(BUILD_DIR)/$(BINARY_NAME) benchmark score --session "$$session_dir"; \
+	echo "Summary: $$session_dir/summary.json"
 
 test-all: test test-integration ## Run all tests (unit + integration)
 

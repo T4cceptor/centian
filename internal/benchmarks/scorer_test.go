@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/persistence"
+	"github.com/T4cceptor/centian/internal/taskverification"
 	"gotest.tools/assert"
 )
 
@@ -25,9 +26,11 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Equal(t, summary.ScoredRunCount, 2)
 	assert.Equal(t, summary.FailedToScoreCount, 0)
 	assert.Equal(t, len(summary.Aggregates.ByCase), 2)
-	assert.Equal(t, len(summary.Aggregates.ByAgent), 1)
+	assert.Equal(t, len(summary.Aggregates.ByAgent), 2)
 	assert.Equal(t, len(summary.Aggregates.ByTemplateVariant), 1)
 	assert.Equal(t, len(summary.Aggregates.ByCaseAgentVariant), 2)
+	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
+	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
 
 	firstRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
 	assert.Equal(t, firstRunScorecard.Outcome.FirstPassSuccess, true)
@@ -45,11 +48,32 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.DeepEqual(t, firstRunScorecard.Efficiency.EditedFiles, []string{"internal/health/health.go"})
 	assert.Assert(t, firstRunScorecard.Manual.ErrorActionabilityScore != nil)
 	assert.Equal(t, *firstRunScorecard.Manual.ErrorActionabilityScore, 3)
+	assert.Assert(t, firstRunScorecard.AgentMetadata != nil)
+	assert.Equal(t, firstRunScorecard.AgentMetadata.ThreadID, "thread_codex")
+	assert.Assert(t, firstRunScorecard.AgentMetadata.Usage.InputTokens != nil)
+	assert.Equal(t, *firstRunScorecard.AgentMetadata.Usage.InputTokens, int64(111))
 
-	secondRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "assertion_failure_red", "attempt-001", scorecardFileName))
+	secondRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "claude", "assertion_failure_red", "attempt-001", scorecardFileName))
 	assert.Equal(t, secondRunScorecard.Outcome.FirstPassSuccess, false)
 	assert.Equal(t, secondRunScorecard.Outcome.InvariantViolation, true)
 	assert.Equal(t, secondRunScorecard.Outcome.RestartOccurred, true)
+	assert.Assert(t, secondRunScorecard.AgentMetadata != nil)
+	assert.Equal(t, secondRunScorecard.AgentMetadata.SessionID, "session_claude")
+	assert.Assert(t, secondRunScorecard.AgentMetadata.NumTurns != nil)
+	assert.Equal(t, *secondRunScorecard.AgentMetadata.NumTurns, 7)
+	assert.Assert(t, secondRunScorecard.AgentMetadata.Usage.OutputTokens != nil)
+	assert.Equal(t, *secondRunScorecard.AgentMetadata.Usage.OutputTokens, int64(222))
+}
+
+func TestScoreSessionCanReuseSQLiteEventStoreWithoutJSONSnapshots(t *testing.T) {
+	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
+	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_runs.json")))
+	assert.NilError(t, os.RemoveAll(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_run_events")))
+
+	scorer := NewScorer()
+	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
+	assert.NilError(t, err)
+	assert.Equal(t, summary.ScoredRunCount, 2)
 }
 
 func TestScoreSessionRejectsInvalidManualScoreButStillWritesSummary(t *testing.T) {
@@ -103,10 +127,10 @@ func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) st
 		},
 		{
 			CaseID:          "assertion_failure_red",
-			AgentID:         "codex",
+			AgentID:         "claude",
 			TemplateVariant: "current",
 			Attempt:         1,
-			RelativeRunDir:  filepath.Join("runs", "current", "codex", "assertion_failure_red", "attempt-001"),
+			RelativeRunDir:  filepath.Join("runs", "current", "claude", "assertion_failure_red", "attempt-001"),
 			Status:          "completed",
 			LatestTaskRunID: "tr_assert",
 		},
@@ -126,7 +150,7 @@ func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) st
 		EndedAt:       time.Date(2026, 4, 4, 12, 10, 0, 0, time.UTC),
 		Status:        "completed",
 		Repeat:        1,
-		Agents:        []string{"codex"},
+		Agents:        []string{"codex", "claude"},
 		CaseIDs:       []string{"compile_failure_red", "assertion_failure_red"},
 		TemplateVariants: []TemplateVariant{{
 			Name: "current", SourceDir: filepath.Join(t.TempDir(), "templates"),
@@ -170,6 +194,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry 
 	assert.NilError(t, os.MkdirAll(taskRunEventsDir, 0o755))
 	requestLogPath := filepath.Join(logsDir, "requests_0001.jsonl")
 	assert.NilError(t, os.WriteFile(requestLogPath, []byte("{}\n"), 0o644))
+	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stderr.log"), []byte{}, 0o644))
 
 	taskRunID := entry.LatestTaskRunID
 	taskRuns := []persistence.TaskRunSummary{{
@@ -183,6 +208,8 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry 
 
 	events := syntheticEventsForCase(entry.CaseID)
 	assert.NilError(t, writeJSONFile(filepath.Join(taskRunEventsDir, taskRunID+".json"), events))
+	assert.NilError(t, writeSyntheticEventStore(filepath.Join(logsDir, "events.sqlite"), taskRunID, events))
+	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stdout.log"), []byte(syntheticAgentStdout(entry.AgentID)), 0o644))
 
 	if entry.CaseID == opts.invalidManualScoreForCase {
 		assert.NilError(t, os.WriteFile(filepath.Join(runDir, manualScoreFileName), []byte(`{"errorActionabilityScore":9}`), 0o644))
@@ -310,6 +337,77 @@ func syntheticEventsForCase(caseID string) []persistence.TaskRunEvent {
 		})
 	}
 	return events
+}
+
+func writeSyntheticEventStore(path string, taskRunID string, events []persistence.TaskRunEvent) error {
+	store, err := persistence.NewSQLiteStore(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+
+	for _, event := range events {
+		switch event.Source {
+		case persistence.TaskRunEventSourceTask:
+			if err := store.AppendTaskEvent(&taskverification.TaskEvent{
+				ID:                 event.ID,
+				SchemaVersion:      1,
+				CreatedAtUnixMilli: event.CreatedAtUnixMilli,
+				TaskRunID:          taskRunID,
+				SessionID:          "session-1",
+				TemplateID:         "simple_tdd",
+				PhasePath:          taskverification.TaskPhase(event.PhasePath),
+				NodeKind:           taskverification.WorkflowNodeKind(event.NodeKind),
+				ResultingPhasePath: taskverification.TaskPhase(event.ResultingPhasePath),
+				ResultingNodeKind:  taskverification.WorkflowNodeKind(event.ResultingNodeKind),
+				EventType:          taskverification.TaskEventType(event.EventType),
+				Outcome:            taskverification.TaskEventOutcome(event.Outcome),
+				Payload:            event.PayloadJSON,
+			}); err != nil {
+				return err
+			}
+		case persistence.TaskRunEventSourceAction:
+			requestID := event.RequestID
+			if requestID == "" {
+				requestID = event.ID + "_req"
+			}
+			if err := store.AppendActionEventTaskContext(taskverification.ActionEventTaskContext{
+				RequestID:          requestID,
+				TaskRunID:          taskRunID,
+				CreatedAtUnixMilli: event.CreatedAtUnixMilli,
+			}); err != nil {
+				return err
+			}
+			record := &persistence.ActionEventRecord{
+				ID:                 event.ID,
+				SchemaVersion:      4,
+				CreatedAtUnixMilli: event.CreatedAtUnixMilli,
+				RequestID:          requestID,
+				SessionID:          "session-1",
+				ToolName:           event.ToolName,
+				OriginalToolName:   event.OriginalToolName,
+				Success:            event.Success != nil && *event.Success,
+				IsError:            event.IsError != nil && *event.IsError,
+				PayloadJSON:        event.PayloadJSON,
+			}
+			if _, err := store.DB().NewInsert().Model(record).Exec(context.Background()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func syntheticAgentStdout(agent string) string {
+	switch agent {
+	case "claude":
+		return "\n===== Demo run 2026-04-04T21:35:26+02:00 (claude) =====\n" +
+			"{\"type\":\"result\",\"session_id\":\"session_claude\",\"num_turns\":7,\"duration_ms\":3210,\"total_cost_usd\":0.12,\"usage\":{\"input_tokens\":123,\"output_tokens\":222,\"cache_creation_input_tokens\":333,\"cache_read_input_tokens\":444},\"modelUsage\":{\"claude-sonnet-4-6\":{\"inputTokens\":123,\"outputTokens\":222,\"cacheReadInputTokens\":444,\"cacheCreationInputTokens\":333,\"costUSD\":0.12}}}\n"
+	default:
+		return "\n===== Demo run 2026-04-04T21:22:12+02:00 (codex) =====\n" +
+			"{\"type\":\"thread.started\",\"thread_id\":\"thread_codex\"}\n" +
+			"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":111,\"cached_input_tokens\":555,\"output_tokens\":666}}\n"
+	}
 }
 
 func loadScorecard(t *testing.T, path string) *RunScorecard {
