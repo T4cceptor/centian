@@ -46,8 +46,8 @@ The agent is given a task to implement `score_paranthesis` - see [prompt](intern
 
 **Prerequisites**: Before running `centian demo`, make sure you have:
 
-- `node` (tested with `v24.2.0`) and `npx` (tested with `11.3.0`) available on your `PATH` - required to launch filesystem and shell MCP servers, and run test
-- Claude Code or Gemini CLI installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or not signed in.
+- `node` (tested with `v24.2.0`) and `npx` (tested with `11.3.0`) available on your `PATH` - required to launch filesystem and shell MCP servers, and run tests
+- Claude Code, Gemini CLI, or OpenAI Codex installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or it's not signed in.
 
 **Claude Code** (sonnet)
 ```bash
