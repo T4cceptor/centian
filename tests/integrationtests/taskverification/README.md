@@ -117,6 +117,12 @@ Useful environment variables:
 - `CODEX_MODEL=<model>`: optional Codex model override
 - `CLAUDE_MODEL=<model>`: optional Claude model override
 
+Benchmark smoke test environment variables:
+
+- `CENTIAN_RUN_TASKVERIFICATION_BENCHMARK_SMOKE=1`: required opt-in gate for the `centian benchmark run` smoke test
+- `CENTIAN_TASKVERIFICATION_BENCHMARK_AGENT=codex`: optional agent override for the smoke test
+- `CENTIAN_TASKVERIFICATION_BENCHMARK_CASE=assertion_failure_red`: optional case override for the smoke test
+
 Prerequisites:
 
 - `centian` available on `PATH`, or set via `CENTIAN_TASKVERIFICATION_BINARY`

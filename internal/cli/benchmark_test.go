@@ -16,8 +16,11 @@ func TestBenchmarkCommandStructure(t *testing.T) {
 	if BenchmarkCommand.Name != "benchmark" {
 		t.Fatalf("expected benchmark command name, got %q", BenchmarkCommand.Name)
 	}
-	if len(BenchmarkCommand.Commands) != 1 || BenchmarkCommand.Commands[0] != BenchmarkRunCommand {
-		t.Fatal("expected benchmark run subcommand to be registered")
+	if len(BenchmarkCommand.Commands) != 2 {
+		t.Fatalf("expected 2 benchmark subcommands, got %d", len(BenchmarkCommand.Commands))
+	}
+	if BenchmarkCommand.Commands[0] != BenchmarkRunCommand || BenchmarkCommand.Commands[1] != BenchmarkScoreCommand {
+		t.Fatal("expected benchmark run and score subcommands to be registered")
 	}
 }
 
@@ -48,6 +51,22 @@ func TestBenchmarkRunCommandStructure(t *testing.T) {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on BenchmarkRunCommand", expected)
 		}
+	}
+}
+
+func TestBenchmarkScoreCommandStructure(t *testing.T) {
+	if BenchmarkScoreCommand == nil {
+		t.Fatal("BenchmarkScoreCommand is nil")
+	}
+	if BenchmarkScoreCommand.Name != "score" {
+		t.Fatalf("expected benchmark score command name, got %q", BenchmarkScoreCommand.Name)
+	}
+	if len(BenchmarkScoreCommand.Flags) != 1 {
+		t.Fatalf("expected one flag on BenchmarkScoreCommand, got %d", len(BenchmarkScoreCommand.Flags))
+	}
+	flag, ok := BenchmarkScoreCommand.Flags[0].(*urfavecli.StringFlag)
+	if !ok || flag.Name != "session" {
+		t.Fatalf("expected session string flag, got %#v", BenchmarkScoreCommand.Flags[0])
 	}
 }
 
@@ -127,5 +146,33 @@ func TestBuildBenchmarkRunOptionsRequiresSuite(t *testing.T) {
 	_, err := buildBenchmarkRunOptions(cmd, "/tmp/centian")
 	if err == nil || err.Error() != "suite path is required" {
 		t.Fatalf("expected missing suite error, got %v", err)
+	}
+}
+
+func TestBuildBenchmarkScoreOptionsRequiresSession(t *testing.T) {
+	cmd := &urfavecli.Command{
+		Flags: BenchmarkScoreCommand.Flags,
+	}
+	cmd.Set("session", "")
+
+	_, err := buildBenchmarkScoreOptions(cmd)
+	if err == nil || err.Error() != "session path is required" {
+		t.Fatalf("expected missing session error, got %v", err)
+	}
+}
+
+func TestBuildBenchmarkScoreOptionsResolvesAbsolutePath(t *testing.T) {
+	cmd := &urfavecli.Command{
+		Flags: BenchmarkScoreCommand.Flags,
+	}
+	sessionDir := t.TempDir()
+	cmd.Set("session", sessionDir)
+
+	opts, err := buildBenchmarkScoreOptions(cmd)
+	if err != nil {
+		t.Fatalf("buildBenchmarkScoreOptions: %v", err)
+	}
+	if opts.SessionPath != sessionDir {
+		t.Fatalf("expected resolved session path %q, got %q", sessionDir, opts.SessionPath)
 	}
 }
