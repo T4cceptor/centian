@@ -18,6 +18,7 @@ var BenchmarkCommand = &cli.Command{
 	Usage: "Run local taskverification benchmarks",
 	Commands: []*cli.Command{
 		BenchmarkRunCommand,
+		BenchmarkScoreCommand,
 	},
 }
 
@@ -74,6 +75,20 @@ var BenchmarkRunCommand = &cli.Command{
 	Action: handleBenchmarkRunCommand,
 }
 
+// BenchmarkScoreCommand scores one preserved benchmark session from disk.
+var BenchmarkScoreCommand = &cli.Command{
+	Name:  "score",
+	Usage: "Score a preserved benchmark session",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "session",
+			Usage:    "Path to the preserved benchmark session directory",
+			Required: true,
+		},
+	},
+	Action: handleBenchmarkScoreCommand,
+}
+
 func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -89,6 +104,21 @@ func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	if session != nil {
 		fmt.Printf("Benchmark session: %s\n", session.InvocationDir)
 		fmt.Printf("Status: %s\n", session.Status)
+	}
+	return err
+}
+
+func handleBenchmarkScoreCommand(ctx context.Context, cmd *cli.Command) error {
+	options, err := buildBenchmarkScoreOptions(cmd)
+	if err != nil {
+		return err
+	}
+
+	scorer := benchmarks.NewScorer()
+	summary, err := scorer.ScoreSession(ctx, options)
+	if summary != nil {
+		fmt.Printf("Scored benchmark session: %s\n", options.SessionPath)
+		fmt.Printf("Scored runs: %d/%d\n", summary.ScoredRunCount, summary.RunCount)
 	}
 	return err
 }
@@ -155,6 +185,18 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 			Codex:  strings.TrimSpace(cmd.String("codex-model")),
 		},
 	}, nil
+}
+
+func buildBenchmarkScoreOptions(cmd *cli.Command) (*benchmarks.ScoreOptions, error) {
+	sessionFlag := strings.TrimSpace(cmd.String("session"))
+	if sessionFlag == "" {
+		return nil, fmt.Errorf("session path is required")
+	}
+	sessionPath, err := filepath.Abs(sessionFlag)
+	if err != nil {
+		return nil, fmt.Errorf("resolve session path: %w", err)
+	}
+	return &benchmarks.ScoreOptions{SessionPath: sessionPath}, nil
 }
 
 func splitCSVValues(values []string) []string {

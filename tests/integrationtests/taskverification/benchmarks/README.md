@@ -35,8 +35,14 @@ Each preserved run contains:
 - `logs/`
 - `agent/`
 - `run.json`
+- `scorecard.json` after `centian benchmark score`
+- `manual_score.json` optionally, for reviewer-supplied error-actionability input
 
-`logs/` stores Centian-side runtime artifacts such as the event store, request logs, and task-run snapshots. `agent/` stores agent logs and agent-specific artifacts for the run. Scorecards are intentionally deferred to later tickets.
+`logs/` stores Centian-side runtime artifacts such as the event store, request logs, and task-run snapshots. `agent/` stores agent logs and agent-specific artifacts for the run.
+
+At the session root, scoring writes:
+
+- `summary.json`
 
 ## Scope Of This Directory Today
 
@@ -45,4 +51,5 @@ The current checked-in suite is structural plus runner-ready:
 - suite, case, and prompt files are versioned and validated
 - fixture directories are real and loadable
 - local benchmark execution preserves raw artifacts and run manifests
-- scoring, persistence, API exposure, and UI views are deferred to later tickets
+- local benchmark scoring writes derived scorecards and one session summary
+- persistence, API exposure, and UI views are deferred to later tickets

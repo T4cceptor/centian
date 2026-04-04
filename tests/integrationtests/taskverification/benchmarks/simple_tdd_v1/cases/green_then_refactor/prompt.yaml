@@ -1,8 +1,18 @@
 prompt: |
-  Implement the missing production behavior using the selected command as the source of truth.
+  Connect to the MCP server named `centian` and solve this Go benchmark case through the Centian workflow.
+  Register the `simple_tdd` template and use Centian lifecycle tools as the source of truth.
+
+  This benchmark already has an authored red baseline.
+
+  Freeze the following planning parameters:
+  - `testCommand`: `go test ./internal/score -run TestScoreParentheses`
+  - `testTarget`: `./internal/score -run TestScoreParentheses`
+  - `testFile`: `internal/score/score_test.go`
+  - `expectedError`: `expected score 2, got 0`
 
   Requirements:
-  - Verify the authored red baseline first.
-  - Do not modify the locked baseline test file.
-  - Make the selected command pass.
-  - If you perform a small refactor after green, keep the selected command green.
+  - Verify the authored red baseline before implementing code.
+  - Do not create, rewrite, or edit the locked baseline test file `internal/score/score_test.go`.
+  - Make the selected command pass by changing production code and any supporting non-locked files.
+  - After the selected command is green, perform one small cleanup or refactor if appropriate, while keeping the selected command green.
+  - Stop after the task is completed.
