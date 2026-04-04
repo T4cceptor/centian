@@ -382,16 +382,7 @@ func renderAssets(layout *demoLayout) error {
 }
 
 func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
-	switch strings.ToLower(strings.TrimSpace(opts.Agent)) {
-	case AgentClaude:
-		return claudeAdapter{model: opts.ClaudeModel}, nil
-	case AgentGemini:
-		return geminiAdapter{model: opts.GeminiModel}, nil
-	case AgentCodex:
-		return codexAdapter{model: opts.CodexModel}, nil
-	default:
-		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, and %q", opts.Agent, AgentClaude, AgentGemini, AgentCodex)
-	}
+	return selectAdapterForAgent(opts.Agent, opts.ClaudeModel, opts.GeminiModel, opts.CodexModel)
 }
 
 func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {
@@ -446,7 +437,19 @@ func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 }
 
 func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opts *DemoOptions) error {
-	command, err := adapter.command(layout, loadPrompt(layout.PromptPath))
+	return runAgentPrompt(ctx, adapter, layout, loadPrompt(layout.PromptPath), opts.Stdout, opts.Stderr, opts.Timeout)
+}
+
+func runAgentPrompt(
+	ctx context.Context,
+	adapter agentAdapter,
+	layout *demoLayout,
+	prompt string,
+	stdoutMirror io.Writer,
+	stderrMirror io.Writer,
+	timeout time.Duration,
+) error {
+	command, err := adapter.command(layout, prompt)
 	if err != nil {
 		return err
 	}
@@ -476,18 +479,18 @@ func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opt
 	}
 	cmd.Stdout = io.MultiWriter(stdoutFile, &stdout)
 	cmd.Stderr = io.MultiWriter(stderrFile, &stderr)
-	cmd.Stdin = strings.NewReader(loadPrompt(layout.PromptPath))
+	cmd.Stdin = strings.NewReader(prompt)
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("agent timed out after %s", opts.Timeout)
+			return fmt.Errorf("agent timed out after %s", timeout)
 		}
 		return fmt.Errorf("agent failed: %w\nstdout:\n%s\nstderr:\n%s", err, trimOutput(stdout.String()), trimOutput(stderr.String()))
 	}
-	if opts.Stdout != nil && stdout.Len() > 0 {
-		_, _ = io.Copy(opts.Stdout, &stdout)
+	if stdoutMirror != nil && stdout.Len() > 0 {
+		_, _ = io.Copy(stdoutMirror, &stdout)
 	}
-	if opts.Stderr != nil && stderr.Len() > 0 {
-		_, _ = io.Copy(opts.Stderr, &stderr)
+	if stderrMirror != nil && stderr.Len() > 0 {
+		_, _ = io.Copy(stderrMirror, &stderr)
 	}
 	return nil
 }
