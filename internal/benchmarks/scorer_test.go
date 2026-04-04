@@ -31,6 +31,8 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Equal(t, len(summary.Aggregates.ByCaseAgentVariant), 2)
 	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
 	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
+	assert.Equal(t, summary.Runs[0].SessionPath, sessionDir)
+	assert.Equal(t, summary.Runs[0].EventStoreMode, "configured_shared")
 
 	firstRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
 	assert.Equal(t, firstRunScorecard.Outcome.FirstPassSuccess, true)
@@ -52,6 +54,8 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Equal(t, firstRunScorecard.AgentMetadata.ThreadID, "thread_codex")
 	assert.Assert(t, firstRunScorecard.AgentMetadata.Usage.InputTokens != nil)
 	assert.Equal(t, *firstRunScorecard.AgentMetadata.Usage.InputTokens, int64(111))
+	assert.Equal(t, firstRunScorecard.SessionPath, sessionDir)
+	assert.Equal(t, firstRunScorecard.EventStoreMode, "configured_shared")
 
 	secondRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "claude", "assertion_failure_red", "attempt-001", scorecardFileName))
 	assert.Equal(t, secondRunScorecard.Outcome.FirstPassSuccess, false)
@@ -74,6 +78,30 @@ func TestScoreSessionCanReuseSQLiteEventStoreWithoutJSONSnapshots(t *testing.T) 
 	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
 	assert.NilError(t, err)
 	assert.Equal(t, summary.ScoredRunCount, 2)
+}
+
+func TestScoreSessionIgnoresUnrelatedTaskRunsInSharedSQLiteStore(t *testing.T) {
+	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
+	storePath := filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "events.sqlite")
+	assert.NilError(t, writeSyntheticEventStore(storePath, "tr_unrelated", []persistence.TaskRunEvent{
+		{
+			Source:             persistence.TaskRunEventSourceTask,
+			ID:                 "unrelated-restart",
+			CreatedAtUnixMilli: 9_999,
+			EventType:          "task_restarted",
+		},
+	}))
+	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_runs.json")))
+	assert.NilError(t, os.RemoveAll(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_run_events")))
+
+	scorer := NewScorer()
+	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
+	assert.NilError(t, err)
+
+	scorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
+	assert.Equal(t, summary.ScoredRunCount, 2)
+	assert.Equal(t, scorecard.Outcome.RestartOccurred, false)
+	assert.Equal(t, scorecard.Outcome.FirstPassSuccess, true)
 }
 
 func TestScoreSessionRejectsInvalidManualScoreButStillWritesSummary(t *testing.T) {
@@ -111,8 +139,15 @@ type syntheticSessionOptions struct {
 func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) string {
 	t.Helper()
 
-	suiteRoot := checkedInSimpleTDDSuiteRoot(t)
 	sessionDir := filepath.Join(t.TempDir(), "session")
+	writeSyntheticScoringSessionAt(t, sessionDir, opts)
+	return sessionDir
+}
+
+func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts syntheticSessionOptions) {
+	t.Helper()
+
+	suiteRoot := checkedInSimpleTDDSuiteRoot(t)
 	assert.NilError(t, os.MkdirAll(sessionDir, 0o755))
 
 	runs := []SessionRunManifestEntry{
@@ -158,7 +193,6 @@ func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) st
 		Runs: runs,
 	}
 	assert.NilError(t, writeJSONFile(filepath.Join(sessionDir, sessionFileName), session))
-	return sessionDir
 }
 
 func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry SessionRunManifestEntry, opts syntheticSessionOptions) {
@@ -236,6 +270,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry 
 			LogsDir:          logsDir,
 			AgentDir:         agentDir,
 			ConfigPath:       filepath.Join(runDir, "centian.config.json"),
+			EventStoreMode:   "configured_shared",
 			EventStorePath:   filepath.Join(logsDir, "events.sqlite"),
 			RequestLogPath:   requestLogPath,
 			TaskRunsSnapshot: taskRunsPath,

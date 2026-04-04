@@ -51,6 +51,7 @@ Today that means each preserved run is evaluated from:
 - the copied project state before and after the run
 - Centian task runs and task-run events
 - request logs and action/tool activity
+- the shared SQLite event store Centian normally uses for durable observability
 - optional reviewer-supplied `manual_score.json`
 
 For the current `simple_tdd_v1` suite, the benchmark is trying to answer:
@@ -106,6 +107,14 @@ Score an existing session:
 ```bash
 ./build/centian benchmark score \
   --session tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1/<timestamp>_run
+```
+
+Compare multiple scored sessions for one suite:
+
+```bash
+./build/centian benchmark compare \
+  --root tests/integrationtests/taskverification/.tmp/benchmarks \
+  --suite simple_tdd_v1
 ```
 
 ## How To Use Different Agents
@@ -170,7 +179,7 @@ Each preserved run contains:
 - `scorecard.json` after `centian benchmark score`
 - `manual_score.json` optionally, for reviewer-supplied error-actionability input
 
-`logs/` stores Centian-side runtime artifacts such as the event store, request logs, and task-run snapshots. `agent/` stores agent logs and agent-specific artifacts for the run.
+`logs/` stores Centian-side runtime artifacts such as request logs, internal logs, and task-run snapshots. The live durable event stream is written to Centian's configured shared event store, which by default resolves to `~/.centian/logs/events.sqlite`. The resolved shared path is recorded in `run.json`, `scorecard.json`, and `summary.json`. `agent/` stores agent logs and agent-specific artifacts for the run.
 
 At the session root, scoring writes:
 
@@ -192,6 +201,8 @@ The most useful files after a run are:
   One manifest describing the full benchmark invocation.
 - `summary.json`
   The comparison-friendly scored summary for the whole session.
+- `comparison.json`
+  Cross-session aggregates for one suite, written by `centian benchmark compare`.
 - `run.json`
   Raw metadata for one concrete run.
 - `scorecard.json`
@@ -202,8 +213,8 @@ The most useful files after a run are:
   The captured task-run snapshot.
 - `logs/task_run_events/*.json`
   The captured lifecycle and action-event timelines.
-- `logs/events.sqlite`
-  The SQLite event store preserved from the run.
+- `run.json -> artifactPaths.eventStorePath`
+  The shared SQLite event store used by the run, normally `~/.centian/logs/events.sqlite`.
 
 ## Score Meaning
 
@@ -293,8 +304,16 @@ In practice:
 - if time goes down but invariant violations go up, that is not an improvement
 - if one agent regresses while another improves, compare by agent rather than averaging too early
 
-The session-level `summary.json` is the easiest place to compare runs because it already groups results by:
+The session-level `summary.json` is the easiest place to compare runs inside one benchmark invocation because it already groups results by:
 
+- case
+- agent
+- template variant
+- case + agent + template variant
+
+For comparisons across multiple sessions of the same suite, use `centian benchmark compare`. That command reads each session's preserved `summary.json`, writes `<root>/<suite-id>/comparison.json`, and adds aggregates grouped by:
+
+- session
 - case
 - agent
 - template variant
@@ -331,6 +350,19 @@ The session-level `summary.json` is the easiest place to compare runs because it
 
 - `--session`
   Required. Path to one preserved benchmark session directory containing `session.json`.
+
+### `centian benchmark compare`
+
+- `--root`
+  Required. Root directory containing benchmark suite session directories, usually `tests/integrationtests/taskverification/.tmp/benchmarks`.
+- `--suite`
+  Required. Suite id to compare, for example `simple_tdd_v1`.
+- `--agent`
+  Optional and repeatable. Limit comparison to one or more agents.
+- `--case`
+  Optional and repeatable. Limit comparison to one or more benchmark cases.
+- `--template-variant`
+  Optional and repeatable. Limit comparison to one or more template variants.
 
 ### `make benchmark-simple-tdd`
 

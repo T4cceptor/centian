@@ -131,7 +131,7 @@ func newTaskVerificationService(
 		return taskService, nil, noopCloser{}, nil
 	}
 
-	storePath, err := resolveEventStorePath(eventStorage)
+	storePath, err := config.ResolveEventStorePath(eventStorage)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -157,24 +157,6 @@ func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string)
 		return templatesPath
 	}
 	return filepath.Join(workingDir, templatesPath)
-}
-
-func resolveEventStorePath(settings *config.EventStorageCapabilitySettings) (string, error) {
-	driver := config.DefaultEventStorageDriver
-	if settings != nil {
-		driver = settings.GetDriver()
-	}
-	if driver != config.DefaultEventStorageDriver {
-		return "", fmt.Errorf("unsupported event storage driver %q", driver)
-	}
-	if settings != nil && settings.Path != "" {
-		return settings.Path, nil
-	}
-	storePath, err := logging.GetDefaultEventStorePath()
-	if err != nil {
-		return "", fmt.Errorf("failed to determine default event storage path: %w", err)
-	}
-	return storePath, nil
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints.

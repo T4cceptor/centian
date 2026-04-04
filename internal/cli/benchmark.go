@@ -20,6 +20,7 @@ var BenchmarkCommand = &cli.Command{
 	Commands: []*cli.Command{
 		BenchmarkRunCommand,
 		BenchmarkScoreCommand,
+		BenchmarkCompareCommand,
 	},
 }
 
@@ -94,6 +95,37 @@ var BenchmarkScoreCommand = &cli.Command{
 	Action: handleBenchmarkScoreCommand,
 }
 
+// BenchmarkCompareCommand compares scored benchmark sessions for one suite.
+var BenchmarkCompareCommand = &cli.Command{
+	Name:  "compare",
+	Usage: "Compare scored benchmark sessions for one suite",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "root",
+			Usage:    "Root directory containing benchmark suite session folders",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "suite",
+			Usage:    "Benchmark suite id to compare",
+			Required: true,
+		},
+		&cli.StringSliceFlag{
+			Name:  "agent",
+			Usage: "Limit comparison to specific agents (repeat or comma-separate)",
+		},
+		&cli.StringSliceFlag{
+			Name:  "case",
+			Usage: "Limit comparison to specific benchmark cases (repeat or comma-separate)",
+		},
+		&cli.StringSliceFlag{
+			Name:  "template-variant",
+			Usage: "Limit comparison to specific template variants (repeat or comma-separate)",
+		},
+	},
+	Action: handleBenchmarkCompareCommand,
+}
+
 func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -150,6 +182,22 @@ func handleBenchmarkScoreCommand(ctx context.Context, cmd *cli.Command) error {
 	if summary != nil {
 		fmt.Printf("Scored benchmark session: %s\n", options.SessionPath)
 		fmt.Printf("Scored runs: %d/%d\n", summary.ScoredRunCount, summary.RunCount)
+	}
+	return err
+}
+
+func handleBenchmarkCompareCommand(ctx context.Context, cmd *cli.Command) error {
+	options, err := buildBenchmarkCompareOptions(cmd)
+	if err != nil {
+		return err
+	}
+
+	comparer := benchmarks.NewComparer()
+	comparison, outputPath, err := comparer.CompareSuite(ctx, options)
+	if comparison != nil {
+		fmt.Printf("Compared benchmark sessions: %s\n", outputPath)
+		fmt.Printf("Sessions: %d\n", comparison.SessionCount)
+		fmt.Printf("Runs: %d\n", comparison.RunCount)
 	}
 	return err
 }
@@ -228,6 +276,28 @@ func buildBenchmarkScoreOptions(cmd *cli.Command) (*benchmarks.ScoreOptions, err
 		return nil, fmt.Errorf("resolve session path: %w", err)
 	}
 	return &benchmarks.ScoreOptions{SessionPath: sessionPath}, nil
+}
+
+func buildBenchmarkCompareOptions(cmd *cli.Command) (*benchmarks.CompareOptions, error) {
+	rootFlag := strings.TrimSpace(cmd.String("root"))
+	if rootFlag == "" {
+		return nil, fmt.Errorf("root path is required")
+	}
+	rootPath, err := filepath.Abs(rootFlag)
+	if err != nil {
+		return nil, fmt.Errorf("resolve root path: %w", err)
+	}
+	suiteID := strings.TrimSpace(cmd.String("suite"))
+	if suiteID == "" {
+		return nil, fmt.Errorf("suite id is required")
+	}
+	return &benchmarks.CompareOptions{
+		RootPath:         rootPath,
+		SuiteID:          suiteID,
+		Agents:           splitCSVValues(cmd.StringSlice("agent")),
+		CaseIDs:          splitCSVValues(cmd.StringSlice("case")),
+		TemplateVariants: splitCSVValues(cmd.StringSlice("template-variant")),
+	}, nil
 }
 
 func splitCSVValues(values []string) []string {

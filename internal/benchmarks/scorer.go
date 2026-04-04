@@ -82,6 +82,8 @@ type RunScorecard struct {
 	Agent            string              `json:"agent"`
 	Attempt          int                 `json:"attempt"`
 	RunManifestPath  string              `json:"runManifestPath"`
+	SessionPath      string              `json:"sessionPath"`
+	EventStoreMode   string              `json:"eventStoreMode,omitempty"`
 	EventStorePath   string              `json:"eventStorePath,omitempty"`
 	TaskRunsPath     string              `json:"taskRunsSnapshotPath"`
 	TaskRunEventsDir string              `json:"taskRunEventsDirPath"`
@@ -165,11 +167,16 @@ type SessionSummaryAggregates struct {
 
 // RunSummaryRow is the compact per-run row used by the session summary.
 type RunSummaryRow struct {
+	SessionPath               string         `json:"sessionPath,omitempty"`
 	CaseID                    string         `json:"caseId"`
 	Agent                     string         `json:"agent"`
 	TemplateVariant           string         `json:"templateVariant"`
 	Attempt                   int            `json:"attempt"`
+	EventStoreMode            string         `json:"eventStoreMode,omitempty"`
+	EventStorePath            string         `json:"eventStorePath,omitempty"`
 	RawStatus                 string         `json:"rawStatus"`
+	LatestTaskRunID           string         `json:"latestTaskRunId,omitempty"`
+	LinkedTaskRunIDs          []string       `json:"linkedTaskRunIds,omitempty"`
 	Scored                    bool           `json:"scored"`
 	CompletedSuccessfully     bool           `json:"completedSuccessfully"`
 	FinalVerificationPassed   bool           `json:"finalVerificationPassed"`
@@ -192,6 +199,7 @@ type RunSummaryRow struct {
 // AggregateSummary stores aggregate comparison metrics for one grouping key.
 type AggregateSummary struct {
 	Key                             string   `json:"key"`
+	SessionPath                     string   `json:"sessionPath,omitempty"`
 	CaseID                          string   `json:"caseId,omitempty"`
 	Agent                           string   `json:"agent,omitempty"`
 	TemplateVariant                 string   `json:"templateVariant,omitempty"`
@@ -440,6 +448,8 @@ func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
 		Agent:            ctx.run.AgentID,
 		Attempt:          ctx.entry.Attempt,
 		RunManifestPath:  ctx.runPath,
+		SessionPath:      ctx.sessionDir,
+		EventStoreMode:   ctx.run.ArtifactPaths.EventStoreMode,
 		EventStorePath:   ctx.run.ArtifactPaths.EventStorePath,
 		TaskRunsPath:     ctx.run.ArtifactPaths.TaskRunsSnapshot,
 		TaskRunEventsDir: ctx.run.ArtifactPaths.TaskRunEventsDir,
@@ -581,6 +591,7 @@ func loadTaskDataFromSQLite(path string, run *RunManifest) ([]persistence.TaskRu
 	if len(runIDs) == 0 {
 		runIDs = taskRunIDs(taskRuns)
 	}
+	taskRuns = filterTaskRuns(taskRuns, runIDs)
 	allEvents := make([]persistence.TaskRunEvent, 0)
 	for _, runID := range runIDs {
 		if strings.TrimSpace(runID) == "" {
@@ -1006,6 +1017,7 @@ func secondsBetween(start time.Time, end time.Time) float64 {
 
 func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scorecard *RunScorecard, errors []string, warnings []string) RunSummaryRow {
 	row := RunSummaryRow{
+		SessionPath:     scorecardSessionPath(run, scorecard),
 		CaseID:          entry.CaseID,
 		Agent:           entry.AgentID,
 		TemplateVariant: entry.TemplateVariant,
@@ -1015,12 +1027,21 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	}
 	if run != nil {
 		row.RawStatus = run.Status
+		row.EventStoreMode = run.ArtifactPaths.EventStoreMode
+		row.EventStorePath = run.ArtifactPaths.EventStorePath
+		row.LatestTaskRunID = run.LatestTaskRunID
+		row.LinkedTaskRunIDs = append([]string(nil), run.LinkedTaskRunIDs...)
 	}
 	if scorecard == nil {
 		return row
 	}
 	row.Scored = true
+	row.SessionPath = scorecard.SessionPath
+	row.EventStoreMode = scorecard.EventStoreMode
+	row.EventStorePath = scorecard.EventStorePath
 	row.RawStatus = scorecard.RawStatus
+	row.LatestTaskRunID = scorecard.LatestTaskRunID
+	row.LinkedTaskRunIDs = append([]string(nil), scorecard.LinkedTaskRunIDs...)
 	row.CompletedSuccessfully = scorecard.Outcome.CompletedSuccessfully
 	row.FinalVerificationPassed = scorecard.Outcome.FinalVerificationPassed
 	row.FirstPassSuccess = scorecard.Outcome.FirstPassSuccess
@@ -1038,6 +1059,20 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	row.Warnings = append(row.Warnings, scorecard.Warnings...)
 	row.Errors = append(row.Errors, scorecard.Errors...)
 	return row
+}
+
+func scorecardSessionPath(run *RunManifest, scorecard *RunScorecard) string {
+	if scorecard != nil {
+		return scorecard.SessionPath
+	}
+	if run == nil || strings.TrimSpace(run.ArtifactPaths.RunDir) == "" {
+		return ""
+	}
+	sessionPath := filepath.Clean(run.ArtifactPaths.RunDir)
+	for i := 0; i < 5; i++ {
+		sessionPath = filepath.Dir(sessionPath)
+	}
+	return sessionPath
 }
 
 func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {
@@ -1070,6 +1105,7 @@ func buildAggregates(rows []RunSummaryRow) SessionSummaryAggregates {
 }
 
 type aggregateKey struct {
+	SessionPath     string
 	Key             string
 	CaseID          string
 	Agent           string
@@ -1088,6 +1124,7 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 	for key, group := range grouped {
 		summary := AggregateSummary{
 			Key:                             key,
+			SessionPath:                     keys[key].SessionPath,
 			CaseID:                          keys[key].CaseID,
 			Agent:                           keys[key].Agent,
 			TemplateVariant:                 keys[key].TemplateVariant,
@@ -1173,6 +1210,28 @@ func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 		return 0, false
 	}
 	return float64(total) / float64(count), true
+}
+
+func filterTaskRuns(runs []persistence.TaskRunSummary, runIDs []string) []persistence.TaskRunSummary {
+	if len(runIDs) == 0 {
+		return runs
+	}
+	allowed := make(map[string]struct{}, len(runIDs))
+	for _, runID := range runIDs {
+		if trimmed := strings.TrimSpace(runID); trimmed != "" {
+			allowed[trimmed] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return runs
+	}
+	filtered := make([]persistence.TaskRunSummary, 0, len(runs))
+	for _, run := range runs {
+		if _, ok := allowed[run.RunID]; ok {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
 }
 
 func anyMap(value any) map[string]any {

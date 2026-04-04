@@ -16,11 +16,11 @@ func TestBenchmarkCommandStructure(t *testing.T) {
 	if BenchmarkCommand.Name != "benchmark" {
 		t.Fatalf("expected benchmark command name, got %q", BenchmarkCommand.Name)
 	}
-	if len(BenchmarkCommand.Commands) != 2 {
-		t.Fatalf("expected 2 benchmark subcommands, got %d", len(BenchmarkCommand.Commands))
+	if len(BenchmarkCommand.Commands) != 3 {
+		t.Fatalf("expected 3 benchmark subcommands, got %d", len(BenchmarkCommand.Commands))
 	}
-	if BenchmarkCommand.Commands[0] != BenchmarkRunCommand || BenchmarkCommand.Commands[1] != BenchmarkScoreCommand {
-		t.Fatal("expected benchmark run and score subcommands to be registered")
+	if BenchmarkCommand.Commands[0] != BenchmarkRunCommand || BenchmarkCommand.Commands[1] != BenchmarkScoreCommand || BenchmarkCommand.Commands[2] != BenchmarkCompareCommand {
+		t.Fatal("expected benchmark run, score, and compare subcommands to be registered")
 	}
 }
 
@@ -69,6 +69,29 @@ func TestBenchmarkScoreCommandStructure(t *testing.T) {
 	flag, ok := BenchmarkScoreCommand.Flags[0].(*urfavecli.StringFlag)
 	if !ok || flag.Name != "session" {
 		t.Fatalf("expected session string flag, got %#v", BenchmarkScoreCommand.Flags[0])
+	}
+}
+
+func TestBenchmarkCompareCommandStructure(t *testing.T) {
+	if BenchmarkCompareCommand == nil {
+		t.Fatal("BenchmarkCompareCommand is nil")
+	}
+	if BenchmarkCompareCommand.Name != "compare" {
+		t.Fatalf("expected benchmark compare command name, got %q", BenchmarkCompareCommand.Name)
+	}
+	flagNames := map[string]bool{}
+	for _, flag := range BenchmarkCompareCommand.Flags {
+		switch typed := flag.(type) {
+		case *urfavecli.StringFlag:
+			flagNames[typed.Name] = true
+		case *urfavecli.StringSliceFlag:
+			flagNames[typed.Name] = true
+		}
+	}
+	for _, expected := range []string{"root", "suite", "agent", "case", "template-variant"} {
+		if !flagNames[expected] {
+			t.Fatalf("expected %q flag on BenchmarkCompareCommand", expected)
+		}
 	}
 }
 
@@ -176,5 +199,59 @@ func TestBuildBenchmarkScoreOptionsResolvesAbsolutePath(t *testing.T) {
 	}
 	if opts.SessionPath != sessionDir {
 		t.Fatalf("expected resolved session path %q, got %q", sessionDir, opts.SessionPath)
+	}
+}
+
+func TestBuildBenchmarkCompareOptionsRequiresRoot(t *testing.T) {
+	cmd := &urfavecli.Command{
+		Flags: BenchmarkCompareCommand.Flags,
+	}
+	cmd.Set("suite", "simple_tdd_v1")
+
+	_, err := buildBenchmarkCompareOptions(cmd)
+	if err == nil || err.Error() != "root path is required" {
+		t.Fatalf("expected missing root error, got %v", err)
+	}
+}
+
+func TestBuildBenchmarkCompareOptionsRequiresSuite(t *testing.T) {
+	cmd := &urfavecli.Command{
+		Flags: BenchmarkCompareCommand.Flags,
+	}
+	cmd.Set("root", t.TempDir())
+	cmd.Set("suite", "")
+
+	_, err := buildBenchmarkCompareOptions(cmd)
+	if err == nil || err.Error() != "suite id is required" {
+		t.Fatalf("expected missing suite error, got %v", err)
+	}
+}
+
+func TestBuildBenchmarkCompareOptionsResolvesFilters(t *testing.T) {
+	cmd := &urfavecli.Command{
+		Flags: BenchmarkCompareCommand.Flags,
+	}
+	root := t.TempDir()
+	cmd.Set("root", root)
+	cmd.Set("suite", "simple_tdd_v1")
+	cmd.Set("agent", "codex,claude")
+	cmd.Set("case", "compile_failure_red")
+	cmd.Set("template-variant", "current")
+
+	opts, err := buildBenchmarkCompareOptions(cmd)
+	if err != nil {
+		t.Fatalf("buildBenchmarkCompareOptions: %v", err)
+	}
+	if opts.RootPath != root {
+		t.Fatalf("expected root path %q, got %q", root, opts.RootPath)
+	}
+	if len(opts.Agents) != 2 || opts.Agents[0] != "codex" || opts.Agents[1] != "claude" {
+		t.Fatalf("unexpected agents: %+v", opts.Agents)
+	}
+	if len(opts.CaseIDs) != 1 || opts.CaseIDs[0] != "compile_failure_red" {
+		t.Fatalf("unexpected case ids: %+v", opts.CaseIDs)
+	}
+	if len(opts.TemplateVariants) != 1 || opts.TemplateVariants[0] != "current" {
+		t.Fatalf("unexpected template variants: %+v", opts.TemplateVariants)
 	}
 }
