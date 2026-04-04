@@ -4,12 +4,6 @@ prompt: |
 
   This benchmark already has an authored red baseline.
 
-  Freeze the following planning parameters:
-  - `testCommand`: `go test ./internal/health -run TestHealthStatus`
-  - `testTarget`: `./internal/health -run TestHealthStatus`
-  - `testFile`: `internal/health/health_test.go`
-  - `expectedError`: `expected ready, got not_ready`
-
   Requirements:
   - Verify the authored red baseline before implementing code.
   - Do not create, rewrite, or edit the locked baseline test file `internal/health/health_test.go`.

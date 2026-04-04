@@ -35,6 +35,8 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	templateA := writeTemplateVariant(t, "a")
 	templateB := writeTemplateVariant(t, "b")
 	outputRoot := t.TempDir()
+	logDir := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", logDir)
 	launches := 0
 
 	runner := &Runner{
@@ -83,12 +85,15 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	data, err := os.ReadFile(runPath)
 	assert.NilError(t, err)
 	assert.Assert(t, strings.Contains(string(data), `"latestTaskRunId": "tr_123"`))
+	assert.Assert(t, strings.Contains(string(data), `"eventStoreMode": "configured_shared"`))
+	assert.Assert(t, strings.Contains(string(data), filepath.Join(logDir, "events.sqlite")))
 }
 
 func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 	suiteRoot := writeValidSuiteFixture(t)
 	templateDir := writeTemplateVariant(t, "current")
 	outputRoot := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
 	launches := 0
 
 	runner := &Runner{
@@ -138,6 +143,7 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 func TestRunSuiteRejectsUnknownCase(t *testing.T) {
 	suiteRoot := writeValidSuiteFixture(t)
 	templateDir := writeTemplateVariant(t, "current")
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
 
 	runner := NewRunner()
 	_, err := runner.RunSuite(context.Background(), &RunOptions{
@@ -156,6 +162,7 @@ func TestRunSuiteRejectsUnknownCase(t *testing.T) {
 func TestRunSuiteRejectsUnsupportedResetMode(t *testing.T) {
 	suiteRoot := writeValidSuiteFixture(t)
 	templateDir := writeTemplateVariant(t, "current")
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
 	casePath := filepath.Join(suiteRoot, "cases", "compile_failure_red", caseFileName)
 	mustWriteFile(t, casePath, `
 version: "0.1"

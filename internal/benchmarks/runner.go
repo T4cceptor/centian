@@ -16,15 +16,17 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
 const (
-	defaultTimeout      = 15 * time.Minute
-	defaultSessionLabel = "run"
-	copySeedResetMode   = "copy_seed"
-	sessionFileName     = "session.json"
-	runFileName         = "run.json"
+	defaultTimeout                 = 15 * time.Minute
+	defaultSessionLabel            = "run"
+	copySeedResetMode              = "copy_seed"
+	sessionFileName                = "session.json"
+	runFileName                    = "run.json"
+	configuredSharedEventStoreMode = "configured_shared"
 )
 
 // TemplateVariant identifies one template tree used for a benchmark run variant.
@@ -115,6 +117,7 @@ type RunArtifactPaths struct {
 	LogsDir          string `json:"logsDir"`
 	AgentDir         string `json:"agentDir"`
 	ConfigPath       string `json:"configPath"`
+	EventStoreMode   string `json:"eventStoreMode,omitempty"`
 	EventStorePath   string `json:"eventStorePath"`
 	RequestLogPath   string `json:"requestLogPath,omitempty"`
 	TaskRunsSnapshot string `json:"taskRunsSnapshot,omitempty"`
@@ -384,7 +387,31 @@ func (r *Runner) executeRun(
 	logsDir := filepath.Join(runDir, "logs")
 	agentDir := filepath.Join(runDir, "agent")
 	configPath := filepath.Join(runDir, "centian.config.json")
-	eventStorePath := filepath.Join(logsDir, "events.sqlite")
+	eventStorePath, err := config.ResolveEventStorePath(nil)
+	if err != nil {
+		manifest := &RunManifest{
+			SuiteID:         suite.Suite.ID,
+			CaseID:          spec.CaseRef.ID,
+			TemplateID:      suite.Suite.TemplateID,
+			TemplateVariant: spec.TemplateVariant,
+			AgentID:         spec.Agent,
+			Attempt:         spec.Attempt,
+			SelectedModel:   selectedModel(spec.Agent, opts.Models),
+			StartedAt:       r.Now(),
+			EndedAt:         r.Now(),
+			Status:          "failed",
+			ErrorSummary:    err.Error(),
+			ArtifactPaths: RunArtifactPaths{
+				RunDir:       runDir,
+				ProjectDir:   projectDir,
+				TemplatesDir: templatesDir,
+				LogsDir:      logsDir,
+				AgentDir:     agentDir,
+				ConfigPath:   configPath,
+			},
+		}
+		return manifest, err
+	}
 	manifest := &RunManifest{
 		SuiteID:         suite.Suite.ID,
 		CaseID:          spec.CaseRef.ID,
@@ -402,6 +429,7 @@ func (r *Runner) executeRun(
 			LogsDir:        logsDir,
 			AgentDir:       agentDir,
 			ConfigPath:     configPath,
+			EventStoreMode: configuredSharedEventStoreMode,
 			EventStorePath: eventStorePath,
 		},
 	}

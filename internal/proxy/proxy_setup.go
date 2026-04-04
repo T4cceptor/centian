@@ -258,6 +258,46 @@ func (noopCloser) Close() error {
 	return nil
 }
 
+func newTaskVerificationService(
+	globalConfig *config.GlobalConfig,
+	workingDir string,
+	logger *logging.Logger,
+) (*taskverification.Service, *persistence.Store, io.Closer, error) {
+	templateDir := resolveTaskTemplatesPath(globalConfig.Proxy, workingDir)
+	taskService := taskverification.NewService(templateDir, workingDir)
+	eventStorage := globalConfig.Proxy.EventStorageCapability()
+	if eventStorage != nil && !eventStorage.IsEnabled() {
+		return taskService, nil, noopCloser{}, nil
+	}
+
+	storePath, err := config.ResolveEventStorePath(eventStorage)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	store, err := persistence.NewSQLiteStore(storePath)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
+	}
+	taskService.EventStore = store
+	logger.SetActionEventStore(store)
+	return taskService, store, store, nil
+}
+
+func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string) string {
+	defaultPath := filepath.Join(workingDir, "task-templates")
+	if settings == nil {
+		return defaultPath
+	}
+	templatesPath := settings.TaskVerificationCapability().GetTemplatesPath()
+	if templatesPath == "" {
+		return defaultPath
+	}
+	if filepath.IsAbs(templatesPath) {
+		return templatesPath
+	}
+	return filepath.Join(workingDir, templatesPath)
+}
+
 // Setup uses CentianServer.config to create all gateways and endpoints for every project.
 func (c *CentianServer) Setup() error {
 	for slug, project := range c.Projects {
