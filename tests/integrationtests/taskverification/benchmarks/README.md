@@ -15,29 +15,34 @@ Each suite uses the same generic structure:
 
 The checked-in files under this directory are inputs. They define what should be benchmarked, not the artifacts of one concrete run.
 
-## Future Preserved Outputs
+## Preserved Local Outputs
 
-Later runner work should preserve local benchmark outputs under the existing taskverification `.tmp` tree, for example:
+The benchmark runner preserves local outputs under the existing taskverification `.tmp` tree. One benchmark CLI invocation creates an invocation directory:
 
 ```text
-tests/integrationtests/taskverification/.tmp/benchmarks/<suite-id>/<timestamp>_<agent>_<template-variant>/
+tests/integrationtests/taskverification/.tmp/benchmarks/<suite-id>/<timestamp>_<label>/
 ```
 
-Each preserved case run is expected to reserve subpaths such as:
+That directory contains:
+
+- `session.json`
+- `runs/<template-variant>/<agent>/<case-id>/attempt-001/`
+
+Each preserved run contains:
 
 - `project/`
 - `templates/`
 - `logs/`
 - `agent/`
 - `run.json`
-- `scorecard.json` (future)
 
-That output layout is documented here so later runner work can reuse a stable artifact convention instead of inventing one ad hoc.
+`logs/` stores Centian-side runtime artifacts such as the event store, request logs, and task-run snapshots. `agent/` stores agent logs and agent-specific artifacts for the run. Scorecards are intentionally deferred to later tickets.
 
 ## Scope Of This Directory Today
 
-The current checked-in suite is structural only:
+The current checked-in suite is structural plus runner-ready:
 
 - suite, case, and prompt files are versioned and validated
 - fixture directories are real and loadable
-- benchmark execution, scoring, persistence, API exposure, and UI views are deferred to later tickets
+- local benchmark execution preserves raw artifacts and run manifests
+- scoring, persistence, API exposure, and UI views are deferred to later tickets
