@@ -543,6 +543,13 @@ func (r *Runner) executeRun(
 
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
+	baselineRuns, err := r.FetchTaskRuns(baseURL)
+	if err != nil {
+		manifest.ErrorSummary = err.Error()
+		manifest.EndedAt = r.Now()
+		_ = flushManifest()
+		return manifest, err
+	}
 	_, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
 		Agent:         spec.Agent,
 		ArtifactRoot:  agentDir,
@@ -559,7 +566,7 @@ func (r *Runner) executeRun(
 	if agentErr != nil {
 		captureErrs = append(captureErrs, agentErr.Error())
 	}
-	if err := r.captureRunArtifacts(manifest, logsDir, baseURL); err != nil {
+	if err := r.captureRunArtifacts(manifest, logsDir, baseURL, taskRunIDSet(baselineRuns)); err != nil {
 		captureErrs = append(captureErrs, err.Error())
 	}
 	if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == "completed" {
@@ -596,11 +603,17 @@ func (r *Runner) executeRun(
 	return manifest, nil
 }
 
-func (r *Runner) captureRunArtifacts(manifest *RunManifest, logsDir string, baseURL string) error {
+func (r *Runner) captureRunArtifacts(
+	manifest *RunManifest,
+	logsDir string,
+	baseURL string,
+	baselineRunIDs map[string]struct{},
+) error {
 	runs, err := r.FetchTaskRuns(baseURL)
 	if err != nil {
 		return err
 	}
+	runs = filterNewTaskRuns(runs, baselineRunIDs)
 	taskRunsPath := filepath.Join(logsDir, "task_runs.json")
 	if err := writeJSONFile(taskRunsPath, runs); err != nil {
 		return err
@@ -835,6 +848,37 @@ func taskRunIDs(runs []persistence.TaskRunSummary) []string {
 		result = append(result, run.RunID)
 	}
 	return result
+}
+
+func taskRunIDSet(runs []persistence.TaskRunSummary) map[string]struct{} {
+	if len(runs) == 0 {
+		return nil
+	}
+	result := make(map[string]struct{}, len(runs))
+	for _, run := range runs {
+		if strings.TrimSpace(run.RunID) == "" {
+			continue
+		}
+		result[run.RunID] = struct{}{}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func filterNewTaskRuns(runs []persistence.TaskRunSummary, baseline map[string]struct{}) []persistence.TaskRunSummary {
+	if len(baseline) == 0 {
+		return runs
+	}
+	filtered := make([]persistence.TaskRunSummary, 0, len(runs))
+	for _, run := range runs {
+		if _, exists := baseline[run.RunID]; exists {
+			continue
+		}
+		filtered = append(filtered, run)
+	}
+	return filtered
 }
 
 func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummary {

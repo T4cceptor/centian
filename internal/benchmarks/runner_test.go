@@ -53,14 +53,12 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 				StderrPath:    filepath.Join(opts.ArtifactRoot, "agent.stderr.log"),
 			}, nil
 		},
-		FetchTaskRuns: func(string) ([]persistence.TaskRunSummary, error) {
-			return []persistence.TaskRunSummary{{
-				RunID:      "tr_123",
-				TemplateID: "simple_tdd",
-				StartedAt:  100,
-				Status:     "completed",
-			}}, nil
-		},
+		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
+			RunID:      "tr_123",
+			TemplateID: "simple_tdd",
+			StartedAt:  100,
+			Status:     "completed",
+		}}),
 		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
 			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
 		},
@@ -123,14 +121,12 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 			}
 			return &agentrunner.RunResult{Agent: opts.Agent}, nil
 		},
-		FetchTaskRuns: func(string) ([]persistence.TaskRunSummary, error) {
-			return []persistence.TaskRunSummary{{
-				RunID:      "tr_123",
-				TemplateID: "simple_tdd",
-				StartedAt:  100,
-				Status:     "completed",
-			}}, nil
-		},
+		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
+			RunID:      "tr_123",
+			TemplateID: "simple_tdd",
+			StartedAt:  100,
+			Status:     "completed",
+		}}),
 		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
 			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
 		},
@@ -154,6 +150,71 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 	secondRunPath := filepath.Join(session.InvocationDir, "runs", "current", "codex", "assertion_failure_red", "attempt-001", runFileName)
 	_, statErr := os.Stat(secondRunPath)
 	assert.NilError(t, statErr)
+}
+
+func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	outputRoot := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	fetchCalls := 0
+
+	runner := &Runner{
+		Now:          fixedClock(),
+		AllocatePort: func() (string, error) { return "40123", nil },
+		StartCentian: fakeStartCentian,
+		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+		},
+		FetchTaskRuns: func(string) ([]persistence.TaskRunSummary, error) {
+			fetchCalls++
+			if fetchCalls == 1 {
+				return []persistence.TaskRunSummary{{
+					RunID:      "tr_old",
+					TemplateID: "simple_tdd",
+					StartedAt:  100,
+					Status:     "completed",
+				}}, nil
+			}
+			return []persistence.TaskRunSummary{
+				{
+					RunID:      "tr_old",
+					TemplateID: "simple_tdd",
+					StartedAt:  100,
+					Status:     "completed",
+				},
+				{
+					RunID:      "tr_new",
+					TemplateID: "simple_tdd",
+					StartedAt:  200,
+					Status:     "completed",
+				},
+			}, nil
+		},
+		FetchTaskRunEvents: func(_ string, runID string) ([]persistence.TaskRunEvent, error) {
+			return []persistence.TaskRunEvent{{ID: "evt_" + runID}}, nil
+		},
+		FindLatestRequestLog: fakeRequestLogLookup,
+	}
+
+	session, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Agents:            []string{"codex"},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        outputRoot,
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, fetchCalls, 2)
+
+	runPath := filepath.Join(session.InvocationDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", runFileName)
+	var manifest RunManifest
+	assert.NilError(t, readJSONFile(runPath, &manifest))
+	assert.DeepEqual(t, manifest.LinkedTaskRunIDs, []string{"tr_new"})
+	assert.Equal(t, manifest.LatestTaskRunID, "tr_new")
 }
 
 func TestRunSuiteRejectsUnknownCase(t *testing.T) {
@@ -241,14 +302,12 @@ func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
 			return &agentrunner.RunResult{Agent: opts.Agent}, nil
 		},
-		FetchTaskRuns: func(string) ([]persistence.TaskRunSummary, error) {
-			return []persistence.TaskRunSummary{{
-				RunID:      "tr_123",
-				TemplateID: "simple_tdd",
-				StartedAt:  100,
-				Status:     "completed",
-			}}, nil
-		},
+		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
+			RunID:      "tr_123",
+			TemplateID: "simple_tdd",
+			StartedAt:  100,
+			Status:     "completed",
+		}}),
 		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
 			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
 		},
@@ -291,6 +350,29 @@ func fixedClock() func() time.Time {
 	return func() time.Time {
 		current = current.Add(time.Second)
 		return current
+	}
+}
+
+func sequentialTaskRuns(responses [][]persistence.TaskRunSummary) func(string) ([]persistence.TaskRunSummary, error) {
+	index := 0
+	return func(string) ([]persistence.TaskRunSummary, error) {
+		if index >= len(responses) {
+			return nil, nil
+		}
+		current := responses[index]
+		index++
+		return current, nil
+	}
+}
+
+func alternatingTaskRuns(result []persistence.TaskRunSummary) func(string) ([]persistence.TaskRunSummary, error) {
+	call := 0
+	return func(string) ([]persistence.TaskRunSummary, error) {
+		call++
+		if call%2 == 1 {
+			return nil, nil
+		}
+		return result, nil
 	}
 }
 

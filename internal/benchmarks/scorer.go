@@ -76,8 +76,11 @@ type AgentModelUsage struct {
 // RunScorecard stores derived metrics for one concrete benchmark run.
 type RunScorecard struct {
 	SuiteID          string              `json:"suiteId"`
+	SuiteName        string              `json:"suiteName,omitempty"`
 	CaseID           string              `json:"caseId"`
+	CaseName         string              `json:"caseName,omitempty"`
 	TemplateID       string              `json:"templateId"`
+	TemplateName     string              `json:"templateName,omitempty"`
 	TemplateVariant  string              `json:"templateVariant"`
 	Agent            string              `json:"agent"`
 	Attempt          int                 `json:"attempt"`
