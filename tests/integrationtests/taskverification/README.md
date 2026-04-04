@@ -123,6 +123,19 @@ Benchmark smoke test environment variables:
 - `CENTIAN_TASKVERIFICATION_BENCHMARK_AGENT=codex`: optional agent override for the smoke test
 - `CENTIAN_TASKVERIFICATION_BENCHMARK_CASE=assertion_failure_red`: optional case override for the smoke test
 
+Benchmark runner make targets:
+
+- `make benchmark-simple-tdd`: build the Go binary, run one local `simple_tdd` benchmark case, then score the newest preserved session
+- `make benchmark-score-latest`: score the newest preserved `simple_tdd` benchmark session without re-running it
+
+Useful benchmark overrides:
+
+- `BENCH_AGENT=codex`: select the local agent
+- `BENCH_CASE=assertion_failure_red`: select the benchmark case
+- `BENCH_REPEAT=1`: repeat count per run
+- `BENCH_TIMEOUT=15m`: per-run timeout
+- `BENCH_OUTPUT_ROOT=tests/integrationtests/taskverification/.tmp/benchmarks`: preserved benchmark output root
+
 Prerequisites:
 
 - `centian` available on `PATH`, or set via `CENTIAN_TASKVERIFICATION_BINARY`

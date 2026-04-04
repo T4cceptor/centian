@@ -4,6 +4,138 @@ This directory contains repo-tracked benchmark definitions for Centian taskverif
 
 Benchmarks live beside the existing taskverification integration fixtures because later benchmark runners are expected to reuse the same host-native black-box infrastructure.
 
+## Purpose
+
+The benchmark command exists to make taskverification changes measurable.
+
+Instead of judging a template, prompt, or workflow change from one transcript or one successful demo, the benchmark system gives you a repeatable way to ask:
+
+- does this change improve success rate?
+- does it reduce retries, failures, or restarts?
+- does it preserve important invariants more reliably?
+- does it reduce time and tool activity for the same task outcome?
+
+The goal is to make Centian process refinement empirical. A benchmark run produces preserved artifacts, raw run metadata, and derived scorecards so process changes can be compared across:
+
+- multiple attempts
+- multiple agents
+- multiple template variants
+- later, multiple execution modes such as Centian-backed vs agent-only
+
+## Why Use The Benchmark Command
+
+Use the benchmark command when you want to evaluate process quality.
+
+Typical uses:
+
+- validate a task template change before treating it as an improvement
+- compare two template variants on the same benchmark case
+- compare different agents on the same workflow
+- inspect where a workflow fails, not just whether it eventually succeeds
+- build a historical baseline for later UI and persistence-backed comparisons
+
+In practice, the benchmark command is useful because it gives you:
+
+- preserved run artifacts instead of ephemeral console output
+- structured scorecards instead of subjective impressions
+- repeatable local execution on the same benchmark cases
+- a path toward A/B testing process changes over time
+
+## What The Benchmark Evaluates
+
+The current benchmark system evaluates how well an agent completes a benchmark case through Centian's taskverification flow.
+
+Today that means each preserved run is evaluated from:
+
+- the benchmark fixture and case contract
+- the copied project state before and after the run
+- Centian task runs and task-run events
+- request logs and action/tool activity
+- optional reviewer-supplied `manual_score.json`
+
+For the current `simple_tdd_v1` suite, the benchmark is trying to answer:
+
+- did the agent get the authored-red baseline to green?
+- did it do that without changing the locked baseline test file?
+- did it avoid restarts, failures, or timeouts?
+- how many task-tool and downstream-tool failures happened on the way?
+- how much time, tool activity, and file editing did the run require?
+
+This is intentionally process-aware. It does not only ask "did the final code work?" It also captures whether the workflow was efficient, stable, and compliant with the case contract.
+
+## How To Run A Benchmark
+
+### Recommended make target
+
+The simplest way to run one local benchmark case is:
+
+```bash
+make benchmark-simple-tdd
+```
+
+That target:
+
+- builds `./build/centian`
+- runs `centian benchmark run`
+- scores the newest preserved session with `centian benchmark score`
+- prints the live Centian UI URL for each run as soon as the server is ready
+
+### Direct CLI commands
+
+Run a benchmark session:
+
+```bash
+./build/centian benchmark run \
+  --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
+  --agent codex \
+  --case assertion_failure_red
+```
+
+Keep the Centian server alive after the agent finishes and prompt for shutdown:
+
+```bash
+./build/centian benchmark run \
+  --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
+  --agent codex \
+  --case assertion_failure_red \
+  --keep-centian-running
+```
+
+Score an existing session:
+
+```bash
+./build/centian benchmark score \
+  --session tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1/<timestamp>_run
+```
+
+## How To Use Different Agents
+
+The benchmark runner accepts one or more `--agent` flags. The runner executes the same benchmark case(s) once per agent, per template variant, per attempt.
+
+Examples:
+
+```bash
+./build/centian benchmark run \
+  --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
+  --agent codex \
+  --agent claude
+```
+
+Or via `make`:
+
+```bash
+make benchmark-simple-tdd BENCH_AGENT=codex # default
+make benchmark-simple-tdd BENCH_AGENT=claude
+```
+
+The current runner supports:
+
+- `codex`
+- `claude`
+- `gemini`
+
+The agent must be installed and available on `PATH` for the run to work.
+
 ## Artifact Layout
 
 Each suite uses the same generic structure:
@@ -43,6 +175,189 @@ Each preserved run contains:
 At the session root, scoring writes:
 
 - `summary.json`
+
+## How To Inspect Output
+
+The default preserved output root is:
+
+- [tests/integrationtests/taskverification/.tmp/benchmarks](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/.tmp/benchmarks)
+
+For the current suite, sessions are written under:
+
+- [tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1](/Users/brb/_devspace/centian-cli/tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1)
+
+The most useful files after a run are:
+
+- `session.json`
+  One manifest describing the full benchmark invocation.
+- `summary.json`
+  The comparison-friendly scored summary for the whole session.
+- `run.json`
+  Raw metadata for one concrete run.
+- `scorecard.json`
+  Derived metrics for one concrete run.
+- `logs/requests_*.jsonl`
+  The exact request log seen by Centian.
+- `logs/task_runs.json`
+  The captured task-run snapshot.
+- `logs/task_run_events/*.json`
+  The captured lifecycle and action-event timelines.
+- `logs/events.sqlite`
+  The SQLite event store preserved from the run.
+
+## Score Meaning
+
+### Outcome metrics
+
+- `completedSuccessfully`
+  The overall run finished successfully and the latest linked task run ended in `completed`.
+- `finalVerificationPassed`
+  The latest linked task run finished with `completed`.
+- `firstPassSuccess`
+  The run eventually completed and there were no `task_restarted`, `task_failed`, or `task_timed_out` events.
+- `restartOccurred`
+  A task restart happened during the run.
+- `failOccurred`
+  The task was explicitly failed during the run.
+- `timeoutOccurred`
+  The task hit an inactivity timeout during the run.
+- `invariantViolation`
+  One or more locked paths defined by the benchmark case changed relative to the seed fixture.
+
+### Process metrics
+
+- `failedTaskToolCalls`
+  Count of failed `centian.task_*` tool calls.
+- `failedDownstreamToolCalls`
+  Count of failed non-task tool calls, such as filesystem or shell-related actions.
+- `totalTaskToolCalls`
+  Count of all `centian.task_*` tool calls.
+- `totalDownstreamToolCalls`
+  Count of all non-task tool calls.
+- `retriesByStep`
+  How many times each step was started after its first start.
+- `totalStepRetries`
+  Sum of all step retries in the run.
+- `replanningCount`
+  Number of additional planning completions beyond the first one.
+- `recoveryTimeSeconds`
+  Time from the first failed tool/action event until the next successful task progress event, or until run end if none occurred.
+- `recoveryToolCalls`
+  Number of tool calls observed between the first failed tool/action event and the recovery point.
+
+### Efficiency metrics
+
+- `wallClockSeconds`
+  Total elapsed run time from `run.json`.
+- `totalToolCalls`
+  Sum of task-tool and downstream-tool calls.
+- `editedFilesCount`
+  Number of added, modified, or deleted files relative to the case seed fixture.
+- `editedFiles`
+  The concrete paths that changed relative to the case seed fixture.
+- `observedCommandCalls`
+  Count of observed shell-command execution tool calls from known command-execution tools.
+
+### Manual metrics
+
+- `errorActionabilityScore`
+  Optional reviewer-supplied `0..3` rubric score for how actionable failures were.
+- `errorActionabilityNotes`
+  Optional reviewer notes stored in `manual_score.json`.
+
+## How To Know If You Are Improving
+
+Benchmark results are most useful when compared across repeated runs, agents, or template variants. A single run can be noisy. Improvement usually means:
+
+- higher `completedSuccessfully` rate
+- higher `firstPassSuccess` rate
+- lower `invariantViolation` rate
+- lower `restartOccurred`, `failOccurred`, and `timeoutOccurred` rates
+- lower `failedTaskToolCalls` and `failedDownstreamToolCalls`
+- lower `wallClockSeconds`
+- lower `totalToolCalls`
+- lower `editedFilesCount` for the same task outcome
+
+For `simple_tdd`, the strongest signals are usually:
+
+1. success rate
+2. first-pass success rate
+3. invariant violation rate
+4. median wall-clock time on successful runs
+5. median failed tool calls on successful runs
+
+In practice:
+
+- if success goes up and time/tokens/tool activity stay roughly flat, that is a clear improvement
+- if success stays the same but retries, failures, and recovery cost go down, that is probably still an improvement
+- if time goes down but invariant violations go up, that is not an improvement
+- if one agent regresses while another improves, compare by agent rather than averaging too early
+
+The session-level `summary.json` is the easiest place to compare runs because it already groups results by:
+
+- case
+- agent
+- template variant
+- case + agent + template variant
+
+## Parameter Reference
+
+### `centian benchmark run`
+
+- `--suite`
+  Required. Path to the benchmark suite root, for example `tests/integrationtests/taskverification/benchmarks/simple_tdd_v1`.
+- `--case`
+  Optional and repeatable. One or more case ids to run. If omitted, all suite cases run.
+- `--agent`
+  Required and repeatable. One or more agent ids to execute.
+- `--repeat`
+  Optional. Number of attempts per matrix cell. Default: `1`.
+- `--template-dir`
+  Optional and repeatable. Template variant in `name=path` form. If omitted, the implicit default is `current=<repo-root>/task-templates/integrated`.
+- `--timeout`
+  Optional. Per-run timeout. Default: `15m`.
+- `--output-root`
+  Optional. Root directory for preserved benchmark artifacts. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
+- `--claude-model`
+  Optional. Claude model override.
+- `--gemini-model`
+  Optional. Gemini model override.
+- `--codex-model`
+  Optional. Codex model override.
+- `--keep-centian-running`
+  Optional. Print the live UI URL and prompt whether to shut down the run-local Centian server after the agent finishes. This is useful for interactive inspection, but not recommended for unattended matrix runs.
+
+### `centian benchmark score`
+
+- `--session`
+  Required. Path to one preserved benchmark session directory containing `session.json`.
+
+### `make benchmark-simple-tdd`
+
+These variables can be overridden:
+
+- `BENCH_SUITE`
+  Suite path used by the make target. Default: `tests/integrationtests/taskverification/benchmarks/simple_tdd_v1`.
+- `BENCH_CASE`
+  Case id used by the make target. Default: `assertion_failure_red`.
+- `BENCH_AGENT`
+  Agent used by the make target. Default: `codex`.
+- `BENCH_REPEAT`
+  Repeat count per matrix cell. Default: `1`.
+- `BENCH_OUTPUT_ROOT`
+  Preserved benchmark output root. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
+- `BENCH_TIMEOUT`
+  Per-run timeout. Default: `15m`.
+
+Example:
+
+```bash
+make benchmark-simple-tdd \
+  BENCH_AGENT=claude \
+  BENCH_CASE=compile_failure_red \
+  BENCH_REPEAT=2 \
+  BENCH_TIMEOUT=20m
+```
 
 ## Scope Of This Directory Today
 

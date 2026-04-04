@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/benchmarks"
 	"github.com/urfave/cli/v3"
 )
@@ -71,6 +72,10 @@ var BenchmarkRunCommand = &cli.Command{
 			Name:  "codex-model",
 			Usage: "Override Codex model",
 		},
+		&cli.BoolFlag{
+			Name:  "keep-centian-running",
+			Usage: "Print the benchmark UI URL and prompt whether to shut down the Centian server after the agent finishes",
+		},
 	},
 	Action: handleBenchmarkRunCommand,
 }
@@ -97,6 +102,32 @@ func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	options, err := buildBenchmarkRunOptions(cmd, binaryPath)
 	if err != nil {
 		return err
+	}
+
+	options.OnCentianReady = func(run *benchmarks.RunManifest) {
+		if run == nil || strings.TrimSpace(run.UIPublicURL) == "" {
+			return
+		}
+		fmt.Printf(
+			"Benchmark UI (%s/%s/%s attempt %03d): %s\n",
+			run.TemplateVariant.Name,
+			run.AgentID,
+			run.CaseID,
+			run.Attempt,
+			run.UIPublicURL,
+		)
+	}
+	if cmd.Bool("keep-centian-running") {
+		options.AfterRun = func(run *benchmarks.RunManifest) error {
+			if run == nil || run.CentianPID <= 0 {
+				return nil
+			}
+			fmt.Printf("Agent run finished. UI: %s\n", run.UIPublicURL)
+			return promptDemoShutdown(os.Stdin, os.Stdout, &agentrunner.DemoResult{
+				PID:         run.CentianPID,
+				UIPublicURL: run.UIPublicURL,
+			})
+		}
 	}
 
 	runner := benchmarks.NewRunner()
