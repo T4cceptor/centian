@@ -7,10 +7,16 @@ import (
 )
 
 func (p *CentianEndpoint) taskIdleTimeout() time.Duration {
-	if p == nil || p.server == nil || p.server.Config == nil || p.server.Config.Proxy == nil {
+	if p == nil {
 		return 0
 	}
-	seconds := p.server.Config.Proxy.TaskVerificationCapability().GetIdleTimeoutSeconds()
+	var seconds int
+	if p.project != nil && p.project.Config != nil {
+		seconds = p.project.Config.TaskVerificationCapability().GetIdleTimeoutSeconds()
+	} else if p.server != nil && p.server.Config != nil && p.server.Config.Proxy != nil {
+		// Fallback: legacy server config for backwards compatibility with tests.
+		seconds = p.server.Config.Proxy.TaskVerificationCapability().GetIdleTimeoutSeconds()
+	}
 	if seconds <= 0 {
 		return 0
 	}

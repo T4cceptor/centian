@@ -29,7 +29,7 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 
 	run := session.taskRun
 	if run == nil {
-		if p.server != nil && p.server.Config != nil && p.server.Config.Proxy.TaskVerificationEnabled() {
+		if p.taskVerificationToolsEnabled() {
 			return governanceDeniedResult(callCtx, taskverification.TaskPhaseInitialization, "", "", nil, governanceDeniedRegistrationNeeded, p.server.TaskVerification.WorkingDir), true
 		}
 		return nil, false

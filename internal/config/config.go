@@ -25,18 +25,197 @@ const (
 	httpsScheme      string        = "https"
 )
 
+// DefaultProjectSlug is the project slug used when no explicit projects are configured.
+const DefaultProjectSlug = "default"
+
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
+//
+// GlobalConfig supports two layouts:
+//  1. Flat (legacy): gateways, processors, auth, and capabilities live directly
+//     on GlobalConfig. These are auto-wrapped into a "default" ProjectConfig at
+//     load time via ResolveProjects().
+//  2. Project-based: one or more named ProjectConfig entries under the "projects"
+//     field. Each project gets its own route prefix, database, feature flags,
+//     gateways, and processors.
 type GlobalConfig struct {
-	Name        string                    `json:"name"`                 // Name of the server - simplifies server identification
-	Version     string                    `json:"version"`              // Config schema version
+	Name    string `json:"name"`    // Name of the server - simplifies server identification
+	Version string `json:"version"` // Config schema version
+
+	// Truly global settings - apply to the whole server process.
+	Proxy *ProxySettings `json:"proxy,omitempty"` // Proxy-level settings (host, port, logLevel, logOutput, timeout)
+
+	// Project-based layout: each project is an isolated tenant.
+	Projects map[string]*ProjectConfig `json:"projects,omitempty"` // Named project configs
+
+	// Legacy flat fields - auto-migrated into a "default" project by ResolveProjects().
+	// When Projects is non-empty these MUST be empty (enforced by validation).
 	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable proxy auth
 	AuthHeader  string                    `json:"authHeader,omitempty"` // Header name for proxy auth
-	Proxy       *ProxySettings            `json:"proxy,omitempty"`      // Proxy-level settings
 	Gateways    map[string]*GatewayConfig `json:"gateways,omitempty"`   // HTTP proxy gateways
 	Processors  []*ProcessorConfig        `json:"processors,omitempty"` // Processor chain
 	Metadata    map[string]interface{}    `json:"metadata,omitempty"`   // Additional metadata
+}
+
+// ProjectConfig represents an isolated project (tenant) within the Centian server.
+// Each project gets its own:
+//   - Route prefix: /<project_slug>/mcp/<gateway> and /<project_slug>/ui
+//   - SQLite database for event storage
+//   - Feature flags (capabilities)
+//   - Auth settings
+//   - Gateways, processors, and metadata
+type ProjectConfig struct {
+	Slug        string                    `json:"slug,omitempty"`       // URL-safe project slug (derived from map key if empty)
+	Description string                    `json:"description,omitempty"` // Human readable project description
+	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable project-level auth
+	AuthHeader  string                    `json:"authHeader,omitempty"` // Header name for project-level auth
+
+	Capabilities *CapabilitiesSettings     `json:"capabilities,omitempty"` // Project-scoped feature flags
+	Web          *ProxyWebSettings         `json:"web,omitempty"`          // Public web settings (OAuth flows)
+	Gateways     map[string]*GatewayConfig `json:"gateways,omitempty"`     // HTTP proxy gateways
+	Processors   []*ProcessorConfig        `json:"processors,omitempty"`   // Processor chain
+	Metadata     map[string]interface{}    `json:"metadata,omitempty"`     // Additional metadata
+}
+
+// IsAuthEnabled returns true when auth is enabled for this project (defaults to true).
+func (p *ProjectConfig) IsAuthEnabled() bool {
+	if p == nil || p.AuthEnabled == nil {
+		return true
+	}
+	return *p.AuthEnabled
+}
+
+// GetAuthHeader returns the configured auth header name or the default.
+func (p *ProjectConfig) GetAuthHeader() string {
+	if p == nil || p.AuthHeader == "" {
+		return DefaultAuthHeader
+	}
+	return p.AuthHeader
+}
+
+// TaskVerificationCapability returns the configured taskverification capability block.
+func (p *ProjectConfig) TaskVerificationCapability() *TaskVerificationCapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.TaskVerification
+}
+
+// EventStorageCapability returns the configured event storage capability block.
+func (p *ProjectConfig) EventStorageCapability() *EventStorageCapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.EventStorage
+}
+
+// TestToolsCapability returns the configured test tools capability block.
+func (p *ProjectConfig) TestToolsCapability() *TestToolsCapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.TestTools
+}
+
+// UICapability returns the configured embedded UI capability block.
+func (p *ProjectConfig) UICapability() *UICapabilitySettings {
+	if p == nil || p.Capabilities == nil {
+		return nil
+	}
+	return p.Capabilities.UI
+}
+
+// TaskVerificationEnabled reports whether taskverification tools are enabled. Defaults to false.
+func (p *ProjectConfig) TaskVerificationEnabled() bool {
+	return p != nil && p.TaskVerificationCapability().IsEnabled()
+}
+
+// UIEnabled reports whether the embedded UI should be served. Defaults to false.
+func (p *ProjectConfig) UIEnabled() bool {
+	return p != nil && p.UICapability().IsEnabled()
+}
+
+// TestToolsEnabled reports whether proxy-owned test tools are enabled. Defaults to false.
+func (p *ProjectConfig) TestToolsEnabled() bool {
+	return p != nil && p.TestToolsCapability().IsEnabled()
+}
+
+// HasOAuthServers reports whether any gateway in this project has OAuth enabled.
+func (p *ProjectConfig) HasOAuthServers() bool {
+	if p == nil {
+		return false
+	}
+	for _, gateway := range p.Gateways {
+		if gateway == nil {
+			continue
+		}
+		for _, server := range gateway.MCPServers {
+			if server != nil && server.OAuthEnabled() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ResolveProjects normalizes the GlobalConfig so that callers can always work
+// with the Projects map. When the config uses the legacy flat layout (no
+// explicit projects), a single "default" project is synthesized from the
+// top-level gateways, processors, auth, and capability fields.
+//
+// After this call, the legacy flat fields on GlobalConfig are cleared.
+func (g *GlobalConfig) ResolveProjects() {
+	if g == nil {
+		return
+	}
+
+	// Already using project-based layout.
+	if len(g.Projects) > 0 {
+		// Ensure slugs are populated from map keys.
+		for slug, project := range g.Projects {
+			if project.Slug == "" {
+				project.Slug = slug
+			}
+		}
+		return
+	}
+
+	// Synthesize a default project from legacy flat fields.
+	project := &ProjectConfig{
+		Slug:        DefaultProjectSlug,
+		AuthEnabled: g.AuthEnabled,
+		AuthHeader:  g.AuthHeader,
+		Gateways:    g.Gateways,
+		Processors:  g.Processors,
+		Metadata:    g.Metadata,
+	}
+
+	// Move capabilities and web settings from ProxySettings into the project.
+	if g.Proxy != nil {
+		project.Capabilities = g.Proxy.Capabilities
+		project.Web = g.Proxy.Web
+	}
+
+	g.Projects = map[string]*ProjectConfig{
+		DefaultProjectSlug: project,
+	}
+
+	// Clear legacy fields to prevent confusion.
+	g.AuthEnabled = nil
+	g.AuthHeader = ""
+	g.Gateways = nil
+	g.Processors = nil
+	g.Metadata = nil
+	if g.Proxy != nil {
+		g.Proxy.Capabilities = nil
+		g.Proxy.Web = nil
+	}
+}
+
+// IsLegacyLayout returns true when the config uses the flat (non-project) layout.
+func (g *GlobalConfig) IsLegacyLayout() bool {
+	return g != nil && len(g.Projects) == 0 && len(g.Gateways) > 0
 }
 
 // DefaultAuthHeader represents the default header for authentication at the Centian server.
@@ -53,6 +232,8 @@ const (
 )
 
 // IsAuthEnabled returns true when auth is enabled or unset.
+// After ResolveProjects(), this checks the legacy flat field; prefer
+// checking ProjectConfig.IsAuthEnabled() for project-aware code.
 func (g *GlobalConfig) IsAuthEnabled() bool {
 	if g == nil || g.AuthEnabled == nil {
 		return true
@@ -61,11 +242,22 @@ func (g *GlobalConfig) IsAuthEnabled() bool {
 }
 
 // GetAuthHeader returns the configured auth header name or the default.
+// After ResolveProjects(), this checks the legacy flat field; prefer
+// checking ProjectConfig.GetAuthHeader() for project-aware code.
 func (g *GlobalConfig) GetAuthHeader() string {
 	if g == nil || g.AuthHeader == "" {
 		return DefaultAuthHeader
 	}
 	return g.AuthHeader
+}
+
+// GetDefaultProject returns the "default" project after ResolveProjects() has been called.
+// Returns nil if no default project exists.
+func (g *GlobalConfig) GetDefaultProject() *ProjectConfig {
+	if g == nil || g.Projects == nil {
+		return nil
+	}
+	return g.Projects[DefaultProjectSlug]
 }
 
 // ServerSearchResult captures data and references
@@ -210,33 +402,53 @@ type UICapabilitySettings struct {
 }
 
 // NewDefaultProxySettings creates a new ProxySettings with default values.
+// Note: Capabilities and Web settings now live in ProjectConfig, not ProxySettings.
+// Use NewDefaultCapabilities() for project-level defaults.
 func NewDefaultProxySettings() ProxySettings {
-	taskVerificationEnabled := false
-	testToolsEnabled := false
-	eventStorageEnabled := true
-	uiEnabled := false
 	return ProxySettings{
 		Host:      DefaultProxyHost,
 		Port:      "9666",
 		Timeout:   30,
 		LogLevel:  DefaultProxyLogLevel,
 		LogOutput: DefaultProxyLogOutput,
-		Capabilities: &CapabilitiesSettings{
-			TaskVerification: &TaskVerificationCapabilitySettings{
-				Enabled: &taskVerificationEnabled,
-			},
-			EventStorage: &EventStorageCapabilitySettings{
-				Enabled: &eventStorageEnabled,
-				Driver:  DefaultEventStorageDriver,
-			},
-			TestTools: &TestToolsCapabilitySettings{
-				Enabled: &testToolsEnabled,
-			},
-			UI: &UICapabilitySettings{
-				Enabled: &uiEnabled,
-			},
+	}
+}
+
+// NewDefaultCapabilities creates default capability settings for a project.
+func NewDefaultCapabilities() *CapabilitiesSettings {
+	taskVerificationEnabled := false
+	testToolsEnabled := false
+	eventStorageEnabled := true
+	uiEnabled := false
+	return &CapabilitiesSettings{
+		TaskVerification: &TaskVerificationCapabilitySettings{
+			Enabled: &taskVerificationEnabled,
 		},
-		Web: &ProxyWebSettings{},
+		EventStorage: &EventStorageCapabilitySettings{
+			Enabled: &eventStorageEnabled,
+			Driver:  DefaultEventStorageDriver,
+		},
+		TestTools: &TestToolsCapabilitySettings{
+			Enabled: &testToolsEnabled,
+		},
+		UI: &UICapabilitySettings{
+			Enabled: &uiEnabled,
+		},
+	}
+}
+
+// NewDefaultProjectConfig creates a default ProjectConfig with standard capabilities.
+func NewDefaultProjectConfig() *ProjectConfig {
+	authEnabled := true
+	return &ProjectConfig{
+		Slug:         DefaultProjectSlug,
+		AuthEnabled:  &authEnabled,
+		AuthHeader:   DefaultAuthHeader,
+		Capabilities: NewDefaultCapabilities(),
+		Web:          &ProxyWebSettings{},
+		Gateways:     map[string]*GatewayConfig{},
+		Processors:   []*ProcessorConfig{},
+		Metadata:     make(map[string]interface{}),
 	}
 }
 
@@ -461,10 +673,14 @@ func (p *ProcessorConfig) GetParts() []string {
 	return p.Parts
 }
 
-// DefaultConfig returns a default configuration.
+// DefaultConfig returns a default configuration using the legacy flat layout.
+// Callers that need the project-based layout should call ResolveProjects() after
+// populating gateways, or use DefaultProjectBasedConfig().
 func DefaultConfig() *GlobalConfig {
 	authEnabled := true
 	proxySettings := NewDefaultProxySettings()
+	proxySettings.Capabilities = NewDefaultCapabilities()
+	proxySettings.Web = &ProxyWebSettings{}
 	return &GlobalConfig{
 		Name:        "Centian Server",
 		Version:     "1.0.0",
@@ -472,8 +688,21 @@ func DefaultConfig() *GlobalConfig {
 		AuthHeader:  DefaultAuthHeader,
 		Proxy:       &proxySettings,
 		Gateways:    map[string]*GatewayConfig{},
-		Processors:  []*ProcessorConfig{}, // Empty processor list is valid (no-op)
+		Processors:  []*ProcessorConfig{},
 		Metadata:    make(map[string]interface{}),
+	}
+}
+
+// DefaultProjectBasedConfig returns a default configuration using the project-based layout.
+func DefaultProjectBasedConfig() *GlobalConfig {
+	proxySettings := NewDefaultProxySettings()
+	return &GlobalConfig{
+		Name:    "Centian Server",
+		Version: "1.0.0",
+		Proxy:   &proxySettings,
+		Projects: map[string]*ProjectConfig{
+			DefaultProjectSlug: NewDefaultProjectConfig(),
+		},
 	}
 }
 
@@ -582,6 +811,8 @@ func saveConfig(config *GlobalConfig) error {
 // ValidateConfig performs basic schema validation on the configuration.
 // This validates required fields and structure but allows empty gateways.
 // Use ValidateConfigForServer for operational validation before starting a server.
+//
+// Supports both legacy flat layout and project-based layout.
 func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if config == nil {
 		return fmt.Errorf("config is required")
@@ -595,14 +826,38 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	if err := validateProxySettings(config.Proxy); err != nil {
 		return err
 	}
+
+	// Reject mixed layout: cannot have both top-level gateways AND projects.
+	if len(config.Projects) > 0 && len(config.Gateways) > 0 {
+		return fmt.Errorf("config cannot have both top-level 'gateways' and 'projects' - use one layout")
+	}
+
+	// Project-based layout validation.
+	if len(config.Projects) > 0 {
+		for slug, project := range config.Projects {
+			if err := validateProjectSlug(slug); err != nil {
+				return err
+			}
+			if project == nil {
+				return fmt.Errorf("project '%s': config cannot be nil", slug)
+			}
+			if err := validateProjectConfig(slug, project, strict); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Legacy flat layout validation.
 	if err := validateNameConventions(config.Gateways); err != nil {
 		return err
 	}
 	if HasOAuthServers(config) {
-		if config.Proxy.Web == nil || config.Proxy.Web.PublicBaseURL == "" {
+		publicBaseURL := getPublicBaseURL(config)
+		if publicBaseURL == "" {
 			return fmt.Errorf("proxy.web.publicBaseUrl is required when downstream oauth is enabled")
 		}
-		if !isValidHTTPURL(config.Proxy.Web.PublicBaseURL) {
+		if !isValidHTTPURL(publicBaseURL) {
 			return fmt.Errorf("proxy.web.publicBaseUrl must be a valid http:// or https:// URL")
 		}
 	}
@@ -614,6 +869,53 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 		}
 		if err := validateProcessors(config.Processors); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// getPublicBaseURL returns the public base URL from either the legacy proxy.web
+// or project-level web settings.
+func getPublicBaseURL(config *GlobalConfig) string {
+	// Check legacy proxy.web first.
+	if config.Proxy != nil && config.Proxy.Web != nil && config.Proxy.Web.PublicBaseURL != "" {
+		return config.Proxy.Web.PublicBaseURL
+	}
+	return ""
+}
+
+// validateProjectSlug validates that a project slug is URL-safe.
+func validateProjectSlug(slug string) error {
+	if slug == "" {
+		return fmt.Errorf("project slug cannot be empty")
+	}
+	if !common.IsURLCompliant(slug) {
+		return fmt.Errorf("project '%s': slug must be URL-safe (alphanumeric, dash, underscore only)", slug)
+	}
+	return nil
+}
+
+// validateProjectConfig validates a single project configuration.
+func validateProjectConfig(slug string, project *ProjectConfig, strict bool) error {
+	if err := validateNameConventions(project.Gateways); err != nil {
+		return fmt.Errorf("project '%s': %w", slug, err)
+	}
+
+	if project.HasOAuthServers() {
+		if project.Web == nil || project.Web.PublicBaseURL == "" {
+			return fmt.Errorf("project '%s': web.publicBaseUrl is required when downstream oauth is enabled", slug)
+		}
+		if !isValidHTTPURL(project.Web.PublicBaseURL) {
+			return fmt.Errorf("project '%s': web.publicBaseUrl must be a valid http:// or https:// URL", slug)
+		}
+	}
+
+	if strict {
+		if err := validateGateways(project.Gateways); err != nil {
+			return fmt.Errorf("project '%s': %w", slug, err)
+		}
+		if err := validateProcessors(project.Processors); err != nil {
+			return fmt.Errorf("project '%s': %w", slug, err)
 		}
 	}
 	return nil
@@ -641,19 +943,27 @@ func validateProxySettings(proxy *ProxySettings) error {
 	}
 
 	proxy.LogFile = strings.TrimSpace(proxy.LogFile)
-	if proxy.Capabilities != nil {
-		if proxy.Capabilities.TaskVerification != nil {
-			proxy.Capabilities.TaskVerification.TemplatesPath = strings.TrimSpace(proxy.Capabilities.TaskVerification.TemplatesPath)
-		}
-		if proxy.Capabilities.EventStorage != nil {
-			proxy.Capabilities.EventStorage.Driver = strings.TrimSpace(proxy.Capabilities.EventStorage.Driver)
-			proxy.Capabilities.EventStorage.Path = strings.TrimSpace(proxy.Capabilities.EventStorage.Path)
-		}
-	}
+
+	// Legacy: capabilities and web may still live on ProxySettings for flat configs.
+	normalizeCapabilities(proxy.Capabilities)
 	if proxy.Web != nil {
 		proxy.Web.PublicBaseURL = strings.TrimSpace(proxy.Web.PublicBaseURL)
 	}
 	return nil
+}
+
+// normalizeCapabilities trims whitespace from capability settings.
+func normalizeCapabilities(capabilities *CapabilitiesSettings) {
+	if capabilities == nil {
+		return
+	}
+	if capabilities.TaskVerification != nil {
+		capabilities.TaskVerification.TemplatesPath = strings.TrimSpace(capabilities.TaskVerification.TemplatesPath)
+	}
+	if capabilities.EventStorage != nil {
+		capabilities.EventStorage.Driver = strings.TrimSpace(capabilities.EventStorage.Driver)
+		capabilities.EventStorage.Path = strings.TrimSpace(capabilities.EventStorage.Path)
+	}
 }
 
 // validateNameConventions validates gateway and server names.
@@ -874,10 +1184,12 @@ func validateOptionalOAuthURL(name, fieldName, value string) error {
 }
 
 // HasOAuthServers reports whether any configured downstream server enables OAuth.
+// Checks both legacy flat gateways and project-scoped gateways.
 func HasOAuthServers(config *GlobalConfig) bool {
 	if config == nil {
 		return false
 	}
+	// Check legacy flat gateways.
 	for _, gateway := range config.Gateways {
 		if gateway == nil {
 			continue
@@ -886,6 +1198,12 @@ func HasOAuthServers(config *GlobalConfig) bool {
 			if server != nil && server.OAuthEnabled() {
 				return true
 			}
+		}
+	}
+	// Check project-scoped gateways.
+	for _, project := range config.Projects {
+		if project != nil && project.HasOAuthServers() {
+			return true
 		}
 	}
 	return false

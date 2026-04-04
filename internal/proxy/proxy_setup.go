@@ -24,6 +24,8 @@ import (
 // single-server proxy endpoints from config.
 
 // NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
+// It resolves the config into the project-based layout and initializes per-project
+// services (persistence, task verification) for each project.
 //
 //nolint:gocyclo // Server startup coordinates several subsystems; helpers keep the branches local and explicit.
 func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
@@ -31,13 +33,20 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		return nil, fmt.Errorf("proxy settings are required")
 	}
 
+	// Normalize config to project-based layout.
+	globalConfig.ResolveProjects()
+
 	host := globalConfig.Proxy.Host
 	if host == "" {
 		host = config.DefaultProxyHost
 	}
-	if host == "0.0.0.0" && globalConfig.AuthEnabled == nil {
-		// TODO: move this into validation
-		return nil, fmt.Errorf("auth must be explicitly set when binding to 0.0.0.0")
+	if host == "0.0.0.0" {
+		// When binding to all interfaces, all projects must have auth explicitly configured.
+		for slug, project := range globalConfig.Projects {
+			if project != nil && project.AuthEnabled == nil {
+				return nil, fmt.Errorf("auth must be explicitly set when binding to 0.0.0.0 (project '%s')", slug)
+			}
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -62,25 +71,41 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		return nil, fmt.Errorf("failed to determine current working directory: %w", err)
 	}
 
-	taskService, persistenceStore, eventStoreCloser, err := newTaskVerificationService(globalConfig, workingDir, logger)
-	if err != nil {
-		return nil, err
+	centianServer := &CentianServer{
+		Config:   globalConfig,
+		Mux:      mux,
+		Server:   server,
+		Logger:   logger,
+		ServerID: getServerID(),
+		Projects: make(map[string]*CentianProject),
+		APIKeys:  apiKeyStore,
+		// AuthHeader is set per-project now, but keep a default for global middleware.
+		AuthHeader: config.DefaultAuthHeader,
+		// Legacy fields - will be populated from the default project below.
+		Gateways:  make(map[string]*CentianEndpoint),
+		Endpoints: []*CentianEndpoint{},
 	}
 
-	centianServer := &CentianServer{
-		Config:           globalConfig,
-		Mux:              mux,
-		Server:           server,
-		Logger:           logger,
-		ServerID:         getServerID(),
-		Gateways:         make(map[string]*CentianEndpoint),
-		Endpoints:        []*CentianEndpoint{},
-		APIKeys:          apiKeyStore,
-		AuthHeader:       globalConfig.GetAuthHeader(),
-		PersistenceStore: persistenceStore,
-		TaskVerification: taskService,
-		eventStoreCloser: eventStoreCloser,
+	// Initialize per-project state.
+	for slug, projectConfig := range globalConfig.Projects {
+		project, err := newCentianProject(slug, projectConfig, workingDir, logger)
+		if err != nil {
+			return nil, fmt.Errorf("project '%s': %w", slug, err)
+		}
+		centianServer.Projects[slug] = project
 	}
+
+	// Populate legacy flat-access fields from the default project.
+	if defaultProject, ok := centianServer.Projects[config.DefaultProjectSlug]; ok {
+		centianServer.Gateways = defaultProject.Gateways
+		centianServer.Endpoints = defaultProject.Endpoints
+		centianServer.OAuth = defaultProject.OAuth
+		centianServer.PersistenceStore = defaultProject.PersistenceStore
+		centianServer.TaskVerification = defaultProject.TaskVerification
+		centianServer.eventStoreCloser = defaultProject.eventStoreCloser
+		centianServer.AuthHeader = defaultProject.Config.GetAuthHeader()
+	}
+
 	server.RegisterOnShutdown(func() {
 		for _, err := range centianServer.Close() {
 			common.LogWarn("error during centian shutdown cleanup: %v", err)
@@ -90,8 +115,122 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 	return centianServer, nil
 }
 
+// newCentianProject initializes per-project runtime state.
+func newCentianProject(
+	slug string,
+	projectConfig *config.ProjectConfig,
+	workingDir string,
+	logger *logging.Logger,
+) (*CentianProject, error) {
+	taskService, persistenceStore, eventStoreCloser, err := newProjectTaskVerificationService(projectConfig, slug, workingDir, logger)
+	if err != nil {
+		return nil, err
+	}
+	return &CentianProject{
+		Slug:             slug,
+		Config:           projectConfig,
+		Gateways:         make(map[string]*CentianEndpoint),
+		Endpoints:        []*CentianEndpoint{},
+		PersistenceStore: persistenceStore,
+		TaskVerification: taskService,
+		eventStoreCloser: eventStoreCloser,
+	}, nil
+}
+
+// newProjectTaskVerificationService creates task verification and persistence services for a project.
+func newProjectTaskVerificationService(
+	projectConfig *config.ProjectConfig,
+	projectSlug string,
+	workingDir string,
+	logger *logging.Logger,
+) (*taskverification.Service, *persistence.Store, io.Closer, error) {
+	templateDir := resolveProjectTaskTemplatesPath(projectConfig, workingDir)
+	taskService := taskverification.NewService(templateDir, workingDir)
+
+	eventStorage := projectConfig.EventStorageCapability()
+	if eventStorage != nil && !eventStorage.IsEnabled() {
+		return taskService, nil, noopCloser{}, nil
+	}
+
+	storePath, err := resolveProjectEventStorePath(eventStorage, projectSlug)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	store, err := persistence.NewSQLiteStore(storePath)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
+	}
+	taskService.EventStore = store
+	logger.SetActionEventStore(store)
+	return taskService, store, store, nil
+}
+
+func resolveProjectTaskTemplatesPath(projectConfig *config.ProjectConfig, workingDir string) string {
+	defaultPath := filepath.Join(workingDir, "task-templates")
+	if projectConfig == nil {
+		return defaultPath
+	}
+	templatesPath := projectConfig.TaskVerificationCapability().GetTemplatesPath()
+	if templatesPath == "" {
+		return defaultPath
+	}
+	if filepath.IsAbs(templatesPath) {
+		return templatesPath
+	}
+	return filepath.Join(workingDir, templatesPath)
+}
+
+// resolveProjectEventStorePath determines the SQLite path for a project.
+// For the "default" project, this falls back to the global default path.
+// For named projects, it uses ~/.centian/projects/<slug>/events.sqlite.
+func resolveProjectEventStorePath(settings *config.EventStorageCapabilitySettings, projectSlug string) (string, error) {
+	driver := config.DefaultEventStorageDriver
+	if settings != nil {
+		driver = settings.GetDriver()
+	}
+	if driver != config.DefaultEventStorageDriver {
+		return "", fmt.Errorf("unsupported event storage driver %q", driver)
+	}
+	// Explicit path overrides everything.
+	if settings != nil && settings.Path != "" {
+		return settings.Path, nil
+	}
+	// Default project uses the legacy global path.
+	if projectSlug == config.DefaultProjectSlug {
+		storePath, err := logging.GetDefaultEventStorePath()
+		if err != nil {
+			return "", fmt.Errorf("failed to determine default event storage path: %w", err)
+		}
+		return storePath, nil
+	}
+	// Named projects get their own directory.
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine config directory: %w", err)
+	}
+	projectDir := filepath.Join(configDir, "projects", projectSlug)
+	if err := os.MkdirAll(projectDir, 0o750); err != nil {
+		return "", fmt.Errorf("failed to create project directory: %w", err)
+	}
+	return filepath.Join(projectDir, "events.sqlite"), nil
+}
+
 func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, error) {
-	if !globalConfig.IsAuthEnabled() {
+	// Check if any project has auth enabled.
+	anyAuthEnabled := false
+	if len(globalConfig.Projects) > 0 {
+		for _, project := range globalConfig.Projects {
+			if project != nil && project.IsAuthEnabled() {
+				anyAuthEnabled = true
+				break
+			}
+		}
+	} else {
+		// Fallback: check legacy flat field (before ResolveProjects).
+		anyAuthEnabled = globalConfig.IsAuthEnabled()
+	}
+
+	if !anyAuthEnabled {
 		common.LogInfo("API key auth disabled via config\n")
 		//nolint:nilnil // nil store is the sentinel that downstream auth middleware is disabled.
 		return nil, nil
@@ -119,91 +258,93 @@ func (noopCloser) Close() error {
 	return nil
 }
 
+// Legacy helpers kept as thin wrappers for test compatibility.
+
 func newTaskVerificationService(
 	globalConfig *config.GlobalConfig,
 	workingDir string,
 	logger *logging.Logger,
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
-	templateDir := resolveTaskTemplatesPath(globalConfig.Proxy, workingDir)
-	taskService := taskverification.NewService(templateDir, workingDir)
-	eventStorage := globalConfig.Proxy.EventStorageCapability()
-	if eventStorage != nil && !eventStorage.IsEnabled() {
-		return taskService, nil, noopCloser{}, nil
+	// After ResolveProjects, capabilities live in the default project.
+	defaultProject := globalConfig.GetDefaultProject()
+	if defaultProject == nil {
+		defaultProject = config.NewDefaultProjectConfig()
 	}
-
-	storePath, err := resolveEventStorePath(eventStorage)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	store, err := persistence.NewSQLiteStore(storePath)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
-	}
-	taskService.EventStore = store
-	logger.SetActionEventStore(store)
-	return taskService, store, store, nil
-}
-
-func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string) string {
-	defaultPath := filepath.Join(workingDir, "task-templates")
-	if settings == nil {
-		return defaultPath
-	}
-	templatesPath := settings.TaskVerificationCapability().GetTemplatesPath()
-	if templatesPath == "" {
-		return defaultPath
-	}
-	if filepath.IsAbs(templatesPath) {
-		return templatesPath
-	}
-	return filepath.Join(workingDir, templatesPath)
+	return newProjectTaskVerificationService(defaultProject, config.DefaultProjectSlug, workingDir, logger)
 }
 
 func resolveEventStorePath(settings *config.EventStorageCapabilitySettings) (string, error) {
-	driver := config.DefaultEventStorageDriver
-	if settings != nil {
-		driver = settings.GetDriver()
-	}
-	if driver != config.DefaultEventStorageDriver {
-		return "", fmt.Errorf("unsupported event storage driver %q", driver)
-	}
-	if settings != nil && settings.Path != "" {
-		return settings.Path, nil
-	}
-	storePath, err := logging.GetDefaultEventStorePath()
-	if err != nil {
-		return "", fmt.Errorf("failed to determine default event storage path: %w", err)
-	}
-	return storePath, nil
+	return resolveProjectEventStorePath(settings, config.DefaultProjectSlug)
 }
 
-// Setup uses CentianServer.config to create all gateways and endpoints.
+// Setup uses CentianServer.config to create all gateways and endpoints for every project.
 func (c *CentianServer) Setup() error {
-	if config.HasOAuthServers(c.Config) {
+	for slug, project := range c.Projects {
+		if err := c.setupProject(slug, project); err != nil {
+			return fmt.Errorf("project '%s': %w", slug, err)
+		}
+	}
+
+	// Sync legacy flat-access fields from the default project.
+	if defaultProject, ok := c.Projects[config.DefaultProjectSlug]; ok {
+		c.Gateways = defaultProject.Gateways
+		c.Endpoints = defaultProject.Endpoints
+		c.OAuth = defaultProject.OAuth
+		c.PersistenceStore = defaultProject.PersistenceStore
+		c.TaskVerification = defaultProject.TaskVerification
+	}
+
+	return nil
+}
+
+// setupProject configures routes and services for a single project.
+func (c *CentianServer) setupProject(slug string, project *CentianProject) error {
+	projectConfig := project.Config
+
+	// Determine route prefix. The default project uses no prefix for backwards compatibility.
+	routePrefix := ""
+	if slug != config.DefaultProjectSlug {
+		routePrefix = "/" + slug
+	}
+
+	// OAuth setup for this project.
+	if projectConfig.HasOAuthServers() {
 		publicBaseURL := ""
-		if c.Config != nil && c.Config.Proxy != nil && c.Config.Proxy.Web != nil {
-			publicBaseURL = c.Config.Proxy.Web.PublicBaseURL
+		if projectConfig.Web != nil {
+			publicBaseURL = projectConfig.Web.PublicBaseURL
 		}
 		manager, err := centoauth.NewManager(publicBaseURL, c.handleDownstreamAuthorized, c.handleDownstreamAuthorizationRequired)
 		if err != nil {
 			return err
 		}
-		c.OAuth = manager
-		c.OAuth.RegisterRoutes(c.Mux)
+		project.OAuth = manager
+		// Register OAuth routes with project prefix.
+		if routePrefix == "" {
+			project.OAuth.RegisterRoutes(c.Mux)
+		} else {
+			// For non-default projects, OAuth routes are prefixed.
+			// Edge case: OAuth route registration with prefix - not yet handled by OAuth manager.
+			// TODO: add prefix support to OAuth manager for multi-project setups.
+			project.OAuth.RegisterRoutes(c.Mux)
+		}
 	}
-	c.registerOptionalHTTPRoutes()
 
-	for gatewayName, gatewayConfig := range c.Config.Gateways {
-		endpoint, err := getEndpointString(gatewayName, "")
-		if err != nil {
-			common.LogError("error creating endpoint for gateway '%s': %s", gatewayName, err.Error())
+	// Register optional HTTP routes (API, UI) for this project.
+	c.registerProjectHTTPRoutes(project, routePrefix)
+
+	// Register gateway and server endpoints.
+	for gatewayName, gatewayConfig := range projectConfig.Gateways {
+		endpointPath := fmt.Sprintf("%s/mcp/%s", routePrefix, gatewayName)
+		if !common.IsURLCompliant(gatewayName) {
+			common.LogError("error creating endpoint for gateway '%s': name is not URL compliant", gatewayName)
 			continue
 		}
 
-		gateway := NewAggregatedEndpoint(gatewayName, endpoint, gatewayConfig)
+		gateway := NewAggregatedEndpoint(gatewayName, endpointPath, gatewayConfig)
 		gateway.server = c
-		c.Gateways[gatewayName] = gateway
-		c.Endpoints = append(c.Endpoints, gateway)
+		gateway.project = project
+		project.Gateways[gatewayName] = gateway
+		project.Endpoints = append(project.Endpoints, gateway)
 
 		if err := gateway.initEventProcessor(); err != nil {
 			return err
@@ -214,10 +355,11 @@ func (c *CentianServer) Setup() error {
 			if gatewayConfig.MCPServers[serverName] == nil {
 				continue
 			}
-			singleEndpointRoute := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+			singleEndpointRoute := fmt.Sprintf("%s/mcp/%s/%s", routePrefix, gatewayName, serverName)
 			singleEndpoint := NewSingleEndpoint(serverName, singleEndpointRoute, gatewayConfig)
 			singleEndpoint.server = c
-			c.Endpoints = append(c.Endpoints, singleEndpoint)
+			singleEndpoint.project = project
+			project.Endpoints = append(project.Endpoints, singleEndpoint)
 			if err := singleEndpoint.initEventProcessor(); err != nil {
 				return err
 			}
@@ -227,16 +369,40 @@ func (c *CentianServer) Setup() error {
 	return nil
 }
 
-func (c *CentianServer) registerOptionalHTTPRoutes() {
-	if c == nil || c.PersistenceStore == nil {
+// registerProjectHTTPRoutes registers API and UI routes for a project.
+func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject, routePrefix string) {
+	if project == nil || project.PersistenceStore == nil {
 		return
 	}
 
-	centapi.NewHandler(c.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, next)
-	})
-	if c.Config != nil && c.Config.Proxy != nil && c.Config.Proxy.UIEnabled() {
-		centui.NewHandler().RegisterRoutes(c.Mux)
+	handler := centapi.NewHandler(project.PersistenceStore)
+	if routePrefix == "" {
+		handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, next)
+		})
+	} else {
+		// For non-default projects, API routes are prefixed.
+		// TODO: implement prefixed route registration for API handler.
+		handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, next)
+		})
+	}
+
+	if project.Config != nil && project.Config.UIEnabled() {
+		if routePrefix == "" {
+			centui.NewHandler().RegisterRoutes(c.Mux)
+		} else {
+			// TODO: implement prefixed route registration for UI handler.
+			centui.NewHandler().RegisterRoutes(c.Mux)
+		}
+	}
+}
+
+// registerOptionalHTTPRoutes is kept for backwards compatibility but delegates
+// to registerProjectHTTPRoutes for the default project.
+func (c *CentianServer) registerOptionalHTTPRoutes() {
+	if defaultProject, ok := c.Projects[config.DefaultProjectSlug]; ok {
+		c.registerProjectHTTPRoutes(defaultProject, "")
 	}
 }
 
@@ -247,13 +413,48 @@ func (c *CentianServer) Close() []error {
 	}
 
 	errs := make([]error, 0)
+
+	// Close project-scoped resources.
+	for _, project := range c.Projects {
+		if project == nil {
+			continue
+		}
+		if project.eventStoreCloser != nil {
+			if err := project.eventStoreCloser.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		for _, endpoint := range project.Endpoints {
+			if endpoint == nil {
+				continue
+			}
+			errs = append(errs, endpoint.Close()...)
+		}
+	}
+
+	// Also close endpoints in the legacy flat list that aren't part of any project.
+	// This handles tests and code that directly populates CentianServer.Endpoints.
 	if c.eventStoreCloser != nil {
-		if err := c.eventStoreCloser.Close(); err != nil {
-			errs = append(errs, err)
+		// Only close if this isn't already owned by a project.
+		isProjectOwned := false
+		for _, project := range c.Projects {
+			if project != nil && project.eventStoreCloser == c.eventStoreCloser {
+				isProjectOwned = true
+				break
+			}
+		}
+		if !isProjectOwned {
+			if err := c.eventStoreCloser.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	for _, endpoint := range c.Endpoints {
 		if endpoint == nil {
+			continue
+		}
+		// Skip if already closed via project iteration.
+		if endpoint.project != nil {
 			continue
 		}
 		errs = append(errs, endpoint.Close()...)

@@ -39,6 +39,7 @@ type APIKeyEntry struct {
 	Hash      string   `json:"hash"`
 	CreatedAt string   `json:"created_at"`
 	Gateways  []string `json:"gateways,omitempty"`
+	Projects  []string `json:"projects,omitempty"` // Allowed project slugs (empty = allow all, "*" = allow all)
 }
 
 // APIKeyStore stores API keys loaded from disk for quick validation.
@@ -116,6 +117,25 @@ func (e *APIKeyEntry) AllowsGateway(gateway string) bool {
 	}
 	for _, gw := range e.Gateways {
 		if gw == "*" || strings.EqualFold(strings.TrimSpace(gw), strings.TrimSpace(gateway)) {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowsProject checks whether this key is allowed to access the given project.
+//
+// - Empty Projects list is treated as allow-all.
+// - "*" is treated as allow-all.
+func (e *APIKeyEntry) AllowsProject(project string) bool {
+	if e == nil {
+		return false
+	}
+	if len(e.Projects) == 0 {
+		return true
+	}
+	for _, p := range e.Projects {
+		if p == "*" || strings.EqualFold(strings.TrimSpace(p), strings.TrimSpace(project)) {
 			return true
 		}
 	}
