@@ -22,6 +22,8 @@ func TestRecordTaskEventAddsRunStatusToPayload(t *testing.T) {
 		run,
 		"session-1",
 		"principal-1",
+		"",
+		"",
 		TaskPhaseExecution,
 		WorkflowNodeKindExecution,
 		TaskPhaseExecution,

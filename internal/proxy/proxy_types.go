@@ -60,6 +60,8 @@ type UpstreamSession struct {
 	authData             *AuthData
 
 	protocolVersion         string
+	clientName              string
+	clientVersion           string
 	clientCapabilities      *mcp.ClientCapabilities
 	roots                   []*mcp.Root
 	logLevel                mcp.LoggingLevel

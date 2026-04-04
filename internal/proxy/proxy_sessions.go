@@ -149,6 +149,12 @@ func (p *CentianEndpoint) syncUpstreamSessionState(ctx context.Context, sessionI
 	if session == nil {
 		return
 	}
+	if upstreamClientState.clientName != "" && session.clientName == "" {
+		p.mu.Lock()
+		session.clientName = upstreamClientState.clientName
+		session.clientVersion = upstreamClientState.clientVersion
+		p.mu.Unlock()
+	}
 	p.finalizeDownstreamPoolUpdate(ctx, session, update)
 }
 
@@ -175,6 +181,8 @@ type capturedUpstreamClientState struct {
 	capabilities    *mcp.ClientCapabilities
 	roots           []*mcp.Root
 	rootsDirty      bool
+	clientName      string
+	clientVersion   string
 }
 
 // readUpstreamClientState reads the current client state from the upstream SDK session.
@@ -193,6 +201,8 @@ func (p *CentianEndpoint) readUpstreamClientState(
 		capabilities:    initializeParams.Capabilities,
 		roots:           session.roots,
 		rootsDirty:      session.rootsDirty,
+		clientName:      initializeParams.ClientInfo.Name,
+		clientVersion:   initializeParams.ClientInfo.Version,
 	}
 
 	if !clientSupportsRoots(initializeParams.Capabilities) {
