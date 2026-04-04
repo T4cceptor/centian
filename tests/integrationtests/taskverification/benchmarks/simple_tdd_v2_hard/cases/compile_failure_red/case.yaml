@@ -1,0 +1,26 @@
+version: "0.1"
+
+case:
+  id: "compile_failure_red"
+  name: "Compile-failure red baseline"
+  description: "An authored red baseline where the selected command fails via compile output."
+
+promptFile: "prompt.yaml"
+
+fixture:
+  seedPath: "fixture"
+  resetMode: "copy_seed"
+  startingRepoStateSummary: "Authored red baseline already exists; production code is incomplete."
+
+expectations:
+  selectedCommand: "go test ./internal/health -run TestHealthStatus"
+  redSignal:
+    type: "output_contains"
+    value: "undefined: HealthStatus"
+  greenConditionSummary: "The selected command exits 0 without modifying the locked baseline test file."
+
+constraints:
+  lockedPaths:
+    - "internal/health/health_test.go"
+  allowedAdditionalPaths:
+    - "internal/health"

@@ -4,6 +4,12 @@ prompt: |
 
   This benchmark already has an authored red baseline.
 
+  Freeze the following planning parameters:
+  - `testCommand`: `go test ./internal/score -run TestScoreParentheses`
+  - `testTarget`: `./internal/score -run TestScoreParentheses`
+  - `testFile`: `internal/score/score_test.go`
+  - `expectedError`: `expected score 2, got 0`
+
   Requirements:
   - Verify the authored red baseline before implementing code.
   - Do not create, rewrite, or edit the locked baseline test file `internal/score/score_test.go`.

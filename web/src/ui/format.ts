@@ -9,6 +9,27 @@ export function formatTimestamp(unixMilli: number): string {
   }).format(unixMilli);
 }
 
+function padTimestampPart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+// Formats an API timestamp into compact date and time parts for dense table layouts.
+export function formatTimestampCompact(unixMilli: number): { date: string; time: string } {
+  const value = new Date(unixMilli);
+  const date = [
+    value.getFullYear(),
+    padTimestampPart(value.getMonth() + 1),
+    padTimestampPart(value.getDate()),
+  ].join("/");
+  const time = [
+    padTimestampPart(value.getHours()),
+    padTimestampPart(value.getMinutes()),
+    padTimestampPart(value.getSeconds()),
+  ].join(":");
+
+  return { date, time };
+}
+
 // Renders elapsed time for both finished and still-running task runs.
 export function formatDuration(startedAt: number, endedAt?: number, now: number = Date.now()): string {
   const totalSeconds = Math.max(0, Math.floor(((endedAt ?? now) - startedAt) / 1000));
@@ -55,6 +76,13 @@ export function humanizeIdentifier(value: string): string {
     .filter(Boolean)
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+// Converts template ids into UI labels while preserving common acronyms.
+export function formatTemplateLabel(templateId: string, templateName?: string): string {
+  const base = (templateName ?? "").trim() || humanizeIdentifier(templateId);
+
+  return base.replace(/\b(Api|Cli|Mcp|Sql|Sqlite|Tdd|Ui)\b/g, (match) => match.toUpperCase());
 }
 
 // Shortens canonical task run ids while still preserving a stable suffix for operators.

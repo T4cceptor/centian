@@ -165,7 +165,15 @@ code,
 .task-run-table__header,
 .task-run-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 0.7fr) minmax(0, 0.35fr);
+  grid-template-columns:
+    minmax(0, 1.05fr)
+    minmax(0, 1.2fr)
+    minmax(0, 0.95fr)
+    minmax(88px, 0.8fr)
+    minmax(0, 1.2fr)
+    minmax(0, 1fr)
+    minmax(0, 0.7fr)
+    minmax(0, 0.35fr);
   gap: 16px;
   align-items: center;
 }
@@ -215,10 +223,21 @@ code,
   white-space: nowrap;
 }
 
-.task-run-row__template {
+.task-run-row__template,
+.task-run-row__agent,
+.task-run-row__phase,
+.task-run-row__started {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-run-row__started {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .task-run-row__status {

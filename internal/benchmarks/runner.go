@@ -133,6 +133,7 @@ type Runner struct {
 	FetchTaskRuns        func(string) ([]persistence.TaskRunSummary, error)
 	FetchTaskRunEvents   func(string, string) ([]persistence.TaskRunEvent, error)
 	FindLatestRequestLog func(string) (string, error)
+	PersistArtifact      func(context.Context, string, *persistence.BenchmarkArtifactRecord) error
 }
 
 // StartCentianOptions configures one benchmark-local Centian child process.
@@ -171,6 +172,7 @@ func NewRunner() *Runner {
 		FetchTaskRuns:        fetchTaskRuns,
 		FetchTaskRunEvents:   fetchTaskRunEvents,
 		FindLatestRequestLog: findLatestRequestLog,
+		PersistArtifact:      persistBenchmarkArtifact,
 	}
 }
 
@@ -333,6 +335,17 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if err := writeJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
 		return nil, err
 	}
+	if record, err := buildSessionArtifactRecord(session, ""); err != nil {
+		return session, err
+	} else {
+		storePath, pathErr := config.ResolveEventStorePath(nil)
+		if pathErr != nil {
+			return session, pathErr
+		}
+		if err := r.PersistArtifact(ctx, storePath, record); err != nil {
+			return session, err
+		}
+	}
 	if anyFailure {
 		return session, fmt.Errorf("one or more benchmark runs failed")
 	}
@@ -363,6 +376,9 @@ func (r *Runner) withDefaults() *Runner {
 	}
 	if r.FindLatestRequestLog == nil {
 		r.FindLatestRequestLog = findLatestRequestLog
+	}
+	if r.PersistArtifact == nil {
+		r.PersistArtifact = persistBenchmarkArtifact
 	}
 	return r
 }
@@ -433,6 +449,20 @@ func (r *Runner) executeRun(
 			EventStorePath: eventStorePath,
 		},
 	}
+	flushManifest := func() error {
+		runPath := filepath.Join(runDir, runFileName)
+		if err := writeJSONFile(runPath, manifest); err != nil {
+			return err
+		}
+		if strings.TrimSpace(manifest.ArtifactPaths.EventStorePath) == "" {
+			return nil
+		}
+		record, err := buildRunArtifactRecord(manifest)
+		if err != nil {
+			return err
+		}
+		return r.PersistArtifact(ctx, manifest.ArtifactPaths.EventStorePath, record)
+	}
 
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		manifest.ErrorSummary = err.Error()
@@ -443,7 +473,7 @@ func (r *Runner) executeRun(
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			manifest.ErrorSummary = err.Error()
 			manifest.EndedAt = r.Now()
-			_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+			_ = flushManifest()
 			return manifest, err
 		}
 	}
@@ -453,19 +483,19 @@ func (r *Runner) executeRun(
 		err := fmt.Errorf("unsupported fixture reset mode %q", spec.CaseDef.Fixture.ResetMode)
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
-		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+		_ = flushManifest()
 		return manifest, err
 	}
 	if err := copyDir(fixtureRoot, projectDir); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
-		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+		_ = flushManifest()
 		return manifest, err
 	}
 	if err := copyDir(spec.TemplateVariant.SourceDir, templatesDir); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
-		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+		_ = flushManifest()
 		return manifest, err
 	}
 
@@ -473,7 +503,7 @@ func (r *Runner) executeRun(
 	if err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
-		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+		_ = flushManifest()
 		return manifest, err
 	}
 	baseURL := "http://127.0.0.1:" + port
@@ -481,7 +511,7 @@ func (r *Runner) executeRun(
 	if err := writeCentianConfig(configPath, templatesDir, projectDir, filepath.Join(logsDir, "internal.log"), eventStorePath, port); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
-		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+		_ = flushManifest()
 		return manifest, err
 	}
 
@@ -496,7 +526,7 @@ func (r *Runner) executeRun(
 	if err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
-		_ = writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+		_ = flushManifest()
 		return manifest, err
 	}
 	manifest.UIPublicURL = baseURL + "/ui/tasks"
@@ -551,7 +581,7 @@ func (r *Runner) executeRun(
 	}
 
 	manifest.EndedAt = r.Now()
-	writeErr := writeJSONFile(filepath.Join(runDir, runFileName), manifest)
+	writeErr := flushManifest()
 	if writeErr != nil {
 		if manifest.ErrorSummary == "" {
 			manifest.ErrorSummary = writeErr.Error()

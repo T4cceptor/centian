@@ -1,0 +1,26 @@
+version: "0.1"
+
+case:
+  id: "green_then_refactor"
+  name: "Green then refactor"
+  description: "An authored red baseline that leaves room for a small valid refactor after the first green pass."
+
+promptFile: "prompt.yaml"
+
+fixture:
+  seedPath: "fixture"
+  resetMode: "copy_seed"
+  startingRepoStateSummary: "Authored red baseline already exists; implementation is incomplete and the case allows a follow-up refactor."
+
+expectations:
+  selectedCommand: "go test ./internal/score -run TestScoreParentheses"
+  redSignal:
+    type: "output_contains"
+    value: "expected score 2, got 0"
+  greenConditionSummary: "The selected command exits 0 while the locked baseline file stays unchanged; small follow-up refactors in other paths are allowed."
+
+constraints:
+  lockedPaths:
+    - "internal/score/score_test.go"
+  allowedAdditionalPaths:
+    - "internal/score"
