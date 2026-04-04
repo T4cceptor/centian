@@ -1,0 +1,8 @@
+prompt: |
+  Connect to the MCP server named `centian` and solve this Go benchmark case through the Centian workflow.
+  Use the simple tdd template and Centian lifecycle tools as the source of truth.
+
+  This benchmark already has an authored red baseline.
+  After the selected command is green, perform one small cleanup or refactor if appropriate, while keeping the selected command green.
+  
+  Stop after the task is completed.

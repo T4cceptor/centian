@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDuration, formatTaskRunId } from "./format";
+import { formatDuration, formatTaskRunId, formatTimestampCompact } from "./format";
 
 describe("formatDuration", () => {
   it("uses endedAt for finished runs", () => {
@@ -15,5 +15,15 @@ describe("formatDuration", () => {
 describe("formatTaskRunId", () => {
   it("compacts canonical task run identifiers down to their suffix", () => {
     expect(formatTaskRunId("tr_1774532248833_85kws87i5l")).toBe("TR · 85kws87i5l");
+  });
+});
+
+describe("formatTimestampCompact", () => {
+  it("returns zero-padded local date and time parts", () => {
+    const value = new Date(2026, 3, 4, 9, 7, 5).getTime();
+    expect(formatTimestampCompact(value)).toEqual({
+      date: "2026/04/04",
+      time: "09:07:05",
+    });
   });
 });

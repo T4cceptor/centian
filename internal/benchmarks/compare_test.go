@@ -6,10 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/persistence"
 	"gotest.tools/assert"
 )
 
 func TestCompareSuiteBuildsCrossSessionComparison(t *testing.T) {
+	logDir := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", logDir)
 	root := t.TempDir()
 	suiteRoot := filepath.Join(root, "simple_tdd_v1")
 	sessionOne := filepath.Join(suiteRoot, "20260404210000_run")
@@ -40,9 +43,20 @@ func TestCompareSuiteBuildsCrossSessionComparison(t *testing.T) {
 	assert.Equal(t, len(comparison.Aggregates.ByCaseAgentVariant), 2)
 	assert.Equal(t, comparison.Runs[0].SessionPath, sessionOne)
 	assert.Equal(t, comparison.Runs[2].SessionPath, sessionTwo)
+
+	store, err := persistence.NewSQLiteStore(filepath.Join(logDir, "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	comparisons, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
+		SuiteID:      "simple_tdd_v1",
+		ArtifactKind: persistence.BenchmarkArtifactKindComparison,
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(comparisons), 1)
 }
 
 func TestCompareSuiteAppliesFilters(t *testing.T) {
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
 	root := t.TempDir()
 	suiteRoot := filepath.Join(root, "simple_tdd_v1")
 	sessionOne := filepath.Join(suiteRoot, "20260404210000_run")

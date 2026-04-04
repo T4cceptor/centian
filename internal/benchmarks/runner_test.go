@@ -87,6 +87,22 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	assert.Assert(t, strings.Contains(string(data), `"latestTaskRunId": "tr_123"`))
 	assert.Assert(t, strings.Contains(string(data), `"eventStoreMode": "configured_shared"`))
 	assert.Assert(t, strings.Contains(string(data), filepath.Join(logDir, "events.sqlite")))
+
+	store, err := persistence.NewSQLiteStore(filepath.Join(logDir, "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	runRecords, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
+		SuiteID:      "simple_tdd_v1",
+		ArtifactKind: persistence.BenchmarkArtifactKindRun,
+	})
+	assert.NilError(t, err)
+	sessionRecords, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
+		SuiteID:      "simple_tdd_v1",
+		ArtifactKind: persistence.BenchmarkArtifactKindSession,
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runRecords), 24)
+	assert.Equal(t, len(sessionRecords), 1)
 }
 
 func TestRunSuiteContinuesAfterFailure(t *testing.T) {
@@ -211,6 +227,51 @@ constraints:
 	assert.Assert(t, err != nil)
 	assert.Equal(t, session.Status, "failed")
 	assert.Equal(t, session.Runs[0].ErrorSummary, `unsupported fixture reset mode "git_checkout"`)
+}
+
+func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+
+	runner := &Runner{
+		Now:          fixedClock(),
+		AllocatePort: func() (string, error) { return "40123", nil },
+		StartCentian: fakeStartCentian,
+		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+		},
+		FetchTaskRuns: func(string) ([]persistence.TaskRunSummary, error) {
+			return []persistence.TaskRunSummary{{
+				RunID:      "tr_123",
+				TemplateID: "simple_tdd",
+				StartedAt:  100,
+				Status:     "completed",
+			}}, nil
+		},
+		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
+			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
+		},
+		FindLatestRequestLog: fakeRequestLogLookup,
+		PersistArtifact: func(context.Context, string, *persistence.BenchmarkArtifactRecord) error {
+			return errors.New("persist failed")
+		},
+	}
+
+	session, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Agents:            []string{"codex"},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        t.TempDir(),
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+	})
+	assert.Assert(t, err != nil)
+	runPath := filepath.Join(session.InvocationDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", runFileName)
+	_, statErr := os.Stat(runPath)
+	assert.NilError(t, statErr)
 }
 
 func fakeStartCentian(_ context.Context, _ StartCentianOptions) (*StartedCentian, error) {

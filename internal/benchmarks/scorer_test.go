@@ -3,6 +3,7 @@ package benchmarks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,6 +34,20 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
 	assert.Equal(t, summary.Runs[0].SessionPath, sessionDir)
 	assert.Equal(t, summary.Runs[0].EventStoreMode, "configured_shared")
+	assert.Equal(t, summary.Runs[0].Agent, "claude")
+	assert.Assert(t, summary.Runs[0].InputTokens != nil)
+	assert.Equal(t, *summary.Runs[0].InputTokens, int64(123))
+	assert.Assert(t, summary.Runs[0].OutputTokens != nil)
+	assert.Equal(t, *summary.Runs[0].OutputTokens, int64(222))
+	assert.Equal(t, summary.Runs[1].Agent, "codex")
+	assert.Assert(t, summary.Runs[1].InputTokens != nil)
+	assert.Equal(t, *summary.Runs[1].InputTokens, int64(111))
+	assert.Assert(t, summary.Runs[1].OutputTokens != nil)
+	assert.Equal(t, *summary.Runs[1].OutputTokens, int64(666))
+	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianInputTokens, float64(123))
+	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianInputTokens, float64(111))
+	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianOutputTokens, float64(222))
+	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianOutputTokens, float64(666))
 
 	firstRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
 	assert.Equal(t, firstRunScorecard.Outcome.FirstPassSuccess, true)
@@ -54,6 +69,10 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Equal(t, firstRunScorecard.AgentMetadata.ThreadID, "thread_codex")
 	assert.Assert(t, firstRunScorecard.AgentMetadata.Usage.InputTokens != nil)
 	assert.Equal(t, *firstRunScorecard.AgentMetadata.Usage.InputTokens, int64(111))
+	assert.Assert(t, firstRunScorecard.Efficiency.InputTokens != nil)
+	assert.Equal(t, *firstRunScorecard.Efficiency.InputTokens, int64(111))
+	assert.Assert(t, firstRunScorecard.Efficiency.OutputTokens != nil)
+	assert.Equal(t, *firstRunScorecard.Efficiency.OutputTokens, int64(666))
 	assert.Equal(t, firstRunScorecard.SessionPath, sessionDir)
 	assert.Equal(t, firstRunScorecard.EventStoreMode, "configured_shared")
 
@@ -67,6 +86,26 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Equal(t, *secondRunScorecard.AgentMetadata.NumTurns, 7)
 	assert.Assert(t, secondRunScorecard.AgentMetadata.Usage.OutputTokens != nil)
 	assert.Equal(t, *secondRunScorecard.AgentMetadata.Usage.OutputTokens, int64(222))
+	assert.Assert(t, secondRunScorecard.Efficiency.InputTokens != nil)
+	assert.Equal(t, *secondRunScorecard.Efficiency.InputTokens, int64(123))
+	assert.Assert(t, secondRunScorecard.Efficiency.OutputTokens != nil)
+	assert.Equal(t, *secondRunScorecard.Efficiency.OutputTokens, int64(222))
+
+	store, err := persistence.NewSQLiteStore(filepath.Join(sessionDir, "shared-events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	scorecards, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
+		SuiteID:      "simple_tdd_v1",
+		ArtifactKind: persistence.BenchmarkArtifactKindScorecard,
+	})
+	assert.NilError(t, err)
+	summaries, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
+		SuiteID:      "simple_tdd_v1",
+		ArtifactKind: persistence.BenchmarkArtifactKindSummary,
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(scorecards), 2)
+	assert.Equal(t, len(summaries), 1)
 }
 
 func TestScoreSessionCanReuseSQLiteEventStoreWithoutJSONSnapshots(t *testing.T) {
@@ -125,6 +164,22 @@ func TestScoreSessionRejectsInvalidManualScoreButStillWritesSummary(t *testing.T
 	assert.Assert(t, os.IsNotExist(statErr))
 }
 
+func TestScoreSessionKeepsFilesWhenBenchmarkPersistenceFails(t *testing.T) {
+	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
+	scorer := &Scorer{
+		Now: func() time.Time { return time.Date(2026, 4, 4, 16, 0, 0, 0, time.UTC) },
+		PersistArtifact: func(context.Context, string, *persistence.BenchmarkArtifactRecord) error {
+			return errors.New("persist failed")
+		},
+	}
+
+	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
+	assert.ErrorContains(t, err, "persist failed")
+	assert.Assert(t, summary != nil)
+	_, statErr := os.Stat(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
+	assert.NilError(t, statErr)
+}
+
 func TestScoreSessionRequiresSessionManifest(t *testing.T) {
 	scorer := NewScorer()
 	_, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: t.TempDir()})
@@ -149,6 +204,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 
 	suiteRoot := checkedInSimpleTDDSuiteRoot(t)
 	assert.NilError(t, os.MkdirAll(sessionDir, 0o755))
+	sharedEventStorePath := filepath.Join(sessionDir, "shared-events.sqlite")
 
 	runs := []SessionRunManifestEntry{
 		{
@@ -172,7 +228,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 	}
 
 	for _, entry := range runs {
-		writeSyntheticRun(t, sessionDir, suiteRoot, entry, opts)
+		writeSyntheticRun(t, sessionDir, suiteRoot, sharedEventStorePath, entry, opts)
 	}
 
 	session := &SessionManifest{
@@ -195,7 +251,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 	assert.NilError(t, writeJSONFile(filepath.Join(sessionDir, sessionFileName), session))
 }
 
-func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry SessionRunManifestEntry, opts syntheticSessionOptions) {
+func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, sharedEventStorePath string, entry SessionRunManifestEntry, opts syntheticSessionOptions) {
 	t.Helper()
 
 	caseDef, err := LoadCase(suiteRoot, SuiteCaseRef{ID: entry.CaseID, Path: filepath.Join("cases", entry.CaseID)})
@@ -242,7 +298,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry 
 
 	events := syntheticEventsForCase(entry.CaseID)
 	assert.NilError(t, writeJSONFile(filepath.Join(taskRunEventsDir, taskRunID+".json"), events))
-	assert.NilError(t, writeSyntheticEventStore(filepath.Join(logsDir, "events.sqlite"), taskRunID, events))
+	assert.NilError(t, writeSyntheticEventStore(sharedEventStorePath, taskRunID, events))
 	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stdout.log"), []byte(syntheticAgentStdout(entry.AgentID)), 0o644))
 
 	if entry.CaseID == opts.invalidManualScoreForCase {
@@ -271,7 +327,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, entry 
 			AgentDir:         agentDir,
 			ConfigPath:       filepath.Join(runDir, "centian.config.json"),
 			EventStoreMode:   "configured_shared",
-			EventStorePath:   filepath.Join(logsDir, "events.sqlite"),
+			EventStorePath:   sharedEventStorePath,
 			RequestLogPath:   requestLogPath,
 			TaskRunsSnapshot: taskRunsPath,
 			TaskRunEventsDir: taskRunEventsDir,
@@ -382,6 +438,13 @@ func writeSyntheticEventStore(path string, taskRunID string, events []persistenc
 	defer func() { _ = store.Close() }()
 
 	for _, event := range events {
+		event.ID = taskRunID + "_" + event.ID
+		if event.RequestID != "" {
+			event.RequestID = taskRunID + "_" + event.RequestID
+		}
+		if event.RelatedActionRequestID != "" {
+			event.RelatedActionRequestID = taskRunID + "_" + event.RelatedActionRequestID
+		}
 		switch event.Source {
 		case persistence.TaskRunEventSourceTask:
 			if err := store.AppendTaskEvent(&taskverification.TaskEvent{

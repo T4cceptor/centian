@@ -40,9 +40,9 @@ func TestSimpleTDDSuiteFixturesStartRed(t *testing.T) {
 
 			promptText := strings.TrimSpace(prompt.Prompt)
 			assert.Assert(t, strings.Contains(promptText, "`simple_tdd`"))
-			assert.Assert(t, strings.Contains(promptText, caseDef.Expectations.SelectedCommand))
+			assert.Assert(t, strings.Contains(strings.ToLower(promptText), "selected command"))
 			assert.Assert(t, strings.Contains(promptText, caseDef.Constraints.LockedPaths[0]))
-			assert.Assert(t, strings.Contains(promptText, caseDef.Expectations.RedSignal.Value))
+			assert.Assert(t, strings.Contains(strings.ToLower(promptText), "authored red baseline"))
 		})
 	}
 }

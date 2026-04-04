@@ -8,6 +8,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/persistence"
 )
 
 const comparisonFileName = "comparison.json"
@@ -54,12 +57,13 @@ type ComparisonSession struct {
 
 // Comparer builds cross-session comparison summaries from preserved session summaries.
 type Comparer struct {
-	Now func() time.Time
+	Now             func() time.Time
+	PersistArtifact func(context.Context, string, *persistence.BenchmarkArtifactRecord) error
 }
 
 // NewComparer returns a comparer with default local behavior.
 func NewComparer() *Comparer {
-	return &Comparer{Now: time.Now}
+	return &Comparer{Now: time.Now, PersistArtifact: persistBenchmarkArtifact}
 }
 
 // CompareSuite loads scored sessions for one suite and writes comparison.json.
@@ -176,6 +180,17 @@ func (c *Comparer) CompareSuite(_ context.Context, opts *CompareOptions) (*Compa
 	if err := writeJSONFile(outputPath, comparison); err != nil {
 		return nil, "", fmt.Errorf("write comparison summary: %w", err)
 	}
+	record, err := buildComparisonArtifactRecord(comparison)
+	if err != nil {
+		return nil, "", err
+	}
+	storePath, err := config.ResolveEventStorePath(nil)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := c.PersistArtifact(context.Background(), storePath, record); err != nil {
+		return nil, "", err
+	}
 	return comparison, outputPath, nil
 }
 
@@ -185,6 +200,9 @@ func (c *Comparer) withDefaults() *Comparer {
 	}
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.PersistArtifact == nil {
+		c.PersistArtifact = persistBenchmarkArtifact
 	}
 	return c
 }

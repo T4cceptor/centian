@@ -133,6 +133,8 @@ type ScorecardProcess struct {
 type ScorecardEfficiency struct {
 	WallClockSeconds     float64  `json:"wallClockSeconds"`
 	TotalToolCalls       int      `json:"totalToolCalls"`
+	InputTokens          *int64   `json:"inputTokens,omitempty"`
+	OutputTokens         *int64   `json:"outputTokens,omitempty"`
 	EditedFilesCount     int      `json:"editedFilesCount"`
 	EditedFiles          []string `json:"editedFiles,omitempty"`
 	ObservedCommandCalls int      `json:"observedCommandCalls"`
@@ -187,6 +189,8 @@ type RunSummaryRow struct {
 	TimeoutOccurred           bool           `json:"timeoutOccurred"`
 	WallClockSeconds          float64        `json:"wallClockSeconds"`
 	TotalToolCalls            int            `json:"totalToolCalls"`
+	InputTokens               *int64         `json:"inputTokens,omitempty"`
+	OutputTokens              *int64         `json:"outputTokens,omitempty"`
 	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
 	FailedDownstreamToolCalls int            `json:"failedDownstreamToolCalls"`
 	EditedFilesCount          int            `json:"editedFilesCount"`
@@ -212,6 +216,8 @@ type AggregateSummary struct {
 	RestartFailTimeoutRate          float64  `json:"restartFailTimeoutRate"`
 	MedianWallClockSeconds          float64  `json:"medianWallClockSeconds"`
 	MedianTotalToolCalls            float64  `json:"medianTotalToolCalls"`
+	MedianInputTokens               float64  `json:"medianInputTokens"`
+	MedianOutputTokens              float64  `json:"medianOutputTokens"`
 	MedianFailedTaskToolCalls       float64  `json:"medianFailedTaskToolCalls"`
 	MedianFailedDownstreamToolCalls float64  `json:"medianFailedDownstreamToolCalls"`
 	MedianEditedFilesCount          float64  `json:"medianEditedFilesCount"`
@@ -220,7 +226,8 @@ type AggregateSummary struct {
 }
 
 type Scorer struct {
-	Now func() time.Time
+	Now             func() time.Time
+	PersistArtifact func(context.Context, string, *persistence.BenchmarkArtifactRecord) error
 }
 
 type scoreRunContext struct {
@@ -239,7 +246,7 @@ type scoreFailure struct {
 
 // NewScorer returns a benchmark scorer with default local behavior.
 func NewScorer() *Scorer {
-	return &Scorer{Now: time.Now}
+	return &Scorer{Now: time.Now, PersistArtifact: persistBenchmarkArtifact}
 }
 
 // ScoreSession computes derived scorecards for one preserved benchmark session.
@@ -320,6 +327,19 @@ func (s *Scorer) ScoreSession(_ context.Context, opts *ScoreOptions) (*SessionSu
 			})
 			continue
 		}
+		if record, err := buildScorecardArtifactRecord(scorecard); err != nil {
+			scoreFailures = append(scoreFailures, scoreFailure{
+				row: buildRunSummaryRow(ctx.entry, ctx.run, scorecard, []string{err.Error()}, nil),
+				err: err,
+			})
+			continue
+		} else if err := s.PersistArtifact(context.Background(), scorecard.EventStorePath, record); err != nil {
+			scoreFailures = append(scoreFailures, scoreFailure{
+				row: buildRunSummaryRow(ctx.entry, ctx.run, scorecard, []string{err.Error()}, nil),
+				err: err,
+			})
+			continue
+		}
 		row := buildRunSummaryRow(ctx.entry, ctx.run, scorecard, nil, scorecard.Warnings)
 		summary.Runs = append(summary.Runs, row)
 		scoredRows = append(scoredRows, row)
@@ -337,6 +357,15 @@ func (s *Scorer) ScoreSession(_ context.Context, opts *ScoreOptions) (*SessionSu
 	if err := writeJSONFile(filepath.Join(sessionDir, summaryFileName), summary); err != nil {
 		return nil, err
 	}
+	if storePath := summaryEventStorePath(summary.Runs); strings.TrimSpace(storePath) != "" {
+		record, err := buildSummaryArtifactRecord(summary)
+		if err != nil {
+			return summary, err
+		}
+		if err := s.PersistArtifact(context.Background(), storePath, record); err != nil {
+			return summary, err
+		}
+	}
 	if len(scoreFailures) > 0 {
 		return summary, fmt.Errorf("failed to score %d benchmark run(s)", len(scoreFailures))
 	}
@@ -349,6 +378,9 @@ func (s *Scorer) withDefaults() *Scorer {
 	}
 	if s.Now == nil {
 		s.Now = time.Now
+	}
+	if s.PersistArtifact == nil {
+		s.PersistArtifact = persistBenchmarkArtifact
 	}
 	return s
 }
@@ -436,6 +468,8 @@ func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
 	efficiency := ScorecardEfficiency{
 		WallClockSeconds:     secondsBetween(ctx.run.StartedAt, ctx.run.EndedAt),
 		TotalToolCalls:       process.TotalTaskToolCalls + process.TotalDownstreamToolCalls,
+		InputTokens:          agentUsageInputTokens(agentMetadata),
+		OutputTokens:         agentUsageOutputTokens(agentMetadata),
 		EditedFilesCount:     len(editedFiles),
 		EditedFiles:          editedFiles,
 		ObservedCommandCalls: countObservedCommandCalls(events),
@@ -1051,6 +1085,8 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	row.TimeoutOccurred = scorecard.Outcome.TimeoutOccurred
 	row.WallClockSeconds = scorecard.Efficiency.WallClockSeconds
 	row.TotalToolCalls = scorecard.Efficiency.TotalToolCalls
+	row.InputTokens = scorecard.Efficiency.InputTokens
+	row.OutputTokens = scorecard.Efficiency.OutputTokens
 	row.FailedTaskToolCalls = scorecard.Process.FailedTaskToolCalls
 	row.FailedDownstreamToolCalls = scorecard.Process.FailedDownstreamToolCalls
 	row.EditedFilesCount = scorecard.Efficiency.EditedFilesCount
@@ -1137,6 +1173,8 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 			RestartFailTimeoutRate:          rate(group, func(row RunSummaryRow) bool { return row.RestartOccurred || row.FailOccurred || row.TimeoutOccurred }),
 			MedianWallClockSeconds:          medianFloat(extractFloat(group, func(row RunSummaryRow) float64 { return row.WallClockSeconds })),
 			MedianTotalToolCalls:            medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.TotalToolCalls })),
+			MedianInputTokens:               medianFloat(extractOptionalInt64(group, func(row RunSummaryRow) *int64 { return row.InputTokens })),
+			MedianOutputTokens:              medianFloat(extractOptionalInt64(group, func(row RunSummaryRow) *int64 { return row.OutputTokens })),
 			MedianFailedTaskToolCalls:       medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.FailedTaskToolCalls })),
 			MedianFailedDownstreamToolCalls: medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.FailedDownstreamToolCalls })),
 			MedianEditedFilesCount:          medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.EditedFilesCount })),
@@ -1184,6 +1222,18 @@ func extractFloat(rows []RunSummaryRow, valueFn func(RunSummaryRow) float64) []f
 	return values
 }
 
+func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int64) []float64 {
+	values := make([]float64, 0, len(rows))
+	for _, row := range rows {
+		value := valueFn(row)
+		if value == nil {
+			continue
+		}
+		values = append(values, float64(*value))
+	}
+	return values
+}
+
 func medianFloat(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
@@ -1210,6 +1260,29 @@ func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 		return 0, false
 	}
 	return float64(total) / float64(count), true
+}
+
+func summaryEventStorePath(rows []RunSummaryRow) string {
+	for _, row := range rows {
+		if strings.TrimSpace(row.EventStorePath) != "" {
+			return row.EventStorePath
+		}
+	}
+	return ""
+}
+
+func agentUsageInputTokens(metadata *AgentMetadata) *int64 {
+	if metadata == nil {
+		return nil
+	}
+	return metadata.Usage.InputTokens
+}
+
+func agentUsageOutputTokens(metadata *AgentMetadata) *int64 {
+	if metadata == nil {
+		return nil
+	}
+	return metadata.Usage.OutputTokens
 }
 
 func filterTaskRuns(runs []persistence.TaskRunSummary, runIDs []string) []persistence.TaskRunSummary {
