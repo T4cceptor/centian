@@ -25,6 +25,7 @@ type Service struct {
 	TemplateDir    string
 	WorkingDir     string
 	EventStore     EventStore
+	RunStore       RunStore
 	CommandTimeout time.Duration
 	builtinFS      fs.FS
 }
@@ -49,6 +50,7 @@ func NewServiceWithOptions(templateDir, workingDir string, options ServiceOption
 		TemplateDir:    templateDir,
 		WorkingDir:     workingDir,
 		EventStore:     NewInMemoryEventStore(),
+		RunStore:       noopRunStore{},
 		CommandTimeout: DefaultCommandTimeout,
 		builtinFS:      options.BuiltinTemplates,
 	}
@@ -86,14 +88,18 @@ func (s *Service) RegisterTask(templateID string) (*RunState, error) {
 		return nil, err
 	}
 
-	return &RunState{
+	run := &RunState{
 		RunID:            newTaskRunID(),
 		TemplateID:       template.Task.ID,
 		SelectedTemplate: *template,
 		Status:           TaskStatusActive,
 		Phase:            template.CompiledWorkflow.OnboardingPath,
 		WorkflowReady:    false,
-	}, nil
+	}
+	if err := s.persistRunSnapshot(run); err != nil {
+		return nil, err
+	}
+	return run, nil
 }
 
 // CompleteOnboarding validates and persists onboarding context, then advances to planning.
@@ -108,7 +114,7 @@ func (s *Service) CompleteOnboarding(run *RunState, artifact *OnboardingArtifact
 	artifactCopy := cloneOnboardingArtifact(artifact)
 	run.Onboarding = &artifactCopy
 	run.LastFailureMessage = ""
-	return nil
+	return s.persistRunSnapshot(run)
 }
 
 // CompletePlanning validates and freezes planning context, then enters execution.
@@ -138,7 +144,7 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 	run.RunnableTemplate = &resolved
 	run.Steps = stepStates
 	run.LastFailureMessage = ""
-	return nil
+	return s.persistRunSnapshot(run)
 }
 
 // RestartTask resets an existing task run back to its onboarding shell state.
@@ -157,7 +163,7 @@ func (s *Service) RestartTask(run *RunState) error {
 	run.ExplicitFailReason = ""
 	run.LastActivityAt = 0
 	run.ExpiresAt = 0
-	return nil
+	return s.persistRunSnapshot(run)
 }
 
 // FailTask marks a task run as failed without running additional checks.
@@ -170,7 +176,7 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	run.ExplicitFailReason = strings.TrimSpace(reason)
 	run.LastFailureMessage = run.ExplicitFailReason
 	run.ExpiresAt = 0
-	return nil
+	return s.persistRunSnapshot(run)
 }
 
 // TimeoutTask marks an active task run as timed out without changing its phase or steps.
@@ -183,7 +189,7 @@ func (s *Service) TimeoutTask(run *RunState) error {
 	}
 
 	run.Status = TaskStatusTimedOut
-	return nil
+	return s.persistRunSnapshot(run)
 }
 
 // ResumeTask reactivates a timed-out task run without resetting its workflow progress.
@@ -198,7 +204,7 @@ func (s *Service) ResumeTask(run *RunState) error {
 	run.Status = TaskStatusActive
 	run.LastFailureMessage = ""
 	run.ExpiresAt = 0
-	return nil
+	return s.persistRunSnapshot(run)
 }
 
 func freezeRunnableContract(run *RunState, planning *PlanningArtifact) (Template, []StepState, error) {

@@ -138,7 +138,7 @@ func TestStepWithoutChecksStillVerifiesInvariantDrift(t *testing.T) {
 	assert.Equal(t, result.FailurePhase, StepFailurePhaseInvariantVerify)
 	assert.Equal(t, result.FailedInvariantID, "stable_file")
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "after"))
-	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+	assert.Equal(t, run.Steps[0].Status, StepStatusFailed)
 }
 
 func TestStartStepFailsPreconditions(t *testing.T) {
@@ -171,7 +171,7 @@ workflow:
 	assert.Equal(t, result.Summary, result.Message)
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "ok"))
 	assert.Assert(t, result.ExitCode != nil)
-	assert.Equal(t, run.Steps[0].Status, StepStatusPending)
+	assert.Equal(t, run.Steps[0].Status, StepStatusFailed)
 }
 
 func TestScaffoldingStepTransitionsIntoExecution(t *testing.T) {
@@ -339,7 +339,7 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 	assert.Equal(t, result.FailurePhase, StepFailurePhaseInvariantVerify)
 	assert.Equal(t, result.FailedInvariantID, "stable_file")
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "after"))
-	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+	assert.Equal(t, run.Steps[0].Status, StepStatusFailed)
 	assert.Assert(t, result.Message != "")
 }
 

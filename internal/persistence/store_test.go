@@ -11,6 +11,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
+	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"gotest.tools/assert"
@@ -553,6 +554,83 @@ func TestListTaskRunsKeepsTimedOutRunsOpen(t *testing.T) {
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusTimedOut))
 	assert.Equal(t, summaries[0].CurrentPhase, "execution.step_one")
+	assert.Assert(t, summaries[0].EndedAt == nil)
+}
+
+func TestListTaskRunsPrefersPersistedSnapshotMetadata(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_000,
+		TaskRunID:          "run-1",
+		SessionID:          "session-1",
+		TemplateID:         "simple_tdd",
+		PrincipalID:        "principal-1",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+
+	err = store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+		RunID:        "run-1",
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Task",
+		Status:       string(taskverification.TaskStatusCompleted),
+		Phase:        "execution.refactor_while_green",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Version: "0.1",
+			Task:    taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Task", Description: "desc"},
+		},
+	})
+	assert.NilError(t, err)
+
+	summaries, err := store.ListTaskRuns(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].TemplateName, "Simple TDD Task")
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusCompleted))
+	assert.Equal(t, summaries[0].CurrentPhase, "execution.refactor_while_green")
+	assert.Assert(t, summaries[0].EndedAt != nil)
+}
+
+func TestListTaskRunsIncludesSnapshotOnlyRuns(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	err = store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+		RunID:        "run-only-snapshot",
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Task",
+		Status:       string(taskverification.TaskStatusActive),
+		Phase:        string(taskverification.TaskPhaseOnboarding),
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Version: "0.1",
+			Task:    taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Task", Description: "desc"},
+		},
+	})
+	assert.NilError(t, err)
+
+	summaries, err := store.ListTaskRuns(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].RunID, "run-only-snapshot")
+	assert.Equal(t, summaries[0].TemplateName, "Simple TDD Task")
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusActive))
+	assert.Equal(t, summaries[0].CurrentPhase, string(taskverification.TaskPhaseOnboarding))
+	assert.Equal(t, summaries[0].EventCount, 0)
 	assert.Assert(t, summaries[0].EndedAt == nil)
 }
 
