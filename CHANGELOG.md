@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.3.3 - 2026-04-06
+
+### Major
+- reworked `simple_tdd` template, also benchmarking it in an A/B test: old vs. new, which was significantly better in first pass rate (task run without restart, fail, timeout), median time to completion, and tool calls/errors.
+- added `project` as a super-level entity over gateways, enabling isolation support for auth, and configuration settings
+
+### Minor
+- Polished README.md to reflect current implementation properly
+- Persisting client name and version per task run, allow display of which MCP client was used for a task run
+
+### Bugfixes
+- Fixed `Dockerfile` to properly use new build entry point - see `v0.3.1`
+
 ## v0.3.2 - 2026-04-03
 
 ### Minor
