@@ -228,6 +228,7 @@ type AggregateSummary struct {
 	AverageManualActionabilityScore *float64 `json:"averageManualActionabilityScore,omitempty"`
 }
 
+// Scorer computes benchmark scorecards and session summaries from preserved artifacts.
 type Scorer struct {
 	Now             func() time.Time
 	PersistArtifact func(context.Context, string, *persistence.BenchmarkArtifactRecord) error
@@ -520,8 +521,8 @@ func scoreOutcome(ctx *scoreRunContext, latest *persistence.TaskRunSummary, even
 	restartOccurred := hasTaskEvent(events, "task_restarted")
 	failOccurred := hasTaskEvent(events, "task_failed")
 	timeoutOccurred := hasTaskEvent(events, "task_timed_out")
-	finalVerificationPassed := latest != nil && latest.Status == "completed"
-	completedSuccessfully := ctx.run.Status == "completed" && finalVerificationPassed
+	finalVerificationPassed := latest != nil && latest.Status == runStatusCompleted
+	completedSuccessfully := ctx.run.Status == runStatusCompleted && finalVerificationPassed
 	invariantViolation, err := detectInvariantViolation(filepath.Join(ctx.caseRoot, ctx.caseDef.Fixture.SeedPath), ctx.run.ArtifactPaths.ProjectDir, ctx.caseDef.Constraints.LockedPaths)
 	if err != nil {
 		return ScorecardOutcome{}, nil, err

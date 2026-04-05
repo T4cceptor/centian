@@ -14,6 +14,7 @@ type RunStore interface {
 
 type noopRunStore struct{}
 
+// UpsertTaskRunSnapshot satisfies RunStore for non-persistent service setups.
 func (noopRunStore) UpsertTaskRunSnapshot(*taskruns.PersistedRunSnapshot) error {
 	return nil
 }
@@ -78,6 +79,7 @@ func snapshotRunState(run *RunState) (*taskruns.PersistedRunSnapshot, error) {
 
 func snapshotTemplate(template *Template) (*taskruns.PersistedTemplateSnapshot, error) {
 	if template == nil {
+		//nolint:nilnil // A missing runnable template is represented as an omitted snapshot.
 		return nil, nil
 	}
 	snapshot, err := convertSnapshot[Template, taskruns.PersistedTemplateSnapshot](template)
@@ -88,6 +90,7 @@ func snapshotTemplate(template *Template) (*taskruns.PersistedTemplateSnapshot, 
 	return snapshot, nil
 }
 
+//nolint:gocritic // Snapshotting copies the compiled workflow graph into the persisted form in one pass.
 func snapshotCompiledWorkflow(workflow *CompiledWorkflow) *taskruns.PersistedCompiledWorkflowSnapshot {
 	if workflow == nil {
 		return nil
@@ -224,6 +227,7 @@ func snapshotStepStates(steps []StepState) []taskruns.PersistedStepStateSnapshot
 
 func convertSnapshot[In any, Out any](value *In) (*Out, error) {
 	if value == nil {
+		//nolint:nilnil // Optional onboarding/planning artifacts are omitted when absent.
 		return nil, nil
 	}
 	payload, err := json.Marshal(value)

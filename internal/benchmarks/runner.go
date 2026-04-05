@@ -27,6 +27,7 @@ const (
 	sessionFileName                = "session.json"
 	runFileName                    = "run.json"
 	configuredSharedEventStoreMode = "configured_shared"
+	runStatusCompleted             = "completed"
 )
 
 // TemplateVariant identifies one template tree used for a benchmark run variant.
@@ -249,7 +250,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		return nil, fmt.Errorf("output root is required")
 	}
 	if strings.TrimSpace(opts.CentianBinaryPath) == "" {
-		return nil, fmt.Errorf("Centian binary path is required")
+		return nil, fmt.Errorf("centian binary path is required")
 	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = defaultTimeout
@@ -296,7 +297,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		InvocationDir:    sessionDir,
 		OutputRoot:       outputRoot,
 		StartedAt:        r.Now(),
-		Status:           "completed",
+		Status:           runStatusCompleted,
 		Repeat:           opts.Repeat,
 		Agents:           agents,
 		CaseIDs:          caseIDs,
@@ -335,7 +336,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if err := writeJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
 		return nil, err
 	}
-	if record, err := buildSessionArtifactRecord(session, ""); err != nil {
+	if record, err := buildSessionArtifactRecord(session); err != nil {
 		return session, err
 	} else {
 		storePath, pathErr := config.ResolveEventStorePath(nil)
@@ -569,8 +570,8 @@ func (r *Runner) executeRun(
 	if err := r.captureRunArtifacts(manifest, logsDir, baseURL, taskRunIDSet(baselineRuns)); err != nil {
 		captureErrs = append(captureErrs, err.Error())
 	}
-	if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == "completed" {
-		manifest.Status = "completed"
+	if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == runStatusCompleted {
+		manifest.Status = runStatusCompleted
 	} else if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == "" {
 		captureErrs = append(captureErrs, "no task runs were observed")
 	}
@@ -944,12 +945,13 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 	if err != nil {
 		return nil, err
 	}
-	defer stdoutFile.Close()
+	defer func() { _ = stdoutFile.Close() }()
 	stderrFile, err := os.Create(stderrPath)
 	if err != nil {
+		_ = stdoutFile.Close()
 		return nil, err
 	}
-	defer stderrFile.Close()
+	defer func() { _ = stderrFile.Close() }()
 
 	cmd := exec.CommandContext(ctx, opts.BinaryPath, "start", "--config-path", opts.ConfigPath)
 	cmd.Dir = opts.ProjectDir

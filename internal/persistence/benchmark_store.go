@@ -54,6 +54,8 @@ func (s *Store) UpsertBenchmarkArtifact(ctx context.Context, record *BenchmarkAr
 }
 
 // ListBenchmarkArtifacts returns benchmark artifact blobs filtered by lightweight metadata.
+//
+//nolint:gocritic // The filter is passed by value so callers can build it inline without shared mutation.
 func (s *Store) ListBenchmarkArtifacts(ctx context.Context, filter BenchmarkArtifactFilter) ([]BenchmarkArtifactRecord, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("benchmark artifact store is not initialized")

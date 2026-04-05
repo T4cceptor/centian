@@ -170,6 +170,7 @@ func (s *ReadService) GetSession(ctx context.Context, suiteID string, sessionID 
 		return nil, err
 	}
 	if len(sessions) == 0 {
+		//nolint:nilnil // No persisted session exists for the requested identifier.
 		return nil, nil
 	}
 	return &sessions[0], nil
@@ -226,6 +227,7 @@ func (s *ReadService) GetRun(ctx context.Context, suiteID string, scorecardID st
 			Scorecard:    item.scorecard,
 		}, nil
 	}
+	//nolint:nilnil // No persisted scorecard exists for the requested identifier.
 	return nil, nil
 }
 
@@ -246,6 +248,7 @@ func (s *ReadService) GetComparison(ctx context.Context, suiteID string, filters
 	}
 	applyCatalogToScorecards(scorecards, catalogs)
 	if len(summaries) == 0 && len(scorecards) == 0 {
+		//nolint:nilnil // No persisted benchmark data exists for the requested suite/filter combination.
 		return nil, nil
 	}
 

@@ -12,6 +12,7 @@ const benchmarkArtifactSchemaVersion = 1
 // BenchmarkArtifactKind identifies one persisted benchmark artifact type.
 type BenchmarkArtifactKind string
 
+// Supported persisted benchmark artifact kinds.
 const (
 	BenchmarkArtifactKindSession    BenchmarkArtifactKind = "session"
 	BenchmarkArtifactKindRun        BenchmarkArtifactKind = "run"

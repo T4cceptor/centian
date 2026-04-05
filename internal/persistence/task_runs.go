@@ -62,6 +62,7 @@ func createTaskRunSnapshotTables(ctx context.Context, db bun.IDB) error {
 
 func (row *taskRunSnapshotRow) toRecord() (*TaskRunSnapshotRecord, error) {
 	if row == nil {
+		//nolint:nilnil // A missing row is represented as an absent snapshot record.
 		return nil, nil
 	}
 	var payload taskruns.PersistedRunSnapshot
