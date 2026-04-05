@@ -89,18 +89,20 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	store, err := persistence.NewSQLiteStore(filepath.Join(logDir, "events.sqlite"))
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
-	runRecords, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
-		SuiteID:      "simple_tdd_v1",
-		ArtifactKind: persistence.BenchmarkArtifactKindRun,
+	runRecords, err := store.ListBenchmarkRuns(context.Background(), persistence.BenchmarkRunFilter{
+		SuiteID: "simple_tdd_v1",
 	})
 	assert.NilError(t, err)
-	sessionRecords, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
-		SuiteID:      "simple_tdd_v1",
-		ArtifactKind: persistence.BenchmarkArtifactKindSession,
+	sessionRecords, err := store.ListBenchmarkSessions(context.Background(), persistence.BenchmarkSessionFilter{
+		SuiteID: "simple_tdd_v1",
 	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(runRecords), 24)
 	assert.Equal(t, len(sessionRecords), 1)
+	_, statErr := os.Stat(filepath.Join(session.InvocationDir, "runs", "a", "codex", "compile_failure_red", "attempt-001", "selected-template.yaml"))
+	assert.NilError(t, statErr)
+	_, statErr = os.Stat(filepath.Join(session.InvocationDir, "runs", "a", "codex", "compile_failure_red", "attempt-001", "templates"))
+	assert.Assert(t, os.IsNotExist(statErr))
 }
 
 func TestRunSuiteContinuesAfterFailure(t *testing.T) {
@@ -312,9 +314,8 @@ func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
 			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
 		},
 		FindLatestRequestLog: fakeRequestLogLookup,
-		PersistArtifact: func(context.Context, string, *persistence.BenchmarkArtifactRecord) error {
-			return errors.New("persist failed")
-		},
+		PersistSession: func(context.Context, string, *persistence.BenchmarkSessionRecord) error { return nil },
+		PersistRun:     func(context.Context, string, *persistence.BenchmarkRunRecord) error { return errors.New("persist failed") },
 	}
 
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
@@ -369,6 +370,22 @@ func writeTemplateVariant(t *testing.T, name string) string {
 
 	root := filepath.Join(t.TempDir(), name)
 	assert.NilError(t, os.MkdirAll(root, 0o755))
-	assert.NilError(t, os.WriteFile(filepath.Join(root, "simple_tdd.yaml"), []byte("version: \"0.1\"\n"), 0o644))
+	assert.NilError(t, os.WriteFile(filepath.Join(root, "simple_tdd.yaml"), []byte(`
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Simple TDD `+name+`"
+  description: "Test template"
+workflow:
+  onboarding:
+    instructions: "Collect context"
+  planning:
+    instructions: "Plan"
+    next: "execution.implement_fix"
+  execution:
+    - id: "implement_fix"
+      instructions: "Implement fix"
+      next: ""
+`), 0o644))
 	return root
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -13,73 +12,103 @@ import (
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
-func persistBenchmarkArtifact(ctx context.Context, storePath string, record *persistence.BenchmarkArtifactRecord) error {
-	if strings.TrimSpace(storePath) == "" {
-		return fmt.Errorf("benchmark artifact store path is required")
-	}
-	store, err := persistence.NewSQLiteStore(storePath)
+func persistBenchmarkSession(ctx context.Context, storePath string, record *persistence.BenchmarkSessionRecord) error {
+	store, err := openBenchmarkStore(storePath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = store.Close() }()
-	return store.UpsertBenchmarkArtifact(ctx, record)
+	return store.UpsertBenchmarkSession(ctx, record)
 }
 
-func buildSessionArtifactRecord(session *SessionManifest) (*persistence.BenchmarkArtifactRecord, error) {
+func persistBenchmarkRun(ctx context.Context, storePath string, record *persistence.BenchmarkRunRecord) error {
+	store, err := openBenchmarkStore(storePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+	return store.UpsertBenchmarkRun(ctx, record)
+}
+
+func openBenchmarkStore(storePath string) (*persistence.Store, error) {
+	if strings.TrimSpace(storePath) == "" {
+		return nil, fmt.Errorf("benchmark store path is required")
+	}
+	return persistence.NewSQLiteStore(storePath)
+}
+
+func buildSessionRecord(session *SessionManifest) (*persistence.BenchmarkSessionRecord, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session manifest is required")
 	}
 	sessionPath := filepath.Clean(strings.TrimSpace(session.InvocationDir))
-	sessionID := benchmarkSessionID(session.SuiteID, sessionPath)
-	payload, err := json.Marshal(session)
-	if err != nil {
-		return nil, fmt.Errorf("marshal session manifest: %w", err)
-	}
-	return &persistence.BenchmarkArtifactRecord{
-		ID:                 benchmarkArtifactID(string(persistence.BenchmarkArtifactKindSession), session.SuiteID, sessionID, sessionPath, ""),
-		ArtifactKind:       persistence.BenchmarkArtifactKindSession,
+	return &persistence.BenchmarkSessionRecord{
+		SessionID:          benchmarkSessionID(session.SuiteID, sessionPath),
 		SuiteID:            session.SuiteID,
-		SessionID:          sessionID,
+		SuitePath:          session.SuitePath,
 		SessionPath:        sessionPath,
-		CreatedAtUnixMilli: bestTime(session.EndedAt, session.StartedAt).UnixMilli(),
-		PayloadJSON:        payload,
+		OutputRoot:         session.OutputRoot,
+		TemplateID:         session.TemplateID,
+		StartedAtUnixMilli: bestTime(session.StartedAt, session.EndedAt).UnixMilli(),
+		EndedAtUnixMilli:   timePointerMillis(session.EndedAt),
+		Status:             session.Status,
+		RepeatCount:        session.Repeat,
 	}, nil
 }
 
-func buildRunArtifactRecord(run *RunManifest) (*persistence.BenchmarkArtifactRecord, error) {
+func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 	if run == nil {
 		return nil, fmt.Errorf("run manifest is required")
 	}
 	sessionPath := sessionPathFromRun(run)
-	runPath := filepath.Clean(strings.TrimSpace(run.ArtifactPaths.RunDir))
-	payload, err := json.Marshal(run)
-	if err != nil {
-		return nil, fmt.Errorf("marshal run manifest: %w", err)
-	}
-	attempt := run.Attempt
-	return &persistence.BenchmarkArtifactRecord{
-		ID:                 benchmarkArtifactID(string(persistence.BenchmarkArtifactKindRun), run.SuiteID, benchmarkSessionID(run.SuiteID, sessionPath), sessionPath, runPath),
-		ArtifactKind:       persistence.BenchmarkArtifactKindRun,
-		SuiteID:            run.SuiteID,
-		SessionID:          benchmarkSessionID(run.SuiteID, sessionPath),
-		SessionPath:        sessionPath,
-		RunPath:            runPath,
-		CaseID:             run.CaseID,
-		Agent:              run.AgentID,
-		TemplateVariant:    run.TemplateVariant.Name,
-		Attempt:            &attempt,
-		CreatedAtUnixMilli: bestTime(run.EndedAt, run.StartedAt).UnixMilli(),
-		PayloadJSON:        payload,
+	return &persistence.BenchmarkRunRecord{
+		BenchmarkRunID:      benchmarkRunID(run, sessionPath),
+		SessionID:           benchmarkSessionID(run.SuiteID, sessionPath),
+		CaseID:              run.CaseID,
+		Agent:               run.AgentID,
+		TemplateVariant:     run.TemplateVariant.Name,
+		Attempt:             run.Attempt,
+		TemplateID:          run.TemplateID,
+		SelectedModel:       run.SelectedModel,
+		StartedAtUnixMilli:  bestTime(run.StartedAt, run.EndedAt).UnixMilli(),
+		EndedAtUnixMilli:    timePointerMillis(run.EndedAt),
+		Status:              run.Status,
+		LatestTaskRunID:     run.LatestTaskRunID,
+		LatestTaskRunStatus: run.LatestTaskRunStatus,
+		LinkedTaskRunIDs:    append([]string(nil), run.LinkedTaskRunIDs...),
+		RunDir:              run.ArtifactPaths.RunDir,
+		ProjectDir:          run.ArtifactPaths.ProjectDir,
+		LogsDir:             run.ArtifactPaths.LogsDir,
+		AgentDir:            run.ArtifactPaths.AgentDir,
+		ConfigPath:          run.ArtifactPaths.ConfigPath,
+		EventStoreMode:      run.ArtifactPaths.EventStoreMode,
+		EventStorePath:      run.ArtifactPaths.EventStorePath,
+		RequestLogPath:      run.ArtifactPaths.RequestLogPath,
+		SelectedTemplatePath: run.ArtifactPaths.SelectedTemplatePath,
+		ErrorSummary:        run.ErrorSummary,
 	}, nil
 }
 
 func benchmarkSessionID(suiteID, sessionPath string) string {
-	return benchmarkArtifactID("session-scope", suiteID, filepath.Clean(sessionPath))
+	return benchmarkStableID("session", suiteID, filepath.Clean(sessionPath))
 }
 
-func benchmarkArtifactID(parts ...string) string {
+func benchmarkRunID(run *RunManifest, sessionPath string) string {
+	return benchmarkStableID(
+		"run",
+		run.SuiteID,
+		benchmarkSessionID(run.SuiteID, sessionPath),
+		run.CaseID,
+		run.AgentID,
+		run.TemplateVariant.Name,
+		fmt.Sprintf("%03d", run.Attempt),
+		filepath.Clean(run.ArtifactPaths.RunDir),
+	)
+}
+
+func benchmarkStableID(parts ...string) string {
 	hash := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
-	return "ba_" + hex.EncodeToString(hash[:16])
+	return "bm_" + hex.EncodeToString(hash[:16])
 }
 
 func sessionPathFromRun(run *RunManifest) string {
@@ -99,4 +128,12 @@ func bestTime(primary, fallback time.Time) time.Time {
 		return primary
 	}
 	return fallback
+}
+
+func timePointerMillis(value time.Time) *int64 {
+	if value.IsZero() {
+		return nil
+	}
+	millis := value.UnixMilli()
+	return &millis
 }

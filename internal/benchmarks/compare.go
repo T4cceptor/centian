@@ -86,8 +86,8 @@ func (c *Comparer) CompareSuite(ctx context.Context, opts *CompareOptions) (*Com
 	}
 	defer func() { _ = store.Close() }()
 
-	service := NewReadService(store)
-	view, err := service.GetComparison(ctx, suiteID, BenchmarkRunFilters{
+	query := NewQueryService(store)
+	view, err := query.GetComparison(ctx, suiteID, BenchmarkRunFilters{
 		Agent:           firstFilterValue(opts.Agents),
 		CaseID:          firstFilterValue(opts.CaseIDs),
 		TemplateVariant: firstFilterValue(opts.TemplateVariants),

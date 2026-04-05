@@ -25,27 +25,27 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 
 	sessionOneManifest, err := loadSessionManifest(sessionOne)
 	assert.NilError(t, err)
-	sessionOneRecord, err := buildSessionArtifactRecord(sessionOneManifest)
+	sessionOneRecord, err := buildSessionRecord(sessionOneManifest)
 	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), sessionOneRecord))
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionOneRecord))
 	for idx := range sessionOneManifest.Runs {
 		run, loadErr := loadRunManifest(filepath.Join(sessionOne, sessionOneManifest.Runs[idx].RelativeRunDir, runFileName))
 		assert.NilError(t, loadErr)
-		record, recordErr := buildRunArtifactRecord(run)
+		record, recordErr := buildRunRecord(run)
 		assert.NilError(t, recordErr)
-		assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), record))
+		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
 	}
 	sessionTwoManifest, err := loadSessionManifest(sessionTwo)
 	assert.NilError(t, err)
-	sessionTwoRecord, err := buildSessionArtifactRecord(sessionTwoManifest)
+	sessionTwoRecord, err := buildSessionRecord(sessionTwoManifest)
 	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), sessionTwoRecord))
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionTwoRecord))
 	for idx := range sessionTwoManifest.Runs {
 		run, loadErr := loadRunManifest(filepath.Join(sessionTwo, sessionTwoManifest.Runs[idx].RelativeRunDir, runFileName))
 		assert.NilError(t, loadErr)
-		record, recordErr := buildRunArtifactRecord(run)
+		record, recordErr := buildRunRecord(run)
 		assert.NilError(t, recordErr)
-		assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), record))
+		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
 	}
 	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
 		RunID:        "tr_compile",

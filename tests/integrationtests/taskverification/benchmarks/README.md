@@ -172,7 +172,7 @@ That directory contains:
 Each preserved run contains:
 
 - `project/`
-- `templates/`
+- `selected-template.yaml`
 - `logs/`
 - `agent/`
 - `run.json`

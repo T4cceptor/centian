@@ -20,7 +20,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 8
+const schemaVersion = 9
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -337,6 +337,9 @@ func (s *Store) createTables(ctx context.Context) error {
 	if err := createBenchmarkArtifactTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark artifact schema: %w", err)
 	}
+	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
+	}
 	if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
 	}
@@ -383,6 +386,12 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 	if fromVersion == 7 {
 		if err := recreateTaskRunStatsTables(ctx, s.db); err != nil {
 			return fmt.Errorf("failed to migrate event store schema from v7 to v8: %w", err)
+		}
+		fromVersion = 8
+	}
+	if fromVersion == 8 {
+		if err := createBenchmarkRunTables(ctx, s.db); err != nil {
+			return fmt.Errorf("failed to migrate event store schema from v8 to v9: %w", err)
 		}
 		return nil
 	}

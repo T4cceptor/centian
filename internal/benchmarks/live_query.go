@@ -3,7 +3,6 @@ package benchmarks
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -14,71 +13,58 @@ import (
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
-type taskRunStatsReader interface {
+type benchmarkQueryStore interface {
+	ListBenchmarkSessions(context.Context, persistence.BenchmarkSessionFilter) ([]persistence.BenchmarkSessionRecord, error)
+	ListBenchmarkRuns(context.Context, persistence.BenchmarkRunFilter) ([]persistence.BenchmarkRunRecord, error)
+	GetBenchmarkRun(context.Context, string) (*persistence.BenchmarkRunRecord, error)
+	GetTaskRunSnapshot(context.Context, string) (*persistence.TaskRunSnapshotRecord, error)
 	GetTaskRunStats(context.Context, string) (*persistence.TaskRunStatsRecord, error)
 }
 
-// ArtifactReader lists persisted benchmark artifact blobs for the read API.
-type ArtifactReader interface {
-	ListBenchmarkArtifacts(context.Context, persistence.BenchmarkArtifactFilter) ([]persistence.BenchmarkArtifactRecord, error)
-}
-
-type taskRunSnapshotReader interface {
-	GetTaskRunSnapshot(context.Context, string) (*persistence.TaskRunSnapshotRecord, error)
-}
-
-type benchmarkReadStore interface {
-	ArtifactReader
-	taskRunSnapshotReader
-	taskRunStatsReader
-}
-
-type persistedSession struct {
-	record  persistence.BenchmarkArtifactRecord
-	session SessionManifest
-}
-
-type persistedRun struct {
-	record persistence.BenchmarkArtifactRecord
-	run    RunManifest
-}
-
-type suiteContext struct {
-	suite    *SuiteDefinition
-	caseDefs map[string]scoreRunContext
-}
-
-type liveQueryService struct {
+// QueryService is the single live benchmark query/scoring service used by CLI and API.
+type QueryService struct {
 	now   func() time.Time
-	store benchmarkReadStore
+	store benchmarkQueryStore
 }
 
-func newLiveQueryService(store benchmarkReadStore, now func() time.Time) *liveQueryService {
-	if now == nil {
-		now = time.Now
+// NewQueryService builds a live benchmark query service.
+func NewQueryService(store benchmarkQueryStore) *QueryService {
+	return &QueryService{now: timeNowUTC, store: store}
+}
+
+func (s *QueryService) withDefaults() *QueryService {
+	if s == nil {
+		return &QueryService{now: timeNowUTC}
 	}
-	return &liveQueryService{now: now, store: store}
+	if s.now == nil {
+		s.now = timeNowUTC
+	}
+	return s
 }
 
-func (s *liveQueryService) scoreSessionManifest(ctx context.Context, session *SessionManifest) (*SessionSummary, error) {
-	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("benchmark live query service is not initialized")
+func (s *QueryService) ScoreSessionManifest(ctx context.Context, session *SessionManifest) (*SessionSummary, error) {
+	s = s.withDefaults()
+	if s.store == nil {
+		return nil, fmt.Errorf("benchmark query service is not initialized")
 	}
 	if session == nil {
 		return nil, fmt.Errorf("session manifest is required")
 	}
-	sessionDir := filepath.Clean(strings.TrimSpace(session.InvocationDir))
-	if sessionDir == "" {
-		return nil, fmt.Errorf("session manifest invocationDir is required")
-	}
-	suiteCtx, err := loadSuiteContext(session.SuitePath)
+	sessionPath := filepath.Clean(strings.TrimSpace(session.InvocationDir))
+	sessionID := benchmarkSessionID(session.SuiteID, sessionPath)
+	runs, err := s.store.ListBenchmarkRuns(ctx, persistence.BenchmarkRunFilter{SessionID: sessionID})
 	if err != nil {
 		return nil, err
+	}
+	runByDir := make(map[string]*persistence.BenchmarkRunRecord, len(runs))
+	for idx := range runs {
+		run := runs[idx]
+		runByDir[filepath.Clean(run.RunDir)] = &run
 	}
 
 	summary := &SessionSummary{
 		ScoreVersion: scoreVersion,
-		SessionPath:  sessionDir,
+		SessionPath:  sessionPath,
 		SuiteID:      session.SuiteID,
 		GeneratedAt:  s.now(),
 		RunCount:     len(session.Runs),
@@ -89,19 +75,32 @@ func (s *liveQueryService) scoreSessionManifest(ctx context.Context, session *Se
 	scoreFailures := 0
 	for idx := range session.Runs {
 		entry := session.Runs[idx]
-		run, err := loadRunManifest(filepath.Join(sessionDir, entry.RelativeRunDir, runFileName))
+		runDir := filepath.Clean(filepath.Join(sessionPath, entry.RelativeRunDir))
+		run := runByDir[runDir]
+		if run == nil {
+			summary.Runs = append(summary.Runs, buildRunSummaryRow(entry, nil, nil, []string{"benchmark run record was not found"}, nil))
+			scoreFailures++
+			continue
+		}
+		sessionRecord := &persistence.BenchmarkSessionRecord{
+			SessionID:          sessionID,
+			SuiteID:            session.SuiteID,
+			SuitePath:          session.SuitePath,
+			SessionPath:        sessionPath,
+			OutputRoot:         session.OutputRoot,
+			TemplateID:         session.TemplateID,
+			StartedAtUnixMilli: session.StartedAt.UnixMilli(),
+			EndedAtUnixMilli:   timePointerMillis(session.EndedAt),
+			Status:             session.Status,
+			RepeatCount:        session.Repeat,
+		}
+		scorecard, err := s.scoreRunRecord(ctx, sessionRecord, run)
 		if err != nil {
 			summary.Runs = append(summary.Runs, buildRunSummaryRow(entry, nil, nil, []string{err.Error()}, nil))
 			scoreFailures++
 			continue
 		}
-		scorecard, err := s.scoreRun(ctx, sessionDir, suiteCtx, run)
-		if err != nil {
-			summary.Runs = append(summary.Runs, buildRunSummaryRow(entry, run, nil, []string{err.Error()}, nil))
-			scoreFailures++
-			continue
-		}
-		row := buildRunSummaryRow(entry, run, scorecard, nil, scorecard.Warnings)
+		row := buildRunSummaryRow(entry, runRecordToManifest(run), scorecard, nil, scorecard.Warnings)
 		summary.Runs = append(summary.Runs, row)
 		scoredRows = append(scoredRows, row)
 	}
@@ -116,37 +115,332 @@ func (s *liveQueryService) scoreSessionManifest(ctx context.Context, session *Se
 	return summary, nil
 }
 
-func (s *liveQueryService) scorePersistedRun(ctx context.Context, session *persistedSession, item *persistedRun) (*RunScorecard, error) {
-	if session == nil || item == nil {
-		return nil, fmt.Errorf("persisted session and run are required")
+func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilters) ([]BenchmarkSuiteSummary, error) {
+	s = s.withDefaults()
+	if s.store == nil {
+		return nil, fmt.Errorf("benchmark query service is not initialized")
 	}
-	suiteCtx, err := loadSuiteContext(session.session.SuitePath)
+	sessions, err := s.store.ListBenchmarkSessions(ctx, persistence.BenchmarkSessionFilter{SuiteID: filters.SuiteID})
 	if err != nil {
 		return nil, err
 	}
-	return s.scoreRun(ctx, session.record.SessionPath, suiteCtx, &item.run)
+	runs, err := s.store.ListBenchmarkRuns(ctx, persistence.BenchmarkRunFilter{SuiteID: filters.SuiteID})
+	if err != nil {
+		return nil, err
+	}
+	type suiteAggregate struct {
+		item       BenchmarkSuiteSummary
+		sessionIDs map[string]struct{}
+		agents     map[string]struct{}
+		caseIDs    map[string]struct{}
+		caseNames  map[string]struct{}
+		variants   map[string]struct{}
+	}
+	grouped := map[string]*suiteAggregate{}
+	for idx := range sessions {
+		session := sessions[idx]
+		group := grouped[session.SuiteID]
+		if group == nil {
+			group = &suiteAggregate{
+				item:       BenchmarkSuiteSummary{SuiteID: session.SuiteID},
+				sessionIDs: map[string]struct{}{},
+				agents:     map[string]struct{}{},
+				caseIDs:    map[string]struct{}{},
+				caseNames:  map[string]struct{}{},
+				variants:   map[string]struct{}{},
+			}
+			grouped[session.SuiteID] = group
+		}
+		group.item.TemplateID = firstNonEmpty(group.item.TemplateID, session.TemplateID)
+		group.item.SuiteName = firstNonEmpty(group.item.SuiteName, suiteNameFromPath(session.SuitePath))
+		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli))
+		group.sessionIDs[session.SessionID] = struct{}{}
+		for caseID, caseName := range caseNamesFromSuitePath(session.SuitePath) {
+			group.caseIDs[caseID] = struct{}{}
+			if caseName != "" {
+				group.caseNames[caseName] = struct{}{}
+			}
+		}
+	}
+	for idx := range runs {
+		run := runs[idx]
+		session := findSessionByID(sessions, run.SessionID)
+		if session == nil {
+			continue
+		}
+		if filters.TemplateID != "" && run.TemplateID != filters.TemplateID {
+			continue
+		}
+		group := grouped[session.SuiteID]
+		if group == nil {
+			continue
+		}
+		group.item.RunCount++
+		group.item.TemplateName = firstNonEmpty(group.item.TemplateName, templateNameForRun(ctx, s.store, &run))
+		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli))
+		group.agents[run.Agent] = struct{}{}
+		group.caseIDs[run.CaseID] = struct{}{}
+		if caseName := caseNamesFromSuitePath(session.SuitePath)[run.CaseID]; caseName != "" {
+			group.caseNames[caseName] = struct{}{}
+		}
+		group.variants[run.TemplateVariant] = struct{}{}
+	}
+
+	result := make([]BenchmarkSuiteSummary, 0, len(grouped))
+	for _, group := range grouped {
+		if filters.TemplateID != "" && group.item.TemplateID != filters.TemplateID {
+			continue
+		}
+		group.item.SessionCount = len(group.sessionIDs)
+		group.item.Agents = sortedSetValues(group.agents)
+		group.item.CaseIDs = sortedSetValues(group.caseIDs)
+		group.item.CaseNames = sortedSetValues(group.caseNames)
+		group.item.TemplateVariants = sortedSetValues(group.variants)
+		result = append(result, group.item)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].LatestGeneratedAt.Equal(result[j].LatestGeneratedAt) {
+			return result[i].LatestGeneratedAt.After(result[j].LatestGeneratedAt)
+		}
+		return result[i].SuiteID < result[j].SuiteID
+	})
+	return result, nil
 }
 
-func (s *liveQueryService) scoreRun(ctx context.Context, sessionDir string, suiteCtx *suiteContext, run *RunManifest) (*RunScorecard, error) {
-	if run == nil {
-		return nil, fmt.Errorf("run manifest is required")
+func (s *QueryService) ListSessions(ctx context.Context, suiteID string, filters BenchmarkRunFilters, includeRuns bool) ([]BenchmarkSessionDetail, error) {
+	s = s.withDefaults()
+	if s.store == nil {
+		return nil, fmt.Errorf("benchmark query service is not initialized")
 	}
-	if suiteCtx == nil || suiteCtx.suite == nil {
-		return nil, fmt.Errorf("suite context is required")
+	sessions, err := s.store.ListBenchmarkSessions(ctx, persistence.BenchmarkSessionFilter{SuiteID: suiteID, SessionID: filters.SessionID})
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.ListRuns(ctx, suiteID, filters)
+	if err != nil {
+		return nil, err
+	}
+	runsBySession := map[string][]BenchmarkRunSummary{}
+	for idx := range runs {
+		runsBySession[runs[idx].SessionID] = append(runsBySession[runs[idx].SessionID], runs[idx])
+	}
+	result := make([]BenchmarkSessionDetail, 0, len(sessions))
+	for idx := range sessions {
+		session := sessions[idx]
+		sessionRuns := runsBySession[session.SessionID]
+		if hasRunScopedFilter(filters) && len(sessionRuns) == 0 {
+			continue
+		}
+		rows := make([]RunSummaryRow, 0, len(sessionRuns))
+		agents := map[string]struct{}{}
+		caseIDs := map[string]struct{}{}
+		caseNames := map[string]struct{}{}
+		variants := map[string]struct{}{}
+		templateName := ""
+		for runIdx := range sessionRuns {
+			rows = append(rows, toRunSummaryRow(sessionRuns[runIdx]))
+			agents[sessionRuns[runIdx].Agent] = struct{}{}
+			caseIDs[sessionRuns[runIdx].CaseID] = struct{}{}
+			if sessionRuns[runIdx].CaseName != "" {
+				caseNames[sessionRuns[runIdx].CaseName] = struct{}{}
+			}
+			variants[sessionRuns[runIdx].TemplateVariant] = struct{}{}
+			templateName = firstNonEmpty(templateName, sessionRuns[runIdx].TemplateName)
+		}
+		detail := BenchmarkSessionDetail{
+			SessionID:          session.SessionID,
+			SuiteID:            session.SuiteID,
+			SuiteName:          suiteNameFromPath(session.SuitePath),
+			TemplateID:         session.TemplateID,
+			TemplateName:       templateName,
+			SessionPath:        session.SessionPath,
+			GeneratedAt:        timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli),
+			RunCount:           len(sessionRuns),
+			ScoredRunCount:     len(sessionRuns),
+			FailedToScoreCount: 0,
+			Agents:             sortedSetValues(agents),
+			CaseIDs:            sortedSetValues(caseIDs),
+			CaseNames:          sortedSetValues(caseNames),
+			TemplateVariants:   sortedSetValues(variants),
+			Aggregates:         buildAggregates(rows),
+		}
+		if includeRuns {
+			detail.Runs = append(detail.Runs, sessionRuns...)
+		}
+		result = append(result, detail)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].GeneratedAt.Equal(result[j].GeneratedAt) {
+			return result[i].GeneratedAt.After(result[j].GeneratedAt)
+		}
+		return result[i].SessionPath > result[j].SessionPath
+	})
+	return result, nil
+}
+
+func (s *QueryService) GetSession(ctx context.Context, suiteID, sessionID string) (*BenchmarkSessionDetail, error) {
+	sessions, err := s.ListSessions(ctx, suiteID, BenchmarkRunFilters{SessionID: sessionID}, true)
+	if err != nil || len(sessions) == 0 {
+		return nil, err
+	}
+	return &sessions[0], nil
+}
+
+func (s *QueryService) ListRuns(ctx context.Context, suiteID string, filters BenchmarkRunFilters) ([]BenchmarkRunSummary, error) {
+	s = s.withDefaults()
+	if s.store == nil {
+		return nil, fmt.Errorf("benchmark query service is not initialized")
+	}
+	sessions, err := s.store.ListBenchmarkSessions(ctx, persistence.BenchmarkSessionFilter{SuiteID: suiteID})
+	if err != nil {
+		return nil, err
+	}
+	sessionByID := map[string]*persistence.BenchmarkSessionRecord{}
+	for idx := range sessions {
+		session := sessions[idx]
+		sessionByID[session.SessionID] = &session
+	}
+	runRecords, err := s.store.ListBenchmarkRuns(ctx, persistence.BenchmarkRunFilter{
+		SuiteID:         suiteID,
+		SessionID:       filters.SessionID,
+		CaseID:          filters.CaseID,
+		Agent:           filters.Agent,
+		TemplateVariant: filters.TemplateVariant,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]BenchmarkRunSummary, 0, len(runRecords))
+	for idx := range runRecords {
+		run := runRecords[idx]
+		if filters.TemplateID != "" && run.TemplateID != filters.TemplateID {
+			continue
+		}
+		session := sessionByID[run.SessionID]
+		if session == nil {
+			continue
+		}
+		scorecard, err := s.scoreRunRecord(ctx, session, &run)
+		if err != nil {
+			result = append(result, runSummaryFromRecord(*session, run, err))
+			continue
+		}
+		result = append(result, buildBenchmarkRunSummary(&run, scorecard))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].SessionPath != result[j].SessionPath {
+			return result[i].SessionPath > result[j].SessionPath
+		}
+		return compareRunRows(toRunSummaryRow(result[i]), toRunSummaryRow(result[j]))
+	})
+	return result, nil
+}
+
+func (s *QueryService) GetRun(ctx context.Context, suiteID, scorecardID string) (*BenchmarkRunDetail, error) {
+	s = s.withDefaults()
+	run, err := s.store.GetBenchmarkRun(ctx, scorecardID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if run == nil {
+		return nil, nil
+	}
+	sessions, err := s.store.ListBenchmarkSessions(ctx, persistence.BenchmarkSessionFilter{SuiteID: suiteID, SessionID: run.SessionID})
+	if err != nil || len(sessions) == 0 {
+		return nil, err
+	}
+	scorecard, err := s.scoreRunRecord(ctx, &sessions[0], run)
+	if err != nil {
+		return nil, err
+	}
+	return &BenchmarkRunDetail{
+		ScorecardID:  run.BenchmarkRunID,
+		SessionID:    run.SessionID,
+		SessionPath:  sessions[0].SessionPath,
+		SuiteName:    scorecard.SuiteName,
+		TemplateName: scorecard.TemplateName,
+		CaseName:     scorecard.CaseName,
+		Scorecard:    *scorecard,
+	}, nil
+}
+
+func (s *QueryService) GetComparison(ctx context.Context, suiteID string, filters BenchmarkRunFilters) (*BenchmarkComparisonView, error) {
+	sessions, err := s.ListSessions(ctx, suiteID, filters, false)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := s.ListRuns(ctx, suiteID, filters)
+	if err != nil {
+		return nil, err
+	}
+	if len(sessions) == 0 && len(runs) == 0 {
+		return nil, nil
+	}
+	rows := make([]RunSummaryRow, 0, len(runs))
+	templateID := ""
+	templateName := ""
+	suiteName := ""
+	for idx := range runs {
+		templateID = firstNonEmpty(templateID, runs[idx].TemplateID)
+		templateName = firstNonEmpty(templateName, runs[idx].TemplateName)
+		suiteName = firstNonEmpty(suiteName, runs[idx].SuiteName)
+		rows = append(rows, toRunSummaryRow(runs[idx]))
+	}
+	aggregates := buildAggregates(rows)
+	comparisonSessions := make([]ComparisonSession, 0, len(sessions))
+	for idx := range sessions {
+		comparisonSessions = append(comparisonSessions, ComparisonSession{
+			SessionPath:        sessions[idx].SessionPath,
+			GeneratedAt:        sessions[idx].GeneratedAt,
+			RunCount:           sessions[idx].RunCount,
+			ScoredRunCount:     sessions[idx].ScoredRunCount,
+			FailedToScoreCount: sessions[idx].FailedToScoreCount,
+		})
+	}
+	return &BenchmarkComparisonView{
+		SuiteID:      suiteID,
+		SuiteName:    suiteName,
+		TemplateID:   templateID,
+		TemplateName: templateName,
+		Filters:      filters,
+		SessionCount: len(comparisonSessions),
+		RunCount:     len(runs),
+		Sessions:     comparisonSessions,
+		Runs:         runs,
+		Aggregates: ComparisonAggregates{
+			BySession: aggregateRows(rows, func(row RunSummaryRow) aggregateKey {
+				return aggregateKey{Key: row.SessionPath, SessionPath: row.SessionPath}
+			}),
+			ByCase:             aggregates.ByCase,
+			ByAgent:            aggregates.ByAgent,
+			ByTemplateVariant:  aggregates.ByTemplateVariant,
+			ByCaseAgentVariant: aggregates.ByCaseAgentVariant,
+		},
+	}, nil
+}
+
+func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.BenchmarkSessionRecord, run *persistence.BenchmarkRunRecord) (*RunScorecard, error) {
+	if session == nil || run == nil {
+		return nil, fmt.Errorf("benchmark session and run are required")
+	}
+	suiteCtx, err := loadSuiteContext(session.SuitePath)
+	if err != nil {
+		return nil, err
 	}
 	caseCtx, ok := suiteCtx.caseDefs[run.CaseID]
 	if !ok {
 		return nil, fmt.Errorf("missing case definition for %q", run.CaseID)
 	}
-
 	latestTaskRunID := strings.TrimSpace(run.LatestTaskRunID)
 	if latestTaskRunID == "" {
 		latestTaskRunID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
 	}
 	if latestTaskRunID == "" {
-		return nil, fmt.Errorf("run %q is missing linked task runs", run.ArtifactPaths.RunDir)
+		return nil, fmt.Errorf("benchmark run %q is missing linked task runs", run.RunDir)
 	}
-
 	snapshot, err := s.store.GetTaskRunSnapshot(ctx, latestTaskRunID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -161,40 +455,33 @@ func (s *liveQueryService) scoreRun(ctx context.Context, sessionDir string, suit
 		}
 		return nil, err
 	}
-
-	manualPath := filepath.Join(run.ArtifactPaths.RunDir, manualScoreFileName)
-	manual, manualPathValue, err := loadManualScore(manualPath)
+	manual, manualPath, err := loadManualScore(filepath.Join(run.RunDir, manualScoreFileName))
 	if err != nil {
 		return nil, err
 	}
-	agentStdoutPath := filepath.Join(run.ArtifactPaths.AgentDir, "agent.stdout.log")
-	agentStderrPath := filepath.Join(run.ArtifactPaths.AgentDir, "agent.stderr.log")
-	agentMetadata, warnings, err := loadAgentMetadata(agentStdoutPath, run.AgentID)
+	agentStdoutPath := filepath.Join(run.AgentDir, "agent.stdout.log")
+	agentStderrPath := filepath.Join(run.AgentDir, "agent.stderr.log")
+	agentMetadata, warnings, err := loadAgentMetadata(agentStdoutPath, run.Agent)
 	if err != nil {
 		return nil, err
 	}
-
-	templateID := firstNonEmpty(run.TemplateID, snapshot.TemplateID)
-	templateName := templateNameFromSnapshot(snapshot)
-	if templateName == "" {
-		templateName = templateID
-	}
-	caseName := caseCtx.caseDef.Case.Name
-	suiteName := suiteCtx.suite.Suite.Name
-
 	invariantViolation, err := detectInvariantViolation(
 		filepath.Join(caseCtx.caseRoot, caseCtx.caseDef.Fixture.SeedPath),
-		run.ArtifactPaths.ProjectDir,
+		run.ProjectDir,
 		caseCtx.caseDef.Constraints.LockedPaths,
 	)
 	if err != nil {
 		return nil, err
 	}
-	editedFiles, err := collectEditedFiles(filepath.Join(caseCtx.caseRoot, caseCtx.caseDef.Fixture.SeedPath), run.ArtifactPaths.ProjectDir)
+	editedFiles, err := collectEditedFiles(filepath.Join(caseCtx.caseRoot, caseCtx.caseDef.Fixture.SeedPath), run.ProjectDir)
 	if err != nil {
 		return nil, err
 	}
-
+	templateID := firstNonEmpty(run.TemplateID, snapshot.TemplateID)
+	templateName := templateNameFromSnapshot(snapshot)
+	if templateName == "" {
+		templateName = templateID
+	}
 	finalVerificationPassed := strings.TrimSpace(snapshot.Status) == runStatusCompleted
 	restartCount := stats.RestartCount
 	failCount := stats.FailCount
@@ -218,7 +505,7 @@ func (s *liveQueryService) scoreRun(ctx context.Context, sessionDir string, suit
 		TimeoutCount:              timeoutCount,
 	}
 	efficiency := ScorecardEfficiency{
-		WallClockSeconds:     durationSeconds(stats.DurationMillis, run.StartedAt, run.EndedAt),
+		WallClockSeconds:     durationSeconds(stats.DurationMillis, timeFromUnixMillis(run.StartedAtUnixMilli), timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli)),
 		TotalToolCalls:       stats.TaskToolCallCount + stats.DownstreamToolCallCount,
 		InputTokens:          agentUsageInputTokens(agentMetadata),
 		OutputTokens:         agentUsageOutputTokens(agentMetadata),
@@ -226,25 +513,24 @@ func (s *liveQueryService) scoreRun(ctx context.Context, sessionDir string, suit
 		EditedFiles:          editedFiles,
 		ObservedCommandCalls: 0,
 	}
-
 	return &RunScorecard{
-		SuiteID:         run.SuiteID,
-		SuiteName:       suiteName,
+		SuiteID:         session.SuiteID,
+		SuiteName:       suiteCtx.suite.Suite.Name,
 		CaseID:          run.CaseID,
-		CaseName:        caseName,
+		CaseName:        caseCtx.caseDef.Case.Name,
 		TemplateID:      templateID,
 		TemplateName:    templateName,
-		TemplateVariant: run.TemplateVariant.Name,
-		Agent:           run.AgentID,
+		TemplateVariant: run.TemplateVariant,
+		Agent:           run.Agent,
 		Attempt:         run.Attempt,
-		RunManifestPath: filepath.Join(run.ArtifactPaths.RunDir, runFileName),
-		SessionPath:     sessionDir,
-		EventStoreMode:  run.ArtifactPaths.EventStoreMode,
-		EventStorePath:  run.ArtifactPaths.EventStorePath,
-		RequestLogPath:  run.ArtifactPaths.RequestLogPath,
+		RunManifestPath: filepath.Join(run.RunDir, runFileName),
+		SessionPath:     session.SessionPath,
+		EventStoreMode:  run.EventStoreMode,
+		EventStorePath:  run.EventStorePath,
+		RequestLogPath:  run.RequestLogPath,
 		AgentStdoutPath: agentStdoutPath,
 		AgentStderrPath: agentStderrPath,
-		ManualScorePath: manualPathValue,
+		ManualScorePath: manualPath,
 		RawStatus:       run.Status,
 		LatestTaskRunID: latestTaskRunID,
 		LinkedTaskRunIDs: append([]string(nil),
@@ -264,33 +550,51 @@ func (s *liveQueryService) scoreRun(ctx context.Context, sessionDir string, suit
 	}, nil
 }
 
-func loadSuiteContext(suiteRoot string) (*suiteContext, error) {
-	suite, err := LoadSuite(suiteRoot)
-	if err != nil {
-		return nil, fmt.Errorf("load suite for benchmark scoring: %w", err)
-	}
-	caseDefs, err := loadCaseContexts(suiteRoot, suite)
-	if err != nil {
-		return nil, err
-	}
-	return &suiteContext{suite: suite, caseDefs: caseDefs}, nil
-}
-
-func loadRunManifest(path string) (*RunManifest, error) {
-	var run RunManifest
-	if err := readJSONFile(path, &run); err != nil {
-		return nil, fmt.Errorf("load run manifest %q: %w", path, err)
-	}
-	return &run, nil
-}
-
-func latestLinkedTaskRunID(runIDs []string) string {
-	for idx := len(runIDs) - 1; idx >= 0; idx-- {
-		if trimmed := strings.TrimSpace(runIDs[idx]); trimmed != "" {
-			return trimmed
+func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID string) *persistence.BenchmarkSessionRecord {
+	for idx := range sessions {
+		if sessions[idx].SessionID == sessionID {
+			return &sessions[idx]
 		}
 	}
-	return ""
+	return nil
+}
+
+func templateNameForRun(ctx context.Context, store benchmarkQueryStore, run *persistence.BenchmarkRunRecord) string {
+	if store == nil || run == nil {
+		return ""
+	}
+	runID := strings.TrimSpace(run.LatestTaskRunID)
+	if runID == "" {
+		runID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
+	}
+	if runID == "" {
+		return ""
+	}
+	snapshot, err := store.GetTaskRunSnapshot(ctx, runID)
+	if err != nil || snapshot == nil {
+		return ""
+	}
+	return templateNameFromSnapshot(snapshot)
+}
+
+func caseNamesFromSuitePath(suitePath string) map[string]string {
+	result := map[string]string{}
+	suiteCtx, err := loadSuiteContext(suitePath)
+	if err != nil {
+		return result
+	}
+	for caseID, caseCtx := range suiteCtx.caseDefs {
+		result[caseID] = caseCtx.caseDef.Case.Name
+	}
+	return result
+}
+
+func suiteNameFromPath(suitePath string) string {
+	suiteCtx, err := loadSuiteContext(suitePath)
+	if err != nil || suiteCtx == nil || suiteCtx.suite == nil {
+		return ""
+	}
+	return suiteCtx.suite.Suite.Name
 }
 
 func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) string {
@@ -308,72 +612,79 @@ func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) strin
 	)
 }
 
-func durationSeconds(durationMillis *int64, start time.Time, end time.Time) float64 {
+func latestLinkedTaskRunID(runIDs []string) string {
+	for idx := len(runIDs) - 1; idx >= 0; idx-- {
+		if trimmed := strings.TrimSpace(runIDs[idx]); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func durationSeconds(durationMillis *int64, start, end time.Time) float64 {
 	if durationMillis != nil && *durationMillis > 0 {
 		return float64(*durationMillis) / 1000.0
 	}
 	return secondsBetween(start, end)
 }
 
-func loadPersistedSessions(ctx context.Context, store ArtifactReader, suiteID string) ([]persistedSession, error) {
-	filter := persistence.BenchmarkArtifactFilter{ArtifactKind: persistence.BenchmarkArtifactKindSession}
-	if strings.TrimSpace(suiteID) != "" {
-		filter.SuiteID = suiteID
-	}
-	records, err := store.ListBenchmarkArtifacts(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]persistedSession, 0, len(records))
-	for idx := range records {
-		var session SessionManifest
-		if err := json.Unmarshal(records[idx].PayloadJSON, &session); err != nil {
-			return nil, fmt.Errorf("decode session artifact %s: %w", records[idx].ID, err)
-		}
-		result = append(result, persistedSession{record: records[idx], session: session})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].record.CreatedAtUnixMilli != result[j].record.CreatedAtUnixMilli {
-			return result[i].record.CreatedAtUnixMilli > result[j].record.CreatedAtUnixMilli
-		}
-		return result[i].record.ID < result[j].record.ID
-	})
-	return result, nil
+func timeNowUTC() time.Time {
+	return time.Now().UTC()
 }
 
-func loadPersistedRuns(ctx context.Context, store ArtifactReader, suiteID string, filters BenchmarkRunFilters) ([]persistedRun, error) {
-	filter := persistence.BenchmarkArtifactFilter{ArtifactKind: persistence.BenchmarkArtifactKindRun}
-	if strings.TrimSpace(suiteID) != "" {
-		filter.SuiteID = suiteID
+func timeFromMillis(primary *int64, fallback int64) time.Time {
+	if primary != nil && *primary > 0 {
+		return time.UnixMilli(*primary).UTC()
 	}
-	filter.SessionID = strings.TrimSpace(filters.SessionID)
-	filter.CaseID = strings.TrimSpace(filters.CaseID)
-	filter.Agent = strings.TrimSpace(filters.Agent)
-	filter.TemplateVariant = strings.TrimSpace(filters.TemplateVariant)
+	return time.UnixMilli(fallback).UTC()
+}
 
-	records, err := store.ListBenchmarkArtifacts(ctx, filter)
-	if err != nil {
-		return nil, err
+func timeFromUnixMillis(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
 	}
-	result := make([]persistedRun, 0, len(records))
-	for idx := range records {
-		var run RunManifest
-		if err := json.Unmarshal(records[idx].PayloadJSON, &run); err != nil {
-			return nil, fmt.Errorf("decode run artifact %s: %w", records[idx].ID, err)
-		}
-		if filters.TemplateID != "" && run.TemplateID != filters.TemplateID {
-			continue
-		}
-		result = append(result, persistedRun{record: records[idx], run: run})
+	return time.UnixMilli(value).UTC()
+}
+
+func latestTime(current, candidate time.Time) time.Time {
+	if current.IsZero() {
+		return candidate
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].record.SessionPath != result[j].record.SessionPath {
-			return result[i].record.SessionPath > result[j].record.SessionPath
-		}
-		return compareRunRows(
-			RunSummaryRow{CaseID: result[i].run.CaseID, Agent: result[i].run.AgentID, TemplateVariant: result[i].run.TemplateVariant.Name, Attempt: result[i].run.Attempt},
-			RunSummaryRow{CaseID: result[j].run.CaseID, Agent: result[j].run.AgentID, TemplateVariant: result[j].run.TemplateVariant.Name, Attempt: result[j].run.Attempt},
-		)
-	})
-	return result, nil
+	if candidate.After(current) {
+		return candidate
+	}
+	return current
+}
+
+func runRecordToManifest(run *persistence.BenchmarkRunRecord) *RunManifest {
+	if run == nil {
+		return nil
+	}
+	return &RunManifest{
+		SuiteID:             "",
+		CaseID:              run.CaseID,
+		TemplateID:          run.TemplateID,
+		TemplateVariant:     TemplateVariant{Name: run.TemplateVariant},
+		AgentID:             run.Agent,
+		Attempt:             run.Attempt,
+		SelectedModel:       run.SelectedModel,
+		StartedAt:           timeFromUnixMillis(run.StartedAtUnixMilli),
+		EndedAt:             timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli),
+		Status:              run.Status,
+		LatestTaskRunID:     run.LatestTaskRunID,
+		LatestTaskRunStatus: run.LatestTaskRunStatus,
+		LinkedTaskRunIDs:    append([]string(nil), run.LinkedTaskRunIDs...),
+		ArtifactPaths: RunArtifactPaths{
+			RunDir:               run.RunDir,
+			ProjectDir:           run.ProjectDir,
+			LogsDir:              run.LogsDir,
+			AgentDir:             run.AgentDir,
+			ConfigPath:           run.ConfigPath,
+			EventStoreMode:       run.EventStoreMode,
+			EventStorePath:       run.EventStorePath,
+			RequestLogPath:       run.RequestLogPath,
+			SelectedTemplatePath: run.SelectedTemplatePath,
+		},
+		ErrorSummary: run.ErrorSummary,
+	}
 }

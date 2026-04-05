@@ -162,6 +162,19 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		Runs: runs,
 	}
 	assert.NilError(t, writeJSONFile(filepath.Join(sessionDir, sessionFileName), session))
+	store, err := persistence.NewSQLiteStore(sharedEventStorePath)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	sessionRecord, err := buildSessionRecord(session)
+	assert.NilError(t, err)
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
+	for idx := range runs {
+		run, loadErr := loadRunManifest(filepath.Join(sessionDir, runs[idx].RelativeRunDir, runFileName))
+		assert.NilError(t, loadErr)
+		runRecord, recordErr := buildRunRecord(run)
+		assert.NilError(t, recordErr)
+		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+	}
 }
 
 func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, sharedEventStorePath string, entry SessionRunManifestEntry, opts syntheticSessionOptions) {
@@ -174,13 +187,13 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 
 	runDir := filepath.Join(sessionDir, entry.RelativeRunDir)
 	projectDir := filepath.Join(runDir, "project")
-	templatesDir := filepath.Join(runDir, "templates")
 	logsDir := filepath.Join(runDir, "logs")
 	agentDir := filepath.Join(runDir, "agent")
-	assert.NilError(t, os.MkdirAll(templatesDir, 0o755))
 	assert.NilError(t, os.MkdirAll(logsDir, 0o755))
 	assert.NilError(t, os.MkdirAll(agentDir, 0o755))
 	assert.NilError(t, copyDir(fixtureRoot, projectDir))
+	selectedTemplatePath := filepath.Join(runDir, "selected-template.yaml")
+	assert.NilError(t, os.WriteFile(selectedTemplatePath, []byte("version: \"0.1\"\ntask:\n  id: simple_tdd\n  name: Simple TDD Current\nworkflow:\n  onboarding: {}\n  planning: {}\n  execution: []\n"), 0o644))
 
 	switch entry.CaseID {
 	case "compile_failure_red":
@@ -224,7 +237,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		SuiteID:             "simple_tdd_v1",
 		CaseID:              entry.CaseID,
 		TemplateID:          "simple_tdd",
-		TemplateVariant:     TemplateVariant{Name: "current", SourceDir: templatesDir},
+		TemplateVariant:     TemplateVariant{Name: "current"},
 		AgentID:             entry.AgentID,
 		StartedAt:           time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
 		EndedAt:             time.Date(2026, 4, 4, 12, 0, 5, 0, time.UTC),
@@ -233,15 +246,15 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		LatestTaskRunStatus: "completed",
 		LinkedTaskRunIDs:    []string{taskRunID},
 		ArtifactPaths: RunArtifactPaths{
-			RunDir:         runDir,
-			ProjectDir:     projectDir,
-			TemplatesDir:   templatesDir,
-			LogsDir:        logsDir,
-			AgentDir:       agentDir,
-			ConfigPath:     filepath.Join(runDir, "centian.config.json"),
-			EventStoreMode: "configured_shared",
-			EventStorePath: sharedEventStorePath,
-			RequestLogPath: requestLogPath,
+			RunDir:               runDir,
+			ProjectDir:           projectDir,
+			LogsDir:              logsDir,
+			AgentDir:             agentDir,
+			ConfigPath:           filepath.Join(runDir, "centian.config.json"),
+			EventStoreMode:       "configured_shared",
+			EventStorePath:       sharedEventStorePath,
+			RequestLogPath:       requestLogPath,
+			SelectedTemplatePath: selectedTemplatePath,
 		},
 	}
 	assert.NilError(t, writeJSONFile(filepath.Join(runDir, runFileName), run))

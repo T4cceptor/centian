@@ -248,6 +248,63 @@ func TestBenchmarkArtifactUpsertAndList(t *testing.T) {
 	assert.DeepEqual(t, records[0].PayloadJSON, json.RawMessage(`{"status":"rescored"}`))
 }
 
+func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	session := &BenchmarkSessionRecord{
+		SessionID:          "bm_session_1",
+		SuiteID:            "simple_tdd_v1",
+		SuitePath:          "/tmp/suite",
+		SessionPath:        "/tmp/session",
+		OutputRoot:         "/tmp",
+		TemplateID:         "simple_tdd",
+		StartedAtUnixMilli: 1000,
+		Status:             "completed",
+		RepeatCount:        1,
+	}
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), session))
+
+	run := &BenchmarkRunRecord{
+		BenchmarkRunID:      "bm_run_1",
+		SessionID:           session.SessionID,
+		CaseID:              "assertion_failure_red",
+		Agent:               "codex",
+		TemplateVariant:     "current",
+		Attempt:             1,
+		TemplateID:          "simple_tdd",
+		StartedAtUnixMilli:  1000,
+		Status:              "completed",
+		LatestTaskRunID:     "tr_1",
+		LatestTaskRunStatus: "completed",
+		LinkedTaskRunIDs:    []string{"tr_1"},
+		RunDir:              "/tmp/session/run",
+		ProjectDir:          "/tmp/session/run/project",
+		LogsDir:             "/tmp/session/run/logs",
+		AgentDir:            "/tmp/session/run/agent",
+		ConfigPath:          "/tmp/session/run/config.json",
+		EventStorePath:      "/tmp/events.sqlite",
+	}
+	assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), run))
+
+	run.Status = "failed"
+	run.ErrorSummary = "agent failed"
+	assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), run))
+
+	sessions, err := store.ListBenchmarkSessions(context.Background(), BenchmarkSessionFilter{SuiteID: "simple_tdd_v1"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(sessions), 1)
+	assert.Equal(t, sessions[0].SessionID, session.SessionID)
+
+	runs, err := store.ListBenchmarkRuns(context.Background(), BenchmarkRunFilter{SuiteID: "simple_tdd_v1", Agent: "codex"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runs), 1)
+	assert.Equal(t, runs[0].BenchmarkRunID, run.BenchmarkRunID)
+	assert.Equal(t, runs[0].Status, "failed")
+	assert.DeepEqual(t, runs[0].LinkedTaskRunIDs, []string{"tr_1"})
+}
+
 func TestStoreReadMethodsReturnErrorsWhenDatabaseIsClosed(t *testing.T) {
 	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
 	assert.NilError(t, err)
