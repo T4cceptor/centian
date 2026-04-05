@@ -39,7 +39,7 @@ Basic repository structure:
 There is currently no active `pkg/` export surface in this repository; prefer `internal/` packages unless a true public package is needed.
 
 ## Build, Test, and Development Commands
-Use Go tools or the Makefile targets. `go build -o build/centian ./cmd/main.go` compiles the CLI once. `make build` wraps the same build with version metadata. `make dev` runs the full developer loop (`clean`, `fmt`, `vet`, `test`, `build`). Run unit tests with `go test ./...`; add `-race` locally when touching concurrency. `make test` enables verbose race-detected tests. Run `golangci-lint run` when available; the Makefile exposes it via `make lint`.
+Use Go tools or the Makefile targets. `go build -o build/centian ./main.go` compiles the CLI once. `make build` wraps the same build with version metadata. `make dev` runs the full developer loop (`clean`, `fmt`, `vet`, `test`, `build`). Run unit tests with `go test ./...`; add `-race` locally when touching concurrency. `make test` enables verbose race-detected tests. Run `golangci-lint run` when available; the Makefile exposes it via `make lint`.
 
 ## Coding Style & Naming Conventions
 Adhere to Go defaults: tabs for indentation, `go fmt ./...` before pushing, and idiomatic lower-case package names. Favor descriptive but concise exported names (e.g., `StdioProxy`, `LogReader`). Keep configuration structs and JSON/YAML tags in sync with files in `docs/` and `tests/test_configs/`. When adding CLI flags, mirror naming patterns already in `internal/cli`.

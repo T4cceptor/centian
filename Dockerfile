@@ -25,7 +25,7 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags "-s -w -X main.version=${VERSION}" \
     -o centian \
-    ./cmd/main.go
+    ./main.go
 
 
 # Stage 3: Alpine image — minimal, binary only
