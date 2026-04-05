@@ -50,7 +50,7 @@ func (s *Store) UpsertTaskRunSnapshot(snapshot *taskruns.PersistedRunSnapshot) e
 		Phase:              snapshot.Phase,
 		PayloadJSON:        payload,
 	}
-	_, err = s.db.NewInsert().
+	if _, err = s.db.NewInsert().
 		Model(&row).
 		On("CONFLICT (run_id) DO UPDATE").
 		Set("schema_version = EXCLUDED.schema_version").
@@ -60,8 +60,10 @@ func (s *Store) UpsertTaskRunSnapshot(snapshot *taskruns.PersistedRunSnapshot) e
 		Set("status = EXCLUDED.status").
 		Set("phase = EXCLUDED.phase").
 		Set("payload_json = EXCLUDED.payload_json").
-		Exec(context.Background())
-	return err
+		Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForSnapshot(snapshot)
 }
 
 // GetTaskRunSnapshot returns one persisted run snapshot by id.

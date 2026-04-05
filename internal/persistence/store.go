@@ -20,7 +20,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 6
+const schemaVersion = 8
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -340,6 +340,9 @@ func (s *Store) createTables(ctx context.Context) error {
 	if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
 	}
+	if err := createTaskRunStatsTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap task run stats schema: %w", err)
+	}
 	return nil
 }
 
@@ -368,6 +371,18 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 	if fromVersion == 5 {
 		if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
 			return fmt.Errorf("failed to migrate event store schema from v5 to v6: %w", err)
+		}
+		fromVersion = 6
+	}
+	if fromVersion == 6 {
+		if err := createTaskRunStatsTables(ctx, s.db); err != nil {
+			return fmt.Errorf("failed to migrate event store schema from v6 to v7: %w", err)
+		}
+		fromVersion = 7
+	}
+	if fromVersion == 7 {
+		if err := recreateTaskRunStatsTables(ctx, s.db); err != nil {
+			return fmt.Errorf("failed to migrate event store schema from v7 to v8: %w", err)
 		}
 		return nil
 	}
@@ -401,8 +416,10 @@ func (s *Store) AppendTaskEvent(event *taskverification.TaskEvent) error {
 		RelatedActionRequestID: event.RelatedActionRequestID,
 		PayloadJSON:            event.Payload,
 	}
-	_, err := s.db.NewInsert().Model(&row).Exec(context.Background())
-	return err
+	if _, err := s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForTaskEvent(event)
 }
 
 // AppendActionEventTaskContext persists one action-to-task bridge record.
@@ -414,8 +431,10 @@ func (s *Store) AppendActionEventTaskContext(ctx taskverification.ActionEventTas
 		InvocationNodeKind:  string(ctx.InvocationNodeKind),
 		CreatedAtUnixMilli:  ctx.CreatedAtUnixMilli,
 	}
-	_, err := s.db.NewInsert().Model(&row).Exec(context.Background())
-	return err
+	if _, err := s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForActionContext(ctx)
 }
 
 // AppendActionEvent persists one action event projected from the MCP request log.
@@ -449,8 +468,10 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 		row.OriginalToolName = entry.ToolCall.OriginalName
 		row.IsError = entry.ToolCall.IsError
 	}
-	_, err = s.db.NewInsert().Model(&row).Exec(context.Background())
-	return err
+	if _, err = s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForActionRequest(entry.RequestID)
 }
 
 // ListTaskRuns returns aggregated task run summaries ordered by start time descending.
