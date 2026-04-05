@@ -203,7 +203,7 @@ func WriteAPIKeyFile(path string, file *APIKeyFile) error {
 }
 
 // AppendAPIKey appends an entry to the API key file, creating it if needed.
-func AppendAPIKey(path string, entry APIKeyEntry) (*APIKeyFile, error) {
+func AppendAPIKey(path string, entry *APIKeyEntry) (*APIKeyFile, error) {
 	file, err := ReadAPIKeyFile(path)
 	if err != nil {
 		if errors.Is(err, ErrAPIKeysNotFound) {
@@ -213,7 +213,7 @@ func AppendAPIKey(path string, entry APIKeyEntry) (*APIKeyFile, error) {
 		}
 	}
 
-	file.Keys = append(file.Keys, entry)
+	file.Keys = append(file.Keys, *entry)
 	if err := WriteAPIKeyFile(path, file); err != nil {
 		return nil, err
 	}

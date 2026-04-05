@@ -258,25 +258,6 @@ func (noopCloser) Close() error {
 	return nil
 }
 
-// Legacy helpers kept as thin wrappers for test compatibility.
-
-func newTaskVerificationService(
-	globalConfig *config.GlobalConfig,
-	workingDir string,
-	logger *logging.Logger,
-) (*taskverification.Service, *persistence.Store, io.Closer, error) {
-	// After ResolveProjects, capabilities live in the default project.
-	defaultProject := globalConfig.GetDefaultProject()
-	if defaultProject == nil {
-		defaultProject = config.NewDefaultProjectConfig()
-	}
-	return newProjectTaskVerificationService(defaultProject, config.DefaultProjectSlug, workingDir, logger)
-}
-
-func resolveEventStorePath(settings *config.EventStorageCapabilitySettings) (string, error) {
-	return resolveProjectEventStorePath(settings, config.DefaultProjectSlug)
-}
-
 // Setup uses CentianServer.config to create all gateways and endpoints for every project.
 func (c *CentianServer) Setup() error {
 	for slug, project := range c.Projects {
@@ -318,15 +299,9 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 			return err
 		}
 		project.OAuth = manager
-		// Register OAuth routes with project prefix.
-		if routePrefix == "" {
-			project.OAuth.RegisterRoutes(c.Mux)
-		} else {
-			// For non-default projects, OAuth routes are prefixed.
-			// Edge case: OAuth route registration with prefix - not yet handled by OAuth manager.
-			// TODO: add prefix support to OAuth manager for multi-project setups.
-			project.OAuth.RegisterRoutes(c.Mux)
-		}
+		// TODO: add prefix support to OAuth manager for multi-project setups.
+		// Currently all projects share the same /oauth/* routes.
+		project.OAuth.RegisterRoutes(c.Mux)
 	}
 
 	// Register optional HTTP routes (API, UI) for this project.
@@ -375,34 +350,15 @@ func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject, route
 		return
 	}
 
+	// TODO: implement prefixed route registration for API and UI handlers
+	// in multi-project setups. Currently all projects share the same /api/* and /ui routes.
 	handler := centapi.NewHandler(project.PersistenceStore)
-	if routePrefix == "" {
-		handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-			return wrapWithAPIKeyAuth(c, next)
-		})
-	} else {
-		// For non-default projects, API routes are prefixed.
-		// TODO: implement prefixed route registration for API handler.
-		handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-			return wrapWithAPIKeyAuth(c, next)
-		})
-	}
+	handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, next)
+	})
 
 	if project.Config != nil && project.Config.UIEnabled() {
-		if routePrefix == "" {
-			centui.NewHandler().RegisterRoutes(c.Mux)
-		} else {
-			// TODO: implement prefixed route registration for UI handler.
-			centui.NewHandler().RegisterRoutes(c.Mux)
-		}
-	}
-}
-
-// registerOptionalHTTPRoutes is kept for backwards compatibility but delegates
-// to registerProjectHTTPRoutes for the default project.
-func (c *CentianServer) registerOptionalHTTPRoutes() {
-	if defaultProject, ok := c.Projects[config.DefaultProjectSlug]; ok {
-		c.registerProjectHTTPRoutes(defaultProject, "")
+		centui.NewHandler().RegisterRoutes(c.Mux)
 	}
 }
 
@@ -416,50 +372,57 @@ func (c *CentianServer) Close() []error {
 
 	// Close project-scoped resources.
 	for _, project := range c.Projects {
-		if project == nil {
-			continue
+		errs = append(errs, closeProject(project)...)
+	}
+
+	// Close legacy flat-list resources not owned by any project.
+	errs = append(errs, c.closeLegacyResources()...)
+	return errs
+}
+
+func closeProject(project *CentianProject) []error {
+	if project == nil {
+		return nil
+	}
+	var errs []error
+	if project.eventStoreCloser != nil {
+		if err := project.eventStoreCloser.Close(); err != nil {
+			errs = append(errs, err)
 		}
-		if project.eventStoreCloser != nil {
-			if err := project.eventStoreCloser.Close(); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		for _, endpoint := range project.Endpoints {
-			if endpoint == nil {
-				continue
-			}
+	}
+	for _, endpoint := range project.Endpoints {
+		if endpoint != nil {
 			errs = append(errs, endpoint.Close()...)
 		}
 	}
+	return errs
+}
 
-	// Also close endpoints in the legacy flat list that aren't part of any project.
-	// This handles tests and code that directly populates CentianServer.Endpoints.
-	if c.eventStoreCloser != nil {
-		// Only close if this isn't already owned by a project.
-		isProjectOwned := false
-		for _, project := range c.Projects {
-			if project != nil && project.eventStoreCloser == c.eventStoreCloser {
-				isProjectOwned = true
-				break
-			}
-		}
-		if !isProjectOwned {
-			if err := c.eventStoreCloser.Close(); err != nil {
-				errs = append(errs, err)
-			}
+// closeLegacyResources closes resources in the flat Endpoints list that aren't part of any project.
+// This handles tests and code that directly populates CentianServer.Endpoints.
+func (c *CentianServer) closeLegacyResources() []error {
+	var errs []error
+	if c.eventStoreCloser != nil && !c.isEventStoreProjectOwned() {
+		if err := c.eventStoreCloser.Close(); err != nil {
+			errs = append(errs, err)
 		}
 	}
 	for _, endpoint := range c.Endpoints {
-		if endpoint == nil {
-			continue
-		}
-		// Skip if already closed via project iteration.
-		if endpoint.project != nil {
+		if endpoint == nil || endpoint.project != nil {
 			continue
 		}
 		errs = append(errs, endpoint.Close()...)
 	}
 	return errs
+}
+
+func (c *CentianServer) isEventStoreProjectOwned() bool {
+	for _, project := range c.Projects {
+		if project != nil && project.eventStoreCloser == c.eventStoreCloser {
+			return true
+		}
+	}
+	return false
 }
 
 // initEventProcessor initializes the event processor for this ProxyEndpoint.

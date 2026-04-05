@@ -66,10 +66,10 @@ type GlobalConfig struct {
 //   - Auth settings
 //   - Gateways, processors, and metadata
 type ProjectConfig struct {
-	Slug        string                    `json:"slug,omitempty"`       // URL-safe project slug (derived from map key if empty)
-	Description string                    `json:"description,omitempty"` // Human readable project description
-	AuthEnabled *bool                     `json:"auth,omitempty"`       // Enable or disable project-level auth
-	AuthHeader  string                    `json:"authHeader,omitempty"` // Header name for project-level auth
+	Slug        string `json:"slug,omitempty"`        // URL-safe project slug (derived from map key if empty)
+	Description string `json:"description,omitempty"` // Human readable project description
+	AuthEnabled *bool  `json:"auth,omitempty"`        // Enable or disable project-level auth
+	AuthHeader  string `json:"authHeader,omitempty"`  // Header name for project-level auth
 
 	Capabilities *CapabilitiesSettings     `json:"capabilities,omitempty"` // Project-scoped feature flags
 	Web          *ProxyWebSettings         `json:"web,omitempty"`          // Public web settings (OAuth flows)
@@ -834,21 +834,31 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 
 	// Project-based layout validation.
 	if len(config.Projects) > 0 {
-		for slug, project := range config.Projects {
-			if err := validateProjectSlug(slug); err != nil {
-				return err
-			}
-			if project == nil {
-				return fmt.Errorf("project '%s': config cannot be nil", slug)
-			}
-			if err := validateProjectConfig(slug, project, strict); err != nil {
-				return err
-			}
-		}
-		return nil
+		return validateProjects(config.Projects, strict)
 	}
 
 	// Legacy flat layout validation.
+	return validateFlatLayout(config, strict)
+}
+
+// validateProjects validates all project configs in the project-based layout.
+func validateProjects(projects map[string]*ProjectConfig, strict bool) error {
+	for slug, project := range projects {
+		if err := validateProjectSlug(slug); err != nil {
+			return err
+		}
+		if project == nil {
+			return fmt.Errorf("project '%s': config cannot be nil", slug)
+		}
+		if err := validateProjectConfig(slug, project, strict); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFlatLayout validates the legacy flat config layout.
+func validateFlatLayout(config *GlobalConfig, strict bool) error {
 	if err := validateNameConventions(config.Gateways); err != nil {
 		return err
 	}
@@ -863,7 +873,6 @@ func ValidateConfig(config *GlobalConfig, strict bool) error {
 	}
 
 	if strict {
-		// Validate config for operational purposes - meaning: can we start the server with this?
 		if err := validateGateways(config.Gateways); err != nil {
 			return err
 		}

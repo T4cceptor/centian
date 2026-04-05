@@ -71,7 +71,7 @@ func handleAuthNewKeyCommand(_ context.Context, _ *cli.Command) error {
 		return err
 	}
 
-	if _, err := auth.AppendAPIKey(path, entry); err != nil {
+	if _, err := auth.AppendAPIKey(path, &entry); err != nil {
 		return err
 	}
 
