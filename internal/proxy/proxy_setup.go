@@ -305,7 +305,7 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 	}
 
 	// Register optional HTTP routes (API, UI) for this project.
-	c.registerProjectHTTPRoutes(project, routePrefix)
+	c.registerProjectHTTPRoutes(project)
 
 	// Register gateway and server endpoints.
 	for gatewayName, gatewayConfig := range projectConfig.Gateways {
@@ -345,7 +345,7 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 }
 
 // registerProjectHTTPRoutes registers API and UI routes for a project.
-func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject, routePrefix string) {
+func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
 	if project == nil || project.PersistenceStore == nil {
 		return
 	}
