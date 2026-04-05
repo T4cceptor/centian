@@ -146,24 +146,16 @@ func newProjectTaskVerificationService(
 	logger *logging.Logger,
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
 	templateDir := resolveProjectTaskTemplatesPath(projectConfig, workingDir)
-	taskService := taskverification.NewService(templateDir, workingDir)
-
 	eventStorage := projectConfig.EventStorageCapability()
-	if eventStorage != nil && !eventStorage.IsEnabled() {
-		return taskService, nil, noopCloser{}, nil
-	}
-
-	storePath, err := resolveProjectEventStorePath(eventStorage, projectSlug)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	store, err := persistence.NewSQLiteStore(storePath)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
-	}
-	taskService.EventStore = store
-	logger.SetActionEventStore(store)
-	return taskService, store, store, nil
+	return buildTaskVerificationService(
+		templateDir,
+		workingDir,
+		logger,
+		eventStorage == nil || eventStorage.IsEnabled(),
+		func() (string, error) {
+			return resolveProjectEventStorePath(eventStorage, projectSlug)
+		},
+	)
 }
 
 func resolveProjectTaskTemplatesPath(projectConfig *config.ProjectConfig, workingDir string) string {
@@ -259,19 +251,19 @@ func (noopCloser) Close() error {
 	return nil
 }
 
-func newTaskVerificationService(
-	globalConfig *config.GlobalConfig,
+func buildTaskVerificationService(
+	templateDir string,
 	workingDir string,
 	logger *logging.Logger,
+	eventStorageEnabled bool,
+	resolveStorePath func() (string, error),
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
-	templateDir := resolveTaskTemplatesPath(globalConfig.Proxy, workingDir)
 	taskService := taskverification.NewService(templateDir, workingDir)
-	eventStorage := globalConfig.Proxy.EventStorageCapability()
-	if eventStorage != nil && !eventStorage.IsEnabled() {
+	if !eventStorageEnabled {
 		return taskService, nil, noopCloser{}, nil
 	}
 
-	storePath, err := config.ResolveEventStorePath(eventStorage)
+	storePath, err := resolveStorePath()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -283,21 +275,6 @@ func newTaskVerificationService(
 	taskService.RunStore = store
 	logger.SetActionEventStore(store)
 	return taskService, store, store, nil
-}
-
-func resolveTaskTemplatesPath(settings *config.ProxySettings, workingDir string) string {
-	defaultPath := filepath.Join(workingDir, "task-templates")
-	if settings == nil {
-		return defaultPath
-	}
-	templatesPath := settings.TaskVerificationCapability().GetTemplatesPath()
-	if templatesPath == "" {
-		return defaultPath
-	}
-	if filepath.IsAbs(templatesPath) {
-		return templatesPath
-	}
-	return filepath.Join(workingDir, templatesPath)
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints for every project.
