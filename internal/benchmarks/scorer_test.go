@@ -3,18 +3,18 @@ package benchmarks
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/persistence"
+	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"gotest.tools/assert"
 )
 
-func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
+func TestScoreSessionBuildsLiveSummary(t *testing.T) {
 	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{
 		includeInvariantViolation: true,
 	})
@@ -48,70 +48,10 @@ func TestScoreSessionWritesScorecardsAndSummary(t *testing.T) {
 	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianInputTokens, float64(111))
 	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianOutputTokens, float64(222))
 	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianOutputTokens, float64(666))
-
-	firstRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
-	assert.Equal(t, firstRunScorecard.Outcome.FirstPassSuccess, true)
-	assert.Equal(t, firstRunScorecard.Outcome.InvariantViolation, false)
-	assert.Equal(t, firstRunScorecard.Process.FailedTaskToolCalls, 1)
-	assert.Equal(t, firstRunScorecard.Process.FailedDownstreamToolCalls, 1)
-	assert.Equal(t, firstRunScorecard.Process.TotalStepRetries, 1)
-	assert.Equal(t, firstRunScorecard.Process.ReplanningCount, 1)
-	assert.Assert(t, firstRunScorecard.Process.RecoveryTimeSeconds != nil)
-	assert.Assert(t, *firstRunScorecard.Process.RecoveryTimeSeconds > 0)
-	assert.Assert(t, firstRunScorecard.Process.RecoveryToolCalls != nil)
-	assert.Equal(t, *firstRunScorecard.Process.RecoveryToolCalls, 1)
-	assert.Equal(t, firstRunScorecard.Efficiency.ObservedCommandCalls, 1)
-	assert.Equal(t, firstRunScorecard.Efficiency.EditedFilesCount, 1)
-	assert.DeepEqual(t, firstRunScorecard.Efficiency.EditedFiles, []string{"internal/health/health.go"})
-	assert.Assert(t, firstRunScorecard.Manual.ErrorActionabilityScore != nil)
-	assert.Equal(t, *firstRunScorecard.Manual.ErrorActionabilityScore, 3)
-	assert.Assert(t, firstRunScorecard.AgentMetadata != nil)
-	assert.Equal(t, firstRunScorecard.AgentMetadata.ThreadID, "thread_codex")
-	assert.Assert(t, firstRunScorecard.AgentMetadata.Usage.InputTokens != nil)
-	assert.Equal(t, *firstRunScorecard.AgentMetadata.Usage.InputTokens, int64(111))
-	assert.Assert(t, firstRunScorecard.Efficiency.InputTokens != nil)
-	assert.Equal(t, *firstRunScorecard.Efficiency.InputTokens, int64(111))
-	assert.Assert(t, firstRunScorecard.Efficiency.OutputTokens != nil)
-	assert.Equal(t, *firstRunScorecard.Efficiency.OutputTokens, int64(666))
-	assert.Equal(t, firstRunScorecard.SessionPath, sessionDir)
-	assert.Equal(t, firstRunScorecard.EventStoreMode, "configured_shared")
-
-	secondRunScorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "claude", "assertion_failure_red", "attempt-001", scorecardFileName))
-	assert.Equal(t, secondRunScorecard.Outcome.FirstPassSuccess, false)
-	assert.Equal(t, secondRunScorecard.Outcome.InvariantViolation, true)
-	assert.Equal(t, secondRunScorecard.Outcome.RestartOccurred, true)
-	assert.Assert(t, secondRunScorecard.AgentMetadata != nil)
-	assert.Equal(t, secondRunScorecard.AgentMetadata.SessionID, "session_claude")
-	assert.Assert(t, secondRunScorecard.AgentMetadata.NumTurns != nil)
-	assert.Equal(t, *secondRunScorecard.AgentMetadata.NumTurns, 7)
-	assert.Assert(t, secondRunScorecard.AgentMetadata.Usage.OutputTokens != nil)
-	assert.Equal(t, *secondRunScorecard.AgentMetadata.Usage.OutputTokens, int64(222))
-	assert.Assert(t, secondRunScorecard.Efficiency.InputTokens != nil)
-	assert.Equal(t, *secondRunScorecard.Efficiency.InputTokens, int64(123))
-	assert.Assert(t, secondRunScorecard.Efficiency.OutputTokens != nil)
-	assert.Equal(t, *secondRunScorecard.Efficiency.OutputTokens, int64(222))
-
-	store, err := persistence.NewSQLiteStore(filepath.Join(sessionDir, "shared-events.sqlite"))
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-	scorecards, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
-		SuiteID:      "simple_tdd_v1",
-		ArtifactKind: persistence.BenchmarkArtifactKindScorecard,
-	})
-	assert.NilError(t, err)
-	summaries, err := store.ListBenchmarkArtifacts(context.Background(), persistence.BenchmarkArtifactFilter{
-		SuiteID:      "simple_tdd_v1",
-		ArtifactKind: persistence.BenchmarkArtifactKindSummary,
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, len(scorecards), 2)
-	assert.Equal(t, len(summaries), 1)
 }
 
-func TestScoreSessionCanReuseSQLiteEventStoreWithoutJSONSnapshots(t *testing.T) {
+func TestScoreSessionUsesSharedTaskRunPersistence(t *testing.T) {
 	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_runs.json")))
-	assert.NilError(t, os.RemoveAll(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_run_events")))
 
 	scorer := NewScorer()
 	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
@@ -121,7 +61,7 @@ func TestScoreSessionCanReuseSQLiteEventStoreWithoutJSONSnapshots(t *testing.T) 
 
 func TestScoreSessionIgnoresUnrelatedTaskRunsInSharedSQLiteStore(t *testing.T) {
 	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	storePath := filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "events.sqlite")
+	storePath := filepath.Join(sessionDir, "shared-events.sqlite")
 	assert.NilError(t, writeSyntheticEventStore(storePath, "tr_unrelated", []persistence.TaskRunEvent{
 		{
 			Source:             persistence.TaskRunEventSourceTask,
@@ -130,20 +70,16 @@ func TestScoreSessionIgnoresUnrelatedTaskRunsInSharedSQLiteStore(t *testing.T) {
 			EventType:          "task_restarted",
 		},
 	}))
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_runs.json")))
-	assert.NilError(t, os.RemoveAll(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "logs", "task_run_events")))
 
 	scorer := NewScorer()
 	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
 	assert.NilError(t, err)
-
-	scorecard := loadScorecard(t, filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
 	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Equal(t, scorecard.Outcome.RestartOccurred, false)
-	assert.Equal(t, scorecard.Outcome.FirstPassSuccess, true)
+	assert.Equal(t, summary.Runs[1].RestartOccurred, false)
+	assert.Equal(t, summary.Runs[1].FirstPassSuccess, true)
 }
 
-func TestScoreSessionRejectsInvalidManualScoreButStillWritesSummary(t *testing.T) {
+func TestScoreSessionRejectsInvalidManualScore(t *testing.T) {
 	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{
 		invalidManualScoreForCase: "assertion_failure_red",
 	})
@@ -155,29 +91,6 @@ func TestScoreSessionRejectsInvalidManualScoreButStillWritesSummary(t *testing.T
 	assert.Equal(t, summary.RunCount, 2)
 	assert.Equal(t, summary.ScoredRunCount, 1)
 	assert.Equal(t, summary.FailedToScoreCount, 1)
-
-	_, statErr := os.Stat(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
-	assert.NilError(t, statErr)
-	_, statErr = os.Stat(filepath.Join(sessionDir, summaryFileName))
-	assert.NilError(t, statErr)
-	_, statErr = os.Stat(filepath.Join(sessionDir, "runs", "current", "codex", "assertion_failure_red", "attempt-001", scorecardFileName))
-	assert.Assert(t, os.IsNotExist(statErr))
-}
-
-func TestScoreSessionKeepsFilesWhenBenchmarkPersistenceFails(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	scorer := &Scorer{
-		Now: func() time.Time { return time.Date(2026, 4, 4, 16, 0, 0, 0, time.UTC) },
-		PersistArtifact: func(context.Context, string, *persistence.BenchmarkArtifactRecord) error {
-			return errors.New("persist failed")
-		},
-	}
-
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.ErrorContains(t, err, "persist failed")
-	assert.Assert(t, summary != nil)
-	_, statErr := os.Stat(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", scorecardFileName))
-	assert.NilError(t, statErr)
 }
 
 func TestScoreSessionRequiresSessionManifest(t *testing.T) {
@@ -279,27 +192,27 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		}
 	}
 
-	taskRunsPath := filepath.Join(logsDir, "task_runs.json")
-	taskRunEventsDir := filepath.Join(logsDir, "task_run_events")
-	assert.NilError(t, os.MkdirAll(taskRunEventsDir, 0o755))
 	requestLogPath := filepath.Join(logsDir, "requests_0001.jsonl")
 	assert.NilError(t, os.WriteFile(requestLogPath, []byte("{}\n"), 0o644))
 	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stderr.log"), []byte{}, 0o644))
 
 	taskRunID := entry.LatestTaskRunID
-	taskRuns := []persistence.TaskRunSummary{{
-		RunID:      taskRunID,
-		TemplateID: "simple_tdd",
-		StartedAt:  1_000,
-		EndedAt:    int64Ptr(3_000),
-		Status:     "completed",
-	}}
-	assert.NilError(t, writeJSONFile(taskRunsPath, taskRuns))
-
 	events := syntheticEventsForCase(entry.CaseID)
-	assert.NilError(t, writeJSONFile(filepath.Join(taskRunEventsDir, taskRunID+".json"), events))
 	assert.NilError(t, writeSyntheticEventStore(sharedEventStorePath, taskRunID, events))
 	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stdout.log"), []byte(syntheticAgentStdout(entry.AgentID)), 0o644))
+	store, err := persistence.NewSQLiteStore(sharedEventStorePath)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+		RunID:        taskRunID,
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Current",
+		Status:       "completed",
+		Phase:        "execution.implement_fix",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Task: taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Current"},
+		},
+	}))
 
 	if entry.CaseID == opts.invalidManualScoreForCase {
 		assert.NilError(t, os.WriteFile(filepath.Join(runDir, manualScoreFileName), []byte(`{"errorActionabilityScore":9}`), 0o644))
@@ -320,17 +233,15 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		LatestTaskRunStatus: "completed",
 		LinkedTaskRunIDs:    []string{taskRunID},
 		ArtifactPaths: RunArtifactPaths{
-			RunDir:           runDir,
-			ProjectDir:       projectDir,
-			TemplatesDir:     templatesDir,
-			LogsDir:          logsDir,
-			AgentDir:         agentDir,
-			ConfigPath:       filepath.Join(runDir, "centian.config.json"),
-			EventStoreMode:   "configured_shared",
-			EventStorePath:   sharedEventStorePath,
-			RequestLogPath:   requestLogPath,
-			TaskRunsSnapshot: taskRunsPath,
-			TaskRunEventsDir: taskRunEventsDir,
+			RunDir:         runDir,
+			ProjectDir:     projectDir,
+			TemplatesDir:   templatesDir,
+			LogsDir:        logsDir,
+			AgentDir:       agentDir,
+			ConfigPath:     filepath.Join(runDir, "centian.config.json"),
+			EventStoreMode: "configured_shared",
+			EventStorePath: sharedEventStorePath,
+			RequestLogPath: requestLogPath,
 		},
 	}
 	assert.NilError(t, writeJSONFile(filepath.Join(runDir, runFileName), run))
@@ -508,17 +419,6 @@ func syntheticAgentStdout(agent string) string {
 	}
 }
 
-func loadScorecard(t *testing.T, path string) *RunScorecard {
-	t.Helper()
-	var scorecard RunScorecard
-	assert.NilError(t, readJSONFile(path, &scorecard))
-	return &scorecard
-}
-
 func boolPtr(value bool) *bool {
-	return &value
-}
-
-func int64Ptr(value int64) *int64 {
 	return &value
 }

@@ -104,12 +104,6 @@ func TestTaskVerificationBenchmarkSmoke(t *testing.T) {
 	if run.LatestTaskRunID == "" || len(run.LinkedTaskRunIDs) == 0 {
 		t.Fatalf("expected linked task runs in manifest: %+v", run)
 	}
-	if _, err := os.Stat(run.ArtifactPaths.TaskRunsSnapshot); err != nil {
-		t.Fatalf("expected task runs snapshot: %v", err)
-	}
-	if _, err := os.Stat(run.ArtifactPaths.TaskRunEventsDir); err != nil {
-		t.Fatalf("expected task run events dir: %v", err)
-	}
 	if _, err := os.Stat(run.ArtifactPaths.RequestLogPath); err != nil {
 		t.Fatalf("expected request log path: %v", err)
 	}
