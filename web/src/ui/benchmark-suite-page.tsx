@@ -15,6 +15,17 @@ import { formatBenchmarkRate, formatBenchmarkSeconds } from "./benchmark-format"
 import { BenchmarkRunTable } from "./benchmark-run-table";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
+type AnalysisRow = {
+  key: string;
+  label: string;
+  successRate: number;
+  centianErrors: number;
+  mcpErrors: number;
+  medianWallClockSeconds: number;
+  firstPassRate: number;
+  totalCentianActions: number;
+  totalMcpActions: number;
+};
 
 export function BenchmarkSuitePage() {
   const { suiteID = "" } = useParams();
@@ -118,28 +129,13 @@ export function BenchmarkSuitePage() {
     );
   }
 
-  const byVariant = comparison?.aggregates.byTemplateVariant ?? [];
-  const byAgent = comparison?.aggregates.byAgent ?? [];
   const agentOptions = Array.from(new Set(allRuns.map((run) => run.agent))).sort();
   const caseOptions = Array.from(new Set(allRuns.map((run) => run.caseId))).sort();
   const variantOptions = Array.from(new Set(allRuns.map((run) => run.templateVariant))).sort();
   const templateTitle = comparison?.templateName ?? runs[0]?.templateName ?? comparison?.templateId ?? suiteID;
   const suiteTitle = comparison?.suiteName ?? sessions[0]?.suiteName ?? suiteID;
-  const variantErrorRows = Array.from(
-    runs.reduce((map, run) => {
-      const current = map.get(run.templateVariant) ?? {
-        templateVariant: run.templateVariant,
-        centianErrors: 0,
-        mcpErrors: 0,
-      };
-      current.centianErrors += run.failedTaskToolCalls;
-      current.mcpErrors += run.failedDownstreamToolCalls;
-      map.set(run.templateVariant, current);
-      return map;
-    }, new Map<string, { templateVariant: string; centianErrors: number; mcpErrors: number }>()),
-  )
-    .map(([, row]) => row)
-    .sort((left, right) => left.templateVariant.localeCompare(right.templateVariant));
+  const variantRows = buildAnalysisRows(runs, (run) => run.templateVariant);
+  const agentRows = buildAnalysisRows(runs, (run) => run.agent);
 
   return (
     <div className="benchmark-page">
@@ -192,49 +188,21 @@ export function BenchmarkSuitePage() {
         </div>
       </div>
 
-      <div className="benchmark-summary-grid">
-        <article className="benchmark-summary-card">
-          <p className="state-card__eyebrow">Errors By Variant</p>
-          {variantErrorRows.length === 0 ? (
-            <p className="benchmark-empty">No error data for the current filters.</p>
-          ) : (
-            <ul className="benchmark-metric-list benchmark-metric-list--stacked">
-              {variantErrorRows.map((item) => (
-                <li key={item.templateVariant}>
-                  <strong>{item.templateVariant}</strong>
-                  <span className="benchmark-error-split">
-                    <span className="benchmark-error-split__centian">{item.centianErrors}</span>
-                    <span>/</span>
-                    <span className="benchmark-error-split__mcp">{item.mcpErrors}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </article>
-        <article className="benchmark-summary-card">
-          <p className="state-card__eyebrow">By Variant</p>
-          <ul className="benchmark-metric-list">
-            {byVariant.slice(0, 3).map((item) => (
-              <li key={item.key}>
-                <strong>{item.templateVariant}</strong>
-                <span>{formatBenchmarkRate(item.successRate)} success</span>
-              </li>
-            ))}
-          </ul>
-        </article>
-        <article className="benchmark-summary-card">
-          <p className="state-card__eyebrow">By Agent</p>
-          <ul className="benchmark-metric-list">
-            {byAgent.slice(0, 3).map((item) => (
-              <li key={item.key}>
-                <strong>{item.agent}</strong>
-                <span>{formatBenchmarkSeconds(item.medianWallClockSeconds)} median</span>
-              </li>
-            ))}
-          </ul>
-        </article>
-      </div>
+      <section className="benchmark-section">
+        <div className="benchmark-section__header">
+          <h3>By Variant</h3>
+          <p>{variantRows.length} grouped rows</p>
+        </div>
+        <BenchmarkAnalysisTable rows={variantRows} firstColumnLabel="Variant" />
+      </section>
+
+      <section className="benchmark-section">
+        <div className="benchmark-section__header">
+          <h3>By Agent</h3>
+          <p>{agentRows.length} grouped rows</p>
+        </div>
+        <BenchmarkAnalysisTable rows={agentRows} firstColumnLabel="Agent" />
+      </section>
 
       <section className="benchmark-section">
         <div className="benchmark-section__header">
@@ -278,4 +246,127 @@ export function BenchmarkSuitePage() {
       </section>
     </div>
   );
+}
+
+function BenchmarkAnalysisTable({ rows, firstColumnLabel }: { rows: AnalysisRow[]; firstColumnLabel: string }) {
+  if (rows.length === 0) {
+    return <p className="benchmark-empty">No benchmark runs match the current filters.</p>;
+  }
+
+  return (
+    <div className="benchmark-analysis-table" role="table" aria-label={`Benchmark ${firstColumnLabel.toLowerCase()} analysis`}>
+      <div className="benchmark-analysis-table__header" role="row">
+        <span>{firstColumnLabel}</span>
+        <span>Success Rate</span>
+        <span>Errors (Centian/MCP)</span>
+        <span>Median Time</span>
+        <span>First Pass</span>
+        <span>Total Actions (Centian/MCP)</span>
+      </div>
+      <div className="benchmark-analysis-table__body" role="rowgroup">
+        {rows.map((row) => (
+          <div key={row.key} className="benchmark-analysis-row" role="row">
+            <span className="benchmark-analysis-row__label">{row.label}</span>
+            <span className={`benchmark-analysis-row__success ${successRateClassName(row.successRate)}`}>
+              {formatBenchmarkRate(row.successRate)}
+            </span>
+            <span className="benchmark-error-split">
+              <span className="benchmark-error-split__centian">{row.centianErrors}</span>
+              <span>/</span>
+              <span className="benchmark-error-split__mcp">{row.mcpErrors}</span>
+            </span>
+            <span>{formatBenchmarkSeconds(row.medianWallClockSeconds)}</span>
+            <span>{formatBenchmarkRate(row.firstPassRate)}</span>
+            <span className="benchmark-error-split">
+              <span className="benchmark-error-split__centian">{row.totalCentianActions}</span>
+              <span>/</span>
+              <span className="benchmark-error-split__mcp">{row.totalMcpActions}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function buildAnalysisRows(runs: BenchmarkRunSummary[], keySelector: (run: BenchmarkRunSummary) => string): AnalysisRow[] {
+  const groups = runs.reduce((map, run) => {
+    const key = keySelector(run);
+    const current = map.get(key) ?? {
+      key,
+      label: key,
+      runs: [] as BenchmarkRunSummary[],
+      centianErrors: 0,
+      mcpErrors: 0,
+      totalCentianActions: 0,
+      totalMcpActions: 0,
+    };
+    current.runs.push(run);
+    current.centianErrors += centianErrorCount(run);
+    current.mcpErrors += run.failedDownstreamToolCalls;
+    current.totalCentianActions += run.totalTaskToolCalls;
+    current.totalMcpActions += run.totalDownstreamToolCalls;
+    map.set(key, current);
+    return map;
+  }, new Map<string, { key: string; label: string; runs: BenchmarkRunSummary[]; centianErrors: number; mcpErrors: number; totalCentianActions: number; totalMcpActions: number }>());
+
+  return Array.from(groups.values())
+    .map((group) => ({
+      key: group.key,
+      label: group.label,
+      successRate: rate(group.runs.filter((run) => run.completedSuccessfully).length, group.runs.length),
+      centianErrors: group.centianErrors,
+      mcpErrors: group.mcpErrors,
+      medianWallClockSeconds: median(group.runs.map((run) => run.wallClockSeconds)),
+      firstPassRate: rate(group.runs.filter((run) => run.firstPassSuccess).length, group.runs.length),
+      totalCentianActions: group.totalCentianActions,
+      totalMcpActions: group.totalMcpActions,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+function centianErrorCount(run: BenchmarkRunSummary): number {
+  let count = run.failedTaskToolCalls;
+  if (run.restartOccurred) {
+    count++
+  }
+  if (run.failOccurred) {
+    count++
+  }
+  if (run.timeoutOccurred) {
+    count++
+  }
+  return count;
+}
+
+function rate(successes: number, total: number): number {
+  if (total <= 0) {
+    return 0;
+  }
+  return successes / total;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle-1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
+}
+
+function successRateClassName(value: number): string {
+  if (value > 0.85) {
+    return "benchmark-analysis-row__success--good";
+  }
+  if (value >= 0.6) {
+    return "benchmark-analysis-row__success--warn";
+  }
+  if (value >= 0.4) {
+    return "benchmark-analysis-row__success--risk";
+  }
+  return "benchmark-analysis-row__success--bad";
 }

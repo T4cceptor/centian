@@ -1,8 +1,8 @@
 version: "0.1"
 
 suite:
-  id: "simple_tdd_v2_hard"
-  name: "Simple TDD Benchmark Suite v2 - trying to make it harder for the agents."
+  id: "simple_tdd_v3_hard"
+  name: "Simple TDD Benchmark Suite v3"
   description: "Initial local benchmark suite for the simple_tdd template."
   templateId: "simple_tdd"
   localOnly: true

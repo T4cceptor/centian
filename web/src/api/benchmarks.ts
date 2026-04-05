@@ -49,6 +49,8 @@ export type BenchmarkRunSummary = {
   timeoutOccurred: boolean;
   wallClockSeconds: number;
   totalToolCalls: number;
+  totalTaskToolCalls: number;
+  totalDownstreamToolCalls: number;
   inputTokens?: number;
   outputTokens?: number;
   failedTaskToolCalls: number;

@@ -121,13 +121,15 @@ describe("benchmark routes", () => {
             rawStatus: "completed",
             completedSuccessfully: true,
             finalVerificationPassed: true,
-            firstPassSuccess: true,
+            firstPassSuccess: false,
             invariantViolation: false,
-            restartOccurred: false,
+            restartOccurred: true,
             failOccurred: false,
             timeoutOccurred: false,
             wallClockSeconds: 10,
             totalToolCalls: 4,
+            totalTaskToolCalls: 1,
+            totalDownstreamToolCalls: 3,
             failedTaskToolCalls: 0,
             failedDownstreamToolCalls: 0,
             editedFilesCount: 1,
@@ -140,9 +142,14 @@ describe("benchmark routes", () => {
 
     expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
     expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
-    expect(screen.getByText("Errors By Variant")).toBeInTheDocument();
+    expect(screen.getByText("By Variant")).toBeInTheDocument();
+    expect(screen.getByText("By Agent")).toBeInTheDocument();
+    expect(screen.getAllByText("Total Actions (Centian/MCP)").length).toBeGreaterThan(0);
     expect(screen.getByText("1 Runs")).toBeInTheDocument();
     expect(screen.getByText("1 Sessions")).toBeInTheDocument();
+    expect(
+      screen.getAllByText((_, element) => (element?.textContent ?? "").replace(/\s+/g, "") === "1/0").length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText("Run History")).toBeInTheDocument();
     expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
   });
@@ -193,6 +200,8 @@ describe("benchmark routes", () => {
               timeoutOccurred: false,
               wallClockSeconds: 10,
               totalToolCalls: 4,
+              totalTaskToolCalls: 1,
+              totalDownstreamToolCalls: 3,
               failedTaskToolCalls: 0,
               failedDownstreamToolCalls: 0,
               editedFilesCount: 1,
