@@ -31,7 +31,7 @@ func TestCentianDemoClaude(t *testing.T) {
 
 	root := t.TempDir()
 	binary := filepath.Join(root, "centian")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/main.go")
+	build := exec.Command("go", "build", "-o", binary, "./main.go")
 	build.Dir = repoRoot(t)
 	build.Env = append(os.Environ(), "GOCACHE=/tmp/centian-gocache")
 	if output, err := build.CombinedOutput(); err != nil {
@@ -92,7 +92,7 @@ func TestCentianDemoGemini(t *testing.T) {
 
 	root := t.TempDir()
 	binary := filepath.Join(root, "centian")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/main.go")
+	build := exec.Command("go", "build", "-o", binary, "./main.go")
 	build.Dir = repoRoot(t)
 	build.Env = append(os.Environ(), "GOCACHE=/tmp/centian-gocache")
 	if output, err := build.CombinedOutput(); err != nil {

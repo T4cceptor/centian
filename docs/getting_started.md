@@ -13,7 +13,7 @@ curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/inst
 Or build from source in this repository:
 
 ```bash
-go build -o build/centian ./cmd/main.go
+go build -o build/centian ./main.go
 ```
 
 ## 2. Create Config
