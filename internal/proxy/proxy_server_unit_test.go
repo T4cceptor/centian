@@ -59,7 +59,7 @@ func TestWriteUnauthorized_CustomHeader(t *testing.T) {
 func TestAPIKeyMiddlewareWithHeader_NoStore(t *testing.T) {
 	// Given: a handler and nil API key store
 	called := false
-	handler := apiKeyMiddlewareWithHeader(nil, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := apiKeyMiddlewareWithHeader(nil, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -79,7 +79,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -119,7 +119,7 @@ func TestAPIKeyMiddlewareWithHeader_AttachesIdentityToContext(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 
 	var identity string
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, _ = requestIdentityFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -162,7 +162,7 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 func TestAPIKeyMiddlewareWithHeader_AttachesAuthData(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		authData := getAuthData(r.Context())
 		assert.Assert(t, authData != nil)
@@ -186,7 +186,7 @@ func TestAPIKeyMiddlewareWithHeader_AttachesAuthData(t *testing.T) {
 func TestAPIKeyMiddlewareWithHeader_EnforcesGatewayScope(t *testing.T) {
 	store := createScopedAPIKeyStore(t, "plain-key", []string{"gateway-a"})
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -198,6 +198,72 @@ func TestAPIKeyMiddlewareWithHeader_EnforcesGatewayScope(t *testing.T) {
 
 	assert.Assert(t, !called)
 	assert.Equal(t, recorder.Result().StatusCode, http.StatusUnauthorized)
+}
+
+func TestAPIKeyMiddlewareWithHeader_EnforcesProjectScope(t *testing.T) {
+	// Given: an API key scoped to "project-a"
+	store := createProjectScopedAPIKeyStore(t, "plain-key", []string{"project-a"})
+
+	called := false
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "project-b", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// When: requesting with a key not allowed for project-b
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
+	request.Header.Set("Authorization", "Bearer plain-key")
+	handler.ServeHTTP(recorder, request)
+
+	// Then: request is rejected
+	assert.Assert(t, !called)
+	assert.Equal(t, recorder.Result().StatusCode, http.StatusUnauthorized)
+}
+
+func TestAPIKeyMiddlewareWithHeader_AllowsMatchingProject(t *testing.T) {
+	// Given: an API key scoped to "project-a"
+	store := createProjectScopedAPIKeyStore(t, "plain-key", []string{"project-a"})
+
+	called := false
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "project-a", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		authData := getAuthData(r.Context())
+		assert.Assert(t, authData != nil)
+		assert.Equal(t, authData.Project, "project-a")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// When: requesting with a key allowed for project-a
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
+	request.Header.Set("Authorization", "Bearer plain-key")
+	handler.ServeHTTP(recorder, request)
+
+	// Then: request is allowed and AuthData contains the project
+	assert.Assert(t, called)
+	assert.Equal(t, recorder.Result().StatusCode, http.StatusOK)
+}
+
+func TestAPIKeyMiddlewareWithHeader_EmptyProjectsAllowsAll(t *testing.T) {
+	// Given: an API key with no project restrictions
+	store := createTestAPIKeyStore(t)
+
+	called := false
+	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "any-project", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// When: requesting for any project
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
+	request.Header.Set("Authorization", "Bearer plain-key")
+	handler.ServeHTTP(recorder, request)
+
+	// Then: request is allowed (empty projects = allow all)
+	assert.Assert(t, called)
+	assert.Equal(t, recorder.Result().StatusCode, http.StatusOK)
 }
 
 func TestGetGatewayFromPath(t *testing.T) {
@@ -955,6 +1021,19 @@ func createScopedAPIKeyStore(t *testing.T, plain string, gateways []string) *aut
 	assert.NilError(t, err)
 	entry.ID = "key_test"
 	entry.Gateways = gateways
+	path := filepath.Join(t.TempDir(), "api_keys.json")
+	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
+	store, err := auth.LoadAPIKeys(path)
+	assert.NilError(t, err)
+	return store
+}
+
+func createProjectScopedAPIKeyStore(t *testing.T, plain string, projects []string) *auth.APIKeyStore {
+	t.Helper()
+	entry, err := auth.NewAPIKeyEntry(plain)
+	assert.NilError(t, err)
+	entry.ID = "key_test"
+	entry.Projects = projects
 	path := filepath.Join(t.TempDir(), "api_keys.json")
 	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
 	store, err := auth.LoadAPIKeys(path)

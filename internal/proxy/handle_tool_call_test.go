@@ -302,7 +302,7 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy.server.AuthHeader = "Authorization"
 	proxy.server.Config = &config.GlobalConfig{Version: "1.0.0"}
 
-	handler := apiKeyMiddlewareWithHeader(proxy.server.APIKeys, proxy.server.AuthHeader, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := apiKeyMiddlewareWithHeader(proxy.server.APIKeys, proxy.server.AuthHeader, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		server := proxy.GetOrCreateServerForRequest(r)
 		assert.Assert(t, server != nil)
 		w.WriteHeader(http.StatusOK)
