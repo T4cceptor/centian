@@ -354,7 +354,7 @@ func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
 	// in multi-project setups. Currently all projects share the same /api/* and /ui routes.
 	handler := centapi.NewHandler(project.PersistenceStore)
 	handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, next)
+		return wrapWithAPIKeyAuth(c, project.Slug, next)
 	})
 
 	if project.Config != nil && project.Config.UIEnabled() {

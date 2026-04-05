@@ -13,6 +13,7 @@ import (
 // responsible for mapping AuthData to processor-facing context.
 type AuthData struct {
 	AuthHeaderName string
+	Project        string
 	Gateway        string
 	Headers        http.Header
 	KeyEntry       *auth.APIKeyEntry
@@ -33,10 +34,14 @@ func (a *AuthData) Clone() *AuthData {
 		if entry.Gateways != nil {
 			entry.Gateways = append([]string(nil), entry.Gateways...)
 		}
+		if entry.Projects != nil {
+			entry.Projects = append([]string(nil), entry.Projects...)
+		}
 		keyEntryCopy = &entry
 	}
 	return &AuthData{
 		AuthHeaderName: a.AuthHeaderName,
+		Project:        a.Project,
 		Gateway:        a.Gateway,
 		Headers:        headersCopy,
 		KeyEntry:       keyEntryCopy,

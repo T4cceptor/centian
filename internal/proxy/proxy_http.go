@@ -246,7 +246,7 @@ func cloneRequestBody(r *http.Request) []byte {
 	return bodyBytes
 }
 
-func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, next http.Handler) http.Handler {
+func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName, projectSlug string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			next.ServeHTTP(w, r)
@@ -274,9 +274,16 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, 
 			return
 		}
 
+		if !entry.AllowsProject(projectSlug) {
+			writeUnauthorized(w, headerName)
+			common.LogWarn("Unauthorized request: key '%s' not allowed for project '%s' from %s", entry.ID, projectSlug, r.RemoteAddr)
+			return
+		}
+
 		ctx := withRequestIdentity(r.Context(), "auth:"+entry.ID)
 		authData := &AuthData{
 			AuthHeaderName: headerName,
+			Project:        projectSlug,
 			Gateway:        gatewayName,
 			Headers:        r.Header.Clone(),
 			KeyEntry:       entry,
@@ -286,7 +293,7 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName string, 
 	})
 }
 
-func wrapWithAPIKeyAuth(server *CentianServer, handler http.Handler) http.Handler {
+func wrapWithAPIKeyAuth(server *CentianServer, projectSlug string, handler http.Handler) http.Handler {
 	if server == nil || server.APIKeys == nil || handler == nil {
 		return handler
 	}
@@ -295,7 +302,7 @@ func wrapWithAPIKeyAuth(server *CentianServer, handler http.Handler) http.Handle
 	if headerName == "" {
 		headerName = strings.Clone(config.DefaultAuthHeader)
 	}
-	return apiKeyMiddlewareWithHeader(server.APIKeys, headerName, handler)
+	return apiKeyMiddlewareWithHeader(server.APIKeys, headerName, projectSlug, handler)
 }
 
 func getGatewayFromPath(requestPath string) string {
@@ -408,7 +415,12 @@ func RegisterEndpoint(proxy *CentianEndpoint, mux *http.ServeMux, options *mcp.S
 	)
 
 	handler := proxy.observeMCPRequests(baseHandler)
-	handler = wrapWithAPIKeyAuth(proxy.server, handler)
+
+	projectSlug := ""
+	if proxy.project != nil {
+		projectSlug = proxy.project.Slug
+	}
+	handler = wrapWithAPIKeyAuth(proxy.server, projectSlug, handler)
 
 	mux.Handle(proxy.endpoint, handler)
 	common.LogInfo("Registered handler at %s", proxy.endpoint)
