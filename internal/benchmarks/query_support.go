@@ -1,9 +1,6 @@
 package benchmarks
 
-import (
-	"fmt"
-	"path/filepath"
-)
+import "fmt"
 
 type suiteContext struct {
 	suite    *SuiteDefinition
@@ -28,8 +25,4 @@ func loadRunManifest(path string) (*RunManifest, error) {
 		return nil, fmt.Errorf("load run manifest %q: %w", path, err)
 	}
 	return &run, nil
-}
-
-func loadRunManifestFromSession(sessionPath string, entry SessionRunManifestEntry) (*RunManifest, error) {
-	return loadRunManifest(filepath.Join(sessionPath, entry.RelativeRunDir, runFileName))
 }

@@ -89,7 +89,7 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	store, err := persistence.NewSQLiteStore(filepath.Join(logDir, "events.sqlite"))
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
-	runRecords, err := store.ListBenchmarkRuns(context.Background(), persistence.BenchmarkRunFilter{
+	runRecords, err := store.ListBenchmarkRuns(context.Background(), &persistence.BenchmarkRunFilter{
 		SuiteID: "simple_tdd_v1",
 	})
 	assert.NilError(t, err)
@@ -314,8 +314,10 @@ func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
 			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
 		},
 		FindLatestRequestLog: fakeRequestLogLookup,
-		PersistSession: func(context.Context, string, *persistence.BenchmarkSessionRecord) error { return nil },
-		PersistRun:     func(context.Context, string, *persistence.BenchmarkRunRecord) error { return errors.New("persist failed") },
+		PersistSession:       func(context.Context, string, *persistence.BenchmarkSessionRecord) error { return nil },
+		PersistRun: func(context.Context, string, *persistence.BenchmarkRunRecord) error {
+			return errors.New("persist failed")
+		},
 	}
 
 	session, err := runner.RunSuite(context.Background(), &RunOptions{

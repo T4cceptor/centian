@@ -190,64 +190,6 @@ func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) 
 	assert.Equal(t, count, 0)
 }
 
-func TestNewSQLiteStoreMigratesV4ToV5BenchmarkArtifacts(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "events.sqlite")
-
-	db, err := sql.Open(sqliteshim.ShimName, path)
-	assert.NilError(t, err)
-	_, err = db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
-	assert.NilError(t, err)
-	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 4)`)
-	assert.NilError(t, err)
-	assert.NilError(t, db.Close())
-
-	store, err := NewSQLiteStore(path)
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-
-	var count int
-	err = store.DB().NewRaw(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'benchmark_artifacts'`).Scan(context.Background(), &count)
-	assert.NilError(t, err)
-	assert.Equal(t, count, 1)
-}
-
-func TestBenchmarkArtifactUpsertAndList(t *testing.T) {
-	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-
-	record := &BenchmarkArtifactRecord{
-		ID:                 "ba_test",
-		ArtifactKind:       BenchmarkArtifactKindRun,
-		SuiteID:            "simple_tdd_v1",
-		SessionID:          "session-1",
-		SessionPath:        "/tmp/session-1",
-		RunPath:            "/tmp/session-1/runs/current/codex/assertion_failure_red/attempt-001",
-		CaseID:             "assertion_failure_red",
-		Agent:              "codex",
-		TemplateVariant:    "current",
-		Attempt:            intPtr(1),
-		CreatedAtUnixMilli: 1000,
-		PayloadJSON:        json.RawMessage(`{"status":"completed"}`),
-	}
-	assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), record))
-
-	record.PayloadJSON = json.RawMessage(`{"status":"rescored"}`)
-	record.CreatedAtUnixMilli = 2000
-	assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), record))
-
-	records, err := store.ListBenchmarkArtifacts(context.Background(), BenchmarkArtifactFilter{
-		SuiteID:      "simple_tdd_v1",
-		ArtifactKind: BenchmarkArtifactKindRun,
-		Agent:        "codex",
-	})
-	assert.NilError(t, err)
-	assert.Equal(t, len(records), 1)
-	assert.Equal(t, records[0].ID, "ba_test")
-	assert.Equal(t, records[0].CreatedAtUnixMilli, int64(2000))
-	assert.DeepEqual(t, records[0].PayloadJSON, json.RawMessage(`{"status":"rescored"}`))
-}
-
 func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
 	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
 	assert.NilError(t, err)
@@ -297,7 +239,7 @@ func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
 	assert.Equal(t, len(sessions), 1)
 	assert.Equal(t, sessions[0].SessionID, session.SessionID)
 
-	runs, err := store.ListBenchmarkRuns(context.Background(), BenchmarkRunFilter{SuiteID: "simple_tdd_v1", Agent: "codex"})
+	runs, err := store.ListBenchmarkRuns(context.Background(), &BenchmarkRunFilter{SuiteID: "simple_tdd_v1", Agent: "codex"})
 	assert.NilError(t, err)
 	assert.Equal(t, len(runs), 1)
 	assert.Equal(t, runs[0].BenchmarkRunID, run.BenchmarkRunID)
@@ -859,8 +801,4 @@ func seedActionEvent(t *testing.T, store *Store, event *ActionEventRecord) {
 	t.Helper()
 	_, err := store.DB().NewInsert().Model(event).Exec(context.Background())
 	assert.NilError(t, err)
-}
-
-func intPtr(value int) *int {
-	return &value
 }

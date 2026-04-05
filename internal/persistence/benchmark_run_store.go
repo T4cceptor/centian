@@ -126,9 +126,12 @@ func (s *Store) ListBenchmarkSessions(ctx context.Context, filter BenchmarkSessi
 }
 
 // ListBenchmarkRuns returns relational benchmark runs filtered by lightweight metadata.
-func (s *Store) ListBenchmarkRuns(ctx context.Context, filter BenchmarkRunFilter) ([]BenchmarkRunRecord, error) {
+func (s *Store) ListBenchmarkRuns(ctx context.Context, filter *BenchmarkRunFilter) ([]BenchmarkRunRecord, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("benchmark run store is not initialized")
+	}
+	if filter == nil {
+		filter = &BenchmarkRunFilter{}
 	}
 	rows := make([]benchmarkRunRow, 0)
 	query := s.db.NewSelect().Model(&rows)
@@ -146,7 +149,7 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context, filter BenchmarkRunFilter
 		if len(sessionIDs) == 0 {
 			return nil, nil
 		}
-		query = query.Where("session_id IN (?)", bun.In(sessionIDs))
+		query = query.Where("session_id IN (?)", bun.List(sessionIDs))
 	}
 	if strings.TrimSpace(filter.CaseID) != "" {
 		query = query.Where("case_id = ?", filter.CaseID)

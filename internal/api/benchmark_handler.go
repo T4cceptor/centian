@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -88,6 +89,10 @@ func (h *BenchmarkHandler) handleGetSession(w http.ResponseWriter, r *http.Reque
 	}
 	item, err := h.store.GetSession(r.Context(), suiteID, sessionID)
 	if err != nil {
+		if errors.Is(err, benchmarks.ErrBenchmarkSessionNotFound) {
+			writeError(w, http.StatusNotFound, "benchmark session not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to get benchmark session")
 		return
 	}
@@ -124,6 +129,10 @@ func (h *BenchmarkHandler) handleGetRun(w http.ResponseWriter, r *http.Request) 
 	}
 	item, err := h.store.GetRun(r.Context(), suiteID, scorecardID)
 	if err != nil {
+		if errors.Is(err, benchmarks.ErrBenchmarkRunNotFound) {
+			writeError(w, http.StatusNotFound, "benchmark run not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to get benchmark run")
 		return
 	}
@@ -142,6 +151,10 @@ func (h *BenchmarkHandler) handleGetComparison(w http.ResponseWriter, r *http.Re
 	}
 	item, err := h.store.GetComparison(r.Context(), suiteID, benchmarkFiltersFromQuery(r))
 	if err != nil {
+		if errors.Is(err, benchmarks.ErrBenchmarkComparisonNotFound) {
+			writeError(w, http.StatusNotFound, "benchmark comparison not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to get benchmark comparison")
 		return
 	}

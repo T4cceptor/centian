@@ -4,12 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/uptrace/bun"
 )
 
 const benchmarkRunSchemaVersion = 1
+
+var (
+	errBenchmarkRunRecordRequired = errors.New("benchmark run record is required")
+	errBenchmarkRunRowRequired    = errors.New("benchmark run row is required")
+)
 
 type benchmarkSessionRow struct {
 	bun.BaseModel      `bun:"table:benchmark_sessions,alias:benchmark_sessions"`
@@ -29,30 +35,30 @@ type benchmarkSessionRow struct {
 type benchmarkRunRow struct {
 	bun.BaseModel        `bun:"table:benchmark_runs,alias:benchmark_runs"`
 	BenchmarkRunID       string `bun:"benchmark_run_id,pk"`
-	SchemaVersion       int
-	SessionID           string
-	CaseID              string
-	Agent               string
-	TemplateVariant     string
-	Attempt             int
-	TemplateID          string
-	SelectedModel       string
-	StartedAtUnixMilli  int64
-	EndedAtUnixMilli    sql.NullInt64
-	Status              string
-	LatestTaskRunID     string
-	LatestTaskRunStatus string
+	SchemaVersion        int
+	SessionID            string
+	CaseID               string
+	Agent                string
+	TemplateVariant      string
+	Attempt              int
+	TemplateID           string
+	SelectedModel        string
+	StartedAtUnixMilli   int64
+	EndedAtUnixMilli     sql.NullInt64
+	Status               string
+	LatestTaskRunID      string
+	LatestTaskRunStatus  string
 	LinkedTaskRunIDsJSON json.RawMessage `bun:"linked_task_run_ids_json"`
-	RunDir              string
-	ProjectDir          string
-	LogsDir             string
-	AgentDir            string
-	ConfigPath          string
-	EventStoreMode      string
-	EventStorePath      string
-	RequestLogPath      string
+	RunDir               string
+	ProjectDir           string
+	LogsDir              string
+	AgentDir             string
+	ConfigPath           string
+	EventStoreMode       string
+	EventStorePath       string
+	RequestLogPath       string
 	SelectedTemplatePath string `bun:"selected_template_path"`
-	ErrorSummary        string
+	ErrorSummary         string
 }
 
 // BenchmarkSessionRecord stores relational benchmark session metadata.
@@ -71,30 +77,30 @@ type BenchmarkSessionRecord struct {
 
 // BenchmarkRunRecord stores relational benchmark run metadata.
 type BenchmarkRunRecord struct {
-	BenchmarkRunID      string   `json:"benchmarkRunId"`
-	SessionID           string   `json:"sessionId"`
-	CaseID              string   `json:"caseId"`
-	Agent               string   `json:"agent"`
-	TemplateVariant     string   `json:"templateVariant"`
-	Attempt             int      `json:"attempt"`
-	TemplateID          string   `json:"templateId"`
-	SelectedModel       string   `json:"selectedModel,omitempty"`
-	StartedAtUnixMilli  int64    `json:"startedAtUnixMilli"`
-	EndedAtUnixMilli    *int64   `json:"endedAtUnixMilli,omitempty"`
-	Status              string   `json:"status"`
-	LatestTaskRunID     string   `json:"latestTaskRunId,omitempty"`
-	LatestTaskRunStatus string   `json:"latestTaskRunStatus,omitempty"`
-	LinkedTaskRunIDs    []string `json:"linkedTaskRunIds,omitempty"`
-	RunDir              string   `json:"runDir"`
-	ProjectDir          string   `json:"projectDir"`
-	LogsDir             string   `json:"logsDir"`
-	AgentDir            string   `json:"agentDir"`
-	ConfigPath          string   `json:"configPath"`
-	EventStoreMode      string   `json:"eventStoreMode,omitempty"`
-	EventStorePath      string   `json:"eventStorePath,omitempty"`
-	RequestLogPath      string   `json:"requestLogPath,omitempty"`
-	SelectedTemplatePath string  `json:"selectedTemplatePath,omitempty"`
-	ErrorSummary        string   `json:"errorSummary,omitempty"`
+	BenchmarkRunID       string   `json:"benchmarkRunId"`
+	SessionID            string   `json:"sessionId"`
+	CaseID               string   `json:"caseId"`
+	Agent                string   `json:"agent"`
+	TemplateVariant      string   `json:"templateVariant"`
+	Attempt              int      `json:"attempt"`
+	TemplateID           string   `json:"templateId"`
+	SelectedModel        string   `json:"selectedModel,omitempty"`
+	StartedAtUnixMilli   int64    `json:"startedAtUnixMilli"`
+	EndedAtUnixMilli     *int64   `json:"endedAtUnixMilli,omitempty"`
+	Status               string   `json:"status"`
+	LatestTaskRunID      string   `json:"latestTaskRunId,omitempty"`
+	LatestTaskRunStatus  string   `json:"latestTaskRunStatus,omitempty"`
+	LinkedTaskRunIDs     []string `json:"linkedTaskRunIds,omitempty"`
+	RunDir               string   `json:"runDir"`
+	ProjectDir           string   `json:"projectDir"`
+	LogsDir              string   `json:"logsDir"`
+	AgentDir             string   `json:"agentDir"`
+	ConfigPath           string   `json:"configPath"`
+	EventStoreMode       string   `json:"eventStoreMode,omitempty"`
+	EventStorePath       string   `json:"eventStorePath,omitempty"`
+	RequestLogPath       string   `json:"requestLogPath,omitempty"`
+	SelectedTemplatePath string   `json:"selectedTemplatePath,omitempty"`
+	ErrorSummary         string   `json:"errorSummary,omitempty"`
 }
 
 // BenchmarkSessionFilter restricts benchmark session listing.
@@ -212,37 +218,37 @@ func (row *benchmarkSessionRow) toRecord() *BenchmarkSessionRecord {
 
 func benchmarkRunRowFromRecord(record *BenchmarkRunRecord) (*benchmarkRunRow, error) {
 	if record == nil {
-		return nil, nil
+		return nil, errBenchmarkRunRecordRequired
 	}
 	linkedTaskRunIDsJSON, err := json.Marshal(record.LinkedTaskRunIDs)
 	if err != nil {
 		return nil, fmt.Errorf("marshal linked task run ids: %w", err)
 	}
 	row := &benchmarkRunRow{
-		BenchmarkRunID:      record.BenchmarkRunID,
-		SchemaVersion:       benchmarkRunSchemaVersion,
-		SessionID:           record.SessionID,
-		CaseID:              record.CaseID,
-		Agent:               record.Agent,
-		TemplateVariant:     record.TemplateVariant,
-		Attempt:             record.Attempt,
-		TemplateID:          record.TemplateID,
-		SelectedModel:       record.SelectedModel,
-		StartedAtUnixMilli:  record.StartedAtUnixMilli,
-		Status:              record.Status,
-		LatestTaskRunID:     record.LatestTaskRunID,
-		LatestTaskRunStatus: record.LatestTaskRunStatus,
+		BenchmarkRunID:       record.BenchmarkRunID,
+		SchemaVersion:        benchmarkRunSchemaVersion,
+		SessionID:            record.SessionID,
+		CaseID:               record.CaseID,
+		Agent:                record.Agent,
+		TemplateVariant:      record.TemplateVariant,
+		Attempt:              record.Attempt,
+		TemplateID:           record.TemplateID,
+		SelectedModel:        record.SelectedModel,
+		StartedAtUnixMilli:   record.StartedAtUnixMilli,
+		Status:               record.Status,
+		LatestTaskRunID:      record.LatestTaskRunID,
+		LatestTaskRunStatus:  record.LatestTaskRunStatus,
 		LinkedTaskRunIDsJSON: linkedTaskRunIDsJSON,
-		RunDir:              record.RunDir,
-		ProjectDir:          record.ProjectDir,
-		LogsDir:             record.LogsDir,
-		AgentDir:            record.AgentDir,
-		ConfigPath:          record.ConfigPath,
-		EventStoreMode:      record.EventStoreMode,
-		EventStorePath:      record.EventStorePath,
-		RequestLogPath:      record.RequestLogPath,
+		RunDir:               record.RunDir,
+		ProjectDir:           record.ProjectDir,
+		LogsDir:              record.LogsDir,
+		AgentDir:             record.AgentDir,
+		ConfigPath:           record.ConfigPath,
+		EventStoreMode:       record.EventStoreMode,
+		EventStorePath:       record.EventStorePath,
+		RequestLogPath:       record.RequestLogPath,
 		SelectedTemplatePath: record.SelectedTemplatePath,
-		ErrorSummary:        record.ErrorSummary,
+		ErrorSummary:         record.ErrorSummary,
 	}
 	if record.EndedAtUnixMilli != nil {
 		row.EndedAtUnixMilli = sql.NullInt64{Int64: *record.EndedAtUnixMilli, Valid: true}
@@ -252,32 +258,32 @@ func benchmarkRunRowFromRecord(record *BenchmarkRunRecord) (*benchmarkRunRow, er
 
 func (row *benchmarkRunRow) toRecord() (*BenchmarkRunRecord, error) {
 	if row == nil {
-		return nil, nil
+		return nil, errBenchmarkRunRowRequired
 	}
 	record := &BenchmarkRunRecord{
-		BenchmarkRunID:      row.BenchmarkRunID,
-		SessionID:           row.SessionID,
-		CaseID:              row.CaseID,
-		Agent:               row.Agent,
-		TemplateVariant:     row.TemplateVariant,
-		Attempt:             row.Attempt,
-		TemplateID:          row.TemplateID,
-		SelectedModel:       row.SelectedModel,
-		StartedAtUnixMilli:  row.StartedAtUnixMilli,
-		EndedAtUnixMilli:    nullInt64Pointer(row.EndedAtUnixMilli),
-		Status:              row.Status,
-		LatestTaskRunID:     row.LatestTaskRunID,
-		LatestTaskRunStatus: row.LatestTaskRunStatus,
-		RunDir:              row.RunDir,
-		ProjectDir:          row.ProjectDir,
-		LogsDir:             row.LogsDir,
-		AgentDir:            row.AgentDir,
-		ConfigPath:          row.ConfigPath,
-		EventStoreMode:      row.EventStoreMode,
-		EventStorePath:      row.EventStorePath,
-		RequestLogPath:      row.RequestLogPath,
+		BenchmarkRunID:       row.BenchmarkRunID,
+		SessionID:            row.SessionID,
+		CaseID:               row.CaseID,
+		Agent:                row.Agent,
+		TemplateVariant:      row.TemplateVariant,
+		Attempt:              row.Attempt,
+		TemplateID:           row.TemplateID,
+		SelectedModel:        row.SelectedModel,
+		StartedAtUnixMilli:   row.StartedAtUnixMilli,
+		EndedAtUnixMilli:     nullInt64Pointer(row.EndedAtUnixMilli),
+		Status:               row.Status,
+		LatestTaskRunID:      row.LatestTaskRunID,
+		LatestTaskRunStatus:  row.LatestTaskRunStatus,
+		RunDir:               row.RunDir,
+		ProjectDir:           row.ProjectDir,
+		LogsDir:              row.LogsDir,
+		AgentDir:             row.AgentDir,
+		ConfigPath:           row.ConfigPath,
+		EventStoreMode:       row.EventStoreMode,
+		EventStorePath:       row.EventStorePath,
+		RequestLogPath:       row.RequestLogPath,
 		SelectedTemplatePath: row.SelectedTemplatePath,
-		ErrorSummary:        row.ErrorSummary,
+		ErrorSummary:         row.ErrorSummary,
 	}
 	if len(row.LinkedTaskRunIDsJSON) > 0 {
 		if err := json.Unmarshal(row.LinkedTaskRunIDsJSON, &record.LinkedTaskRunIDs); err != nil {

@@ -2,6 +2,7 @@ package benchmarks
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -124,14 +125,14 @@ func TestReadServiceReturnsNilForMissingResources(t *testing.T) {
 
 	service := NewReadService(store)
 	session, err := service.GetSession(context.Background(), "simple_tdd_v1", "missing")
-	assert.NilError(t, err)
+	assert.Assert(t, errors.Is(err, ErrBenchmarkSessionNotFound))
 	assert.Assert(t, session == nil)
 
 	run, err := service.GetRun(context.Background(), "simple_tdd_v1", "missing")
-	assert.NilError(t, err)
+	assert.Assert(t, errors.Is(err, ErrBenchmarkRunNotFound))
 	assert.Assert(t, run == nil)
 
 	comparison, err := service.GetComparison(context.Background(), "simple_tdd_v1", BenchmarkRunFilters{})
-	assert.NilError(t, err)
+	assert.Assert(t, errors.Is(err, ErrBenchmarkComparisonNotFound))
 	assert.Assert(t, comparison == nil)
 }

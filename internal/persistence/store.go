@@ -334,9 +334,6 @@ func (s *Store) createTables(ctx context.Context) error {
 			return fmt.Errorf("failed to bootstrap event store schema: %w", err)
 		}
 	}
-	if err := createBenchmarkArtifactTables(ctx, s.db); err != nil {
-		return fmt.Errorf("failed to bootstrap benchmark artifact schema: %w", err)
-	}
 	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
@@ -366,9 +363,6 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 		fromVersion = 4
 	}
 	if fromVersion == 4 {
-		if err := createBenchmarkArtifactTables(ctx, s.db); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v4 to v5: %w", err)
-		}
 		fromVersion = 5
 	}
 	if fromVersion == 5 {

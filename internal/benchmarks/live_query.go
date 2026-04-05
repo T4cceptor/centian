@@ -13,9 +13,18 @@ import (
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
+var (
+	// ErrBenchmarkSessionNotFound indicates that the requested benchmark session does not exist.
+	ErrBenchmarkSessionNotFound = errors.New("benchmark session not found")
+	// ErrBenchmarkRunNotFound indicates that the requested benchmark run does not exist.
+	ErrBenchmarkRunNotFound = errors.New("benchmark run not found")
+	// ErrBenchmarkComparisonNotFound indicates that no benchmark data matched the requested comparison scope.
+	ErrBenchmarkComparisonNotFound = errors.New("benchmark comparison not found")
+)
+
 type benchmarkQueryStore interface {
 	ListBenchmarkSessions(context.Context, persistence.BenchmarkSessionFilter) ([]persistence.BenchmarkSessionRecord, error)
-	ListBenchmarkRuns(context.Context, persistence.BenchmarkRunFilter) ([]persistence.BenchmarkRunRecord, error)
+	ListBenchmarkRuns(context.Context, *persistence.BenchmarkRunFilter) ([]persistence.BenchmarkRunRecord, error)
 	GetBenchmarkRun(context.Context, string) (*persistence.BenchmarkRunRecord, error)
 	GetTaskRunSnapshot(context.Context, string) (*persistence.TaskRunSnapshotRecord, error)
 	GetTaskRunStats(context.Context, string) (*persistence.TaskRunStatsRecord, error)
@@ -42,6 +51,7 @@ func (s *QueryService) withDefaults() *QueryService {
 	return s
 }
 
+// ScoreSessionManifest computes a live session score summary from benchmark manifests and persisted task-run data.
 func (s *QueryService) ScoreSessionManifest(ctx context.Context, session *SessionManifest) (*SessionSummary, error) {
 	s = s.withDefaults()
 	if s.store == nil {
@@ -52,7 +62,7 @@ func (s *QueryService) ScoreSessionManifest(ctx context.Context, session *Sessio
 	}
 	sessionPath := filepath.Clean(strings.TrimSpace(session.InvocationDir))
 	sessionID := benchmarkSessionID(session.SuiteID, sessionPath)
-	runs, err := s.store.ListBenchmarkRuns(ctx, persistence.BenchmarkRunFilter{SessionID: sessionID})
+	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{SessionID: sessionID})
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +125,7 @@ func (s *QueryService) ScoreSessionManifest(ctx context.Context, session *Sessio
 	return summary, nil
 }
 
+// ListSuites returns benchmark suite summaries derived from persisted benchmark sessions and runs.
 func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilters) ([]BenchmarkSuiteSummary, error) {
 	s = s.withDefaults()
 	if s.store == nil {
@@ -124,7 +135,7 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 	if err != nil {
 		return nil, err
 	}
-	runs, err := s.store.ListBenchmarkRuns(ctx, persistence.BenchmarkRunFilter{SuiteID: filters.SuiteID})
+	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{SuiteID: filters.SuiteID})
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +218,7 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 	return result, nil
 }
 
+// ListSessions returns suite sessions, optionally including their scored run summaries.
 func (s *QueryService) ListSessions(ctx context.Context, suiteID string, filters BenchmarkRunFilters, includeRuns bool) ([]BenchmarkSessionDetail, error) {
 	s = s.withDefaults()
 	if s.store == nil {
@@ -278,14 +290,19 @@ func (s *QueryService) ListSessions(ctx context.Context, suiteID string, filters
 	return result, nil
 }
 
+// GetSession returns one scored benchmark session by suite and session id.
 func (s *QueryService) GetSession(ctx context.Context, suiteID, sessionID string) (*BenchmarkSessionDetail, error) {
 	sessions, err := s.ListSessions(ctx, suiteID, BenchmarkRunFilters{SessionID: sessionID}, true)
-	if err != nil || len(sessions) == 0 {
+	if err != nil {
 		return nil, err
+	}
+	if len(sessions) == 0 {
+		return nil, ErrBenchmarkSessionNotFound
 	}
 	return &sessions[0], nil
 }
 
+// ListRuns returns scored benchmark runs for one suite, filtered by the provided dimensions.
 func (s *QueryService) ListRuns(ctx context.Context, suiteID string, filters BenchmarkRunFilters) ([]BenchmarkRunSummary, error) {
 	s = s.withDefaults()
 	if s.store == nil {
@@ -300,7 +317,7 @@ func (s *QueryService) ListRuns(ctx context.Context, suiteID string, filters Ben
 		session := sessions[idx]
 		sessionByID[session.SessionID] = &session
 	}
-	runRecords, err := s.store.ListBenchmarkRuns(ctx, persistence.BenchmarkRunFilter{
+	runRecords, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{
 		SuiteID:         suiteID,
 		SessionID:       filters.SessionID,
 		CaseID:          filters.CaseID,
@@ -336,21 +353,25 @@ func (s *QueryService) ListRuns(ctx context.Context, suiteID string, filters Ben
 	return result, nil
 }
 
+// GetRun returns one scored benchmark run detail by suite and run id.
 func (s *QueryService) GetRun(ctx context.Context, suiteID, scorecardID string) (*BenchmarkRunDetail, error) {
 	s = s.withDefaults()
 	run, err := s.store.GetBenchmarkRun(ctx, scorecardID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
+			return nil, ErrBenchmarkRunNotFound
 		}
 		return nil, err
 	}
 	if run == nil {
-		return nil, nil
+		return nil, ErrBenchmarkRunNotFound
 	}
 	sessions, err := s.store.ListBenchmarkSessions(ctx, persistence.BenchmarkSessionFilter{SuiteID: suiteID, SessionID: run.SessionID})
-	if err != nil || len(sessions) == 0 {
+	if err != nil {
 		return nil, err
+	}
+	if len(sessions) == 0 {
+		return nil, ErrBenchmarkRunNotFound
 	}
 	scorecard, err := s.scoreRunRecord(ctx, &sessions[0], run)
 	if err != nil {
@@ -367,6 +388,7 @@ func (s *QueryService) GetRun(ctx context.Context, suiteID, scorecardID string) 
 	}, nil
 }
 
+// GetComparison returns a live comparison view for one suite and filter set.
 func (s *QueryService) GetComparison(ctx context.Context, suiteID string, filters BenchmarkRunFilters) (*BenchmarkComparisonView, error) {
 	sessions, err := s.ListSessions(ctx, suiteID, filters, false)
 	if err != nil {
@@ -377,7 +399,7 @@ func (s *QueryService) GetComparison(ctx context.Context, suiteID string, filter
 		return nil, err
 	}
 	if len(sessions) == 0 && len(runs) == 0 {
-		return nil, nil
+		return nil, ErrBenchmarkComparisonNotFound
 	}
 	rows := make([]RunSummaryRow, 0, len(runs))
 	templateID := ""
