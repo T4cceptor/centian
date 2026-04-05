@@ -492,7 +492,10 @@ func TestCodexWriteConfig(t *testing.T) {
 	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
 	assertFileContains(t, layout.CodexConfig, `model = "o3"`)
 	assertFileContains(t, layout.CodexConfig, "/tmp/demo/workspace")
+	assertFileContains(t, layout.CodexConfig, `sandbox_mode = "read-only"`)
 	assertFileContains(t, layout.CodexConfig, `default_tools_approval_mode = "auto"`)
+	assertFileContains(t, layout.CodexConfig, `destructive_enabled = false`)
+	assertFileContains(t, layout.CodexConfig, `open_world_enabled = false`)
 }
 
 func TestCodexWriteConfigNoModel(t *testing.T) {

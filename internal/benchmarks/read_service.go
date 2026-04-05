@@ -503,6 +503,8 @@ func buildBenchmarkRunSummary(item persistedScorecard) BenchmarkRunSummary {
 		TimeoutOccurred:           item.scorecard.Outcome.TimeoutOccurred,
 		WallClockSeconds:          item.scorecard.Efficiency.WallClockSeconds,
 		TotalToolCalls:            item.scorecard.Efficiency.TotalToolCalls,
+		TotalTaskToolCalls:        item.scorecard.Process.TotalTaskToolCalls,
+		TotalDownstreamToolCalls:  item.scorecard.Process.TotalDownstreamToolCalls,
 		InputTokens:               item.scorecard.Efficiency.InputTokens,
 		OutputTokens:              item.scorecard.Efficiency.OutputTokens,
 		FailedTaskToolCalls:       item.scorecard.Process.FailedTaskToolCalls,
