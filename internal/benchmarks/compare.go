@@ -3,17 +3,13 @@ package benchmarks
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
-
-const comparisonFileName = "comparison.json"
 
 // CompareOptions configures cross-session comparison for one benchmark suite.
 type CompareOptions struct {
@@ -55,19 +51,18 @@ type ComparisonSession struct {
 	FailedToScoreCount int       `json:"failedToScoreCount"`
 }
 
-// Comparer builds cross-session comparison summaries from preserved session summaries.
+// Comparer builds cross-session comparison summaries from live benchmark data.
 type Comparer struct {
-	Now             func() time.Time
-	PersistArtifact func(context.Context, string, *persistence.BenchmarkArtifactRecord) error
+	Now func() time.Time
 }
 
 // NewComparer returns a comparer with default local behavior.
 func NewComparer() *Comparer {
-	return &Comparer{Now: time.Now, PersistArtifact: persistBenchmarkArtifact}
+	return &Comparer{Now: time.Now}
 }
 
-// CompareSuite loads scored sessions for one suite and writes comparison.json.
-func (c *Comparer) CompareSuite(_ context.Context, opts *CompareOptions) (*ComparisonSummary, string, error) {
+// CompareSuite loads benchmark sessions for one suite and derives a live comparison view.
+func (c *Comparer) CompareSuite(ctx context.Context, opts *CompareOptions) (*ComparisonSummary, string, error) {
 	c = c.withDefaults()
 	if opts == nil {
 		return nil, "", fmt.Errorf("compare options are required")
@@ -80,86 +75,52 @@ func (c *Comparer) CompareSuite(_ context.Context, opts *CompareOptions) (*Compa
 	if suiteID == "" {
 		return nil, "", fmt.Errorf("suite id is required")
 	}
-	rootPath, err := filepath.Abs(rootPath)
+
+	storePath, err := config.ResolveEventStorePath(nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolve root path: %w", err)
+		return nil, "", err
 	}
-	suiteRoot := filepath.Join(rootPath, suiteID)
-	info, err := os.Stat(suiteRoot)
+	store, err := persistence.NewSQLiteStore(storePath)
 	if err != nil {
-		return nil, "", fmt.Errorf("stat suite root: %w", err)
+		return nil, "", err
 	}
-	if !info.IsDir() {
-		return nil, "", fmt.Errorf("suite root %q must be a directory", suiteRoot)
+	defer func() { _ = store.Close() }()
+
+	service := NewReadService(store)
+	view, err := service.GetComparison(ctx, suiteID, BenchmarkRunFilters{
+		Agent:           firstFilterValue(opts.Agents),
+		CaseID:          firstFilterValue(opts.CaseIDs),
+		TemplateVariant: firstFilterValue(opts.TemplateVariants),
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if view == nil {
+		return nil, "", fmt.Errorf("no benchmark sessions found for suite %q", suiteID)
 	}
 
-	filter := comparisonFilter{
-		agents:           makeSet(opts.Agents),
-		caseIDs:          makeSet(opts.CaseIDs),
-		templateVariants: makeSet(opts.TemplateVariants),
-	}
-
-	entries, err := os.ReadDir(suiteRoot)
-	if err != nil {
-		return nil, "", fmt.Errorf("read suite root: %w", err)
-	}
-
-	sessions := make([]ComparisonSession, 0)
-	rows := make([]RunSummaryRow, 0)
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	suiteRoot := filepath.Join(mustAbs(rootPath), suiteID)
+	sessions := make([]ComparisonSession, 0, len(view.Sessions))
+	for idx := range view.Sessions {
+		if !strings.HasPrefix(filepath.Clean(view.Sessions[idx].SessionPath), filepath.Clean(suiteRoot)) {
 			continue
 		}
-		sessionDir := filepath.Join(suiteRoot, entry.Name())
-		summaryPath := filepath.Join(sessionDir, summaryFileName)
-		if _, err := os.Stat(summaryPath); err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, "", fmt.Errorf("stat summary for %q: %w", sessionDir, err)
-		}
-		var summary SessionSummary
-		if err := readJSONFile(summaryPath, &summary); err != nil {
-			return nil, "", fmt.Errorf("load summary for %q: %w", sessionDir, err)
-		}
-		sessions = append(sessions, ComparisonSession{
-			SessionPath:        summary.SessionPath,
-			GeneratedAt:        summary.GeneratedAt,
-			RunCount:           summary.RunCount,
-			ScoredRunCount:     summary.ScoredRunCount,
-			FailedToScoreCount: summary.FailedToScoreCount,
-		})
-		for _, row := range summary.Runs {
-			if strings.TrimSpace(row.SessionPath) == "" {
-				row.SessionPath = summary.SessionPath
-			}
-			if filter.matches(row) {
-				rows = append(rows, row)
-			}
-		}
+		sessions = append(sessions, view.Sessions[idx])
 	}
-	if len(sessions) == 0 {
-		return nil, "", fmt.Errorf("no scored benchmark sessions found under %q", suiteRoot)
-	}
-
-	sort.Slice(sessions, func(i, j int) bool { return sessions[i].SessionPath < sessions[j].SessionPath })
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].SessionPath != rows[j].SessionPath {
-			return rows[i].SessionPath < rows[j].SessionPath
+	rows := make([]RunSummaryRow, 0, len(view.Runs))
+	for idx := range view.Runs {
+		if !strings.HasPrefix(filepath.Clean(view.Runs[idx].SessionPath), filepath.Clean(suiteRoot)) {
+			continue
 		}
-		return compareRunRows(rows[i], rows[j])
-	})
-
-	scoredRows := make([]RunSummaryRow, 0, len(rows))
-	for _, row := range rows {
-		if row.Scored {
-			scoredRows = append(scoredRows, row)
-		}
+		rows = append(rows, toRunSummaryRow(view.Runs[idx]))
 	}
-	sessionAggregates := buildAggregates(scoredRows)
+	if len(sessions) == 0 && len(rows) == 0 {
+		return nil, "", fmt.Errorf("no benchmark sessions found under %q", suiteRoot)
+	}
+	aggregates := buildAggregates(rows)
 	comparison := &ComparisonSummary{
 		ScoreVersion: scoreVersion,
-		RootPath:     rootPath,
+		RootPath:     mustAbs(rootPath),
 		SuiteID:      suiteID,
 		GeneratedAt:  c.Now(),
 		SessionCount: len(sessions),
@@ -167,31 +128,16 @@ func (c *Comparer) CompareSuite(_ context.Context, opts *CompareOptions) (*Compa
 		Sessions:     sessions,
 		Runs:         rows,
 		Aggregates: ComparisonAggregates{
-			BySession: aggregateRows(scoredRows, func(row RunSummaryRow) aggregateKey {
+			BySession: aggregateRows(rows, func(row RunSummaryRow) aggregateKey {
 				return aggregateKey{Key: row.SessionPath, SessionPath: row.SessionPath}
 			}),
-			ByCase:             sessionAggregates.ByCase,
-			ByAgent:            sessionAggregates.ByAgent,
-			ByTemplateVariant:  sessionAggregates.ByTemplateVariant,
-			ByCaseAgentVariant: sessionAggregates.ByCaseAgentVariant,
+			ByCase:             aggregates.ByCase,
+			ByAgent:            aggregates.ByAgent,
+			ByTemplateVariant:  aggregates.ByTemplateVariant,
+			ByCaseAgentVariant: aggregates.ByCaseAgentVariant,
 		},
 	}
-	outputPath := filepath.Join(suiteRoot, comparisonFileName)
-	if err := writeJSONFile(outputPath, comparison); err != nil {
-		return nil, "", fmt.Errorf("write comparison summary: %w", err)
-	}
-	record, err := buildComparisonArtifactRecord(comparison)
-	if err != nil {
-		return nil, "", err
-	}
-	storePath, err := config.ResolveEventStorePath(nil)
-	if err != nil {
-		return nil, "", err
-	}
-	if err := c.PersistArtifact(context.Background(), storePath, record); err != nil {
-		return nil, "", err
-	}
-	return comparison, outputPath, nil
+	return comparison, "", nil
 }
 
 func (c *Comparer) withDefaults() *Comparer {
@@ -201,44 +147,22 @@ func (c *Comparer) withDefaults() *Comparer {
 	if c.Now == nil {
 		c.Now = time.Now
 	}
-	if c.PersistArtifact == nil {
-		c.PersistArtifact = persistBenchmarkArtifact
-	}
 	return c
 }
 
-type comparisonFilter struct {
-	agents           map[string]struct{}
-	caseIDs          map[string]struct{}
-	templateVariants map[string]struct{}
-}
-
-func (f comparisonFilter) matches(row RunSummaryRow) bool {
-	return matchesSet(f.agents, row.Agent) &&
-		matchesSet(f.caseIDs, row.CaseID) &&
-		matchesSet(f.templateVariants, row.TemplateVariant)
-}
-
-func makeSet(values []string) map[string]struct{} {
-	if len(values) == 0 {
-		return nil
-	}
-	set := make(map[string]struct{}, len(values))
+func firstFilterValue(values []string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			set[trimmed] = struct{}{}
+			return trimmed
 		}
 	}
-	if len(set) == 0 {
-		return nil
-	}
-	return set
+	return ""
 }
 
-func matchesSet(set map[string]struct{}, value string) bool {
-	if len(set) == 0 {
-		return true
+func mustAbs(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
 	}
-	_, ok := set[value]
-	return ok
+	return absolute
 }

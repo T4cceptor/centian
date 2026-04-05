@@ -13,21 +13,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
 const (
-	scorecardFileName   = "scorecard.json"
-	summaryFileName     = "summary.json"
 	manualScoreFileName = "manual_score.json"
 	scoreVersion        = "v1"
 )
-
-var commandToolNames = map[string]struct{}{
-	"functions.exec_command":         {},
-	"serena___execute_shell_command": {},
-	"shell__exec":                    {},
-}
 
 // ScoreOptions configures scoring for one preserved benchmark session.
 type ScoreOptions struct {
@@ -88,8 +81,6 @@ type RunScorecard struct {
 	SessionPath      string              `json:"sessionPath"`
 	EventStoreMode   string              `json:"eventStoreMode,omitempty"`
 	EventStorePath   string              `json:"eventStorePath,omitempty"`
-	TaskRunsPath     string              `json:"taskRunsSnapshotPath"`
-	TaskRunEventsDir string              `json:"taskRunEventsDirPath"`
 	RequestLogPath   string              `json:"requestLogPath,omitempty"`
 	AgentStdoutPath  string              `json:"agentStdoutPath,omitempty"`
 	AgentStderrPath  string              `json:"agentStderrPath,omitempty"`
@@ -121,15 +112,13 @@ type ScorecardOutcome struct {
 
 // ScorecardProcess contains process metrics for one run.
 type ScorecardProcess struct {
-	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
-	FailedDownstreamToolCalls int            `json:"failedDownstreamToolCalls"`
-	TotalTaskToolCalls        int            `json:"totalTaskToolCalls"`
-	TotalDownstreamToolCalls  int            `json:"totalDownstreamToolCalls"`
-	RetriesByStep             map[string]int `json:"retriesByStep,omitempty"`
-	TotalStepRetries          int            `json:"totalStepRetries"`
-	ReplanningCount           int            `json:"replanningCount"`
-	RecoveryTimeSeconds       *float64       `json:"recoveryTimeSeconds,omitempty"`
-	RecoveryToolCalls         *int           `json:"recoveryToolCalls,omitempty"`
+	FailedTaskToolCalls       int `json:"failedTaskToolCalls"`
+	FailedDownstreamToolCalls int `json:"failedDownstreamToolCalls"`
+	TotalTaskToolCalls        int `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls  int `json:"totalDownstreamToolCalls"`
+	RestartCount              int `json:"restartCount"`
+	FailCount                 int `json:"failCount"`
+	TimeoutCount              int `json:"timeoutCount"`
 }
 
 // ScorecardEfficiency contains efficiency metrics for one run.
@@ -230,27 +219,17 @@ type AggregateSummary struct {
 
 // Scorer computes benchmark scorecards and session summaries from preserved artifacts.
 type Scorer struct {
-	Now             func() time.Time
-	PersistArtifact func(context.Context, string, *persistence.BenchmarkArtifactRecord) error
+	Now func() time.Time
 }
 
 type scoreRunContext struct {
-	sessionDir string
-	entry      SessionRunManifestEntry
-	runPath    string
-	run        *RunManifest
-	caseDef    *CaseDefinition
-	caseRoot   string
-}
-
-type scoreFailure struct {
-	row RunSummaryRow
-	err error
+	caseDef  *CaseDefinition
+	caseRoot string
 }
 
 // NewScorer returns a benchmark scorer with default local behavior.
 func NewScorer() *Scorer {
-	return &Scorer{Now: time.Now, PersistArtifact: persistBenchmarkArtifact}
+	return &Scorer{Now: time.Now}
 }
 
 // ScoreSession computes derived scorecards for one preserved benchmark session.
@@ -279,101 +258,15 @@ func (s *Scorer) ScoreSession(_ context.Context, opts *ScoreOptions) (*SessionSu
 	if err != nil {
 		return nil, err
 	}
-	suite, err := LoadSuite(session.SuitePath)
-	if err != nil {
-		return nil, fmt.Errorf("load suite for scoring: %w", err)
-	}
-	caseDefs, err := loadCaseContexts(session.SuitePath, suite)
+	storePath := eventStorePathForSession(session)
+	store, err := persistence.NewSQLiteStore(storePath)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = store.Close() }()
 
-	summary := &SessionSummary{
-		ScoreVersion: scoreVersion,
-		SessionPath:  sessionDir,
-		SuiteID:      session.SuiteID,
-		GeneratedAt:  s.Now(),
-		RunCount:     len(session.Runs),
-		Runs:         make([]RunSummaryRow, 0, len(session.Runs)),
-	}
-
-	scoredRows := make([]RunSummaryRow, 0, len(session.Runs))
-	scoreFailures := make([]scoreFailure, 0)
-	for _, entry := range session.Runs {
-		ctx, err := buildScoreRunContext(sessionDir, entry, caseDefs)
-		if err != nil {
-			scoreFailures = append(scoreFailures, scoreFailure{
-				row: RunSummaryRow{
-					CaseID:          entry.CaseID,
-					Agent:           entry.AgentID,
-					TemplateVariant: entry.TemplateVariant,
-					Attempt:         entry.Attempt,
-					RawStatus:       entry.Status,
-					Scored:          false,
-					Errors:          []string{err.Error()},
-				},
-				err: err,
-			})
-			continue
-		}
-		scorecard, err := s.scoreRun(ctx)
-		if err != nil {
-			scoreFailures = append(scoreFailures, scoreFailure{
-				row: buildRunSummaryRow(ctx.entry, ctx.run, nil, []string{err.Error()}, nil),
-				err: err,
-			})
-			continue
-		}
-		if err := writeJSONFile(filepath.Join(filepath.Dir(ctx.runPath), scorecardFileName), scorecard); err != nil {
-			scoreFailures = append(scoreFailures, scoreFailure{
-				row: buildRunSummaryRow(ctx.entry, ctx.run, scorecard, []string{err.Error()}, nil),
-				err: err,
-			})
-			continue
-		}
-		if record, err := buildScorecardArtifactRecord(scorecard); err != nil {
-			scoreFailures = append(scoreFailures, scoreFailure{
-				row: buildRunSummaryRow(ctx.entry, ctx.run, scorecard, []string{err.Error()}, nil),
-				err: err,
-			})
-			continue
-		} else if err := s.PersistArtifact(context.Background(), scorecard.EventStorePath, record); err != nil {
-			scoreFailures = append(scoreFailures, scoreFailure{
-				row: buildRunSummaryRow(ctx.entry, ctx.run, scorecard, []string{err.Error()}, nil),
-				err: err,
-			})
-			continue
-		}
-		row := buildRunSummaryRow(ctx.entry, ctx.run, scorecard, nil, scorecard.Warnings)
-		summary.Runs = append(summary.Runs, row)
-		scoredRows = append(scoredRows, row)
-	}
-	for _, failure := range scoreFailures {
-		summary.Runs = append(summary.Runs, failure.row)
-	}
-	sort.Slice(summary.Runs, func(i, j int) bool {
-		return compareRunRows(summary.Runs[i], summary.Runs[j])
-	})
-	summary.ScoredRunCount = len(scoredRows)
-	summary.FailedToScoreCount = summary.RunCount - summary.ScoredRunCount
-	summary.Aggregates = buildAggregates(scoredRows)
-
-	if err := writeJSONFile(filepath.Join(sessionDir, summaryFileName), summary); err != nil {
-		return nil, err
-	}
-	if storePath := summaryEventStorePath(summary.Runs); strings.TrimSpace(storePath) != "" {
-		record, err := buildSummaryArtifactRecord(summary)
-		if err != nil {
-			return summary, err
-		}
-		if err := s.PersistArtifact(context.Background(), storePath, record); err != nil {
-			return summary, err
-		}
-	}
-	if len(scoreFailures) > 0 {
-		return summary, fmt.Errorf("failed to score %d benchmark run(s)", len(scoreFailures))
-	}
-	return summary, nil
+	service := newLiveQueryService(store, s.Now)
+	return service.scoreSessionManifest(context.Background(), session)
 }
 
 func (s *Scorer) withDefaults() *Scorer {
@@ -382,9 +275,6 @@ func (s *Scorer) withDefaults() *Scorer {
 	}
 	if s.Now == nil {
 		s.Now = time.Now
-	}
-	if s.PersistArtifact == nil {
-		s.PersistArtifact = persistBenchmarkArtifact
 	}
 	return s
 }
@@ -403,6 +293,26 @@ func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 	return &session, nil
 }
 
+func eventStorePathForSession(session *SessionManifest) string {
+	if session != nil {
+		for idx := range session.Runs {
+			runPath := filepath.Join(session.InvocationDir, session.Runs[idx].RelativeRunDir, runFileName)
+			run, err := loadRunManifest(runPath)
+			if err != nil {
+				continue
+			}
+			if trimmed := strings.TrimSpace(run.ArtifactPaths.EventStorePath); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	storePath, err := config.ResolveEventStorePath(nil)
+	if err != nil {
+		return ""
+	}
+	return storePath
+}
+
 func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scoreRunContext, error) {
 	result := make(map[string]scoreRunContext, len(suite.Cases))
 	for _, ref := range suite.Cases {
@@ -417,276 +327,6 @@ func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scor
 		}
 	}
 	return result, nil
-}
-
-func buildScoreRunContext(sessionDir string, entry SessionRunManifestEntry, caseDefs map[string]scoreRunContext) (*scoreRunContext, error) {
-	caseCtx, ok := caseDefs[entry.CaseID]
-	if !ok {
-		return nil, fmt.Errorf("missing case definition for %q", entry.CaseID)
-	}
-	runDir := filepath.Join(sessionDir, entry.RelativeRunDir)
-	runPath := filepath.Join(runDir, runFileName)
-	var run RunManifest
-	if err := readJSONFile(runPath, &run); err != nil {
-		return nil, fmt.Errorf("load run manifest for %s/%s/%s attempt %d: %w", entry.TemplateVariant, entry.AgentID, entry.CaseID, entry.Attempt, err)
-	}
-	return &scoreRunContext{
-		sessionDir: sessionDir,
-		entry:      entry,
-		runPath:    runPath,
-		run:        &run,
-		caseDef:    caseCtx.caseDef,
-		caseRoot:   caseCtx.caseRoot,
-	}, nil
-}
-
-func (s *Scorer) scoreRun(ctx *scoreRunContext) (*RunScorecard, error) {
-	taskRuns, events, warnings, err := loadTaskData(ctx.run)
-	if err != nil {
-		return nil, err
-	}
-	manualPath := filepath.Join(filepath.Dir(ctx.runPath), manualScoreFileName)
-	manual, manualPathValue, err := loadManualScore(manualPath)
-	if err != nil {
-		return nil, err
-	}
-	agentStdoutPath := filepath.Join(ctx.run.ArtifactPaths.AgentDir, "agent.stdout.log")
-	agentStderrPath := filepath.Join(ctx.run.ArtifactPaths.AgentDir, "agent.stderr.log")
-	agentMetadata, agentWarnings, err := loadAgentMetadata(agentStdoutPath, ctx.run.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	warnings = append(warnings, agentWarnings...)
-
-	latest := findLatestLinkedTaskRun(ctx.run, taskRuns)
-	outcome, outcomeWarnings, err := scoreOutcome(ctx, latest, events)
-	if err != nil {
-		return nil, err
-	}
-	warnings = append(warnings, outcomeWarnings...)
-	process := scoreProcess(events, ctx.run.EndedAt)
-	editedFiles, err := collectEditedFiles(filepath.Join(ctx.caseRoot, ctx.caseDef.Fixture.SeedPath), ctx.run.ArtifactPaths.ProjectDir)
-	if err != nil {
-		return nil, err
-	}
-	efficiency := ScorecardEfficiency{
-		WallClockSeconds:     secondsBetween(ctx.run.StartedAt, ctx.run.EndedAt),
-		TotalToolCalls:       process.TotalTaskToolCalls + process.TotalDownstreamToolCalls,
-		InputTokens:          agentUsageInputTokens(agentMetadata),
-		OutputTokens:         agentUsageOutputTokens(agentMetadata),
-		EditedFilesCount:     len(editedFiles),
-		EditedFiles:          editedFiles,
-		ObservedCommandCalls: countObservedCommandCalls(events),
-	}
-	scorecard := &RunScorecard{
-		SuiteID:          ctx.run.SuiteID,
-		CaseID:           ctx.run.CaseID,
-		TemplateID:       ctx.run.TemplateID,
-		TemplateVariant:  ctx.run.TemplateVariant.Name,
-		Agent:            ctx.run.AgentID,
-		Attempt:          ctx.entry.Attempt,
-		RunManifestPath:  ctx.runPath,
-		SessionPath:      ctx.sessionDir,
-		EventStoreMode:   ctx.run.ArtifactPaths.EventStoreMode,
-		EventStorePath:   ctx.run.ArtifactPaths.EventStorePath,
-		TaskRunsPath:     ctx.run.ArtifactPaths.TaskRunsSnapshot,
-		TaskRunEventsDir: ctx.run.ArtifactPaths.TaskRunEventsDir,
-		RequestLogPath:   ctx.run.ArtifactPaths.RequestLogPath,
-		AgentStdoutPath:  agentStdoutPath,
-		AgentStderrPath:  agentStderrPath,
-		ManualScorePath:  manualPathValue,
-		RawStatus:        ctx.run.Status,
-		LatestTaskRunID:  ctx.run.LatestTaskRunID,
-		LinkedTaskRunIDs: append([]string(nil), ctx.run.LinkedTaskRunIDs...),
-		Outcome:          outcome,
-		Process:          process,
-		Efficiency:       efficiency,
-		Manual: ScorecardManual{
-			ErrorActionabilityScore: manual.ErrorActionabilityScore,
-			ErrorActionabilityNotes: manual.Notes,
-		},
-		AgentMetadata: agentMetadata,
-		ScoreVersion:  scoreVersion,
-		GeneratedAt:   s.Now(),
-		Warnings:      warnings,
-	}
-	return scorecard, nil
-}
-
-func scoreOutcome(ctx *scoreRunContext, latest *persistence.TaskRunSummary, events []persistence.TaskRunEvent) (ScorecardOutcome, []string, error) {
-	warnings := make([]string, 0)
-	if latest == nil {
-		warnings = append(warnings, "no linked task runs were available while scoring")
-	}
-	restartOccurred := hasTaskEvent(events, "task_restarted")
-	failOccurred := hasTaskEvent(events, "task_failed")
-	timeoutOccurred := hasTaskEvent(events, "task_timed_out")
-	finalVerificationPassed := latest != nil && latest.Status == runStatusCompleted
-	completedSuccessfully := ctx.run.Status == runStatusCompleted && finalVerificationPassed
-	invariantViolation, err := detectInvariantViolation(filepath.Join(ctx.caseRoot, ctx.caseDef.Fixture.SeedPath), ctx.run.ArtifactPaths.ProjectDir, ctx.caseDef.Constraints.LockedPaths)
-	if err != nil {
-		return ScorecardOutcome{}, nil, err
-	}
-	return ScorecardOutcome{
-		CompletedSuccessfully:   completedSuccessfully,
-		FinalVerificationPassed: finalVerificationPassed,
-		FirstPassSuccess:        finalVerificationPassed && !restartOccurred && !failOccurred && !timeoutOccurred,
-		RestartOccurred:         restartOccurred,
-		FailOccurred:            failOccurred,
-		TimeoutOccurred:         timeoutOccurred,
-		InvariantViolation:      invariantViolation,
-	}, warnings, nil
-}
-
-func scoreProcess(events []persistence.TaskRunEvent, runEndedAt time.Time) ScorecardProcess {
-	process := ScorecardProcess{
-		RetriesByStep: map[string]int{},
-	}
-	actionEvents := collectActionEvents(events)
-	for _, event := range actionEvents {
-		toolName := toolNameForEvent(event)
-		if isTaskTool(toolName) {
-			process.TotalTaskToolCalls++
-			if event.IsError != nil && *event.IsError {
-				process.FailedTaskToolCalls++
-			}
-		} else {
-			process.TotalDownstreamToolCalls++
-			if event.IsError != nil && *event.IsError {
-				process.FailedDownstreamToolCalls++
-			}
-		}
-	}
-	stepStarts := map[string]int{}
-	planningCompletedCount := 0
-	for _, event := range events {
-		if event.Source != persistence.TaskRunEventSourceTask {
-			continue
-		}
-		switch event.EventType {
-		case "step_started":
-			stepID := stepKeyForEvent(event)
-			stepStarts[stepID]++
-		case "planning_completed":
-			planningCompletedCount++
-		}
-	}
-	for stepID, count := range stepStarts {
-		retries := count - 1
-		if retries < 0 {
-			retries = 0
-		}
-		process.RetriesByStep[stepID] = retries
-		process.TotalStepRetries += retries
-	}
-	if len(process.RetriesByStep) == 0 {
-		process.RetriesByStep = nil
-	}
-	if planningCompletedCount > 1 {
-		process.ReplanningCount = planningCompletedCount - 1
-	}
-
-	recoveryTime, recoveryCalls := computeRecoveryMetrics(events, runEndedAt)
-	process.RecoveryTimeSeconds = recoveryTime
-	process.RecoveryToolCalls = recoveryCalls
-	return process
-}
-
-func loadTaskData(run *RunManifest) ([]persistence.TaskRunSummary, []persistence.TaskRunEvent, []string, error) {
-	warnings := make([]string, 0)
-	if storePath := strings.TrimSpace(run.ArtifactPaths.EventStorePath); storePath != "" {
-		if _, err := os.Stat(storePath); err == nil {
-			taskRuns, events, err := loadTaskDataFromSQLite(storePath, run)
-			if err == nil {
-				return taskRuns, events, warnings, nil
-			}
-			warnings = append(warnings, fmt.Sprintf("failed to load task data from sqlite event store, falling back to JSON snapshots: %v", err))
-		}
-	}
-	taskRuns, err := loadTaskRunsSnapshot(run.ArtifactPaths.TaskRunsSnapshot)
-	if err != nil {
-		return nil, nil, warnings, err
-	}
-	events, err := loadRunEventsFromSnapshots(run, taskRuns)
-	if err != nil {
-		return nil, nil, warnings, err
-	}
-	return taskRuns, events, warnings, nil
-}
-
-func loadTaskDataFromSQLite(path string, run *RunManifest) ([]persistence.TaskRunSummary, []persistence.TaskRunEvent, error) {
-	store, err := persistence.NewSQLiteStore(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = store.Close() }()
-
-	taskRuns, err := store.ListTaskRuns(context.Background())
-	if err != nil {
-		return nil, nil, err
-	}
-	runIDs := append([]string(nil), run.LinkedTaskRunIDs...)
-	if len(runIDs) == 0 {
-		runIDs = taskRunIDs(taskRuns)
-	}
-	taskRuns = filterTaskRuns(taskRuns, runIDs)
-	allEvents := make([]persistence.TaskRunEvent, 0)
-	for _, runID := range runIDs {
-		if strings.TrimSpace(runID) == "" {
-			continue
-		}
-		events, err := store.GetTaskRunEvents(context.Background(), runID)
-		if err != nil {
-			return nil, nil, err
-		}
-		allEvents = append(allEvents, events...)
-	}
-	sort.Slice(allEvents, func(i, j int) bool {
-		if allEvents[i].CreatedAtUnixMilli == allEvents[j].CreatedAtUnixMilli {
-			return allEvents[i].ID < allEvents[j].ID
-		}
-		return allEvents[i].CreatedAtUnixMilli < allEvents[j].CreatedAtUnixMilli
-	})
-	return taskRuns, allEvents, nil
-}
-
-func loadTaskRunsSnapshot(path string) ([]persistence.TaskRunSummary, error) {
-	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("run manifest is missing task runs snapshot path")
-	}
-	var runs []persistence.TaskRunSummary
-	if err := readJSONFile(path, &runs); err != nil {
-		return nil, fmt.Errorf("load task runs snapshot: %w", err)
-	}
-	return runs, nil
-}
-
-func loadRunEventsFromSnapshots(run *RunManifest, taskRuns []persistence.TaskRunSummary) ([]persistence.TaskRunEvent, error) {
-	if strings.TrimSpace(run.ArtifactPaths.TaskRunEventsDir) == "" {
-		return nil, fmt.Errorf("run manifest is missing task run events dir path")
-	}
-	runIDs := append([]string(nil), run.LinkedTaskRunIDs...)
-	if len(runIDs) == 0 {
-		runIDs = taskRunIDs(taskRuns)
-	}
-	all := make([]persistence.TaskRunEvent, 0)
-	for _, runID := range runIDs {
-		if strings.TrimSpace(runID) == "" {
-			continue
-		}
-		var events []persistence.TaskRunEvent
-		if err := readJSONFile(filepath.Join(run.ArtifactPaths.TaskRunEventsDir, runID+".json"), &events); err != nil {
-			return nil, fmt.Errorf("load task run events for %s: %w", runID, err)
-		}
-		all = append(all, events...)
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].CreatedAtUnixMilli == all[j].CreatedAtUnixMilli {
-			return all[i].ID < all[j].ID
-		}
-		return all[i].CreatedAtUnixMilli < all[j].CreatedAtUnixMilli
-	})
-	return all, nil
 }
 
 func loadManualScore(path string) (*ManualScoreInput, string, error) {
@@ -846,29 +486,6 @@ func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
 	return result
 }
 
-func findLatestLinkedTaskRun(run *RunManifest, runs []persistence.TaskRunSummary) *persistence.TaskRunSummary {
-	if run == nil {
-		return nil
-	}
-	if run.LatestTaskRunID != "" {
-		for idx := range runs {
-			if runs[idx].RunID == run.LatestTaskRunID {
-				return &runs[idx]
-			}
-		}
-	}
-	return latestTaskRun(runs)
-}
-
-func hasTaskEvent(events []persistence.TaskRunEvent, eventType string) bool {
-	for _, event := range events {
-		if event.Source == persistence.TaskRunEventSourceTask && event.EventType == eventType {
-			return true
-		}
-	}
-	return false
-}
-
 func detectInvariantViolation(seedRoot string, projectRoot string, lockedPaths []string) (bool, error) {
 	for _, lockedPath := range lockedPaths {
 		seedBytes, err := os.ReadFile(filepath.Join(seedRoot, lockedPath))
@@ -887,88 +504,6 @@ func detectInvariantViolation(seedRoot string, projectRoot string, lockedPaths [
 		}
 	}
 	return false, nil
-}
-
-func collectActionEvents(events []persistence.TaskRunEvent) []persistence.TaskRunEvent {
-	result := make([]persistence.TaskRunEvent, 0, len(events))
-	for _, event := range events {
-		if event.Source == persistence.TaskRunEventSourceAction {
-			result = append(result, event)
-		}
-	}
-	return result
-}
-
-func stepKeyForEvent(event persistence.TaskRunEvent) string {
-	payload := map[string]any{}
-	if len(event.PayloadJSON) > 0 && json.Unmarshal(event.PayloadJSON, &payload) == nil {
-		if stepID, ok := payload["stepId"].(string); ok && strings.TrimSpace(stepID) != "" {
-			return stepID
-		}
-		if step, ok := payload["step"].(string); ok && strings.TrimSpace(step) != "" {
-			return step
-		}
-		if step, ok := payload["step"].(float64); ok {
-			return fmt.Sprintf("%d", int(step))
-		}
-	}
-	if strings.TrimSpace(event.ResultingPhasePath) != "" {
-		return event.ResultingPhasePath
-	}
-	return event.ID
-}
-
-func computeRecoveryMetrics(events []persistence.TaskRunEvent, runEndedAt time.Time) (*float64, *int) {
-	var failedAction *persistence.TaskRunEvent
-	for idx := range events {
-		event := events[idx]
-		if event.Source != persistence.TaskRunEventSourceAction || event.IsError == nil || !*event.IsError {
-			continue
-		}
-		failedAction = &event
-		break
-	}
-	if failedAction == nil {
-		return nil, nil
-	}
-	recoveryAt := runEndedAt.UTC().UnixMilli()
-	foundRecovery := false
-	for _, event := range events {
-		if event.CreatedAtUnixMilli <= failedAction.CreatedAtUnixMilli || event.Source != persistence.TaskRunEventSourceTask {
-			continue
-		}
-		if isRecoveryTaskEvent(event.EventType) {
-			recoveryAt = event.CreatedAtUnixMilli
-			foundRecovery = true
-			break
-		}
-	}
-	recoveryToolCalls := 0
-	for _, event := range events {
-		if event.Source != persistence.TaskRunEventSourceAction {
-			continue
-		}
-		if event.CreatedAtUnixMilli > failedAction.CreatedAtUnixMilli && event.CreatedAtUnixMilli <= recoveryAt {
-			recoveryToolCalls++
-		}
-	}
-	seconds := float64(recoveryAt-failedAction.CreatedAtUnixMilli) / 1000.0
-	if seconds < 0 {
-		seconds = 0
-	}
-	if !foundRecovery && runEndedAt.IsZero() {
-		seconds = 0
-	}
-	return &seconds, &recoveryToolCalls
-}
-
-func isRecoveryTaskEvent(eventType string) bool {
-	switch eventType {
-	case "planning_completed", "step_completed", "task_resumed":
-		return true
-	default:
-		return false
-	}
 }
 
 func collectEditedFiles(seedRoot string, projectRoot string) ([]string, error) {
@@ -1020,30 +555,6 @@ func collectRelativeFiles(root string) (map[string][]byte, error) {
 		return nil
 	})
 	return files, err
-}
-
-func countObservedCommandCalls(events []persistence.TaskRunEvent) int {
-	count := 0
-	for _, event := range events {
-		if event.Source != persistence.TaskRunEventSourceAction {
-			continue
-		}
-		if _, ok := commandToolNames[toolNameForEvent(event)]; ok {
-			count++
-		}
-	}
-	return count
-}
-
-func toolNameForEvent(event persistence.TaskRunEvent) string {
-	if strings.TrimSpace(event.ToolName) != "" {
-		return event.ToolName
-	}
-	return event.OriginalToolName
-}
-
-func isTaskTool(toolName string) bool {
-	return strings.HasPrefix(toolName, "centian.task_")
 }
 
 func secondsBetween(start time.Time, end time.Time) float64 {
@@ -1266,15 +777,6 @@ func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 	return float64(total) / float64(count), true
 }
 
-func summaryEventStorePath(rows []RunSummaryRow) string {
-	for _, row := range rows {
-		if strings.TrimSpace(row.EventStorePath) != "" {
-			return row.EventStorePath
-		}
-	}
-	return ""
-}
-
 func agentUsageInputTokens(metadata *AgentMetadata) *int64 {
 	if metadata == nil {
 		return nil
@@ -1287,28 +789,6 @@ func agentUsageOutputTokens(metadata *AgentMetadata) *int64 {
 		return nil
 	}
 	return metadata.Usage.OutputTokens
-}
-
-func filterTaskRuns(runs []persistence.TaskRunSummary, runIDs []string) []persistence.TaskRunSummary {
-	if len(runIDs) == 0 {
-		return runs
-	}
-	allowed := make(map[string]struct{}, len(runIDs))
-	for _, runID := range runIDs {
-		if trimmed := strings.TrimSpace(runID); trimmed != "" {
-			allowed[trimmed] = struct{}{}
-		}
-	}
-	if len(allowed) == 0 {
-		return runs
-	}
-	filtered := make([]persistence.TaskRunSummary, 0, len(runs))
-	for _, run := range runs {
-		if _, ok := allowed[run.RunID]; ok {
-			filtered = append(filtered, run)
-		}
-	}
-	return filtered
 }
 
 func anyMap(value any) map[string]any {

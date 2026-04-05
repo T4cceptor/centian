@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -180,8 +181,11 @@ func handleBenchmarkScoreCommand(ctx context.Context, cmd *cli.Command) error {
 	scorer := benchmarks.NewScorer()
 	summary, err := scorer.ScoreSession(ctx, options)
 	if summary != nil {
-		fmt.Printf("Scored benchmark session: %s\n", options.SessionPath)
-		fmt.Printf("Scored runs: %d/%d\n", summary.ScoredRunCount, summary.RunCount)
+		encoded, marshalErr := json.MarshalIndent(summary, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		fmt.Println(string(encoded))
 	}
 	return err
 }
@@ -193,11 +197,13 @@ func handleBenchmarkCompareCommand(ctx context.Context, cmd *cli.Command) error 
 	}
 
 	comparer := benchmarks.NewComparer()
-	comparison, outputPath, err := comparer.CompareSuite(ctx, options)
+	comparison, _, err := comparer.CompareSuite(ctx, options)
 	if comparison != nil {
-		fmt.Printf("Compared benchmark sessions: %s\n", outputPath)
-		fmt.Printf("Sessions: %d\n", comparison.SessionCount)
-		fmt.Printf("Runs: %d\n", comparison.RunCount)
+		encoded, marshalErr := json.MarshalIndent(comparison, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		fmt.Println(string(encoded))
 	}
 	return err
 }

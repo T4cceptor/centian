@@ -112,17 +112,15 @@ type RunManifest struct {
 
 // RunArtifactPaths lists the raw artifacts captured for one run.
 type RunArtifactPaths struct {
-	RunDir           string `json:"runDir"`
-	ProjectDir       string `json:"projectDir"`
-	TemplatesDir     string `json:"templatesDir"`
-	LogsDir          string `json:"logsDir"`
-	AgentDir         string `json:"agentDir"`
-	ConfigPath       string `json:"configPath"`
-	EventStoreMode   string `json:"eventStoreMode,omitempty"`
-	EventStorePath   string `json:"eventStorePath"`
-	RequestLogPath   string `json:"requestLogPath,omitempty"`
-	TaskRunsSnapshot string `json:"taskRunsSnapshot,omitempty"`
-	TaskRunEventsDir string `json:"taskRunEventsDir,omitempty"`
+	RunDir         string `json:"runDir"`
+	ProjectDir     string `json:"projectDir"`
+	TemplatesDir   string `json:"templatesDir"`
+	LogsDir        string `json:"logsDir"`
+	AgentDir       string `json:"agentDir"`
+	ConfigPath     string `json:"configPath"`
+	EventStoreMode string `json:"eventStoreMode,omitempty"`
+	EventStorePath string `json:"eventStorePath"`
+	RequestLogPath string `json:"requestLogPath,omitempty"`
 }
 
 // Runner executes benchmark suites locally.
@@ -615,31 +613,11 @@ func (r *Runner) captureRunArtifacts(
 		return err
 	}
 	runs = filterNewTaskRuns(runs, baselineRunIDs)
-	taskRunsPath := filepath.Join(logsDir, "task_runs.json")
-	if err := writeJSONFile(taskRunsPath, runs); err != nil {
-		return err
-	}
-	manifest.ArtifactPaths.TaskRunsSnapshot = taskRunsPath
 	manifest.LinkedTaskRunIDs = taskRunIDs(runs)
 
 	if latest := latestTaskRun(runs); latest != nil {
 		manifest.LatestTaskRunID = latest.RunID
 		manifest.LatestTaskRunStatus = latest.Status
-	}
-
-	eventsDir := filepath.Join(logsDir, "task_run_events")
-	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
-		return err
-	}
-	manifest.ArtifactPaths.TaskRunEventsDir = eventsDir
-	for _, run := range runs {
-		events, err := r.FetchTaskRunEvents(baseURL, run.RunID)
-		if err != nil {
-			return err
-		}
-		if err := writeJSONFile(filepath.Join(eventsDir, run.RunID+".json"), events); err != nil {
-			return err
-		}
 	}
 
 	requestLogPath, err := r.FindLatestRequestLog(logsDir)

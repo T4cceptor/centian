@@ -259,8 +259,9 @@ describe("benchmark routes", () => {
               failedDownstreamToolCalls: 0,
               totalTaskToolCalls: 2,
               totalDownstreamToolCalls: 2,
-              totalStepRetries: 0,
-              replanningCount: 0,
+              restartCount: 0,
+              failCount: 0,
+              timeoutCount: 0,
             },
             efficiency: {
               wallClockSeconds: 10,
@@ -268,7 +269,6 @@ describe("benchmark routes", () => {
               inputTokens: 100,
               outputTokens: 50,
               editedFilesCount: 1,
-              observedCommandCalls: 1,
             },
             manual: {},
             generatedAt: "2026-04-05T12:00:00Z",
@@ -284,6 +284,7 @@ describe("benchmark routes", () => {
 
     expect(screen.getAllByText("Outcome").length).toBeGreaterThan(0);
     expect(screen.getByText("Edited Files")).toBeInTheDocument();
+    expect(screen.getByText("Restart Count")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Assertion-failure red baseline" })).toBeInTheDocument();
   });
 });

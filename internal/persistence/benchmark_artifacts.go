@@ -14,11 +14,8 @@ type BenchmarkArtifactKind string
 
 // Supported persisted benchmark artifact kinds.
 const (
-	BenchmarkArtifactKindSession    BenchmarkArtifactKind = "session"
-	BenchmarkArtifactKindRun        BenchmarkArtifactKind = "run"
-	BenchmarkArtifactKindScorecard  BenchmarkArtifactKind = "scorecard"
-	BenchmarkArtifactKindSummary    BenchmarkArtifactKind = "summary"
-	BenchmarkArtifactKindComparison BenchmarkArtifactKind = "comparison"
+	BenchmarkArtifactKindSession BenchmarkArtifactKind = "session"
+	BenchmarkArtifactKindRun     BenchmarkArtifactKind = "run"
 )
 
 type benchmarkArtifactRow struct {

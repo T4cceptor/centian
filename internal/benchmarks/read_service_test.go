@@ -23,25 +23,30 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	scorer := &Scorer{
-		PersistArtifact: func(ctx context.Context, _ string, record *persistence.BenchmarkArtifactRecord) error {
-			return store.UpsertBenchmarkArtifact(ctx, record)
-		},
-	}
-	_, err = scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionOne})
-	assert.NilError(t, err)
-	_, err = scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionTwo})
-	assert.NilError(t, err)
 	sessionOneManifest, err := loadSessionManifest(sessionOne)
 	assert.NilError(t, err)
 	sessionOneRecord, err := buildSessionArtifactRecord(sessionOneManifest)
 	assert.NilError(t, err)
 	assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), sessionOneRecord))
+	for idx := range sessionOneManifest.Runs {
+		run, loadErr := loadRunManifest(filepath.Join(sessionOne, sessionOneManifest.Runs[idx].RelativeRunDir, runFileName))
+		assert.NilError(t, loadErr)
+		record, recordErr := buildRunArtifactRecord(run)
+		assert.NilError(t, recordErr)
+		assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), record))
+	}
 	sessionTwoManifest, err := loadSessionManifest(sessionTwo)
 	assert.NilError(t, err)
 	sessionTwoRecord, err := buildSessionArtifactRecord(sessionTwoManifest)
 	assert.NilError(t, err)
 	assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), sessionTwoRecord))
+	for idx := range sessionTwoManifest.Runs {
+		run, loadErr := loadRunManifest(filepath.Join(sessionTwo, sessionTwoManifest.Runs[idx].RelativeRunDir, runFileName))
+		assert.NilError(t, loadErr)
+		record, recordErr := buildRunArtifactRecord(run)
+		assert.NilError(t, recordErr)
+		assert.NilError(t, store.UpsertBenchmarkArtifact(context.Background(), record))
+	}
 	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
 		RunID:        "tr_compile",
 		TemplateID:   "simple_tdd",

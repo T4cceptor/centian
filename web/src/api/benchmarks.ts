@@ -141,10 +141,9 @@ export type BenchmarkRunDetail = {
       failedDownstreamToolCalls: number;
       totalTaskToolCalls: number;
       totalDownstreamToolCalls: number;
-      totalStepRetries: number;
-      replanningCount: number;
-      recoveryTimeSeconds?: number;
-      recoveryToolCalls?: number;
+      restartCount: number;
+      failCount: number;
+      timeoutCount: number;
     };
     efficiency: {
       wallClockSeconds: number;

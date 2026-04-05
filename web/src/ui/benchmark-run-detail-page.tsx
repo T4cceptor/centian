@@ -48,7 +48,7 @@ export function BenchmarkRunDetailPage() {
       <div className="state-card" data-testid="benchmark-run-loading">
         <p className="state-card__eyebrow">Syncing</p>
         <h2>Loading benchmark run…</h2>
-        <p>Reading the persisted benchmark scorecard.</p>
+        <p>Building the live benchmark scorecard.</p>
       </div>
     );
   }
@@ -125,15 +125,15 @@ export function BenchmarkRunDetailPage() {
           <dl className="benchmark-detail-list">
             <div><dt>Failed Task Calls</dt><dd>{scorecard.process.failedTaskToolCalls}</dd></div>
             <div><dt>Failed Downstream Calls</dt><dd>{scorecard.process.failedDownstreamToolCalls}</dd></div>
-            <div><dt>Total Step Retries</dt><dd>{scorecard.process.totalStepRetries}</dd></div>
-            <div><dt>Replanning Count</dt><dd>{scorecard.process.replanningCount}</dd></div>
+            <div><dt>Restart Count</dt><dd>{scorecard.process.restartCount}</dd></div>
+            <div><dt>Fail Count</dt><dd>{scorecard.process.failCount}</dd></div>
+            <div><dt>Timeout Count</dt><dd>{scorecard.process.timeoutCount}</dd></div>
           </dl>
         </article>
         <article className="benchmark-detail-card">
           <h3>Files</h3>
           <dl className="benchmark-detail-list">
             <div><dt>Edited Files</dt><dd>{scorecard.efficiency.editedFilesCount}</dd></div>
-            <div><dt>Observed Commands</dt><dd>{scorecard.efficiency.observedCommandCalls}</dd></div>
             <div><dt>Latest Task Run</dt><dd>{scorecard.latestTaskRunId || "—"}</dd></div>
           </dl>
         </article>

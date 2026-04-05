@@ -78,7 +78,7 @@ That target:
 
 - builds `./build/centian`
 - runs `centian benchmark run`
-- scores the newest preserved session with `centian benchmark score`
+- prints a live `centian benchmark score` view for the newest preserved session
 - prints the live Centian UI URL for each run as soon as the server is ready
 
 ### Direct CLI commands
@@ -109,7 +109,7 @@ Score an existing session:
   --session tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1/<timestamp>_run
 ```
 
-Compare multiple scored sessions for one suite:
+Compare multiple sessions for one suite:
 
 ```bash
 ./build/centian benchmark compare \
@@ -176,14 +176,9 @@ Each preserved run contains:
 - `logs/`
 - `agent/`
 - `run.json`
-- `scorecard.json` after `centian benchmark score`
 - `manual_score.json` optionally, for reviewer-supplied error-actionability input
 
-`logs/` stores Centian-side runtime artifacts such as request logs, internal logs, and task-run snapshots. The live durable event stream is written to Centian's configured shared event store, which by default resolves to `~/.centian/logs/events.sqlite`. The resolved shared path is recorded in `run.json`, `scorecard.json`, and `summary.json`. `agent/` stores agent logs and agent-specific artifacts for the run.
-
-At the session root, scoring writes:
-
-- `summary.json`
+`logs/` stores Centian-side runtime artifacts such as request logs and internal logs. The live durable event stream is written to Centian's configured shared event store, which by default resolves to `~/.centian/logs/events.sqlite`. The resolved shared path is recorded in `run.json`. `agent/` stores agent logs and agent-specific artifacts for the run.
 
 ## How To Inspect Output
 
@@ -199,22 +194,18 @@ The most useful files after a run are:
 
 - `session.json`
   One manifest describing the full benchmark invocation.
-- `summary.json`
-  The comparison-friendly scored summary for the whole session.
-- `comparison.json`
-  Cross-session aggregates for one suite, written by `centian benchmark compare`.
 - `run.json`
   Raw metadata for one concrete run.
-- `scorecard.json`
-  Derived metrics for one concrete run.
 - `logs/requests_*.jsonl`
   The exact request log seen by Centian.
-- `logs/task_runs.json`
-  The captured task-run snapshot.
-- `logs/task_run_events/*.json`
-  The captured lifecycle and action-event timelines.
 - `run.json -> artifactPaths.eventStorePath`
   The shared SQLite event store used by the run, normally `~/.centian/logs/events.sqlite`.
+
+`centian benchmark score` and `centian benchmark compare` now derive their JSON output live from:
+
+- persisted benchmark `session` / `run` artifacts
+- persisted `task_runs`
+- persisted `task_run_stats`
 
 ## Score Meaning
 
@@ -245,16 +236,12 @@ The most useful files after a run are:
   Count of all `centian.task_*` tool calls.
 - `totalDownstreamToolCalls`
   Count of all non-task tool calls.
-- `retriesByStep`
-  How many times each step was started after its first start.
-- `totalStepRetries`
-  Sum of all step retries in the run.
-- `replanningCount`
-  Number of additional planning completions beyond the first one.
-- `recoveryTimeSeconds`
-  Time from the first failed tool/action event until the next successful task progress event, or until run end if none occurred.
-- `recoveryToolCalls`
-  Number of tool calls observed between the first failed tool/action event and the recovery point.
+- `restartCount`
+  Number of task restarts.
+- `failCount`
+  Number of explicit task failures.
+- `timeoutCount`
+  Number of task timeouts.
 
 ### Efficiency metrics
 
@@ -266,9 +253,6 @@ The most useful files after a run are:
   Number of added, modified, or deleted files relative to the case seed fixture.
 - `editedFiles`
   The concrete paths that changed relative to the case seed fixture.
-- `observedCommandCalls`
-  Count of observed shell-command execution tool calls from known command-execution tools.
-
 ### Manual metrics
 
 - `errorActionabilityScore`
@@ -300,18 +284,18 @@ For `simple_tdd`, the strongest signals are usually:
 In practice:
 
 - if success goes up and time/tokens/tool activity stay roughly flat, that is a clear improvement
-- if success stays the same but retries, failures, and recovery cost go down, that is probably still an improvement
+- if success stays the same but restarts, failures, and time/tool cost go down, that is probably still an improvement
 - if time goes down but invariant violations go up, that is not an improvement
 - if one agent regresses while another improves, compare by agent rather than averaging too early
 
-The session-level `summary.json` is the easiest place to compare runs inside one benchmark invocation because it already groups results by:
+`centian benchmark score` is the easiest way to compare runs inside one benchmark invocation because it already groups results by:
 
 - case
 - agent
 - template variant
 - case + agent + template variant
 
-For comparisons across multiple sessions of the same suite, use `centian benchmark compare`. That command reads each session's preserved `summary.json`, writes `<root>/<suite-id>/comparison.json`, and adds aggregates grouped by:
+For comparisons across multiple sessions of the same suite, use `centian benchmark compare`. That command reads persisted benchmark `session` / `run` artifacts plus default task-run persistence and prints cross-session aggregates grouped by:
 
 - session
 - case
@@ -350,6 +334,7 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 
 - `--session`
   Required. Path to one preserved benchmark session directory containing `session.json`.
+  The command prints a live session score summary as JSON to stdout. It does not write `scorecard.json` or `summary.json`.
 
 ### `centian benchmark compare`
 
@@ -363,6 +348,7 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
   Optional and repeatable. Limit comparison to one or more benchmark cases.
 - `--template-variant`
   Optional and repeatable. Limit comparison to one or more template variants.
+  The command prints a live comparison summary as JSON to stdout. It does not write `comparison.json`.
 
 ### `make benchmark-simple-tdd`
 
