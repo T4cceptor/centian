@@ -26,7 +26,9 @@ type benchmarkQueryStore interface {
 	ListBenchmarkSessions(context.Context, persistence.BenchmarkSessionFilter) ([]persistence.BenchmarkSessionRecord, error)
 	ListBenchmarkRuns(context.Context, *persistence.BenchmarkRunFilter) ([]persistence.BenchmarkRunRecord, error)
 	GetBenchmarkRun(context.Context, string) (*persistence.BenchmarkRunRecord, error)
+	ListTaskRunSnapshots(context.Context) ([]persistence.TaskRunSnapshotRecord, error)
 	GetTaskRunSnapshot(context.Context, string) (*persistence.TaskRunSnapshotRecord, error)
+	ListTaskRunStats(context.Context) ([]persistence.TaskRunStatsRecord, error)
 	GetTaskRunStats(context.Context, string) (*persistence.TaskRunStatsRecord, error)
 }
 

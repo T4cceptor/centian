@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { type BenchmarkSuiteSummary, fetchBenchmarkSuites } from "../api/benchmarks";
+import { type BenchmarkSuiteSummary, type TemplateScorecard, fetchBenchmarkSuites, fetchTemplateScorecards } from "../api/benchmarks";
 import { ApiError } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTemplateLabel, formatTimestamp } from "./format";
+import { formatBenchmarkRate, formatBenchmarkSeconds } from "./benchmark-format";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
 
 export function BenchmarkSuiteListPage() {
   const [items, setItems] = useState<BenchmarkSuiteSummary[]>([]);
+  const [templateScorecards, setTemplateScorecards] = useState<TemplateScorecard[]>([]);
   const [templateFilter, setTemplateFilter] = useState("");
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
@@ -21,9 +23,10 @@ export function BenchmarkSuiteListPage() {
     setLoadState("loading");
     setErrorMessage("");
 
-    void fetchBenchmarkSuites({}, controller.signal)
-      .then((result) => {
+    void Promise.all([fetchBenchmarkSuites({}, controller.signal), fetchTemplateScorecards(controller.signal)])
+      .then(([result, scorecards]) => {
         setItems(result);
+        setTemplateScorecards(scorecards);
         setLoadState("ready");
       })
       .catch((error: unknown) => {
@@ -103,6 +106,14 @@ export function BenchmarkSuiteListPage() {
         </label>
       </div>
 
+      <section className="benchmark-section">
+        <div className="benchmark-section__header">
+          <h3>Template Scorecards</h3>
+          <p>{templateScorecards.length} templates</p>
+        </div>
+        <TemplateScorecardTable rows={templateScorecards} />
+      </section>
+
       {filteredItems.length === 0 ? (
         <div className="state-card">
           <p className="state-card__eyebrow">Quiet Channel</p>
@@ -138,4 +149,60 @@ export function BenchmarkSuiteListPage() {
       )}
     </div>
   );
+}
+
+function TemplateScorecardTable({ rows }: { rows: TemplateScorecard[] }) {
+  if (rows.length === 0) {
+    return <p className="benchmark-empty">No persisted task-run metrics are available yet.</p>;
+  }
+
+  return (
+    <div className="benchmark-analysis-table" role="table" aria-label="Template scorecards">
+      <div className="benchmark-analysis-table__header benchmark-analysis-table__header--template-scorecards" role="row">
+        <span>Template</span>
+        <span>Runs</span>
+        <span>Median Events (Centian/MCP)</span>
+        <span>Median Errors (Centian/MCP)</span>
+        <span>Median Time</span>
+        <span>First Pass</span>
+      </div>
+      <div className="benchmark-analysis-table__body" role="rowgroup">
+        {rows.map((row) => (
+          <div key={row.templateKey} className="benchmark-analysis-row benchmark-analysis-row--template-scorecard" role="row">
+            <span className="benchmark-analysis-row__label">
+              {row.templateName ?? formatTemplateLabel(row.templateId)}
+            </span>
+            <span>{row.runCount}</span>
+            <span className="benchmark-error-split">
+              <span className="benchmark-error-split__centian">{row.medianTaskToolCalls}</span>
+              <span>/</span>
+              <span className="benchmark-error-split__mcp">{row.medianDownstreamToolCalls}</span>
+            </span>
+            <span className="benchmark-error-split">
+              <span className="benchmark-error-split__centian">{row.medianCentianErrors}</span>
+              <span>/</span>
+              <span className="benchmark-error-split__mcp">{row.medianDownstreamToolErrors}</span>
+            </span>
+            <span>{formatBenchmarkSeconds(row.medianDurationMillis / 1000)}</span>
+            <span className={`benchmark-analysis-row__success ${successRateClassName(row.firstPassRate)}`}>
+              {formatBenchmarkRate(row.firstPassRate)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function successRateClassName(value: number): string {
+  if (value > 0.85) {
+    return "benchmark-analysis-row__success--good";
+  }
+  if (value >= 0.6) {
+    return "benchmark-analysis-row__success--warn";
+  }
+  if (value >= 0.4) {
+    return "benchmark-analysis-row__success--risk";
+  }
+  return "benchmark-analysis-row__success--bad";
 }

@@ -116,6 +116,13 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.Equal(t, comparison.RunCount, 2)
 	assert.Equal(t, len(comparison.Aggregates.ByAgent), 1)
 	assert.Equal(t, comparison.Aggregates.ByAgent[0].Agent, "codex")
+
+	scorecards, err := service.ListTemplateScorecards(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(scorecards), 1)
+	assert.Equal(t, scorecards[0].TemplateID, "simple_tdd")
+	assert.Equal(t, scorecards[0].TemplateName, "Simple TDD Current")
+	assert.Equal(t, scorecards[0].RunCount, 2)
 }
 
 func TestReadServiceReturnsNilForMissingResources(t *testing.T) {

@@ -48,6 +48,11 @@ func (s *ReadService) GetComparison(ctx context.Context, suiteID string, filters
 	return s.query.GetComparison(ctx, suiteID, filters)
 }
 
+// ListTemplateScorecards returns generic template scorecards over all persisted task runs.
+func (s *ReadService) ListTemplateScorecards(ctx context.Context) ([]TemplateScorecard, error) {
+	return s.query.ListTemplateScorecards(ctx)
+}
+
 func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, scorecard *RunScorecard) BenchmarkRunSummary {
 	return BenchmarkRunSummary{
 		ScorecardID:               item.BenchmarkRunID,

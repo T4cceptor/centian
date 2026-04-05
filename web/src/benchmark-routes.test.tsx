@@ -36,8 +36,26 @@ afterEach(() => {
 
 describe("benchmark routes", () => {
   it("renders the suite list", async () => {
-    globalThis.fetch = vi.fn(() =>
-      Promise.resolve(
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.includes("/template-scorecards")) {
+        return Promise.resolve(
+          createFetchResponse([
+            {
+              templateId: "simple_tdd",
+              templateName: "Simple TDD Task",
+              runCount: 15,
+              medianTaskToolCalls: 45,
+              medianDownstreamToolCalls: 15,
+              medianCentianErrors: 3,
+              medianDownstreamToolErrors: 1,
+              medianDurationMillis: 105000,
+              firstPassRate: 0.89,
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(
         createFetchResponse([
           {
             suiteId: "simple_tdd_v1",
@@ -49,13 +67,15 @@ describe("benchmark routes", () => {
             runCount: 4,
           },
         ]),
-      ),
-    ) as typeof fetch;
+      );
+    }) as typeof fetch;
 
     renderApp(["/benchmarks"]);
 
     expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
     expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
+    expect(screen.getByText("Template Scorecards")).toBeInTheDocument();
+    expect(screen.getByText("Simple TDD Task")).toBeInTheDocument();
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 

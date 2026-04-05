@@ -14,16 +14,20 @@ import (
 )
 
 type stubBenchmarkStore struct {
-	listSuitesFn   func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error)
-	listSessionsFn func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error)
-	getSessionFn   func(context.Context, string, string) (*benchmarks.BenchmarkSessionDetail, error)
-	listRunsFn     func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkRunSummary, error)
-	getRunFn       func(context.Context, string, string) (*benchmarks.BenchmarkRunDetail, error)
-	compareFn      func(context.Context, string, benchmarks.BenchmarkRunFilters) (*benchmarks.BenchmarkComparisonView, error)
+	listSuitesFn             func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error)
+	listTemplateScorecardsFn func(context.Context) ([]benchmarks.TemplateScorecard, error)
+	listSessionsFn           func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error)
+	getSessionFn             func(context.Context, string, string) (*benchmarks.BenchmarkSessionDetail, error)
+	listRunsFn               func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkRunSummary, error)
+	getRunFn                 func(context.Context, string, string) (*benchmarks.BenchmarkRunDetail, error)
+	compareFn                func(context.Context, string, benchmarks.BenchmarkRunFilters) (*benchmarks.BenchmarkComparisonView, error)
 }
 
 func (s *stubBenchmarkStore) ListSuites(ctx context.Context, filters benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error) {
 	return s.listSuitesFn(ctx, filters)
+}
+func (s *stubBenchmarkStore) ListTemplateScorecards(ctx context.Context) ([]benchmarks.TemplateScorecard, error) {
+	return s.listTemplateScorecardsFn(ctx)
 }
 func (s *stubBenchmarkStore) ListSessions(ctx context.Context, suiteID string, filters benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
 	return s.listSessionsFn(ctx, suiteID, filters)
@@ -52,6 +56,7 @@ func TestBenchmarkHandler_ListSuites(t *testing.T) {
 				RunCount:          4,
 			}}, nil
 		},
+		listTemplateScorecardsFn: func(context.Context) ([]benchmarks.TemplateScorecard, error) { return nil, nil },
 		listSessionsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
 			return nil, nil
 		},
@@ -83,6 +88,7 @@ func TestBenchmarkHandler_GetSessionNotFound(t *testing.T) {
 		listSuitesFn: func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error) {
 			return nil, nil
 		},
+		listTemplateScorecardsFn: func(context.Context) ([]benchmarks.TemplateScorecard, error) { return nil, nil },
 		listSessionsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
 			return nil, nil
 		},
@@ -111,6 +117,7 @@ func TestBenchmarkHandler_ListRunsHonorsQueryFilters(t *testing.T) {
 		listSuitesFn: func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error) {
 			return nil, nil
 		},
+		listTemplateScorecardsFn: func(context.Context) ([]benchmarks.TemplateScorecard, error) { return nil, nil },
 		listSessionsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
 			return nil, nil
 		},
@@ -142,6 +149,7 @@ func TestBenchmarkHandler_ReturnsJSONErrorOnStoreFailure(t *testing.T) {
 		listSuitesFn: func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error) {
 			return nil, errors.New("boom")
 		},
+		listTemplateScorecardsFn: func(context.Context) ([]benchmarks.TemplateScorecard, error) { return nil, nil },
 		listSessionsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
 			return nil, nil
 		},
@@ -165,4 +173,52 @@ func TestBenchmarkHandler_ReturnsJSONErrorOnStoreFailure(t *testing.T) {
 	var response errorResponse
 	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &response))
 	assert.Equal(t, response.Error, "failed to list benchmark suites")
+}
+
+func TestBenchmarkHandler_ListTemplateScorecards(t *testing.T) {
+	handler := NewBenchmarkHandler(&stubBenchmarkStore{
+		listSuitesFn: func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error) {
+			return nil, nil
+		},
+		listTemplateScorecardsFn: func(context.Context) ([]benchmarks.TemplateScorecard, error) {
+			return []benchmarks.TemplateScorecard{{
+				TemplateID:                 "simple_tdd",
+				TemplateName:               "Simple TDD Task",
+				RunCount:                   15,
+				MedianTaskToolCalls:        45,
+				MedianDownstreamToolCalls:  15,
+				MedianCentianErrors:        3,
+				MedianDownstreamToolErrors: 1,
+				MedianDurationMillis:       105000,
+				FirstPassRate:              0.89,
+			}}, nil
+		},
+		listSessionsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
+			return nil, nil
+		},
+		getSessionFn: func(context.Context, string, string) (*benchmarks.BenchmarkSessionDetail, error) {
+			return nil, benchmarks.ErrBenchmarkSessionNotFound
+		},
+		listRunsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkRunSummary, error) {
+			return nil, nil
+		},
+		getRunFn: func(context.Context, string, string) (*benchmarks.BenchmarkRunDetail, error) {
+			return nil, benchmarks.ErrBenchmarkRunNotFound
+		},
+		compareFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) (*benchmarks.BenchmarkComparisonView, error) {
+			return nil, benchmarks.ErrBenchmarkComparisonNotFound
+		},
+	})
+	mux := http.NewServeMux()
+	handler.RegisterRoutesWithMiddleware(mux, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/benchmarks/template-scorecards", http.NoBody)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	var items []benchmarks.TemplateScorecard
+	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &items))
+	assert.Equal(t, len(items), 1)
+	assert.Equal(t, items[0].TemplateName, "Simple TDD Task")
 }
