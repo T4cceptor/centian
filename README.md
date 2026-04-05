@@ -96,7 +96,7 @@ centian start
 
 ### With task verification
 
-Add capabilities to your config at `~/.centian/config.json`:
+Add capabilities to your config at `~/.centian/config.json`. In the flat layout, capabilities go under `proxy`; in the project-based layout, they go on each project:
 
 ```json
 {
@@ -259,7 +259,9 @@ The template schema is documented and designed for extensibility. Community cont
 
 ## Configuration
 
-Centian uses a single JSON config at `~/.centian/config.json`.
+Centian uses a single JSON config at `~/.centian/config.json`. The config supports two layouts:
+
+**Flat layout** (default from `centian init`) — gateways, auth, and capabilities live at the top level:
 
 ```json
 {
@@ -293,16 +295,51 @@ Centian uses a single JSON config at `~/.centian/config.json`.
 }
 ```
 
+**Project-based layout** — for isolating multiple workloads with separate databases, feature flags, and route prefixes:
+
+```json
+{
+  "name": "Centian Server",
+  "version": "1.0.0",
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "9666",
+    "timeout": 30
+  },
+  "projects": {
+    "team-alpha": {
+      "auth": true,
+      "capabilities": {
+        "taskVerification": { "enabled": true },
+        "eventStorage": { "enabled": true },
+        "ui": { "enabled": true }
+      },
+      "gateways": {
+        "workbench": {
+          "mcpServers": {
+            "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"] }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Each project gets its own SQLite database (`~/.centian/projects/<slug>/events.sqlite`) and its own route prefix. The flat layout is auto-migrated to a `"default"` project at runtime, so existing configs continue to work unchanged.
+
 ### Endpoints
 
 - Aggregated gateway: `http://127.0.0.1:9666/mcp/<gateway>`
 - Individual server: `http://127.0.0.1:9666/mcp/<gateway>/<server>`
+- Project-scoped gateway: `http://127.0.0.1:9666/<project>/<mcp>/<gateway>`
+- Project-scoped UI: `http://127.0.0.1:9666/<project>/ui`
 
-In aggregated mode, tools are namespaced to avoid collisions.
+In aggregated mode, tools are namespaced to avoid collisions. The `"default"` project uses unprefixed routes for backwards compatibility.
 
 ### Security
 
-Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured. This prevents accidental exposure.
+Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured in every project. This prevents accidental exposure.
 
 ---
 
@@ -373,13 +410,14 @@ Centian is usable and actively developed, but it's pre-1.0 with deliberate gaps.
 
 **Working today:**
 - MCP proxy with gateway aggregation and tool namespacing
+- Project-based isolation: per-project databases, route prefixes, capabilities, and auth (multi-tenancy preparation)
 - Programmable processor chain (CLI and webhook)
 - Task verification with template-based workflows, frozen execution contracts, and per-phase tool governance
 - SQLite event persistence with task/action correlation
 - Embedded read-only UI for task run inspection
 - Structured JSONL request logging
 - Auto-discovery of existing MCP configs (`centian init -p <path>`)
-- API key authentication
+- API key authentication with per-gateway and per-project scoping
 
 **Known limitations:**
 - Task run state is in-memory only (not restorable after restart)
