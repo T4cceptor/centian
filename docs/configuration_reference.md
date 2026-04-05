@@ -4,12 +4,21 @@ Centian uses a single JSON config, by default at `~/.centian/config.json`.
 
 This page describes the current user-facing configuration surface as implemented in `internal/config/config.go` and the server startup path.
 
+## Config Layouts
+
+Centian supports two config layouts:
+
+- **Flat layout** (legacy, default from `centian init`): gateways, processors, auth, and capabilities live at the top level of the config. At runtime, these are auto-migrated into a `"default"` project via `ResolveProjects()`.
+- **Project-based layout**: one or more named projects under the `projects` field. Each project holds its own gateways, processors, capabilities, auth settings, and metadata. Each project gets its own SQLite database, route prefix, and feature flags.
+
+Both layouts cannot be mixed: the config must use either top-level `gateways` or `projects`, not both.
+
 ## Validation Modes
 
 Centian validates config in two different ways:
 
-- Basic validation: used when loading or saving config. Requires `version` and `proxy`, but can tolerate empty `gateways`.
-- Strict validation: used by `centian start`. Requires at least one gateway and at least one active server per gateway.
+- Basic validation: used when loading or saving config. Requires `version` and `proxy`, but can tolerate empty `gateways` / `projects`.
+- Strict validation: used by `centian start`. Requires at least one gateway and at least one active server per gateway (checked per-project in project-based layout).
 
 ## Top-Level Fields
 
@@ -17,14 +26,40 @@ Centian validates config in two different ways:
 | --- | --- | --- | --- | --- |
 | `name` | string | No | `"Centian Server"` in default config | Human-readable server name. |
 | `version` | string | Yes | none | Must be non-empty. |
-| `auth` | boolean | No | `true` | Controls proxy API-key auth. |
-| `authHeader` | string | No | `X-Centian-Auth` | Reserved for Centian auth and not forwarded downstream. |
-| `proxy` | object | Yes | see below | Proxy bind, logging, timeout, and capability settings. |
-| `gateways` | object | Strict mode: yes | `{}` | Map of gateway name to gateway config. |
-| `processors` | array | No | `[]` | Global processor chain applied before gateway-level processors. |
-| `metadata` | object | No | `{}` | Free-form metadata; not used by core runtime. |
+| `proxy` | object | Yes | see below | Truly global proxy settings: bind address, port, logging, timeouts. |
+| `projects` | object | No | none | Map of project slug to project config. Mutually exclusive with top-level `gateways`. |
+| `auth` | boolean | No | `true` | Controls proxy API-key auth (flat layout only; use per-project `auth` in project layout). |
+| `authHeader` | string | No | `X-Centian-Auth` | Auth header name (flat layout only). |
+| `gateways` | object | Strict mode: yes (flat layout) | `{}` | Map of gateway name to gateway config (flat layout only). |
+| `processors` | array | No | `[]` | Global processor chain (flat layout only). |
+| `metadata` | object | No | `{}` | Free-form metadata (flat layout only). |
+
+## `projects`
+
+Each project is keyed by its slug. Project slugs must be URL-safe: letters, numbers, `_`, and `-`.
+
+| Field | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `slug` | string | No | derived from map key | URL-safe project identifier. |
+| `description` | string | No | none | Human-readable project description. |
+| `auth` | boolean | No | `true` | Controls API-key auth for this project. |
+| `authHeader` | string | No | `X-Centian-Auth` | Auth header name for this project. |
+| `capabilities` | object | No | see capabilities section | Project-scoped feature flags. |
+| `web` | object | No | `{}` | Public URL settings for downstream OAuth. |
+| `gateways` | object | Strict mode: yes | none | Map of gateway name to gateway config. |
+| `processors` | array | No | `[]` | Project-level processor chain. |
+| `metadata` | object | No | `{}` | Free-form metadata. |
+
+Runtime notes:
+
+- The `"default"` project slug is special: its routes have no prefix (`/mcp/<gateway>`), matching the flat layout behavior.
+- All other projects get a route prefix: `/<project_slug>/mcp/<gateway>`.
+- Each project gets its own SQLite database at `~/.centian/projects/<slug>/events.sqlite` (the default project uses the legacy global path `~/.centian/logs/events.sqlite`).
+- API keys can be scoped to specific projects via the `projects` field in `~/.centian/api_keys.json`.
 
 ## `proxy`
+
+In the project-based layout, `proxy` holds only truly global settings. Capabilities and web settings move to each project.
 
 | Field | Type | Required | Default | Validation / runtime behavior |
 | --- | --- | --- | --- | --- |
@@ -34,8 +69,8 @@ Centian validates config in two different ways:
 | `logLevel` | string | No | `info` | Must be `debug`, `info`, `warn`, or `error`. |
 | `logOutput` | string | No | `file` | Must be `file`, `console`, or `both`. |
 | `logFile` | string | No | `~/.centian/centian.log` when file output is used | Custom path for the internal logger. |
-| `capabilities` | object | No | taskverification off, event storage on, test tools off, UI off | Controls proxy-owned optional features. |
-| `web` | object | No | `{}` | Public URL settings used for downstream OAuth browser flows. |
+| `capabilities` | object | No | taskverification off, event storage on, test tools off, UI off | Flat layout only. In project layout, use per-project `capabilities`. |
+| `web` | object | No | `{}` | Flat layout only. In project layout, use per-project `web`. |
 
 ### `proxy.web`
 
@@ -307,6 +342,66 @@ Webhook runtime behavior:
   }
 }
 ```
+
+## Project-Based Example
+
+```json
+{
+  "name": "Multi-Project Server",
+  "version": "1.0.0",
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "9666",
+    "timeout": 45,
+    "logLevel": "info",
+    "logOutput": "both"
+  },
+  "projects": {
+    "default": {
+      "auth": true,
+      "capabilities": {
+        "eventStorage": { "enabled": true, "driver": "sqlite" },
+        "ui": { "enabled": true }
+      },
+      "gateways": {
+        "workbench": {
+          "mcpServers": {
+            "filesystem": {
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+            }
+          }
+        }
+      }
+    },
+    "research": {
+      "description": "Isolated research project with task verification",
+      "auth": true,
+      "capabilities": {
+        "taskVerification": { "enabled": true },
+        "eventStorage": { "enabled": true },
+        "ui": { "enabled": true }
+      },
+      "gateways": {
+        "tools": {
+          "mcpServers": {
+            "deepwiki": {
+              "url": "https://mcp.deepwiki.com/mcp"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+In this example:
+
+- `default` project routes are unprefixed: `/mcp/workbench`, `/ui`
+- `research` project routes are prefixed: `/research/mcp/tools`, `/research/ui`
+- Each project has its own SQLite database and capabilities
+- API keys can be scoped to specific projects
 
 ## Related Guides
 

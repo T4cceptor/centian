@@ -30,13 +30,23 @@ The CLI tool is built in Go and provides a unified interface to interact with mu
   - Server Management: Add, remove, enable/disable MCP servers
   - Lifecycle Hooks: Pre/post request hooks and connection events
   - Validation: Built-in config validation
+  - Project-based isolation: Optional multi-project layout for tenant separation
 
   Main Components:
 
-  1. GlobalConfig - Root configuration structure with servers, proxy settings, hooks, and metadata
-  2. MCPServer - Individual server configurations with command, args, environment variables
-  3. ProxySettings - Transport method, logging, timeouts
-  4. HookSettings - Lifecycle hooks for request/response interception
+  1. GlobalConfig - Root configuration structure with proxy settings and either flat gateways (legacy) or named projects
+  2. ProjectConfig - Per-project configuration holding gateways, processors, capabilities, auth, and metadata. Each project gets its own SQLite database, route prefix, and feature flags
+  3. MCPServer - Individual server configurations with command, args, environment variables
+  4. ProxySettings - Bind address, port, logging, timeouts (truly global settings)
+  5. HookSettings - Lifecycle hooks for request/response interception
+
+  Config Layouts:
+  - Legacy flat: gateways, processors, auth at the top level of GlobalConfig (auto-migrated to a "default" project at runtime via ResolveProjects())
+  - Project-based: named ProjectConfig entries under "projects", each with its own gateways, processors, capabilities, and auth
+
+  Route Structure:
+  - Default project (or legacy layout): /mcp/<gateway>/<server>, /ui, /api/task-runs
+  - Named projects: /<project_slug>/mcp/<gateway>/<server>, /<project_slug>/ui
 
   CLI Commands:
   centian config init             # Initialize default config

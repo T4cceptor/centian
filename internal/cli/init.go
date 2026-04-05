@@ -333,7 +333,7 @@ func createDefaultAPIKey() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve api key path: %w", err)
 	}
-	if _, err := auth.AppendAPIKey(path, entry); err != nil {
+	if _, err := auth.AppendAPIKey(path, &entry); err != nil {
 		return "", fmt.Errorf("failed to persist api key: %w", err)
 	}
 	return key, nil

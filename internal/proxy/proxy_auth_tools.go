@@ -53,19 +53,26 @@ func isProxyToolName(name string) bool {
 }
 
 func (p *CentianEndpoint) testToolsEnabled() bool {
-	// TODO: this method should be moved to the server level -> makes MUCH more sense
-	return p != nil &&
-		p.server != nil &&
-		p.server.Config != nil &&
-		p.server.Config.Proxy != nil &&
+	if p == nil {
+		return false
+	}
+	if p.project != nil && p.project.Config != nil {
+		return p.project.Config.TestToolsEnabled()
+	}
+	// Fallback: check legacy server config for backwards compatibility with tests.
+	return p.server != nil && p.server.Config != nil && p.server.Config.Proxy != nil &&
 		p.server.Config.Proxy.TestToolsEnabled()
 }
 
 func (p *CentianEndpoint) taskVerificationToolsEnabled() bool {
-	return p != nil &&
-		p.server != nil &&
-		p.server.Config != nil &&
-		p.server.Config.Proxy != nil &&
+	if p == nil {
+		return false
+	}
+	if p.project != nil && p.project.Config != nil {
+		return p.project.Config.TaskVerificationEnabled()
+	}
+	// Fallback: check legacy server config for backwards compatibility with tests.
+	return p.server != nil && p.server.Config != nil && p.server.Config.Proxy != nil &&
 		p.server.Config.Proxy.TaskVerificationEnabled()
 }
 

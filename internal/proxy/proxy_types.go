@@ -21,21 +21,36 @@ import (
 // This file defines the core proxy types shared across the server, endpoint,
 // session, and pooled downstream connection layers.
 
+// CentianProject holds the runtime state for a single project (tenant).
+type CentianProject struct {
+	Slug             string
+	Config           *config.ProjectConfig
+	Gateways         map[string]*CentianEndpoint
+	Endpoints        []*CentianEndpoint
+	OAuth            *centoauth.Manager
+	PersistenceStore *persistence.Store
+	TaskVerification *taskverification.Service
+	eventStoreCloser io.Closer
+}
+
 // CentianServer owns the HTTP server, global config, auth, logging, and the
 // set of registered proxy endpoints exposed by the running Centian process.
 //
 // CentianServer is the main process for providing routes and delegating endpoint creation.
 type CentianServer struct {
-	Name             string
-	ServerID         string
-	Config           *config.GlobalConfig
-	Mux              *http.ServeMux
-	Server           *http.Server
-	Logger           *logging.Logger
+	Name       string
+	ServerID   string
+	Config     *config.GlobalConfig
+	Mux        *http.ServeMux
+	Server     *http.Server
+	Logger     *logging.Logger
+	Projects   map[string]*CentianProject
+	APIKeys    *centauth.APIKeyStore
+	AuthHeader string
+
+	// Legacy flat-access fields - point to the default project's data for backwards compatibility.
 	Gateways         map[string]*CentianEndpoint
 	Endpoints        []*CentianEndpoint
-	APIKeys          *centauth.APIKeyStore
-	AuthHeader       string
 	OAuth            *centoauth.Manager
 	PersistenceStore *persistence.Store
 	TaskVerification *taskverification.Service
@@ -166,8 +181,9 @@ type CentianEndpoint struct {
 
 	isAggregatedProxy bool
 
-	server *CentianServer
-	config *config.GatewayConfig
+	server  *CentianServer
+	project *CentianProject // The project this endpoint belongs to
+	config  *config.GatewayConfig
 
 	eventProcessor ProcessingControllerInterface
 

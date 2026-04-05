@@ -49,7 +49,7 @@ func TestPrintServerInfo(t *testing.T) {
 				"Test Server",
 				"Port: 9666",
 				"Timeout: 30s",
-				"Gateways: 1",
+				"Total gateways: 1",
 				"Total MCP servers: 1",
 				"/mcp/gateway1/server1",
 				"https://api.example.com",
@@ -84,7 +84,7 @@ func TestPrintServerInfo(t *testing.T) {
 				"Multi-Gateway Server",
 				"Port: 9000",
 				"Timeout: 60s",
-				"Gateways: 2",
+				"Total gateways: 2",
 				"Total MCP servers: 3",
 				"/mcp/gateway1/server1",
 				"/mcp/gateway1/server2",
@@ -138,7 +138,7 @@ func TestPrintServerInfo(t *testing.T) {
 			taskWorkingDir: "/tmp/taskverification-workdir",
 			wantError:      false,
 			expectInOutput: []string{
-				"Task verification cwd: /tmp/taskverification-workdir",
+				"task verification cwd: /tmp/taskverification-workdir",
 			},
 		},
 		{
@@ -436,7 +436,7 @@ func TestPrintServerInfoEdgeCases(t *testing.T) {
 					"gateway1": nil,
 				},
 			},
-			expectPanic: true,
+			expectPanic: false, // nil gateways are skipped gracefully after project resolution
 		},
 		{
 			name: "server with empty URL",

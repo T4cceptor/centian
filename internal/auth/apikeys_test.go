@@ -182,7 +182,7 @@ func TestAppendAPIKey(t *testing.T) {
 	}
 
 	// When: appending the key
-	if _, err := AppendAPIKey(path, entry); err != nil {
+	if _, err := AppendAPIKey(path, &entry); err != nil {
 		t.Fatalf("failed to append api key: %v", err)
 	}
 

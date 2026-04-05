@@ -77,18 +77,18 @@ Examples:
 }
 
 func printServerInfo(globalConfig *config.GlobalConfig, taskWorkingDir string) error {
+	// Ensure the config is in project-based layout.
+	globalConfig.ResolveProjects()
+
 	serverName := globalConfig.Name
 	if serverName == "" {
 		serverName = "Centian Proxy Server"
 	}
-	if len(globalConfig.Gateways) < 1 {
+
+	totalGateways, totalServers := countGatewaysAndServers(globalConfig.Projects)
+	if totalGateways == 0 {
 		return fmt.Errorf("no gateways configured")
 	}
-	totalServers := 0
-	for _, gateway := range globalConfig.Gateways {
-		totalServers += len(gateway.MCPServers)
-	}
-
 	if totalServers == 0 {
 		return fmt.Errorf("no MCP servers configured in gateways")
 	}
@@ -102,32 +102,62 @@ func printServerInfo(globalConfig *config.GlobalConfig, taskWorkingDir string) e
 	common.LogInfo("Host: %s", host)
 	common.LogInfo("Port: %s", globalConfig.Proxy.Port)
 	common.LogInfo("Timeout: %ds", globalConfig.Proxy.Timeout)
-	if globalConfig.Proxy.TaskVerificationEnabled() && taskWorkingDir != "" {
-		common.LogInfo("Task verification cwd: %s", taskWorkingDir)
-	}
-	common.LogInfo("Gateways: %d", len(globalConfig.Gateways))
+
+	common.LogInfo("Projects: %d", len(globalConfig.Projects))
+	common.LogInfo("Total gateways: %d", totalGateways)
 	common.LogInfo("Total MCP servers: %d", totalServers)
 	common.LogInfo("Configured endpoints:")
-	for gatewayName, gateway := range globalConfig.Gateways {
-		for serverName, server := range gateway.MCPServers {
-			endpoint := fmt.Sprintf("/mcp/%s/%s", gatewayName, serverName)
+
+	for projectSlug, project := range globalConfig.Projects {
+		if project == nil {
+			continue
+		}
+		printProjectEndpoints(projectSlug, project, host, globalConfig.Proxy.Port, taskWorkingDir)
+	}
+	return nil
+}
+
+func countGatewaysAndServers(projects map[string]*config.ProjectConfig) (int, int) {
+	totalGateways := 0
+	totalServers := 0
+	for _, project := range projects {
+		if project == nil {
+			continue
+		}
+		totalGateways += len(project.Gateways)
+		for _, gateway := range project.Gateways {
+			if gateway == nil {
+				continue
+			}
+			totalServers += len(gateway.MCPServers)
+		}
+	}
+	return totalGateways, totalServers
+}
+
+func printProjectEndpoints(slug string, project *config.ProjectConfig, host, port, taskWorkingDir string) {
+	routePrefix := ""
+	if slug != config.DefaultProjectSlug {
+		routePrefix = "/" + slug
+	}
+	if project.TaskVerificationEnabled() && taskWorkingDir != "" {
+		common.LogInfo("  Project '%s': task verification cwd: %s", slug, taskWorkingDir)
+	}
+	for gatewayName, gateway := range project.Gateways {
+		if gateway == nil {
+			continue
+		}
+		for srvName, server := range gateway.MCPServers {
+			endpoint := fmt.Sprintf("%s/mcp/%s/%s", routePrefix, gatewayName, srvName)
 			if server.URL != "" {
-				common.LogInfo("  - http://%s:%s%s -> %s",
-					host, globalConfig.Proxy.Port, endpoint, server.URL)
+				common.LogInfo("  - http://%s:%s%s -> %s", host, port, endpoint, server.URL)
 			}
 			if server.Command != "" {
-				common.LogInfo(
-					"  - http://%s:%s%s -> %s -- %s",
-					host,
-					globalConfig.Proxy.Port,
-					endpoint,
-					server.Command,
-					strings.Join(server.Args, " "),
-				)
+				common.LogInfo("  - http://%s:%s%s -> %s -- %s",
+					host, port, endpoint, server.Command, strings.Join(server.Args, " "))
 			}
 		}
 	}
-	return nil
 }
 
 // handleServerStartCommand handles the server start command.

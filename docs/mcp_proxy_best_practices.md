@@ -54,6 +54,29 @@ inside one gateway unless the agent truly needs all of them together.
 
 The safest default is to create smaller, purpose-built gateways.
 
+## Project Isolation
+
+Use projects when you need stronger isolation boundaries than gateways alone provide:
+
+- separate databases per workload (no cross-tenant data leaks)
+- independent feature flags and capabilities per project
+- distinct route prefixes for clear boundary visibility
+- per-project auth settings
+
+Good project boundaries:
+
+- one project per team or organizational unit
+- one project per environment (dev, staging, production)
+- one project per customer or tenant
+
+Stick with the flat layout (single implicit `"default"` project) when:
+
+- you have one team and one use case
+- gateway-level separation is sufficient
+- you want the simplest possible config
+
+You can start flat and migrate to projects later — the flat layout auto-migrates at runtime.
+
 ## Processor Design
 
 Keep processors:

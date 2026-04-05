@@ -39,6 +39,7 @@ type APIKeyEntry struct {
 	Hash      string   `json:"hash"`
 	CreatedAt string   `json:"created_at"`
 	Gateways  []string `json:"gateways,omitempty"`
+	Projects  []string `json:"projects,omitempty"` // Allowed project slugs (empty = allow all, "*" = allow all)
 }
 
 // APIKeyStore stores API keys loaded from disk for quick validation.
@@ -122,6 +123,25 @@ func (e *APIKeyEntry) AllowsGateway(gateway string) bool {
 	return false
 }
 
+// AllowsProject checks whether this key is allowed to access the given project.
+//
+// - Empty Projects list is treated as allow-all.
+// - "*" is treated as allow-all.
+func (e *APIKeyEntry) AllowsProject(project string) bool {
+	if e == nil {
+		return false
+	}
+	if len(e.Projects) == 0 {
+		return true
+	}
+	for _, p := range e.Projects {
+		if p == "*" || strings.EqualFold(strings.TrimSpace(p), strings.TrimSpace(project)) {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate returns true if the provided API key exists in the store.
 func (s *APIKeyStore) Validate(key string) bool {
 	_, ok := s.Lookup(key)
@@ -183,7 +203,7 @@ func WriteAPIKeyFile(path string, file *APIKeyFile) error {
 }
 
 // AppendAPIKey appends an entry to the API key file, creating it if needed.
-func AppendAPIKey(path string, entry APIKeyEntry) (*APIKeyFile, error) {
+func AppendAPIKey(path string, entry *APIKeyEntry) (*APIKeyFile, error) {
 	file, err := ReadAPIKeyFile(path)
 	if err != nil {
 		if errors.Is(err, ErrAPIKeysNotFound) {
@@ -193,7 +213,7 @@ func AppendAPIKey(path string, entry APIKeyEntry) (*APIKeyFile, error) {
 		}
 	}
 
-	file.Keys = append(file.Keys, entry)
+	file.Keys = append(file.Keys, *entry)
 	if err := WriteAPIKeyFile(path, file); err != nil {
 		return nil, err
 	}
