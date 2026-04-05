@@ -118,7 +118,7 @@ func LoadCase(suiteRoot string, ref SuiteCaseRef) (*CaseDefinition, error) {
 }
 
 // LoadPrompt loads and validates the prompt file for one benchmark case.
-func LoadPrompt(caseRoot string, promptFile string) (*PromptDefinition, error) {
+func LoadPrompt(caseRoot, promptFile string) (*PromptDefinition, error) {
 	promptPath, err := resolveExistingFile(caseRoot, promptFile, "prompt file")
 	if err != nil {
 		return nil, err
@@ -235,12 +235,12 @@ func validateCase(caseRoot string, ref SuiteCaseRef, def *CaseDefinition) error 
 		return err
 	}
 	for _, lockedPath := range def.Constraints.LockedPaths {
-		if _, err := resolveExistingPath(fixtureRoot, lockedPath, "locked path"); err != nil {
+		if err := ensureExistingPath(fixtureRoot, lockedPath, "locked path"); err != nil {
 			return err
 		}
 	}
 	for _, allowedPath := range def.Constraints.AllowedAdditionalPaths {
-		if _, err := resolveExistingPath(fixtureRoot, allowedPath, "allowedAdditionalPaths entry"); err != nil {
+		if err := ensureExistingPath(fixtureRoot, allowedPath, "allowedAdditionalPaths entry"); err != nil {
 			return err
 		}
 	}
@@ -259,7 +259,7 @@ func loadYAMLFile(path string, target any) error {
 	return nil
 }
 
-func resolveExistingFile(root string, relativePath string, fieldName string) (string, error) {
+func resolveExistingFile(root, relativePath, fieldName string) (string, error) {
 	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
 	if err != nil {
 		return "", err
@@ -274,7 +274,7 @@ func resolveExistingFile(root string, relativePath string, fieldName string) (st
 	return resolved, nil
 }
 
-func resolveExistingDir(root string, relativePath string, fieldName string) (string, error) {
+func resolveExistingDir(root, relativePath, fieldName string) (string, error) {
 	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
 	if err != nil {
 		return "", err
@@ -289,18 +289,18 @@ func resolveExistingDir(root string, relativePath string, fieldName string) (str
 	return resolved, nil
 }
 
-func resolveExistingPath(root string, relativePath string, fieldName string) (string, error) {
+func ensureExistingPath(root, relativePath, fieldName string) error {
 	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if _, err := os.Stat(resolved); err != nil {
-		return "", fmt.Errorf("%s %q does not exist: %w", fieldName, relativePath, err)
+		return fmt.Errorf("%s %q does not exist: %w", fieldName, relativePath, err)
 	}
-	return resolved, nil
+	return nil
 }
 
-func resolvePathUnderRoot(root string, relativePath string, fieldName string) (string, error) {
+func resolvePathUnderRoot(root, relativePath, fieldName string) (string, error) {
 	trimmed := strings.TrimSpace(relativePath)
 	if trimmed == "" {
 		return "", fmt.Errorf("%s is required", fieldName)

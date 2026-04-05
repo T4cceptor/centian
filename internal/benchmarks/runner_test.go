@@ -353,18 +353,6 @@ func fixedClock() func() time.Time {
 	}
 }
 
-func sequentialTaskRuns(responses [][]persistence.TaskRunSummary) func(string) ([]persistence.TaskRunSummary, error) {
-	index := 0
-	return func(string) ([]persistence.TaskRunSummary, error) {
-		if index >= len(responses) {
-			return nil, nil
-		}
-		current := responses[index]
-		index++
-		return current, nil
-	}
-}
-
 func alternatingTaskRuns(result []persistence.TaskRunSummary) func(string) ([]persistence.TaskRunSummary, error) {
 	call := 0
 	return func(string) ([]persistence.TaskRunSummary, error) {

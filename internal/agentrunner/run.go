@@ -97,7 +97,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 	return result, nil
 }
 
-func selectAdapterForAgent(agent string, claudeModel string, geminiModel string, codexModel string) (agentAdapter, error) {
+func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel string) (agentAdapter, error) {
 	switch strings.ToLower(strings.TrimSpace(agent)) {
 	case AgentClaude:
 		return claudeAdapter{model: claudeModel}, nil

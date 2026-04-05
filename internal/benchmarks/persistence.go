@@ -25,7 +25,7 @@ func persistBenchmarkArtifact(ctx context.Context, storePath string, record *per
 	return store.UpsertBenchmarkArtifact(ctx, record)
 }
 
-func buildSessionArtifactRecord(session *SessionManifest, storePath string) (*persistence.BenchmarkArtifactRecord, error) {
+func buildSessionArtifactRecord(session *SessionManifest) (*persistence.BenchmarkArtifactRecord, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session manifest is required")
 	}
@@ -144,7 +144,7 @@ func buildComparisonArtifactRecord(comparison *ComparisonSummary) (*persistence.
 	}, nil
 }
 
-func benchmarkSessionID(suiteID string, sessionPath string) string {
+func benchmarkSessionID(suiteID, sessionPath string) string {
 	return benchmarkArtifactID("session-scope", suiteID, filepath.Clean(sessionPath))
 }
 
@@ -165,7 +165,7 @@ func sessionPathFromRun(run *RunManifest) string {
 	return sessionPath
 }
 
-func bestTime(primary time.Time, fallback time.Time) time.Time {
+func bestTime(primary, fallback time.Time) time.Time {
 	if !primary.IsZero() {
 		return primary
 	}
