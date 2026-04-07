@@ -5,31 +5,107 @@
 [![License](https://img.shields.io/github/license/T4cceptor/centian)](./LICENSE)
 
 
-**Control plane for AI agents** — enforce structured workflows, govern tool access, and inspect every action your agent takes.
+Control and verify what your AI agents actually do — in real time.   
+AI agents are not aligned on what “success” actually means.
+
+Centian lets you define success — and enforces it.
+
+→ See every tool call your agent makes.  
+→ Block unsafe actions instantly.  
+→ Verify tasks actually succeeded (not just executed).  
 
 <div align="center">
   <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance">
 </div>
 <br>
 
-Centian sits between your AI agents and their MCP servers. All tool calls flow through Centian's proxy, giving you a single point of control for aggregation, middleware processing, workflow enforcement, and full observability.
+## See it in action (2-min demo)
+```bash
+centian demo -a claude
+```
+
+During execution, you may observe:
+
+✔ Agent tries to bypass tests → blocked  
+✔ Task fails verification → flagged immediately  
+✔ Workflow violation → agent skipped planning phase  
+
+→ Centian catches it in real time
+
+Don’t have it installed yet?
+```bash
+curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
+```
+
+Or see [Getting started](#getting-started) for more options.
 
 ---
 
 ## The Problem
 
-AI agents calling MCP tools today operate with:
+AI agents are not aligned on what “success” actually means.
 
-- **No structure.** The agent decides what to do based on prompt text alone. There's no contract, no phased workflow, no verification that it followed a process.
-- **No visibility.** You see the final output, but not the 47 tool calls the agent made along the way — or the 3 it shouldn't have made.
-- **No enforcement.** You can't restrict which tools an agent uses during which phase of work, or block a tool call that violates policy.
-- **Config sprawl.** Every MCP client needs separate configuration for every MCP server. Adding a server means updating every client.
+### Example: Your agent fixes a failing test.
 
-Centian solves all four.
+What you see: `✔ “Task completed - Tests green”`
+
+But:  
+- the agent modified the test instead of the code.  
+- the failure condition never existed.  
+- the code is still broken.  
+
+→ Without verification, this looks like success.
+
+### What is Centian?
+
+It sits between your agent and the tools it uses:
+```
+Agent (Claude / Codex / Gemini) -- the brain
+↓
+Centian -- the control layer
+↓
+MCP Tools (filesystem, APIs, DB) -- the actions
+```
+
+All tool calls flow through Centian's proxy — giving you:
+- full control over what agents can do  
+- visibility into every action  
+- verification that tasks actually succeeded  
 
 ---
 
-## Quick Start
+
+## Agent Process Verification — define success upfront
+
+Centian verifies that agents do what they committed to do.
+
+Before execution, you define what success looks like — and Centian enforces it step by step.
+
+![Centian Demo — AI agent trying to cheat its way around TDD](docs/images/agent_modifying_test_script.jpeg)
+
+Without verification, agents can appear correct while being wrong.  
+Centian lets you define success — and enforces it.
+
+Process verification lets you define **declarative workflow templates** in YAML. Each template describes a structured lifecycle — onboarding, planning, scaffolding, execution — with preconditions, postconditions, invariants, and per-phase tool permissions.
+
+When an agent registers a task from a template:
+
+1. **Onboarding** — the agent gathers project context and constraints
+2. **Planning** — the agent proposes an approach, which gets **frozen into an execution contract**
+3. **Execution** — the agent works through defined steps, with Centian verifying correctness at each gate
+4. **Completion** — postconditions confirm the task was done right
+
+The frozen execution contract is key: once planning completes, the agent reads from an immutable contract rather than mutable prompt context. You can prove what the agent committed to doing, and verify whether it actually did it.
+
+**Per-phase tool governance:** each workflow node can declare which MCP tools the agent is allowed to call. During an approval-wait phase, all downstream tools are blocked. During scaffolding, you might allow filesystem access but block shell commands.
+
+Example templates for TDD workflows are included in the repository under `task-templates/`.
+
+The template schema is documented and designed for extensibility. Community contributions of templates for common workflows are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Getting started
 
 ### Install
 
@@ -42,7 +118,15 @@ For all install methods see [Installation Options](#installation-options).
 ### Local Demo
 
 The demo showcases centian as the agent control plane within a familiar setting: test-driven development.
-The agent is given a task to implement `score_paranthesis` - see [prompt](internal/agentrunner/assets/prompt.md) - and is then guided through the task using centian. All actions are visualized for you in a web-based UI - allowing you to monitor what exactly the agent is doing.
+The agent is given a task to implement `score_paranthesis` - see [prompt](internal/agentrunner/assets/prompt.md) - and is then guided through the task using centian.
+
+What you'll see:
+
+✔ Agent tries to bypass tests → blocked  
+✔ Task fails verification → flagged immediately  
+✔ Workflow violation → agent skipped planning phase  
+
+→ Centian catches it in real time
 
 **Prerequisites**: Before running `centian demo`, make sure you have:
 
@@ -127,21 +211,11 @@ centian start
 # UI available at http://localhost:9666/ui/tasks
 ```
 
-The agent now has access to `centian.task_*` tools alongside your normal MCP tools. The task lifecycle:
-
-1. `centian.task_list_templates` — discover available workflow templates
-2. `centian.task_register` — start a task run from a template
-3. `centian.task_complete_onboarding` — submit project context
-4. `centian.task_complete_planning` — freeze the execution contract
-5. `centian.task_start_step` / `centian.task_complete_step` — execute with verification
-6. `centian.task_fail` / `centian.task_restart` — handle failures
-
 ---
 
+## How Centian enables this
 
-## How It Works
-
-### 1. One gateway, all your MCP servers
+### 1. Proxy layer: One gateway, all your MCP servers
 
 Configure your MCP servers once in Centian. Point every client at `localhost:9666`. Tool namespacing (`<server>_<tool>`) eliminates collisions automatically.
 
@@ -171,7 +245,7 @@ Every client connects to one endpoint:
 }
 ```
 
-### 2. Programmable middleware for tool calls
+### 2. Governance layer: Programmable middleware for tool calls
 
 Processors intercept every tool call before and after execution. They receive the full request/response context, can modify payloads, and can abort the chain.
 
@@ -188,26 +262,7 @@ Scaffold a new processor:
 centian processor new
 ```
 
-### 3. Structured task verification
-
-![Centian Demo — AI agent trying to cheat its way around TDD](docs/images/agent_modifying_test_script.jpeg)
-
-This is what makes Centian a control plane, not just a proxy.
-
-Task verification lets you define **declarative workflow templates** in YAML. Each template describes a structured lifecycle — onboarding, planning, scaffolding, execution — with preconditions, postconditions, invariants, and per-phase tool permissions.
-
-When an agent registers a task from a template:
-
-1. **Onboarding** — the agent gathers project context and constraints
-2. **Planning** — the agent proposes an approach, which gets **frozen into an execution contract**
-3. **Execution** — the agent works through defined steps, with Centian verifying correctness at each gate
-4. **Completion** — postconditions confirm the task was done right
-
-The frozen execution contract is key: once planning completes, the agent reads from an immutable contract rather than mutable prompt context. You can prove what the agent committed to doing, and verify whether it actually did it.
-
-**Per-phase tool governance:** each workflow node can declare which MCP tools the agent is allowed to call. During an approval-wait phase, all downstream tools are blocked. During scaffolding, you might allow filesystem access but block shell commands.
-
-### 4. Full observability
+### 3. Execution visibility
 
 Every MCP tool call is captured with timestamps, session IDs, request/response payloads, and — when task verification is active — the workflow context that produced it.
 
@@ -239,23 +294,6 @@ The deep documentation lives under [`docs/`](docs/README.md).
 - [Taskverification Runtime](docs/TASKVERIFICATION.md)
 - [MCP Proxy Best Practices](docs/mcp_proxy_best_practices.md)
 
-## Task Templates
-
-Templates are YAML files that define structured agent workflows. Each template specifies:
-
-- **Required parameters** the agent must provide at registration
-- **Onboarding requirements** — what context the agent needs to gather
-- **Planning requirements** — what the agent must define before execution begins
-- **Workflow nodes** — scaffolding, execution, and approval-wait phases
-- **Tool allowlists** — which MCP tools are permitted in each phase
-- **Preconditions and postconditions** — verification checks at each step boundary
-- **Invariants** — conditions that must hold throughout execution
-
-Example templates for TDD workflows are included in the repository under `task-templates/`.
-
-The template schema is documented and designed for extensibility. Community contributions of templates for common workflows are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
 
 ## Configuration
 
