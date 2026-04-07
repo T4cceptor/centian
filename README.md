@@ -5,7 +5,13 @@
 [![License](https://img.shields.io/github/license/T4cceptor/centian)](./LICENSE)
 
 
-**Control plane for AI agents** — enforce structured workflows, govern tool access, and inspect every action your agent takes.
+Control and verify what your AI agents actually do — in real time.
+
+→ See every tool call your agent makes.  
+→ Block unsafe actions instantly.  
+→ Verify tasks actually succeeded (not just executed).  
+
+Run a demo in 2 minutes: [Quick Start](#quick-start)
 
 <div align="center">
   <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance">
@@ -42,7 +48,15 @@ For all install methods see [Installation Options](#installation-options).
 ### Local Demo
 
 The demo showcases centian as the agent control plane within a familiar setting: test-driven development.
-The agent is given a task to implement `score_paranthesis` - see [prompt](internal/agentrunner/assets/prompt.md) - and is then guided through the task using centian. All actions are visualized for you in a web-based UI - allowing you to monitor what exactly the agent is doing.
+The agent is given a task to implement `score_paranthesis` - see [prompt](internal/agentrunner/assets/prompt.md) - and is then guided through the task using centian.
+
+What you'll see:
+
+✔ Agent tries to bypass tests → blocked  
+✔ Task fails verification → flagged immediately  
+✔ Workflow violation → agent skipped planning phase  
+
+→ Centian catches it in real time
 
 **Prerequisites**: Before running `centian demo`, make sure you have:
 
@@ -127,17 +141,7 @@ centian start
 # UI available at http://localhost:9666/ui/tasks
 ```
 
-The agent now has access to `centian.task_*` tools alongside your normal MCP tools. The task lifecycle:
-
-1. `centian.task_list_templates` — discover available workflow templates
-2. `centian.task_register` — start a task run from a template
-3. `centian.task_complete_onboarding` — submit project context
-4. `centian.task_complete_planning` — freeze the execution contract
-5. `centian.task_start_step` / `centian.task_complete_step` — execute with verification
-6. `centian.task_fail` / `centian.task_restart` — handle failures
-
 ---
-
 
 ## How It Works
 
@@ -239,9 +243,10 @@ The deep documentation lives under [`docs/`](docs/README.md).
 - [Taskverification Runtime](docs/TASKVERIFICATION.md)
 - [MCP Proxy Best Practices](docs/mcp_proxy_best_practices.md)
 
-## Task Templates
+## Task Verification
 
-Templates are YAML files that define structured agent workflows. Each template specifies:
+Centian enables you to verify agents complying to your processes, using pre-defined task-templates.  
+Task templates are YAML files that define structured agent workflows. Each template specifies:
 
 - **Required parameters** the agent must provide at registration
 - **Onboarding requirements** — what context the agent needs to gather
