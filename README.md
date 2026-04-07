@@ -6,7 +6,9 @@
 
 
 Control and verify what your AI agents actually do — in real time.   
-Agents don’t just fail — they "succeed" incorrectly.
+AI agents are not aligned on what “success” actually means.
+
+Centian lets you define success — and enforces it.
 
 → See every tool call your agent makes.  
 → Block unsafe actions instantly.  
@@ -22,7 +24,7 @@ Agents don’t just fail — they "succeed" incorrectly.
 centian demo -a claude
 ```
 
-What you might see during task execution:
+During execution, you may observe:
 
 ✔ Agent tries to bypass tests → blocked  
 ✔ Task fails verification → flagged immediately  
@@ -35,13 +37,13 @@ Don’t have it installed yet?
 curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
 ```
 
-See [Getting started](#getting-started) for installation and more demo options (Codex, Gemini).
+Or see [Getting started](#getting-started) for more options.
 
 ---
 
 ## The Problem
 
-AI agents don’t just fail. They "succeed" incorrectly.
+AI agents are not aligned on what “success” actually means.
 
 ### Example: Your agent fixes a failing test.
 
@@ -75,14 +77,14 @@ All tool calls flow through Centian's proxy — giving you:
 
 ## Agent Process Verification — define success upfront
 
-Centian verifies that agents do what they said they would do.
+Centian verifies that agents do what they committed to do.
 
-Before execution, you define what “correct” looks like — and Centian enforces it step by step.
+Before execution, you define what success looks like — and Centian enforces it step by step.
 
 ![Centian Demo — AI agent trying to cheat its way around TDD](docs/images/agent_modifying_test_script.jpeg)
 
 Without verification, agents can appear correct while being wrong.  
-Centian makes correctness explicit — and enforceable.
+Centian lets you define success — and enforces it.
 
 Process verification lets you define **declarative workflow templates** in YAML. Each template describes a structured lifecycle — onboarding, planning, scaffolding, execution — with preconditions, postconditions, invariants, and per-phase tool permissions.
 
@@ -213,7 +215,7 @@ centian start
 
 ## How Centian enables this
 
-### 1. One gateway, all your MCP servers
+### 1. Proxy layer: One gateway, all your MCP servers
 
 Configure your MCP servers once in Centian. Point every client at `localhost:9666`. Tool namespacing (`<server>_<tool>`) eliminates collisions automatically.
 
@@ -243,7 +245,7 @@ Every client connects to one endpoint:
 }
 ```
 
-### 2. Programmable middleware for tool calls
+### 2. Governance layer: Programmable middleware for tool calls
 
 Processors intercept every tool call before and after execution. They receive the full request/response context, can modify payloads, and can abort the chain.
 
@@ -260,7 +262,7 @@ Scaffold a new processor:
 centian processor new
 ```
 
-### 3. Full observability
+### 3. Execution visibility
 
 Every MCP tool call is captured with timestamps, session IDs, request/response payloads, and — when task verification is active — the workflow context that produced it.
 
