@@ -477,12 +477,23 @@ code,
   font-variant-numeric: tabular-nums;
 }
 
+.benchmark-error-split small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-variant-numeric: normal;
+}
+
 .benchmark-error-split__centian {
   color: var(--accent-danger);
 }
 
 .benchmark-error-split__mcp {
   color: var(--accent-warning);
+}
+
+.benchmark-metric-stack {
+  display: grid;
+  gap: 4px;
 }
 
 .benchmark-analysis-table {

@@ -46,8 +46,12 @@ describe("benchmark routes", () => {
               templateId: "simple_tdd",
               templateName: "Simple TDD Task",
               runCount: 15,
+              totalTaskToolCalls: 675,
+              totalDownstreamToolCalls: 225,
               medianTaskToolCalls: 45,
               medianDownstreamToolCalls: 15,
+              totalCentianErrors: 45,
+              totalDownstreamToolErrors: 15,
               medianCentianErrors: 3,
               medianDownstreamToolErrors: 1,
               medianDurationMillis: 105000,
@@ -65,8 +69,12 @@ describe("benchmark routes", () => {
               model: "gpt-5.4",
               models: ["gpt-5.4"],
               runCount: 4,
+              totalTaskToolCalls: 124,
+              totalDownstreamToolCalls: 48,
               medianTaskToolCalls: 31,
               medianDownstreamToolCalls: 12,
+              totalCentianErrors: 4,
+              totalDownstreamToolErrors: 0,
               medianCentianErrors: 1,
               medianDownstreamToolErrors: 0,
               medianDurationMillis: 103000,
@@ -78,8 +86,12 @@ describe("benchmark routes", () => {
               model: "gpt-5.4-mini",
               models: ["gpt-5.4-mini"],
               runCount: 10,
+              totalTaskToolCalls: 300,
+              totalDownstreamToolCalls: 120,
               medianTaskToolCalls: 30,
               medianDownstreamToolCalls: 12,
+              totalCentianErrors: 20,
+              totalDownstreamToolErrors: 10,
               medianCentianErrors: 2,
               medianDownstreamToolErrors: 1,
               medianDurationMillis: 90000,
@@ -111,6 +123,9 @@ describe("benchmark routes", () => {
     expect(screen.getByText("Template Scorecards")).toBeInTheDocument();
     expect(screen.getByText("Simple TDD Task")).toBeInTheDocument();
     expect(screen.getByText("Success Rate")).toBeInTheDocument();
+    expect(screen.getByText("MCP Events (Centian/MCP)")).toBeInTheDocument();
+    expect(screen.getAllByText("Total").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Median").length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Agent" }));
     expect(screen.getByText("Agent Scorecards")).toBeInTheDocument();
     expect(screen.getAllByText("codex")).toHaveLength(2);

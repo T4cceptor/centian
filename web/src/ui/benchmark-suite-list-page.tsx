@@ -194,8 +194,12 @@ type ScorecardMetricRow = {
   model?: string;
   models?: string[];
   runCount: number;
+  totalTaskToolCalls: number;
+  totalDownstreamToolCalls: number;
   medianTaskToolCalls: number;
   medianDownstreamToolCalls: number;
+  totalCentianErrors: number;
+  totalDownstreamToolErrors: number;
   medianCentianErrors: number;
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;
@@ -208,8 +212,12 @@ function templateScorecardRow(row: TemplateScorecard): ScorecardMetricRow {
     key: row.templateKey || row.templateId,
     label: row.templateName ?? formatTemplateLabel(row.templateId),
     runCount: row.runCount,
+    totalTaskToolCalls: row.totalTaskToolCalls,
+    totalDownstreamToolCalls: row.totalDownstreamToolCalls,
     medianTaskToolCalls: row.medianTaskToolCalls,
     medianDownstreamToolCalls: row.medianDownstreamToolCalls,
+    totalCentianErrors: row.totalCentianErrors,
+    totalDownstreamToolErrors: row.totalDownstreamToolErrors,
     medianCentianErrors: row.medianCentianErrors,
     medianDownstreamToolErrors: row.medianDownstreamToolErrors,
     medianDurationMillis: row.medianDurationMillis,
@@ -226,8 +234,12 @@ function agentScorecardRow(row: AgentScorecard): ScorecardMetricRow {
     model,
     models: model ? [model] : row.models,
     runCount: row.runCount,
+    totalTaskToolCalls: row.totalTaskToolCalls,
+    totalDownstreamToolCalls: row.totalDownstreamToolCalls,
     medianTaskToolCalls: row.medianTaskToolCalls,
     medianDownstreamToolCalls: row.medianDownstreamToolCalls,
+    totalCentianErrors: row.totalCentianErrors,
+    totalDownstreamToolErrors: row.totalDownstreamToolErrors,
     medianCentianErrors: row.medianCentianErrors,
     medianDownstreamToolErrors: row.medianDownstreamToolErrors,
     medianDurationMillis: row.medianDurationMillis,
@@ -246,8 +258,8 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
       <div className="benchmark-analysis-table__header benchmark-analysis-table__header--template-scorecards" role="row">
         <span>{dimensionLabel}</span>
         <span>Runs</span>
-        <span>Median Events (Centian/MCP)</span>
-        <span>Median Errors (Centian/MCP)</span>
+        <span>MCP Events (Centian/MCP)</span>
+        <span>Errors (Centian/MCP)</span>
         <span>Median Time</span>
         <span>Success Rate</span>
         <span>First Pass</span>
@@ -262,16 +274,18 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
               ) : null}
             </span>
             <span>{row.runCount}</span>
-            <span className="benchmark-error-split">
-              <span className="benchmark-error-split__centian">{row.medianTaskToolCalls}</span>
-              <span>/</span>
-              <span className="benchmark-error-split__mcp">{row.medianDownstreamToolCalls}</span>
-            </span>
-            <span className="benchmark-error-split">
-              <span className="benchmark-error-split__centian">{row.medianCentianErrors}</span>
-              <span>/</span>
-              <span className="benchmark-error-split__mcp">{row.medianDownstreamToolErrors}</span>
-            </span>
+            <ScorecardSplitMetric
+              totalCentian={row.totalTaskToolCalls}
+              totalMcp={row.totalDownstreamToolCalls}
+              medianCentian={row.medianTaskToolCalls}
+              medianMcp={row.medianDownstreamToolCalls}
+            />
+            <ScorecardSplitMetric
+              totalCentian={row.totalCentianErrors}
+              totalMcp={row.totalDownstreamToolErrors}
+              medianCentian={row.medianCentianErrors}
+              medianMcp={row.medianDownstreamToolErrors}
+            />
             <span>{formatBenchmarkSeconds(row.medianDurationMillis / 1000)}</span>
             <span className={`benchmark-analysis-row__success ${successRateClassName(row.successRate)}`}>
               {formatBenchmarkRate(row.successRate)}
@@ -283,6 +297,35 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
         ))}
       </div>
     </div>
+  );
+}
+
+function ScorecardSplitMetric({
+  totalCentian,
+  totalMcp,
+  medianCentian,
+  medianMcp,
+}: {
+  totalCentian: number;
+  totalMcp: number;
+  medianCentian: number;
+  medianMcp: number;
+}) {
+  return (
+    <span className="benchmark-metric-stack">
+      <span className="benchmark-error-split">
+        <span className="benchmark-error-split__centian">{totalCentian}</span>
+        <span>/</span>
+        <span className="benchmark-error-split__mcp">{totalMcp}</span>
+        <small>Total</small>
+      </span>
+      <span className="benchmark-error-split">
+        <span className="benchmark-error-split__centian">{medianCentian}</span>
+        <span>/</span>
+        <span className="benchmark-error-split__mcp">{medianMcp}</span>
+        <small>Median</small>
+      </span>
+    </span>
   );
 }
 

@@ -29,8 +29,12 @@ export type TemplateScorecard = {
   templateId: string;
   templateName?: string;
   runCount: number;
+  totalTaskToolCalls: number;
+  totalDownstreamToolCalls: number;
   medianTaskToolCalls: number;
   medianDownstreamToolCalls: number;
+  totalCentianErrors: number;
+  totalDownstreamToolErrors: number;
   medianCentianErrors: number;
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;
@@ -43,8 +47,12 @@ export type AgentScorecard = {
   model?: string;
   models?: string[];
   runCount: number;
+  totalTaskToolCalls: number;
+  totalDownstreamToolCalls: number;
   medianTaskToolCalls: number;
   medianDownstreamToolCalls: number;
+  totalCentianErrors: number;
+  totalDownstreamToolErrors: number;
   medianCentianErrors: number;
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;

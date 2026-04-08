@@ -16,8 +16,12 @@ type TemplateScorecard struct {
 	TemplateID                 string  `json:"templateId"`
 	TemplateName               string  `json:"templateName,omitempty"`
 	RunCount                   int     `json:"runCount"`
+	TotalTaskToolCalls         int     `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls   int     `json:"totalDownstreamToolCalls"`
 	MedianTaskToolCalls        int     `json:"medianTaskToolCalls"`
 	MedianDownstreamToolCalls  int     `json:"medianDownstreamToolCalls"`
+	TotalCentianErrors         int     `json:"totalCentianErrors"`
+	TotalDownstreamToolErrors  int     `json:"totalDownstreamToolErrors"`
 	MedianCentianErrors        int     `json:"medianCentianErrors"`
 	MedianDownstreamToolErrors int     `json:"medianDownstreamToolErrors"`
 	MedianDurationMillis       int64   `json:"medianDurationMillis"`
@@ -31,8 +35,12 @@ type AgentScorecard struct {
 	Model                      string   `json:"model,omitempty"`
 	Models                     []string `json:"models,omitempty"`
 	RunCount                   int      `json:"runCount"`
+	TotalTaskToolCalls         int      `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls   int      `json:"totalDownstreamToolCalls"`
 	MedianTaskToolCalls        int      `json:"medianTaskToolCalls"`
 	MedianDownstreamToolCalls  int      `json:"medianDownstreamToolCalls"`
+	TotalCentianErrors         int      `json:"totalCentianErrors"`
+	TotalDownstreamToolErrors  int      `json:"totalDownstreamToolErrors"`
 	MedianCentianErrors        int      `json:"medianCentianErrors"`
 	MedianDownstreamToolErrors int      `json:"medianDownstreamToolErrors"`
 	MedianDurationMillis       int64    `json:"medianDurationMillis"`
@@ -126,8 +134,12 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			TemplateID:                 group.templateID,
 			TemplateName:               group.templateName,
 			RunCount:                   group.runCount,
+			TotalTaskToolCalls:         sumInt(group.taskToolCalls),
+			TotalDownstreamToolCalls:   sumInt(group.downstreamCalls),
 			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
 			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
+			TotalCentianErrors:         sumInt(group.centianErrors),
+			TotalDownstreamToolErrors:  sumInt(group.downstreamErrors),
 			MedianCentianErrors:        medianInt(group.centianErrors),
 			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
 			MedianDurationMillis:       medianInt64(group.durationsMillis),
@@ -238,8 +250,12 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 			Model:                      group.model,
 			Models:                     agentScorecardModels(group.model),
 			RunCount:                   group.runCount,
+			TotalTaskToolCalls:         sumInt(group.taskToolCalls),
+			TotalDownstreamToolCalls:   sumInt(group.downstreamCalls),
 			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
 			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
+			TotalCentianErrors:         sumInt(group.centianErrors),
+			TotalDownstreamToolErrors:  sumInt(group.downstreamErrors),
 			MedianCentianErrors:        medianInt(group.centianErrors),
 			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
 			MedianDurationMillis:       medianInt64(group.durationsMillis),
@@ -327,6 +343,14 @@ func scorecardRate(successes, total int) float64 {
 		return 0
 	}
 	return float64(successes) / float64(total)
+}
+
+func sumInt(values []int) int {
+	total := 0
+	for _, value := range values {
+		total += value
+	}
+	return total
 }
 
 func medianInt(values []int) int {
