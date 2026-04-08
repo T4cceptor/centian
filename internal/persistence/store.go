@@ -350,51 +350,11 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 	if fromVersion == schemaVersion {
 		return nil
 	}
-	if fromVersion == 3 {
-		stmts := []string{
-			`ALTER TABLE task_events ADD COLUMN client_name TEXT`,
-			`ALTER TABLE task_events ADD COLUMN client_version TEXT`,
-		}
-		for _, stmt := range stmts {
-			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("failed to migrate event store schema from v3 to v4: %w", err)
-			}
-		}
-		fromVersion = 4
+	nextVersion, err := s.migrateSchemaThroughKnownVersions(ctx, fromVersion)
+	if err != nil {
+		return err
 	}
-	if fromVersion == 4 {
-		fromVersion = 5
-	}
-	if fromVersion == 5 {
-		if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v5 to v6: %w", err)
-		}
-		fromVersion = 6
-	}
-	if fromVersion == 6 {
-		if err := createTaskRunStatsTables(ctx, s.db); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v6 to v7: %w", err)
-		}
-		fromVersion = 7
-	}
-	if fromVersion == 7 {
-		if err := recreateTaskRunStatsTables(ctx, s.db); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v7 to v8: %w", err)
-		}
-		fromVersion = 8
-	}
-	if fromVersion == 8 {
-		if err := createBenchmarkRunTables(ctx, s.db); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v8 to v9: %w", err)
-		}
-		fromVersion = 10
-	}
-	if fromVersion == 9 {
-		if _, err := s.db.ExecContext(ctx, `ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
-		}
-		return nil
-	}
+	fromVersion = nextVersion
 	if fromVersion == schemaVersion {
 		return nil
 	}
@@ -402,6 +362,71 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 		StoredVersion:   fromVersion,
 		ExpectedVersion: schemaVersion,
 	}
+}
+
+func (s *Store) migrateSchemaThroughKnownVersions(ctx context.Context, fromVersion int) (int, error) {
+	version := fromVersion
+	for {
+		nextVersion, handled, err := s.migrateSchemaOneStep(ctx, version)
+		if err != nil {
+			return version, err
+		}
+		if !handled {
+			return version, nil
+		}
+		version = nextVersion
+		if version == schemaVersion {
+			return version, nil
+		}
+	}
+}
+
+func (s *Store) migrateSchemaOneStep(ctx context.Context, version int) (int, bool, error) {
+	switch version {
+	case 3:
+		return 4, true, s.migrateV3ToV4(ctx)
+	case 4:
+		return 5, true, nil
+	case 5:
+		return 6, true, migrateSchemaStep(ctx, s.db, "v5 to v6", createTaskRunSnapshotTables)
+	case 6:
+		return 7, true, migrateSchemaStep(ctx, s.db, "v6 to v7", createTaskRunStatsTables)
+	case 7:
+		return 8, true, migrateSchemaStep(ctx, s.db, "v7 to v8", recreateTaskRunStatsTables)
+	case 8:
+		return 9, true, migrateSchemaStep(ctx, s.db, "v8 to v9", createBenchmarkRunTables)
+	case 9:
+		return 10, true, s.migrateV9ToV10(ctx)
+	default:
+		return version, false, nil
+	}
+}
+
+func (s *Store) migrateV3ToV4(ctx context.Context) error {
+	stmts := []string{
+		`ALTER TABLE task_events ADD COLUMN client_name TEXT`,
+		`ALTER TABLE task_events ADD COLUMN client_version TEXT`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to migrate event store schema from v3 to v4: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) migrateV9ToV10(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
+		return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
+	}
+	return nil
+}
+
+func migrateSchemaStep(ctx context.Context, db bun.IDB, label string, step func(context.Context, bun.IDB) error) error {
+	if err := step(ctx, db); err != nil {
+		return fmt.Errorf("failed to migrate event store schema from %s: %w", label, err)
+	}
+	return nil
 }
 
 // AppendTaskEvent persists one task lifecycle event.

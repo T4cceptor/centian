@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	codexModelHelp  = "gpt-5.4, gpt-5.4-mini"
-	claudeModelHelp = "haiku, sonnet, opus"
-	geminiModelHelp = "pro (gemini-3.1-pro-preview), flash (gemini-3-flash-preview), 2.5-flash (gemini-2.5-flash)"
+	codexModelStable = "gpt-5.4"
+	codexModelMini   = "gpt-5.4-mini"
+	codexModelHelp   = codexModelStable + ", " + codexModelMini
+	claudeModelHelp  = "haiku, sonnet, opus"
+	geminiModelHelp  = "pro (gemini-3.1-pro-preview), flash (gemini-3-flash-preview), 2.5-flash (gemini-2.5-flash)"
 )
 
 func singleModelFlagUsage() string {
@@ -28,9 +30,9 @@ func normalizeCLIModel(agent, model string) string {
 	case agentrunner.AgentCodex:
 		switch normalized {
 		case "gpt5.4", "gpt-5.4":
-			return "gpt-5.4"
-		case "gpt5.4-mini", "gpt-5.4-mini":
-			return "gpt-5.4-mini"
+			return codexModelStable
+		case "gpt5.4-mini", codexModelMini:
+			return codexModelMini
 		}
 	case agentrunner.AgentClaude:
 		switch normalized {
