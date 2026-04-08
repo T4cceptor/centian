@@ -64,6 +64,8 @@ For the current `simple_tdd_v1` suite, the benchmark is trying to answer:
 
 This is intentionally process-aware. It does not only ask "did the final code work?" It also captures whether the workflow was efficient, stable, and compliant with the case contract.
 
+The `centian_demo_v1` suite converts the local `centian demo` JavaScript score-parentheses task into the same benchmark format. It uses the `guided_tdd_workflow` template and starts without an implementation or test file, matching the demo flow where the agent must scaffold the red baseline first.
+
 ## How To Run A Benchmark
 
 ### Recommended make target
@@ -89,7 +91,17 @@ Run a benchmark session:
 ./build/centian benchmark run \
   --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
   --agent codex \
+  --model gpt-5.4-mini \
   --case assertion_failure_red
+```
+
+Run the demo-derived scenario:
+
+```bash
+./build/centian benchmark run \
+  --suite tests/integrationtests/taskverification/benchmarks/centian_demo_v1 \
+  --agent codex \
+  --case score_parentheses_js
 ```
 
 Keep the Centian server alive after the agent finishes and prompt for shutdown:
@@ -120,6 +132,7 @@ Compare multiple sessions for one suite:
 ## How To Use Different Agents
 
 The benchmark runner accepts one or more `--agent` flags. The runner executes the same benchmark case(s) once per agent, per template variant, per attempt.
+For a single-agent run, use `--model` / `-m` to select that agent's model. For multi-agent runs, use `--codex-model`, `--claude-model`, and `--gemini-model`.
 
 Examples:
 
@@ -313,6 +326,8 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
   Optional and repeatable. One or more case ids to run. If omitted, all suite cases run.
 - `--agent`
   Required and repeatable. One or more agent ids to execute.
+- `--model`, `-m`
+  Optional. Model for a single selected agent. Shorthand values: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro` (`gemini-3.1-pro-preview`), `flash` (`gemini-3-flash-preview`), `2.5-flash` (`gemini-2.5-flash`).
 - `--repeat`
   Optional. Number of attempts per matrix cell. Default: `1`.
 - `--template-dir`
@@ -322,11 +337,11 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 - `--output-root`
   Optional. Root directory for preserved benchmark artifacts. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
 - `--claude-model`
-  Optional. Claude model override.
+  Optional. Claude model override for multi-agent runs.
 - `--gemini-model`
-  Optional. Gemini model override.
+  Optional. Gemini model override for multi-agent runs.
 - `--codex-model`
-  Optional. Codex model override.
+  Optional. Codex model override for multi-agent runs.
 - `--keep-centian-running`
   Optional. Print the live UI URL and prompt whether to shut down the run-local Centian server after the agent finishes. This is useful for interactive inspection, but not recommended for unattended matrix runs.
 

@@ -39,6 +39,8 @@ export type TemplateScorecard = {
 
 export type AgentScorecard = {
   agent: string;
+  model?: string;
+  models?: string[];
   runCount: number;
   medianTaskToolCalls: number;
   medianDownstreamToolCalls: number;
@@ -46,6 +48,11 @@ export type AgentScorecard = {
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;
   firstPassRate: number;
+};
+
+export type AgentMetadata = {
+  selectedModel?: string;
+  modelUsage?: Record<string, unknown>;
 };
 
 export type BenchmarkRunSummary = {
@@ -59,6 +66,7 @@ export type BenchmarkRunSummary = {
   caseId: string;
   caseName?: string;
   agent: string;
+  selectedModel?: string;
   templateVariant: string;
   attempt: number;
   rawStatus: string;
@@ -81,6 +89,7 @@ export type BenchmarkRunSummary = {
   failedDownstreamToolCalls: number;
   editedFilesCount: number;
   errorActionabilityScore?: number;
+  agentMetadata?: AgentMetadata;
 };
 
 export type AggregateSummary = {
@@ -147,6 +156,7 @@ export type BenchmarkRunDetail = {
     templateName?: string;
     templateVariant: string;
     agent: string;
+    selectedModel?: string;
     attempt: number;
     rawStatus: string;
     latestTaskRunId?: string;
@@ -184,7 +194,7 @@ export type BenchmarkRunDetail = {
     };
     warnings?: string[];
     errors?: string[];
-    agentMetadata?: unknown;
+    agentMetadata?: AgentMetadata;
     generatedAt: string;
   };
 };

@@ -486,6 +486,7 @@ It is not yet a full replacement for:
 
 - Templates: [task-templates](../task-templates)
 - Template Authoring: [TASK_TEMPLATE_AUTHORING.md](./TASK_TEMPLATE_AUTHORING.md)
+- Benchmark CLI and fixtures: [tests/integrationtests/taskverification/benchmarks](../tests/integrationtests/taskverification/benchmarks)
 - Runtime: [internal/taskverification](../internal/taskverification)
 - Proxy tool surface: [proxy_taskverification_tools.go](../internal/proxy/proxy_taskverification_tools.go)
 - Persistence projections: [store.go](../internal/persistence/store.go)

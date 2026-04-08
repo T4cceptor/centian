@@ -191,6 +191,8 @@ export function BenchmarkSuiteListPage() {
 type ScorecardMetricRow = {
   key: string;
   label: string;
+  model?: string;
+  models?: string[];
   runCount: number;
   medianTaskToolCalls: number;
   medianDownstreamToolCalls: number;
@@ -215,9 +217,12 @@ function templateScorecardRow(row: TemplateScorecard): ScorecardMetricRow {
 }
 
 function agentScorecardRow(row: AgentScorecard): ScorecardMetricRow {
+  const model = row.model ?? row.models?.[0];
   return {
-    key: row.agent,
+    key: model ? `${row.agent}::${model}` : row.agent,
     label: row.agent,
+    model,
+    models: model ? [model] : row.models,
     runCount: row.runCount,
     medianTaskToolCalls: row.medianTaskToolCalls,
     medianDownstreamToolCalls: row.medianDownstreamToolCalls,
@@ -247,7 +252,10 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
         {rows.map((row) => (
           <div key={row.key} className="benchmark-analysis-row benchmark-analysis-row--template-scorecard" role="row">
             <span className="benchmark-analysis-row__label">
-              {row.label}
+              <span>{row.label}</span>
+              {row.models && row.models.length > 0 ? (
+                <small className="benchmark-analysis-row__subtext">{row.models.join(", ")}</small>
+              ) : null}
             </span>
             <span>{row.runCount}</span>
             <span className="benchmark-error-split">

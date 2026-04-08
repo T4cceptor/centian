@@ -18,7 +18,10 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	sessionTwo := filepath.Join(suiteRoot, "20260404220000_run")
 
 	writeSyntheticScoringSessionAt(t, sessionOne, syntheticSessionOptions{})
-	writeSyntheticScoringSessionAt(t, sessionTwo, syntheticSessionOptions{includeInvariantViolation: true})
+	writeSyntheticScoringSessionAt(t, sessionTwo, syntheticSessionOptions{
+		includeInvariantViolation: true,
+		codexSelectedModel:        "gpt-5.4",
+	})
 
 	store, err := persistence.NewSQLiteStore(filepath.Join(root, "events.sqlite"))
 	assert.NilError(t, err)
@@ -99,12 +102,19 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(runs), 2)
 	assert.Equal(t, runs[0].Agent, "codex")
+	codexRunModels := map[string]bool{}
+	for _, run := range runs {
+		codexRunModels[run.SelectedModel] = true
+	}
+	assert.Assert(t, codexRunModels["gpt-5.4-mini"])
+	assert.Assert(t, codexRunModels["gpt-5.4"])
 	assert.Equal(t, runs[0].TemplateName, "Simple TDD Current")
 
 	runDetail, err := service.GetRun(context.Background(), "simple_tdd_v1", runs[0].ScorecardID)
 	assert.NilError(t, err)
 	assert.Assert(t, runDetail != nil)
 	assert.Equal(t, runDetail.Scorecard.Agent, "codex")
+	assert.Assert(t, codexRunModels[runDetail.Scorecard.SelectedModel])
 	assert.Equal(t, runDetail.TemplateName, "Simple TDD Current")
 
 	comparison, err := service.GetComparison(context.Background(), "simple_tdd_v1", BenchmarkRunFilters{Agent: "codex"})
@@ -126,9 +136,18 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 
 	agentScorecards, err := service.ListAgentScorecards(context.Background())
 	assert.NilError(t, err)
-	assert.Equal(t, len(agentScorecards), 2)
-	assert.Equal(t, agentScorecards[0].RunCount, 2)
-	assert.Assert(t, agentScorecards[0].Agent == "claude" || agentScorecards[0].Agent == "codex")
+	assert.Equal(t, len(agentScorecards), 3)
+	agentScorecardKeys := map[string]bool{}
+	for _, scorecard := range agentScorecards {
+		agentScorecardKeys[scorecard.Agent+"::"+scorecard.Model] = true
+		if scorecard.Model != "" {
+			assert.Equal(t, len(scorecard.Models), 1)
+			assert.Equal(t, scorecard.Models[0], scorecard.Model)
+		}
+	}
+	assert.Assert(t, agentScorecardKeys["codex::gpt-5.4-mini"])
+	assert.Assert(t, agentScorecardKeys["codex::gpt-5.4"])
+	assert.Assert(t, agentScorecardKeys["claude::sonnet"])
 }
 
 func TestReadServiceReturnsNilForMissingResources(t *testing.T) {

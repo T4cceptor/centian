@@ -525,8 +525,19 @@ code,
 }
 
 .benchmark-analysis-row__label {
+  display: grid;
+  gap: 4px;
   color: var(--accent-strong);
   font-weight: 600;
+}
+
+.benchmark-analysis-row__subtext {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .benchmark-analysis-row__success {

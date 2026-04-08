@@ -490,6 +490,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if err != nil {
 		return nil, err
 	}
+	selectedModel := strings.TrimSpace(firstNonEmpty(run.SelectedModel, agentMetadataSelectedModel(agentMetadata)))
 	invariantViolation, err := detectInvariantViolation(
 		filepath.Join(caseCtx.caseRoot, caseCtx.caseDef.Fixture.SeedPath),
 		run.ProjectDir,
@@ -547,6 +548,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		TemplateName:    templateName,
 		TemplateVariant: run.TemplateVariant,
 		Agent:           run.Agent,
+		SelectedModel:   selectedModel,
 		Attempt:         run.Attempt,
 		RunManifestPath: filepath.Join(run.RunDir, runFileName),
 		SessionPath:     session.SessionPath,
@@ -584,9 +586,31 @@ func runAgentMetadata(run *persistence.BenchmarkRunRecord, agentStdoutPath strin
 		if err := json.Unmarshal(run.AgentMetadataJSON, &metadata); err != nil {
 			return nil, nil, fmt.Errorf("unmarshal benchmark agent metadata: %w", err)
 		}
-		return &metadata, nil, nil
+		return enrichAgentMetadata(&metadata, run.SelectedModel), nil, nil
 	}
-	return loadAgentMetadata(agentStdoutPath, run.Agent)
+	metadata, warnings, err := loadAgentMetadata(agentStdoutPath, run.Agent)
+	return enrichAgentMetadata(metadata, run.SelectedModel), warnings, err
+}
+
+func enrichAgentMetadata(metadata *AgentMetadata, selectedModel string) *AgentMetadata {
+	model := strings.TrimSpace(selectedModel)
+	if metadata == nil {
+		if model == "" {
+			return nil
+		}
+		return &AgentMetadata{SelectedModel: model}
+	}
+	if strings.TrimSpace(metadata.SelectedModel) == "" {
+		metadata.SelectedModel = model
+	}
+	return metadata
+}
+
+func agentMetadataSelectedModel(metadata *AgentMetadata) string {
+	if metadata == nil {
+		return ""
+	}
+	return metadata.SelectedModel
 }
 
 func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID string) *persistence.BenchmarkSessionRecord {

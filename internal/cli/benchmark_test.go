@@ -48,7 +48,7 @@ func TestBenchmarkRunCommandStructure(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"suite", "case", "agent", "repeat", "template-dir", "timeout",
-		"output-root", "claude-model", "gemini-model", "codex-model", "keep-centian-running",
+		"output-root", "model", "claude-model", "gemini-model", "codex-model", "keep-centian-running",
 	} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on BenchmarkRunCommand", expected)
@@ -157,6 +157,30 @@ func TestBuildBenchmarkRunOptionsResolvesDefaults(t *testing.T) {
 	}
 	if filepath.Base(opts.OutputRoot) != "benchmarks" {
 		t.Fatalf("expected benchmark output root, got %s", opts.OutputRoot)
+	}
+}
+
+func TestBenchmarkAgentModelsFromFlagsAppliesSingleModelFlag(t *testing.T) {
+	models, err := benchmarkAgentModelsFromFlags("gpt5.4-mini", []string{"codex"}, "", "", "")
+	if err != nil {
+		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
+	}
+	if models.Codex != "gpt-5.4-mini" {
+		t.Fatalf("expected normalized codex model, got %q", models.Codex)
+	}
+}
+
+func TestBenchmarkAgentModelsFromFlagsRejectsSingleModelWithMultipleAgents(t *testing.T) {
+	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", []string{"codex", "claude"}, "", "", "")
+	if err == nil || err.Error() != "--model can only be used with exactly one agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs" {
+		t.Fatalf("expected multi-agent model error, got %v", err)
+	}
+}
+
+func TestBenchmarkAgentModelsFromFlagsRejectsSingleAndAgentModelConflict(t *testing.T) {
+	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", []string{"codex"}, "", "", "gpt-5.4")
+	if err == nil || err.Error() != "--model cannot be combined with --codex-model" {
+		t.Fatalf("expected model conflict error, got %v", err)
 	}
 }
 

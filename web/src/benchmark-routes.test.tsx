@@ -61,6 +61,20 @@ describe("benchmark routes", () => {
           createFetchResponse([
             {
               agent: "codex",
+              model: "gpt-5.4",
+              models: ["gpt-5.4"],
+              runCount: 4,
+              medianTaskToolCalls: 31,
+              medianDownstreamToolCalls: 12,
+              medianCentianErrors: 1,
+              medianDownstreamToolErrors: 0,
+              medianDurationMillis: 103000,
+              firstPassRate: 0.25,
+            },
+            {
+              agent: "codex",
+              model: "gpt-5.4-mini",
+              models: ["gpt-5.4-mini"],
               runCount: 10,
               medianTaskToolCalls: 30,
               medianDownstreamToolCalls: 12,
@@ -95,7 +109,9 @@ describe("benchmark routes", () => {
     expect(screen.getByText("Simple TDD Task")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Agent" }));
     expect(screen.getByText("Agent Scorecards")).toBeInTheDocument();
-    expect(screen.getByText("codex")).toBeInTheDocument();
+    expect(screen.getAllByText("codex")).toHaveLength(2);
+    expect(screen.getByText("gpt-5.4")).toBeInTheDocument();
+    expect(screen.getByText("gpt-5.4-mini")).toBeInTheDocument();
     expect(screen.getAllByText("2").length).toBeGreaterThan(0);
   });
 
@@ -156,6 +172,7 @@ describe("benchmark routes", () => {
             caseId: "assertion_failure_red",
             caseName: "Assertion-failure red baseline",
             agent: "codex",
+            selectedModel: "gpt-5.4-mini",
             templateVariant: "current",
             attempt: 1,
             rawStatus: "completed",
@@ -192,6 +209,7 @@ describe("benchmark routes", () => {
     ).toBeGreaterThan(0);
     expect(screen.getByText("Run History")).toBeInTheDocument();
     expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("codex / gpt-5.4-mini").length).toBeGreaterThan(0);
   });
 
   it("renders the session detail", async () => {
@@ -228,6 +246,7 @@ describe("benchmark routes", () => {
               caseId: "assertion_failure_red",
               caseName: "Assertion-failure red baseline",
               agent: "codex",
+              selectedModel: "gpt-5.4-mini",
               templateVariant: "current",
               attempt: 1,
               rawStatus: "completed",
@@ -283,6 +302,7 @@ describe("benchmark routes", () => {
             templateName: "Simple TDD Current",
             templateVariant: "current",
             agent: "codex",
+            selectedModel: "gpt-5.4-mini",
             attempt: 1,
             rawStatus: "completed",
             outcome: {
@@ -311,6 +331,7 @@ describe("benchmark routes", () => {
               editedFilesCount: 1,
             },
             manual: {},
+            agentMetadata: { selectedModel: "gpt-5.4-mini" },
             generatedAt: "2026-04-05T12:00:00Z",
           },
         }),
@@ -324,6 +345,7 @@ describe("benchmark routes", () => {
 
     expect(screen.getAllByText("Outcome").length).toBeGreaterThan(0);
     expect(screen.getByText("Edited Files")).toBeInTheDocument();
+    expect(screen.getAllByText("gpt-5.4-mini").length).toBeGreaterThan(0);
     expect(screen.getByText("Restart Count")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Assertion-failure red baseline" })).toBeInTheDocument();
   });

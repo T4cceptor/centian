@@ -3,6 +3,7 @@ package benchmarks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gotest.tools/assert"
@@ -197,6 +198,29 @@ func TestLoadCheckedInSimpleTDDSuite(t *testing.T) {
 		assert.NilError(t, err)
 		assert.Assert(t, prompt.Prompt != "")
 	}
+}
+
+func TestLoadCheckedInCentianDemoSuite(t *testing.T) {
+	repoRoot := findRepoRoot(t)
+	suiteRoot := filepath.Join(repoRoot, "tests", "integrationtests", "taskverification", "benchmarks", "centian_demo_v1")
+
+	suite, err := LoadSuite(suiteRoot)
+	assert.NilError(t, err)
+	assert.Equal(t, suite.Suite.ID, "centian_demo_v1")
+	assert.Equal(t, suite.Suite.TemplateID, "guided_tdd_workflow")
+	assert.Equal(t, len(suite.Cases), 1)
+
+	caseDef, err := LoadCase(suiteRoot, suite.Cases[0])
+	assert.NilError(t, err)
+	assert.Equal(t, caseDef.Case.ID, "score_parentheses_js")
+	assert.Equal(t, caseDef.Expectations.SelectedCommand, "node --test scoreParentheses.test.js")
+	assert.Equal(t, caseDef.Constraints.LockedPaths[0], ".benchmark-lock")
+
+	prompt, err := LoadPrompt(filepath.Join(suiteRoot, suite.Cases[0].Path), caseDef.PromptFile)
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(prompt.Prompt, "guided_tdd_workflow"))
+	assert.Assert(t, strings.Contains(prompt.Prompt, "scoreParentheses"))
+	assert.Assert(t, strings.Contains(prompt.Prompt, caseDef.Expectations.RedSignal.Value))
 }
 
 func writeValidSuiteFixture(t *testing.T) string {

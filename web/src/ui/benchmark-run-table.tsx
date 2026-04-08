@@ -18,7 +18,7 @@ export function BenchmarkRunTable({ suiteId, runs }: BenchmarkRunTableProps) {
     <div className="benchmark-table" role="table" aria-label="Benchmark runs">
       <div className="benchmark-table__header benchmark-table__header--runs" role="row">
         <span>Case</span>
-        <span>Agent</span>
+        <span>Agent / Model</span>
         <span>Variant</span>
         <span>Template</span>
         <span>Success</span>
@@ -34,7 +34,9 @@ export function BenchmarkRunTable({ suiteId, runs }: BenchmarkRunTableProps) {
             to={`/benchmarks/${suiteId}/runs/${run.scorecardId}`}
           >
             <span title={run.caseId}>{run.caseName || run.caseId}</span>
-            <span>{run.agent}</span>
+            <span title={agentModelLabel(run.agent, selectedRunModel(run))}>
+              {agentModelLabel(run.agent, selectedRunModel(run))}
+            </span>
             <span>{run.templateVariant}</span>
             <span title={run.templateId}>{run.templateName || formatTemplateLabel(run.templateId)}</span>
             <span>{formatBenchmarkRate(run.completedSuccessfully ? 1 : 0)}</span>
@@ -48,4 +50,19 @@ export function BenchmarkRunTable({ suiteId, runs }: BenchmarkRunTableProps) {
       </div>
     </div>
   );
+}
+
+function selectedRunModel(run: BenchmarkRunSummary): string {
+  return run.selectedModel || run.agentMetadata?.selectedModel || firstModelUsageKey(run.agentMetadata?.modelUsage) || "";
+}
+
+function firstModelUsageKey(modelUsage?: Record<string, unknown>): string {
+  if (!modelUsage) {
+    return "";
+  }
+  return Object.keys(modelUsage).sort()[0] ?? "";
+}
+
+function agentModelLabel(agent: string, model: string): string {
+  return model ? `${agent} / ${model}` : agent;
 }

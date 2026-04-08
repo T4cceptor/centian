@@ -32,6 +32,8 @@ func TestScoreSessionBuildsLiveSummary(t *testing.T) {
 	assert.Equal(t, len(summary.Aggregates.ByCaseAgentVariant), 2)
 	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
 	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
+	assert.Assert(t, summary.Runs[0].SelectedModel != "")
+	assert.Assert(t, summary.Runs[0].AgentMetadata.SelectedModel != "")
 	assert.Equal(t, summary.Runs[0].SessionPath, sessionDir)
 	assert.Equal(t, summary.Runs[0].EventStoreMode, "configured_shared")
 	assert.Equal(t, summary.Runs[0].Agent, "claude")
@@ -61,6 +63,7 @@ func TestScoreSessionUsesPersistedAgentMetadata(t *testing.T) {
 	assert.Equal(t, summary.ScoredRunCount, 2)
 	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
 	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
+	assert.Equal(t, summary.Runs[0].AgentMetadata.SelectedModel, summary.Runs[0].SelectedModel)
 	assert.Assert(t, summary.Runs[0].InputTokens != nil)
 	assert.Assert(t, summary.Runs[1].InputTokens != nil)
 }
@@ -117,6 +120,7 @@ func TestScoreSessionRequiresSessionManifest(t *testing.T) {
 type syntheticSessionOptions struct {
 	includeInvariantViolation bool
 	invalidManualScoreForCase string
+	codexSelectedModel        string
 }
 
 func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) string {
@@ -254,6 +258,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		TemplateID:          "simple_tdd",
 		TemplateVariant:     TemplateVariant{Name: "current"},
 		AgentID:             entry.AgentID,
+		SelectedModel:       syntheticSelectedModel(entry.AgentID, opts),
 		StartedAt:           time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
 		EndedAt:             time.Date(2026, 4, 4, 12, 0, 5, 0, time.UTC),
 		Status:              "completed",
@@ -444,6 +449,18 @@ func syntheticAgentStdout(agent string) string {
 		return "\n===== Demo run 2026-04-04T21:22:12+02:00 (codex) =====\n" +
 			"{\"type\":\"thread.started\",\"thread_id\":\"thread_codex\"}\n" +
 			"{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":111,\"cached_input_tokens\":555,\"output_tokens\":666}}\n"
+	}
+}
+
+func syntheticSelectedModel(agent string, opts syntheticSessionOptions) string {
+	switch agent {
+	case "claude":
+		return "sonnet"
+	default:
+		if opts.codexSelectedModel != "" {
+			return opts.codexSelectedModel
+		}
+		return "gpt-5.4-mini"
 	}
 }
 

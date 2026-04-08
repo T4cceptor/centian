@@ -39,6 +39,7 @@ type BenchmarkRunSummary struct {
 	CaseID                    string         `json:"caseId"`
 	CaseName                  string         `json:"caseName,omitempty"`
 	Agent                     string         `json:"agent"`
+	SelectedModel             string         `json:"selectedModel,omitempty"`
 	TemplateVariant           string         `json:"templateVariant"`
 	Attempt                   int            `json:"attempt"`
 	RawStatus                 string         `json:"rawStatus"`

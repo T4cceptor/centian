@@ -1,0 +1,14 @@
+version: "0.1"
+
+suite:
+  id: "centian_demo_v1"
+  name: "Centian Demo Benchmark Suite v1"
+  description: "Benchmark scenario for the local centian demo scoreParentheses JavaScript task."
+  templateId: "guided_tdd_workflow"
+  localOnly: true
+  scoringSchemaVersion: "v1"
+  executionProtocolVersion: "v1"
+
+cases:
+  - id: "score_parentheses_js"
+    path: "cases/score_parentheses_js"

@@ -2,6 +2,7 @@ package benchmarks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,14 +26,16 @@ type TemplateScorecard struct {
 
 // AgentScorecard is the agent-level scorecard built from persisted benchmark runs.
 type AgentScorecard struct {
-	Agent                      string  `json:"agent"`
-	RunCount                   int     `json:"runCount"`
-	MedianTaskToolCalls        int     `json:"medianTaskToolCalls"`
-	MedianDownstreamToolCalls  int     `json:"medianDownstreamToolCalls"`
-	MedianCentianErrors        int     `json:"medianCentianErrors"`
-	MedianDownstreamToolErrors int     `json:"medianDownstreamToolErrors"`
-	MedianDurationMillis       int64   `json:"medianDurationMillis"`
-	FirstPassRate              float64 `json:"firstPassRate"`
+	Agent                      string   `json:"agent"`
+	Model                      string   `json:"model,omitempty"`
+	Models                     []string `json:"models,omitempty"`
+	RunCount                   int      `json:"runCount"`
+	MedianTaskToolCalls        int      `json:"medianTaskToolCalls"`
+	MedianDownstreamToolCalls  int      `json:"medianDownstreamToolCalls"`
+	MedianCentianErrors        int      `json:"medianCentianErrors"`
+	MedianDownstreamToolErrors int      `json:"medianDownstreamToolErrors"`
+	MedianDurationMillis       int64    `json:"medianDurationMillis"`
+	FirstPassRate              float64  `json:"firstPassRate"`
 }
 
 // ListTemplateScorecards returns template-level scorecards for all persisted task runs.
@@ -161,6 +164,7 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 
 	type aggregate struct {
 		agent            string
+		model            string
 		runCount         int
 		firstPassCount   int
 		taskToolCalls    []int
@@ -185,17 +189,23 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		if stats == nil {
 			continue
 		}
-		group := grouped[agent]
+		model, err := selectedModelForAgentScorecardRun(run)
+		if err != nil {
+			return nil, err
+		}
+		groupKey := agentModelScorecardKey(agent, model)
+		group := grouped[groupKey]
 		if group == nil {
 			group = &aggregate{
 				agent:            agent,
+				model:            model,
 				taskToolCalls:    []int{},
 				downstreamCalls:  []int{},
 				centianErrors:    []int{},
 				downstreamErrors: []int{},
 				durationsMillis:  []int64{},
 			}
-			grouped[agent] = group
+			grouped[groupKey] = group
 		}
 		group.runCount++
 		group.taskToolCalls = append(group.taskToolCalls, stats.TaskToolCallCount)
@@ -214,6 +224,8 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 	for _, group := range grouped {
 		result = append(result, AgentScorecard{
 			Agent:                      group.agent,
+			Model:                      group.model,
+			Models:                     agentScorecardModels(group.model),
 			RunCount:                   group.runCount,
 			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
 			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
@@ -228,9 +240,51 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		if result[i].RunCount != result[j].RunCount {
 			return result[i].RunCount > result[j].RunCount
 		}
-		return result[i].Agent < result[j].Agent
+		if result[i].Agent != result[j].Agent {
+			return result[i].Agent < result[j].Agent
+		}
+		return result[i].Model < result[j].Model
 	})
 	return result, nil
+}
+
+func selectedModelForAgentScorecardRun(run persistence.BenchmarkRunRecord) (string, error) {
+	model := strings.TrimSpace(run.SelectedModel)
+	if len(run.AgentMetadataJSON) == 0 {
+		return model, nil
+	}
+
+	var metadata AgentMetadata
+	if err := json.Unmarshal(run.AgentMetadataJSON, &metadata); err != nil {
+		return "", fmt.Errorf("unmarshal benchmark agent metadata for %q: %w", run.BenchmarkRunID, err)
+	}
+	return firstNonEmpty(strings.TrimSpace(metadata.SelectedModel), agentMetadataModelUsageLabel(metadata.ModelUsage), model), nil
+}
+
+func agentModelScorecardKey(agent, model string) string {
+	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(model)
+}
+
+func agentScorecardModels(model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+	return []string{model}
+}
+
+func agentMetadataModelUsageLabel(modelUsage map[string]AgentModelUsage) string {
+	if len(modelUsage) == 0 {
+		return ""
+	}
+	models := make([]string, 0, len(modelUsage))
+	for model := range modelUsage {
+		if model = strings.TrimSpace(model); model != "" {
+			models = append(models, model)
+		}
+	}
+	sort.Strings(models)
+	return strings.Join(models, ", ")
 }
 
 func templateIdentityKey(templateID, templateName string) string {

@@ -106,6 +106,7 @@ func buildAgentMetadataJSON(run *RunManifest) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load agent metadata: %w", err)
 	}
+	metadata = enrichAgentMetadata(metadata, run.SelectedModel)
 	if metadata == nil {
 		return nil, nil
 	}

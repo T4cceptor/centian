@@ -36,6 +36,7 @@ type ManualScoreInput struct {
 type AgentMetadata struct {
 	Format               string                     `json:"format,omitempty"`
 	LogPath              string                     `json:"logPath,omitempty"`
+	SelectedModel        string                     `json:"selectedModel,omitempty"`
 	SessionID            string                     `json:"sessionId,omitempty"`
 	ThreadID             string                     `json:"threadId,omitempty"`
 	NumTurns             *int                       `json:"numTurns,omitempty"`
@@ -73,6 +74,7 @@ type RunScorecard struct {
 	TemplateName     string              `json:"templateName,omitempty"`
 	TemplateVariant  string              `json:"templateVariant"`
 	Agent            string              `json:"agent"`
+	SelectedModel    string              `json:"selectedModel,omitempty"`
 	Attempt          int                 `json:"attempt"`
 	RunManifestPath  string              `json:"runManifestPath"`
 	SessionPath      string              `json:"sessionPath"`
@@ -161,6 +163,7 @@ type RunSummaryRow struct {
 	SessionPath               string         `json:"sessionPath,omitempty"`
 	CaseID                    string         `json:"caseId"`
 	Agent                     string         `json:"agent"`
+	SelectedModel             string         `json:"selectedModel,omitempty"`
 	TemplateVariant           string         `json:"templateVariant"`
 	Attempt                   int            `json:"attempt"`
 	EventStoreMode            string         `json:"eventStoreMode,omitempty"`
@@ -346,6 +349,7 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	}
 	if run != nil {
 		row.RawStatus = run.Status
+		row.SelectedModel = strings.TrimSpace(run.SelectedModel)
 		row.EventStoreMode = run.ArtifactPaths.EventStoreMode
 		row.EventStorePath = run.ArtifactPaths.EventStorePath
 		row.LatestTaskRunID = run.LatestTaskRunID
@@ -356,6 +360,7 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	}
 	row.Scored = true
 	row.SessionPath = scorecard.SessionPath
+	row.SelectedModel = scorecard.SelectedModel
 	row.EventStoreMode = scorecard.EventStoreMode
 	row.EventStorePath = scorecard.EventStorePath
 	row.RawStatus = scorecard.RawStatus

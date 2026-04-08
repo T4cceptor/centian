@@ -1,0 +1,38 @@
+prompt: |
+  Connect to the MCP server named `centian` and solve this JavaScript TDD task through the Centian workflow.
+  Use `guided_tdd_workflow` for your task registration.
+
+  Problem:
+
+  Implement a JavaScript function named `scoreParentheses(text)` and export it as the default export.
+
+  The input string is guaranteed to be balanced and consists only of `(` and `)`.
+
+  Scoring rules:
+
+  - `()` has score `1`
+  - `AB` has score `A + B`, where `A` and `B` are balanced parentheses strings
+  - `(A)` has score `2 * A`
+
+  Freeze the following planning parameters:
+  - `testCommand`: `node --test`
+  - `testTarget`: `scoreParentheses.test.js`
+  - `testFile`: `scoreParentheses.test.js`
+  - `testName`: `scoreParentheses scores nested pairs`
+  - `lintCommand`: `node --check scoreParentheses.js && node --check scoreParentheses.test.js`
+  - `expectedError`: `0 !== 2`
+  - `implementationTarget`: `scoreParentheses.js`
+
+  Requirements:
+
+  - Start from the problem statement only. There is no provided implementation or test for this exercise.
+  - Create `scoreParentheses.js` and `scoreParentheses.test.js` in the same directory.
+  - Create a minimal `package.json` with `"type": "module"` so `scoreParentheses.js` can use a default export under Node.
+  - For the scaffolding step, create a Node built-in `node:test` test named `scoreParentheses scores nested pairs` that checks `scoreParentheses("(())")` returns `2`.
+  - Also create an initial `scoreParentheses.js` default export stub that returns `0`, so the red baseline fails with `0 !== 2`.
+  - Treat the Centian project root as the working directory and use project-relative paths.
+  - The environment only guarantees `node` (v18+); do not assume any third-party packages or test frameworks are installed. Use Node's built-in `node:test` and `node:assert` modules.
+  - Do not use any non-Node tooling.
+  - Establish a failing test first, then implement the solution.
+
+  Use Centian lifecycle tools as the source of truth, rely only on Centian-exposed project tools, and stop after the task is completed.

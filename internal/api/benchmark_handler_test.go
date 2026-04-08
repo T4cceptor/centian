@@ -239,6 +239,8 @@ func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
 		listAgentScorecardsFn: func(context.Context) ([]benchmarks.AgentScorecard, error) {
 			return []benchmarks.AgentScorecard{{
 				Agent:                      "codex",
+				Model:                      "gpt-5.4-mini",
+				Models:                     []string{"gpt-5.4-mini"},
 				RunCount:                   8,
 				MedianTaskToolCalls:        20,
 				MedianDownstreamToolCalls:  10,
@@ -276,4 +278,5 @@ func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &items))
 	assert.Equal(t, len(items), 1)
 	assert.Equal(t, items[0].Agent, "codex")
+	assert.Equal(t, items[0].Model, "gpt-5.4-mini")
 }

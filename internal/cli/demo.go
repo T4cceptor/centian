@@ -25,6 +25,7 @@ coding agent against it, and print the live UI URL.
 Examples:
   centian demo --agent claude
   centian demo --agent gemini
+  centian demo --agent codex --model gpt-5.4-mini
   centian demo --agent claude --path ./my-demo
 `,
 	Action: handleDemoCommand,
@@ -39,6 +40,11 @@ Examples:
 			Name:    "path",
 			Aliases: []string{"p"},
 			Usage:   "Path where the demo workspace should be created",
+		},
+		&cli.StringFlag{
+			Name:    "model",
+			Aliases: []string{"m"},
+			Usage:   singleModelFlagUsage(),
 		},
 	},
 }
@@ -55,6 +61,21 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("resolve centian executable: %w", err)
 	}
+	claudeModel := agentrunner.DefaultClaudeModel
+	geminiModel := agentrunner.DefaultGeminiModel
+	codexModel := agentrunner.DefaultCodexModel
+	if model := strings.TrimSpace(cmd.String("model")); model != "" {
+		switch agent := strings.ToLower(strings.TrimSpace(cmd.String("agent"))); agent {
+		case agentrunner.AgentClaude:
+			claudeModel = normalizeCLIModel(agent, model)
+		case agentrunner.AgentGemini:
+			geminiModel = normalizeCLIModel(agent, model)
+		case agentrunner.AgentCodex:
+			codexModel = normalizeCLIModel(agent, model)
+		default:
+			return fmt.Errorf("unsupported agent %q; cannot apply --model", cmd.String("agent"))
+		}
+	}
 
 	runner := agentrunner.DemoRunner{}
 	result, err := runner.RunDemo(ctx, &agentrunner.DemoOptions{
@@ -62,9 +83,9 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		RootPath:          rootPath,
 		CentianBinaryPath: binaryPath,
 		Timeout:           5 * time.Minute,
-		ClaudeModel:       agentrunner.DefaultClaudeModel,
-		GeminiModel:       agentrunner.DefaultGeminiModel,
-		CodexModel:        agentrunner.DefaultCodexModel,
+		ClaudeModel:       claudeModel,
+		GeminiModel:       geminiModel,
+		CodexModel:        codexModel,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
 	})

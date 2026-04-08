@@ -63,16 +63,21 @@ var BenchmarkRunCommand = &cli.Command{
 			Usage: "Output root for preserved benchmark artifacts",
 		},
 		&cli.StringFlag{
+			Name:    "model",
+			Aliases: []string{"m"},
+			Usage:   singleModelFlagUsage(),
+		},
+		&cli.StringFlag{
 			Name:  "claude-model",
-			Usage: "Override Claude model",
+			Usage: "Override Claude model (" + claudeModelHelp + ")",
 		},
 		&cli.StringFlag{
 			Name:  "gemini-model",
-			Usage: "Override Gemini model",
+			Usage: "Override Gemini model (" + geminiModelHelp + ")",
 		},
 		&cli.StringFlag{
 			Name:  "codex-model",
-			Usage: "Override Codex model",
+			Usage: "Override Codex model (" + codexModelHelp + ")",
 		},
 		&cli.BoolFlag{
 			Name:  "keep-centian-running",
@@ -254,6 +259,16 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 			return nil, fmt.Errorf("resolve output root: %w", err)
 		}
 	}
+	models, err := benchmarkAgentModelsFromFlags(
+		cmd.String("model"),
+		agents,
+		cmd.String("claude-model"),
+		cmd.String("gemini-model"),
+		cmd.String("codex-model"),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &benchmarks.RunOptions{
 		SuitePath:         suitePath,
@@ -264,11 +279,7 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 		OutputRoot:        outputRoot,
 		Timeout:           cmd.Duration("timeout"),
 		CentianBinaryPath: binaryPath,
-		Models: benchmarks.AgentModels{
-			Claude: strings.TrimSpace(cmd.String("claude-model")),
-			Gemini: strings.TrimSpace(cmd.String("gemini-model")),
-			Codex:  strings.TrimSpace(cmd.String("codex-model")),
-		},
+		Models:            models,
 	}, nil
 }
 

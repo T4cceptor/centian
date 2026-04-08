@@ -1,0 +1,25 @@
+version: "0.1"
+
+case:
+  id: "score_parentheses_js"
+  name: "Score parentheses JavaScript demo"
+  description: "The local demo task converted into a guided TDD benchmark case."
+
+promptFile: "prompt.yaml"
+
+fixture:
+  seedPath: "fixture"
+  resetMode: "copy_seed"
+  startingRepoStateSummary: "Empty JavaScript project root for the demo task; the agent must create the test and implementation from the prompt."
+
+expectations:
+  selectedCommand: "node --test scoreParentheses.test.js"
+  redSignal:
+    type: "output_contains"
+    value: "0 !== 2"
+  greenConditionSummary: "The selected Node test command exits 0 after creating the test and implementing scoreParentheses."
+
+constraints:
+  lockedPaths:
+    - ".benchmark-lock"
+  allowedAdditionalPaths: []

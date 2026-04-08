@@ -76,6 +76,10 @@ export function BenchmarkRunDetailPage() {
   }
 
   const { scorecard } = detail;
+  const selectedModel =
+    scorecard.selectedModel ||
+    scorecard.agentMetadata?.selectedModel ||
+    firstModelUsageKey(scorecard.agentMetadata?.modelUsage);
 
   return (
     <div className="benchmark-page">
@@ -86,7 +90,7 @@ export function BenchmarkRunDetailPage() {
           <p className="benchmark-toolbar__meta">{detail.templateName || scorecard.templateId}</p>
         </div>
         <p className="benchmark-toolbar__meta">
-          {scorecard.agent} · {scorecard.templateVariant} · attempt {scorecard.attempt}
+          {scorecard.agent}{selectedModel ? ` · ${selectedModel}` : ""} · {scorecard.templateVariant} · attempt {scorecard.attempt}
         </p>
       </div>
 
@@ -100,6 +104,11 @@ export function BenchmarkRunDetailPage() {
           <p className="state-card__eyebrow">Efficiency</p>
           <h3>{formatBenchmarkSeconds(scorecard.efficiency.wallClockSeconds)}</h3>
           <p>{scorecard.efficiency.totalToolCalls} tool calls.</p>
+        </article>
+        <article className="benchmark-summary-card">
+          <p className="state-card__eyebrow">Model</p>
+          <h3>{selectedModel || "Not captured"}</h3>
+          <p>{scorecard.agent}</p>
         </article>
         <article className="benchmark-summary-card">
           <p className="state-card__eyebrow">Tokens</p>
@@ -125,6 +134,7 @@ export function BenchmarkRunDetailPage() {
           <dl className="benchmark-detail-list">
             <div><dt>Failed Task Calls</dt><dd>{scorecard.process.failedTaskToolCalls}</dd></div>
             <div><dt>Failed Downstream Calls</dt><dd>{scorecard.process.failedDownstreamToolCalls}</dd></div>
+            <div><dt>Model</dt><dd>{selectedModel || "—"}</dd></div>
             <div><dt>Restart Count</dt><dd>{scorecard.process.restartCount}</dd></div>
             <div><dt>Fail Count</dt><dd>{scorecard.process.failCount}</dd></div>
             <div><dt>Timeout Count</dt><dd>{scorecard.process.timeoutCount}</dd></div>
@@ -140,4 +150,11 @@ export function BenchmarkRunDetailPage() {
       </section>
     </div>
   );
+}
+
+function firstModelUsageKey(modelUsage?: Record<string, unknown>): string {
+  if (!modelUsage) {
+    return "";
+  }
+  return Object.keys(modelUsage).sort()[0] ?? "";
 }
