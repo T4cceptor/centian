@@ -133,6 +133,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.Equal(t, scorecards[0].TemplateID, "simple_tdd")
 	assert.Equal(t, scorecards[0].TemplateName, "Simple TDD Current")
 	assert.Equal(t, scorecards[0].RunCount, 2)
+	assert.Equal(t, scorecards[0].SuccessRate, 1.0)
 
 	agentScorecards, err := service.ListAgentScorecards(context.Background())
 	assert.NilError(t, err)
@@ -140,6 +141,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	agentScorecardKeys := map[string]bool{}
 	for _, scorecard := range agentScorecards {
 		agentScorecardKeys[scorecard.Agent+"::"+scorecard.Model] = true
+		assert.Equal(t, scorecard.SuccessRate, 1.0)
 		if scorecard.Model != "" {
 			assert.Equal(t, len(scorecard.Models), 1)
 			assert.Equal(t, scorecard.Models[0], scorecard.Model)

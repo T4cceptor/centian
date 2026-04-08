@@ -197,6 +197,7 @@ func TestBenchmarkHandler_ListTemplateScorecards(t *testing.T) {
 				MedianCentianErrors:        3,
 				MedianDownstreamToolErrors: 1,
 				MedianDurationMillis:       105000,
+				SuccessRate:                0.93,
 				FirstPassRate:              0.89,
 			}}, nil
 		},
@@ -228,6 +229,7 @@ func TestBenchmarkHandler_ListTemplateScorecards(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &items))
 	assert.Equal(t, len(items), 1)
 	assert.Equal(t, items[0].TemplateName, "Simple TDD Task")
+	assert.Equal(t, items[0].SuccessRate, 0.93)
 }
 
 func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
@@ -247,6 +249,7 @@ func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
 				MedianCentianErrors:        1,
 				MedianDownstreamToolErrors: 0,
 				MedianDurationMillis:       90000,
+				SuccessRate:                0.88,
 				FirstPassRate:              0.75,
 			}}, nil
 		},
@@ -279,4 +282,5 @@ func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
 	assert.Equal(t, len(items), 1)
 	assert.Equal(t, items[0].Agent, "codex")
 	assert.Equal(t, items[0].Model, "gpt-5.4-mini")
+	assert.Equal(t, items[0].SuccessRate, 0.88)
 }

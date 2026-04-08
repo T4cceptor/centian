@@ -34,6 +34,7 @@ export type TemplateScorecard = {
   medianCentianErrors: number;
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;
+  successRate: number;
   firstPassRate: number;
 };
 
@@ -47,6 +48,7 @@ export type AgentScorecard = {
   medianCentianErrors: number;
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;
+  successRate: number;
   firstPassRate: number;
 };
 

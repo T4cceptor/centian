@@ -199,6 +199,7 @@ type ScorecardMetricRow = {
   medianCentianErrors: number;
   medianDownstreamToolErrors: number;
   medianDurationMillis: number;
+  successRate: number;
   firstPassRate: number;
 };
 
@@ -212,6 +213,7 @@ function templateScorecardRow(row: TemplateScorecard): ScorecardMetricRow {
     medianCentianErrors: row.medianCentianErrors,
     medianDownstreamToolErrors: row.medianDownstreamToolErrors,
     medianDurationMillis: row.medianDurationMillis,
+    successRate: row.successRate,
     firstPassRate: row.firstPassRate,
   };
 }
@@ -229,6 +231,7 @@ function agentScorecardRow(row: AgentScorecard): ScorecardMetricRow {
     medianCentianErrors: row.medianCentianErrors,
     medianDownstreamToolErrors: row.medianDownstreamToolErrors,
     medianDurationMillis: row.medianDurationMillis,
+    successRate: row.successRate,
     firstPassRate: row.firstPassRate,
   };
 }
@@ -246,6 +249,7 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
         <span>Median Events (Centian/MCP)</span>
         <span>Median Errors (Centian/MCP)</span>
         <span>Median Time</span>
+        <span>Success Rate</span>
         <span>First Pass</span>
       </div>
       <div className="benchmark-analysis-table__body" role="rowgroup">
@@ -269,6 +273,9 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
               <span className="benchmark-error-split__mcp">{row.medianDownstreamToolErrors}</span>
             </span>
             <span>{formatBenchmarkSeconds(row.medianDurationMillis / 1000)}</span>
+            <span className={`benchmark-analysis-row__success ${successRateClassName(row.successRate)}`}>
+              {formatBenchmarkRate(row.successRate)}
+            </span>
             <span className={`benchmark-analysis-row__success ${successRateClassName(row.firstPassRate)}`}>
               {formatBenchmarkRate(row.firstPassRate)}
             </span>

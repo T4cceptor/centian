@@ -51,6 +51,7 @@ describe("benchmark routes", () => {
               medianCentianErrors: 3,
               medianDownstreamToolErrors: 1,
               medianDurationMillis: 105000,
+              successRate: 0.93,
               firstPassRate: 0.89,
             },
           ]),
@@ -69,6 +70,7 @@ describe("benchmark routes", () => {
               medianCentianErrors: 1,
               medianDownstreamToolErrors: 0,
               medianDurationMillis: 103000,
+              successRate: 0.5,
               firstPassRate: 0.25,
             },
             {
@@ -81,6 +83,7 @@ describe("benchmark routes", () => {
               medianCentianErrors: 2,
               medianDownstreamToolErrors: 1,
               medianDurationMillis: 90000,
+              successRate: 0.8,
               firstPassRate: 0.7,
             },
           ]),
@@ -107,6 +110,7 @@ describe("benchmark routes", () => {
     expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
     expect(screen.getByText("Template Scorecards")).toBeInTheDocument();
     expect(screen.getByText("Simple TDD Task")).toBeInTheDocument();
+    expect(screen.getByText("Success Rate")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Agent" }));
     expect(screen.getByText("Agent Scorecards")).toBeInTheDocument();
     expect(screen.getAllByText("codex")).toHaveLength(2);

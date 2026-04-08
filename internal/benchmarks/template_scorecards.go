@@ -21,6 +21,7 @@ type TemplateScorecard struct {
 	MedianCentianErrors        int     `json:"medianCentianErrors"`
 	MedianDownstreamToolErrors int     `json:"medianDownstreamToolErrors"`
 	MedianDurationMillis       int64   `json:"medianDurationMillis"`
+	SuccessRate                float64 `json:"successRate"`
 	FirstPassRate              float64 `json:"firstPassRate"`
 }
 
@@ -35,6 +36,7 @@ type AgentScorecard struct {
 	MedianCentianErrors        int      `json:"medianCentianErrors"`
 	MedianDownstreamToolErrors int      `json:"medianDownstreamToolErrors"`
 	MedianDurationMillis       int64    `json:"medianDurationMillis"`
+	SuccessRate                float64  `json:"successRate"`
 	FirstPassRate              float64  `json:"firstPassRate"`
 }
 
@@ -65,6 +67,7 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 		templateID       string
 		templateName     string
 		runCount         int
+		successCount     int
 		firstPassCount   int
 		taskToolCalls    []int
 		downstreamCalls  []int
@@ -108,6 +111,9 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 		if stats.DurationMillis != nil {
 			group.durationsMillis = append(group.durationsMillis, *stats.DurationMillis)
 		}
+		if isSuccessful(snapshot.Status) {
+			group.successCount++
+		}
 		if isFirstPass(snapshot.Status, stats) {
 			group.firstPassCount++
 		}
@@ -125,6 +131,7 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			MedianCentianErrors:        medianInt(group.centianErrors),
 			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
 			MedianDurationMillis:       medianInt64(group.durationsMillis),
+			SuccessRate:                scorecardRate(group.successCount, group.runCount),
 			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
 		})
 	}
@@ -166,6 +173,7 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		agent            string
 		model            string
 		runCount         int
+		successCount     int
 		firstPassCount   int
 		taskToolCalls    []int
 		downstreamCalls  []int
@@ -215,6 +223,9 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		if stats.DurationMillis != nil {
 			group.durationsMillis = append(group.durationsMillis, *stats.DurationMillis)
 		}
+		if isSuccessful(run.Status) {
+			group.successCount++
+		}
 		if isFirstPass(run.Status, stats) {
 			group.firstPassCount++
 		}
@@ -232,6 +243,7 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 			MedianCentianErrors:        medianInt(group.centianErrors),
 			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
 			MedianDurationMillis:       medianInt64(group.durationsMillis),
+			SuccessRate:                scorecardRate(group.successCount, group.runCount),
 			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
 		})
 	}
@@ -300,10 +312,14 @@ func isFirstPass(status string, stats *persistence.TaskRunStatsRecord) bool {
 	if stats == nil {
 		return false
 	}
-	return strings.TrimSpace(status) == runStatusCompleted &&
+	return isSuccessful(status) &&
 		stats.RestartCount == 0 &&
 		stats.FailCount == 0 &&
 		stats.TimeoutCount == 0
+}
+
+func isSuccessful(status string) bool {
+	return strings.TrimSpace(status) == runStatusCompleted
 }
 
 func scorecardRate(successes, total int) float64 {
