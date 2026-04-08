@@ -37,6 +37,17 @@ export type TemplateScorecard = {
   firstPassRate: number;
 };
 
+export type AgentScorecard = {
+  agent: string;
+  runCount: number;
+  medianTaskToolCalls: number;
+  medianDownstreamToolCalls: number;
+  medianCentianErrors: number;
+  medianDownstreamToolErrors: number;
+  medianDurationMillis: number;
+  firstPassRate: number;
+};
+
 export type BenchmarkRunSummary = {
   scorecardId: string;
   sessionId: string;
@@ -240,6 +251,11 @@ export async function fetchBenchmarkSuites(filters: BenchmarkRunFilters = {}, si
 
 export async function fetchTemplateScorecards(signal?: AbortSignal): Promise<TemplateScorecard[]> {
   const items = await requestJSON<TemplateScorecard[]>("/api/benchmarks/template-scorecards", signal);
+  return Array.isArray(items) ? items : [];
+}
+
+export async function fetchAgentScorecards(signal?: AbortSignal): Promise<AgentScorecard[]> {
+  const items = await requestJSON<AgentScorecard[]>("/api/benchmarks/agent-scorecards", signal);
   return Array.isArray(items) ? items : [];
 }
 

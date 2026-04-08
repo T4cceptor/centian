@@ -53,6 +53,11 @@ func (s *ReadService) ListTemplateScorecards(ctx context.Context) ([]TemplateSco
 	return s.query.ListTemplateScorecards(ctx)
 }
 
+// ListAgentScorecards returns agent scorecards over all persisted benchmark runs.
+func (s *ReadService) ListAgentScorecards(ctx context.Context) ([]AgentScorecard, error) {
+	return s.query.ListAgentScorecards(ctx)
+}
+
 func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, scorecard *RunScorecard) BenchmarkRunSummary {
 	return BenchmarkRunSummary{
 		ScorecardID:               item.BenchmarkRunID,

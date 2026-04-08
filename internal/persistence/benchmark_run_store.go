@@ -94,6 +94,7 @@ func (s *Store) UpsertBenchmarkRun(ctx context.Context, record *BenchmarkRunReco
 		Set("request_log_path = EXCLUDED.request_log_path").
 		Set("selected_template_path = EXCLUDED.selected_template_path").
 		Set("error_summary = EXCLUDED.error_summary").
+		Set("agent_metadata_json = EXCLUDED.agent_metadata_json").
 		Exec(ctx)
 	return err
 }

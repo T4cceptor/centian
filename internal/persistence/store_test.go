@@ -142,6 +142,62 @@ func TestNewSQLiteStoreBootstrapIsIdempotent(t *testing.T) {
 	assert.Assert(t, storeB.DB() != nil)
 }
 
+func TestNewSQLiteStoreMigratesBenchmarkAgentMetadataColumn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	_, err = db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 9)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`CREATE TABLE benchmark_runs (
+		benchmark_run_id TEXT PRIMARY KEY,
+		schema_version INTEGER NOT NULL,
+		session_id TEXT NOT NULL,
+		case_id TEXT NOT NULL,
+		agent TEXT NOT NULL,
+		template_variant TEXT NOT NULL,
+		attempt INTEGER NOT NULL,
+		template_id TEXT NOT NULL,
+		selected_model TEXT,
+		started_at_unix_milli INTEGER NOT NULL,
+		ended_at_unix_milli INTEGER,
+		status TEXT NOT NULL,
+		latest_task_run_id TEXT,
+		latest_task_run_status TEXT,
+		linked_task_run_ids_json BLOB NOT NULL,
+		run_dir TEXT NOT NULL,
+		project_dir TEXT NOT NULL,
+		logs_dir TEXT NOT NULL,
+		agent_dir TEXT NOT NULL,
+		config_path TEXT NOT NULL,
+		event_store_mode TEXT,
+		event_store_path TEXT,
+		request_log_path TEXT,
+		selected_template_path TEXT,
+		error_summary TEXT
+	)`)
+	assert.NilError(t, err)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.NilError(t, err)
+	assert.NilError(t, store.Close())
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	columns, err := tableColumns(db, "benchmark_runs")
+	assert.NilError(t, err)
+	assert.Assert(t, columns["agent_metadata_json"])
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, schemaVersion)
+}
+
 func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.sqlite")
 
@@ -227,6 +283,7 @@ func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
 		AgentDir:            "/tmp/session/run/agent",
 		ConfigPath:          "/tmp/session/run/config.json",
 		EventStorePath:      "/tmp/events.sqlite",
+		AgentMetadataJSON:   json.RawMessage(`{"format":"codex_jsonl","threadId":"thread_1"}`),
 	}
 	assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), run))
 
@@ -245,6 +302,7 @@ func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
 	assert.Equal(t, runs[0].BenchmarkRunID, run.BenchmarkRunID)
 	assert.Equal(t, runs[0].Status, "failed")
 	assert.DeepEqual(t, runs[0].LinkedTaskRunIDs, []string{"tr_1"})
+	assert.Equal(t, string(runs[0].AgentMetadataJSON), `{"format":"codex_jsonl","threadId":"thread_1"}`)
 }
 
 func TestStoreReadMethodsReturnErrorsWhenDatabaseIsClosed(t *testing.T) {
@@ -801,4 +859,27 @@ func seedActionEvent(t *testing.T, store *Store, event *ActionEventRecord) {
 	t.Helper()
 	_, err := store.DB().NewInsert().Model(event).Exec(context.Background())
 	assert.NilError(t, err)
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
 }

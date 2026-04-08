@@ -36,6 +36,7 @@ afterEach(() => {
 
 describe("benchmark routes", () => {
   it("renders the suite list", async () => {
+    const user = userEvent.setup();
     globalThis.fetch = vi.fn((input) => {
       const url = String(input);
       if (url.includes("/template-scorecards")) {
@@ -51,6 +52,22 @@ describe("benchmark routes", () => {
               medianDownstreamToolErrors: 1,
               medianDurationMillis: 105000,
               firstPassRate: 0.89,
+            },
+          ]),
+        );
+      }
+      if (url.includes("/agent-scorecards")) {
+        return Promise.resolve(
+          createFetchResponse([
+            {
+              agent: "codex",
+              runCount: 10,
+              medianTaskToolCalls: 30,
+              medianDownstreamToolCalls: 12,
+              medianCentianErrors: 2,
+              medianDownstreamToolErrors: 1,
+              medianDurationMillis: 90000,
+              firstPassRate: 0.7,
             },
           ]),
         );
@@ -76,7 +93,10 @@ describe("benchmark routes", () => {
     expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
     expect(screen.getByText("Template Scorecards")).toBeInTheDocument();
     expect(screen.getByText("Simple TDD Task")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByText("Agent Scorecards")).toBeInTheDocument();
+    expect(screen.getByText("codex")).toBeInTheDocument();
+    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
   });
 
   it("renders the suite overview", async () => {

@@ -16,6 +16,7 @@ import (
 type stubBenchmarkStore struct {
 	listSuitesFn             func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error)
 	listTemplateScorecardsFn func(context.Context) ([]benchmarks.TemplateScorecard, error)
+	listAgentScorecardsFn    func(context.Context) ([]benchmarks.AgentScorecard, error)
 	listSessionsFn           func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error)
 	getSessionFn             func(context.Context, string, string) (*benchmarks.BenchmarkSessionDetail, error)
 	listRunsFn               func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkRunSummary, error)
@@ -28,6 +29,12 @@ func (s *stubBenchmarkStore) ListSuites(ctx context.Context, filters benchmarks.
 }
 func (s *stubBenchmarkStore) ListTemplateScorecards(ctx context.Context) ([]benchmarks.TemplateScorecard, error) {
 	return s.listTemplateScorecardsFn(ctx)
+}
+func (s *stubBenchmarkStore) ListAgentScorecards(ctx context.Context) ([]benchmarks.AgentScorecard, error) {
+	if s.listAgentScorecardsFn == nil {
+		return nil, nil
+	}
+	return s.listAgentScorecardsFn(ctx)
 }
 func (s *stubBenchmarkStore) ListSessions(ctx context.Context, suiteID string, filters benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
 	return s.listSessionsFn(ctx, suiteID, filters)
@@ -221,4 +228,52 @@ func TestBenchmarkHandler_ListTemplateScorecards(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &items))
 	assert.Equal(t, len(items), 1)
 	assert.Equal(t, items[0].TemplateName, "Simple TDD Task")
+}
+
+func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
+	handler := NewBenchmarkHandler(&stubBenchmarkStore{
+		listSuitesFn: func(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error) {
+			return nil, nil
+		},
+		listTemplateScorecardsFn: func(context.Context) ([]benchmarks.TemplateScorecard, error) { return nil, nil },
+		listAgentScorecardsFn: func(context.Context) ([]benchmarks.AgentScorecard, error) {
+			return []benchmarks.AgentScorecard{{
+				Agent:                      "codex",
+				RunCount:                   8,
+				MedianTaskToolCalls:        20,
+				MedianDownstreamToolCalls:  10,
+				MedianCentianErrors:        1,
+				MedianDownstreamToolErrors: 0,
+				MedianDurationMillis:       90000,
+				FirstPassRate:              0.75,
+			}}, nil
+		},
+		listSessionsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error) {
+			return nil, nil
+		},
+		getSessionFn: func(context.Context, string, string) (*benchmarks.BenchmarkSessionDetail, error) {
+			return nil, benchmarks.ErrBenchmarkSessionNotFound
+		},
+		listRunsFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkRunSummary, error) {
+			return nil, nil
+		},
+		getRunFn: func(context.Context, string, string) (*benchmarks.BenchmarkRunDetail, error) {
+			return nil, benchmarks.ErrBenchmarkRunNotFound
+		},
+		compareFn: func(context.Context, string, benchmarks.BenchmarkRunFilters) (*benchmarks.BenchmarkComparisonView, error) {
+			return nil, benchmarks.ErrBenchmarkComparisonNotFound
+		},
+	})
+	mux := http.NewServeMux()
+	handler.RegisterRoutesWithMiddleware(mux, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/benchmarks/agent-scorecards", http.NoBody)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	var items []benchmarks.AgentScorecard
+	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &items))
+	assert.Equal(t, len(items), 1)
+	assert.Equal(t, items[0].Agent, "codex")
 }

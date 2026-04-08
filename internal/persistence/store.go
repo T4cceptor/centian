@@ -20,7 +20,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 9
+const schemaVersion = 10
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -387,6 +387,15 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 		if err := createBenchmarkRunTables(ctx, s.db); err != nil {
 			return fmt.Errorf("failed to migrate event store schema from v8 to v9: %w", err)
 		}
+		fromVersion = 10
+	}
+	if fromVersion == 9 {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
+			return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
+		}
+		return nil
+	}
+	if fromVersion == schemaVersion {
 		return nil
 	}
 	return &SchemaMigrationRequiredError{

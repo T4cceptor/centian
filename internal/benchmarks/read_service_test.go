@@ -123,6 +123,12 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.Equal(t, scorecards[0].TemplateID, "simple_tdd")
 	assert.Equal(t, scorecards[0].TemplateName, "Simple TDD Current")
 	assert.Equal(t, scorecards[0].RunCount, 2)
+
+	agentScorecards, err := service.ListAgentScorecards(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(agentScorecards), 2)
+	assert.Equal(t, agentScorecards[0].RunCount, 2)
+	assert.Assert(t, agentScorecards[0].Agent == "claude" || agentScorecards[0].Agent == "codex")
 }
 
 func TestReadServiceReturnsNilForMissingResources(t *testing.T) {

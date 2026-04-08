@@ -50,6 +50,21 @@ func TestScoreSessionBuildsLiveSummary(t *testing.T) {
 	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianOutputTokens, float64(666))
 }
 
+func TestScoreSessionUsesPersistedAgentMetadata(t *testing.T) {
+	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
+	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "agent", "agent.stdout.log")))
+	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "claude", "assertion_failure_red", "attempt-001", "agent", "agent.stdout.log")))
+
+	scorer := NewScorer()
+	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
+	assert.NilError(t, err)
+	assert.Equal(t, summary.ScoredRunCount, 2)
+	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
+	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
+	assert.Assert(t, summary.Runs[0].InputTokens != nil)
+	assert.Assert(t, summary.Runs[1].InputTokens != nil)
+}
+
 func TestScoreSessionUsesSharedTaskRunPersistence(t *testing.T) {
 	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
 

@@ -1,18 +1,28 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { type BenchmarkSuiteSummary, type TemplateScorecard, fetchBenchmarkSuites, fetchTemplateScorecards } from "../api/benchmarks";
+import {
+  type AgentScorecard,
+  type BenchmarkSuiteSummary,
+  type TemplateScorecard,
+  fetchAgentScorecards,
+  fetchBenchmarkSuites,
+  fetchTemplateScorecards,
+} from "../api/benchmarks";
 import { ApiError } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTemplateLabel, formatTimestamp } from "./format";
 import { formatBenchmarkRate, formatBenchmarkSeconds } from "./benchmark-format";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
+type ScorecardView = "template" | "agent";
 
 export function BenchmarkSuiteListPage() {
   const [items, setItems] = useState<BenchmarkSuiteSummary[]>([]);
   const [templateScorecards, setTemplateScorecards] = useState<TemplateScorecard[]>([]);
+  const [agentScorecards, setAgentScorecards] = useState<AgentScorecard[]>([]);
   const [templateFilter, setTemplateFilter] = useState("");
+  const [scorecardView, setScorecardView] = useState<ScorecardView>("template");
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState("");
   const [authHeaderName, setAuthHeaderName] = useState<string>();
@@ -23,10 +33,15 @@ export function BenchmarkSuiteListPage() {
     setLoadState("loading");
     setErrorMessage("");
 
-    void Promise.all([fetchBenchmarkSuites({}, controller.signal), fetchTemplateScorecards(controller.signal)])
-      .then(([result, scorecards]) => {
+    void Promise.all([
+      fetchBenchmarkSuites({}, controller.signal),
+      fetchTemplateScorecards(controller.signal),
+      fetchAgentScorecards(controller.signal),
+    ])
+      .then(([result, templateRows, agentRows]) => {
         setItems(result);
-        setTemplateScorecards(scorecards);
+        setTemplateScorecards(templateRows);
+        setAgentScorecards(agentRows);
         setLoadState("ready");
       })
       .catch((error: unknown) => {
@@ -82,6 +97,10 @@ export function BenchmarkSuiteListPage() {
     new Set(items.map((item) => item.templateId).filter((value): value is string => Boolean(value))),
   ).sort();
   const filteredItems = templateFilter ? items.filter((item) => item.templateId === templateFilter) : items;
+  const scorecardRows =
+    scorecardView === "template"
+      ? templateScorecards.map(templateScorecardRow)
+      : agentScorecards.map(agentScorecardRow);
 
   return (
     <div className="benchmark-page">
@@ -108,10 +127,28 @@ export function BenchmarkSuiteListPage() {
 
       <section className="benchmark-section">
         <div className="benchmark-section__header">
-          <h3>Template Scorecards</h3>
-          <p>{templateScorecards.length} templates</p>
+          <div>
+            <h3>{scorecardView === "template" ? "Template Scorecards" : "Agent Scorecards"}</h3>
+            <p>{scorecardRows.length} {scorecardView === "template" ? "templates" : "agents"}</p>
+          </div>
+          <div className="benchmark-toggle" aria-label="Benchmark scorecard dimension">
+            <button
+              type="button"
+              className={scorecardView === "template" ? "benchmark-toggle__button benchmark-toggle__button--active" : "benchmark-toggle__button"}
+              onClick={() => setScorecardView("template")}
+            >
+              Template
+            </button>
+            <button
+              type="button"
+              className={scorecardView === "agent" ? "benchmark-toggle__button benchmark-toggle__button--active" : "benchmark-toggle__button"}
+              onClick={() => setScorecardView("agent")}
+            >
+              Agent
+            </button>
+          </div>
         </div>
-        <TemplateScorecardTable rows={templateScorecards} />
+        <ScorecardMetricTable rows={scorecardRows} dimensionLabel={scorecardView === "template" ? "Template" : "Agent"} />
       </section>
 
       {filteredItems.length === 0 ? (
@@ -151,15 +188,55 @@ export function BenchmarkSuiteListPage() {
   );
 }
 
-function TemplateScorecardTable({ rows }: { rows: TemplateScorecard[] }) {
+type ScorecardMetricRow = {
+  key: string;
+  label: string;
+  runCount: number;
+  medianTaskToolCalls: number;
+  medianDownstreamToolCalls: number;
+  medianCentianErrors: number;
+  medianDownstreamToolErrors: number;
+  medianDurationMillis: number;
+  firstPassRate: number;
+};
+
+function templateScorecardRow(row: TemplateScorecard): ScorecardMetricRow {
+  return {
+    key: row.templateKey || row.templateId,
+    label: row.templateName ?? formatTemplateLabel(row.templateId),
+    runCount: row.runCount,
+    medianTaskToolCalls: row.medianTaskToolCalls,
+    medianDownstreamToolCalls: row.medianDownstreamToolCalls,
+    medianCentianErrors: row.medianCentianErrors,
+    medianDownstreamToolErrors: row.medianDownstreamToolErrors,
+    medianDurationMillis: row.medianDurationMillis,
+    firstPassRate: row.firstPassRate,
+  };
+}
+
+function agentScorecardRow(row: AgentScorecard): ScorecardMetricRow {
+  return {
+    key: row.agent,
+    label: row.agent,
+    runCount: row.runCount,
+    medianTaskToolCalls: row.medianTaskToolCalls,
+    medianDownstreamToolCalls: row.medianDownstreamToolCalls,
+    medianCentianErrors: row.medianCentianErrors,
+    medianDownstreamToolErrors: row.medianDownstreamToolErrors,
+    medianDurationMillis: row.medianDurationMillis,
+    firstPassRate: row.firstPassRate,
+  };
+}
+
+function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricRow[]; dimensionLabel: string }) {
   if (rows.length === 0) {
-    return <p className="benchmark-empty">No persisted task-run metrics are available yet.</p>;
+    return <p className="benchmark-empty">No persisted benchmark metrics are available yet.</p>;
   }
 
   return (
-    <div className="benchmark-analysis-table" role="table" aria-label="Template scorecards">
+    <div className="benchmark-analysis-table" role="table" aria-label={`${dimensionLabel} scorecards`}>
       <div className="benchmark-analysis-table__header benchmark-analysis-table__header--template-scorecards" role="row">
-        <span>Template</span>
+        <span>{dimensionLabel}</span>
         <span>Runs</span>
         <span>Median Events (Centian/MCP)</span>
         <span>Median Errors (Centian/MCP)</span>
@@ -168,9 +245,9 @@ function TemplateScorecardTable({ rows }: { rows: TemplateScorecard[] }) {
       </div>
       <div className="benchmark-analysis-table__body" role="rowgroup">
         {rows.map((row) => (
-          <div key={row.templateKey} className="benchmark-analysis-row benchmark-analysis-row--template-scorecard" role="row">
+          <div key={row.key} className="benchmark-analysis-row benchmark-analysis-row--template-scorecard" role="row">
             <span className="benchmark-analysis-row__label">
-              {row.templateName ?? formatTemplateLabel(row.templateId)}
+              {row.label}
             </span>
             <span>{row.runCount}</span>
             <span className="benchmark-error-split">

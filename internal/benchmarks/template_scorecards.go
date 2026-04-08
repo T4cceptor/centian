@@ -23,6 +23,18 @@ type TemplateScorecard struct {
 	FirstPassRate              float64 `json:"firstPassRate"`
 }
 
+// AgentScorecard is the agent-level scorecard built from persisted benchmark runs.
+type AgentScorecard struct {
+	Agent                      string  `json:"agent"`
+	RunCount                   int     `json:"runCount"`
+	MedianTaskToolCalls        int     `json:"medianTaskToolCalls"`
+	MedianDownstreamToolCalls  int     `json:"medianDownstreamToolCalls"`
+	MedianCentianErrors        int     `json:"medianCentianErrors"`
+	MedianDownstreamToolErrors int     `json:"medianDownstreamToolErrors"`
+	MedianDurationMillis       int64   `json:"medianDurationMillis"`
+	FirstPassRate              float64 `json:"firstPassRate"`
+}
+
 // ListTemplateScorecards returns template-level scorecards for all persisted task runs.
 func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateScorecard, error) {
 	s = s.withDefaults()
@@ -121,6 +133,102 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 		left := firstNonEmpty(result[i].TemplateName, result[i].TemplateID)
 		right := firstNonEmpty(result[j].TemplateName, result[j].TemplateID)
 		return left < right
+	})
+	return result, nil
+}
+
+// ListAgentScorecards returns agent-level scorecards for all persisted benchmark runs.
+func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecard, error) {
+	s = s.withDefaults()
+	if s.store == nil {
+		return nil, fmt.Errorf("benchmark query service is not initialized")
+	}
+
+	statsRows, err := s.store.ListTaskRunStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	statsByRunID := make(map[string]*persistence.TaskRunStatsRecord, len(statsRows))
+	for idx := range statsRows {
+		stats := statsRows[idx]
+		statsByRunID[stats.RunID] = &stats
+	}
+
+	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{})
+	if err != nil {
+		return nil, err
+	}
+
+	type aggregate struct {
+		agent            string
+		runCount         int
+		firstPassCount   int
+		taskToolCalls    []int
+		downstreamCalls  []int
+		centianErrors    []int
+		downstreamErrors []int
+		durationsMillis  []int64
+	}
+
+	grouped := map[string]*aggregate{}
+	for idx := range runs {
+		run := runs[idx]
+		agent := strings.TrimSpace(run.Agent)
+		if agent == "" {
+			continue
+		}
+		taskRunID := strings.TrimSpace(run.LatestTaskRunID)
+		if taskRunID == "" {
+			taskRunID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
+		}
+		stats := statsByRunID[taskRunID]
+		if stats == nil {
+			continue
+		}
+		group := grouped[agent]
+		if group == nil {
+			group = &aggregate{
+				agent:            agent,
+				taskToolCalls:    []int{},
+				downstreamCalls:  []int{},
+				centianErrors:    []int{},
+				downstreamErrors: []int{},
+				durationsMillis:  []int64{},
+			}
+			grouped[agent] = group
+		}
+		group.runCount++
+		group.taskToolCalls = append(group.taskToolCalls, stats.TaskToolCallCount)
+		group.downstreamCalls = append(group.downstreamCalls, stats.DownstreamToolCallCount)
+		group.centianErrors = append(group.centianErrors, stats.TaskToolErrorCount+stats.RestartCount+stats.FailCount+stats.TimeoutCount)
+		group.downstreamErrors = append(group.downstreamErrors, stats.DownstreamToolErrorCount)
+		if stats.DurationMillis != nil {
+			group.durationsMillis = append(group.durationsMillis, *stats.DurationMillis)
+		}
+		if isFirstPass(run.Status, stats) {
+			group.firstPassCount++
+		}
+	}
+
+	result := make([]AgentScorecard, 0, len(grouped))
+	for _, group := range grouped {
+		result = append(result, AgentScorecard{
+			Agent:                      group.agent,
+			RunCount:                   group.runCount,
+			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
+			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
+			MedianCentianErrors:        medianInt(group.centianErrors),
+			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
+			MedianDurationMillis:       medianInt64(group.durationsMillis),
+			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].RunCount != result[j].RunCount {
+			return result[i].RunCount > result[j].RunCount
+		}
+		return result[i].Agent < result[j].Agent
 	})
 	return result, nil
 }

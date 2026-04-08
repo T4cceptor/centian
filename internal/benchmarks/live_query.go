@@ -3,6 +3,7 @@ package benchmarks
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -485,7 +486,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	}
 	agentStdoutPath := filepath.Join(run.AgentDir, "agent.stdout.log")
 	agentStderrPath := filepath.Join(run.AgentDir, "agent.stderr.log")
-	agentMetadata, warnings, err := loadAgentMetadata(agentStdoutPath, run.Agent)
+	agentMetadata, warnings, err := runAgentMetadata(run, agentStdoutPath)
 	if err != nil {
 		return nil, err
 	}
@@ -572,6 +573,20 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		GeneratedAt:   s.now(),
 		Warnings:      warnings,
 	}, nil
+}
+
+func runAgentMetadata(run *persistence.BenchmarkRunRecord, agentStdoutPath string) (*AgentMetadata, []string, error) {
+	if run == nil {
+		return nil, nil, fmt.Errorf("benchmark run is required")
+	}
+	if len(run.AgentMetadataJSON) > 0 {
+		var metadata AgentMetadata
+		if err := json.Unmarshal(run.AgentMetadataJSON, &metadata); err != nil {
+			return nil, nil, fmt.Errorf("unmarshal benchmark agent metadata: %w", err)
+		}
+		return &metadata, nil, nil
+	}
+	return loadAgentMetadata(agentStdoutPath, run.Agent)
 }
 
 func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID string) *persistence.BenchmarkSessionRecord {

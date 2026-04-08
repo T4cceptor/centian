@@ -13,6 +13,7 @@ import (
 type BenchmarkStore interface {
 	ListSuites(context.Context, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSuiteSummary, error)
 	ListTemplateScorecards(context.Context) ([]benchmarks.TemplateScorecard, error)
+	ListAgentScorecards(context.Context) ([]benchmarks.AgentScorecard, error)
 	ListSessions(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkSessionDetail, error)
 	GetSession(context.Context, string, string) (*benchmarks.BenchmarkSessionDetail, error)
 	ListRuns(context.Context, string, benchmarks.BenchmarkRunFilters) ([]benchmarks.BenchmarkRunSummary, error)
@@ -46,6 +47,7 @@ func (h *BenchmarkHandler) RegisterRoutesWithMiddleware(mux *http.ServeMux, midd
 
 	register("GET /api/benchmarks/suites", h.handleListSuites)
 	register("GET /api/benchmarks/template-scorecards", h.handleListTemplateScorecards)
+	register("GET /api/benchmarks/agent-scorecards", h.handleListAgentScorecards)
 	register("GET /api/benchmarks/suites/{suiteID}/sessions", h.handleListSessions)
 	register("GET /api/benchmarks/suites/{suiteID}/sessions/{sessionID}", h.handleGetSession)
 	register("GET /api/benchmarks/suites/{suiteID}/runs", h.handleListRuns)

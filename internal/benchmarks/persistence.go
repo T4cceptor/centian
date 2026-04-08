@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -61,7 +62,7 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 		return nil, fmt.Errorf("run manifest is required")
 	}
 	sessionPath := sessionPathFromRun(run)
-	return &persistence.BenchmarkRunRecord{
+	record := &persistence.BenchmarkRunRecord{
 		BenchmarkRunID:       benchmarkRunID(run, sessionPath),
 		SessionID:            benchmarkSessionID(run.SuiteID, sessionPath),
 		CaseID:               run.CaseID,
@@ -86,7 +87,33 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 		RequestLogPath:       run.ArtifactPaths.RequestLogPath,
 		SelectedTemplatePath: run.ArtifactPaths.SelectedTemplatePath,
 		ErrorSummary:         run.ErrorSummary,
-	}, nil
+	}
+	agentMetadataJSON, err := buildAgentMetadataJSON(run)
+	if err != nil {
+		return nil, err
+	}
+	record.AgentMetadataJSON = agentMetadataJSON
+	return record, nil
+}
+
+func buildAgentMetadataJSON(run *RunManifest) (json.RawMessage, error) {
+	agentID := strings.TrimSpace(run.AgentID)
+	agentDir := strings.TrimSpace(run.ArtifactPaths.AgentDir)
+	if agentID == "" || agentDir == "" {
+		return nil, nil
+	}
+	metadata, _, err := loadAgentMetadata(filepath.Join(agentDir, "agent.stdout.log"), agentID)
+	if err != nil {
+		return nil, fmt.Errorf("load agent metadata: %w", err)
+	}
+	if metadata == nil {
+		return nil, nil
+	}
+	payload, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent metadata: %w", err)
+	}
+	return payload, nil
 }
 
 func benchmarkSessionID(suiteID, sessionPath string) string {

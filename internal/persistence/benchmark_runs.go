@@ -59,6 +59,7 @@ type benchmarkRunRow struct {
 	RequestLogPath       string
 	SelectedTemplatePath string `bun:"selected_template_path"`
 	ErrorSummary         string
+	AgentMetadataJSON    json.RawMessage `bun:"agent_metadata_json"`
 }
 
 // BenchmarkSessionRecord stores relational benchmark session metadata.
@@ -77,30 +78,31 @@ type BenchmarkSessionRecord struct {
 
 // BenchmarkRunRecord stores relational benchmark run metadata.
 type BenchmarkRunRecord struct {
-	BenchmarkRunID       string   `json:"benchmarkRunId"`
-	SessionID            string   `json:"sessionId"`
-	CaseID               string   `json:"caseId"`
-	Agent                string   `json:"agent"`
-	TemplateVariant      string   `json:"templateVariant"`
-	Attempt              int      `json:"attempt"`
-	TemplateID           string   `json:"templateId"`
-	SelectedModel        string   `json:"selectedModel,omitempty"`
-	StartedAtUnixMilli   int64    `json:"startedAtUnixMilli"`
-	EndedAtUnixMilli     *int64   `json:"endedAtUnixMilli,omitempty"`
-	Status               string   `json:"status"`
-	LatestTaskRunID      string   `json:"latestTaskRunId,omitempty"`
-	LatestTaskRunStatus  string   `json:"latestTaskRunStatus,omitempty"`
-	LinkedTaskRunIDs     []string `json:"linkedTaskRunIds,omitempty"`
-	RunDir               string   `json:"runDir"`
-	ProjectDir           string   `json:"projectDir"`
-	LogsDir              string   `json:"logsDir"`
-	AgentDir             string   `json:"agentDir"`
-	ConfigPath           string   `json:"configPath"`
-	EventStoreMode       string   `json:"eventStoreMode,omitempty"`
-	EventStorePath       string   `json:"eventStorePath,omitempty"`
-	RequestLogPath       string   `json:"requestLogPath,omitempty"`
-	SelectedTemplatePath string   `json:"selectedTemplatePath,omitempty"`
-	ErrorSummary         string   `json:"errorSummary,omitempty"`
+	BenchmarkRunID       string          `json:"benchmarkRunId"`
+	SessionID            string          `json:"sessionId"`
+	CaseID               string          `json:"caseId"`
+	Agent                string          `json:"agent"`
+	TemplateVariant      string          `json:"templateVariant"`
+	Attempt              int             `json:"attempt"`
+	TemplateID           string          `json:"templateId"`
+	SelectedModel        string          `json:"selectedModel,omitempty"`
+	StartedAtUnixMilli   int64           `json:"startedAtUnixMilli"`
+	EndedAtUnixMilli     *int64          `json:"endedAtUnixMilli,omitempty"`
+	Status               string          `json:"status"`
+	LatestTaskRunID      string          `json:"latestTaskRunId,omitempty"`
+	LatestTaskRunStatus  string          `json:"latestTaskRunStatus,omitempty"`
+	LinkedTaskRunIDs     []string        `json:"linkedTaskRunIds,omitempty"`
+	RunDir               string          `json:"runDir"`
+	ProjectDir           string          `json:"projectDir"`
+	LogsDir              string          `json:"logsDir"`
+	AgentDir             string          `json:"agentDir"`
+	ConfigPath           string          `json:"configPath"`
+	EventStoreMode       string          `json:"eventStoreMode,omitempty"`
+	EventStorePath       string          `json:"eventStorePath,omitempty"`
+	RequestLogPath       string          `json:"requestLogPath,omitempty"`
+	SelectedTemplatePath string          `json:"selectedTemplatePath,omitempty"`
+	ErrorSummary         string          `json:"errorSummary,omitempty"`
+	AgentMetadataJSON    json.RawMessage `json:"agentMetadataJson,omitempty"`
 }
 
 // BenchmarkSessionFilter restricts benchmark session listing.
@@ -162,6 +164,7 @@ func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
 			request_log_path TEXT,
 			selected_template_path TEXT,
 			error_summary TEXT,
+			agent_metadata_json BLOB,
 			FOREIGN KEY(session_id) REFERENCES benchmark_sessions(session_id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_benchmark_runs_session_case_agent_variant ON benchmark_runs(session_id, case_id, agent, template_variant, attempt)`,
@@ -249,6 +252,7 @@ func benchmarkRunRowFromRecord(record *BenchmarkRunRecord) (*benchmarkRunRow, er
 		RequestLogPath:       record.RequestLogPath,
 		SelectedTemplatePath: record.SelectedTemplatePath,
 		ErrorSummary:         record.ErrorSummary,
+		AgentMetadataJSON:    append(json.RawMessage(nil), record.AgentMetadataJSON...),
 	}
 	if record.EndedAtUnixMilli != nil {
 		row.EndedAtUnixMilli = sql.NullInt64{Int64: *record.EndedAtUnixMilli, Valid: true}
@@ -284,6 +288,7 @@ func (row *benchmarkRunRow) toRecord() (*BenchmarkRunRecord, error) {
 		RequestLogPath:       row.RequestLogPath,
 		SelectedTemplatePath: row.SelectedTemplatePath,
 		ErrorSummary:         row.ErrorSummary,
+		AgentMetadataJSON:    append(json.RawMessage(nil), row.AgentMetadataJSON...),
 	}
 	if len(row.LinkedTaskRunIDsJSON) > 0 {
 		if err := json.Unmarshal(row.LinkedTaskRunIDsJSON, &record.LinkedTaskRunIDs); err != nil {
