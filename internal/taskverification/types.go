@@ -424,6 +424,18 @@ type RunState struct {
 	ExpiresAt int64 `json:"expiresAtUnixMilli,omitempty"`
 }
 
+// RecoveryAction describes one agent-facing recovery option for a failed step action.
+type RecoveryAction struct {
+	// Kind classifies the recovery option so agents can route it consistently.
+	Kind string `json:"kind"`
+	// Summary is the human-facing recovery instruction.
+	Summary string `json:"summary"`
+	// Tool identifies the suggested tool to call when the recovery is tool-driven.
+	Tool string `json:"tool,omitempty"`
+	// Arguments contains suggested tool arguments for the recovery action.
+	Arguments map[string]any `json:"arguments,omitempty"`
+}
+
 // StepResult is the MCP-facing outcome of starting or completing a step.
 type StepResult struct {
 	// Passed indicates whether the requested step action succeeded.
@@ -450,6 +462,12 @@ type StepResult struct {
 	FailedInvariantID string `json:"failedInvariantId,omitempty"`
 	// Summary is an optional concise summary of the step outcome suitable for UIs.
 	Summary string `json:"summary,omitempty"`
+	// Retryable indicates whether the agent can recover and retry without restarting the task.
+	Retryable bool `json:"retryable,omitempty"`
+	// RestartRequired indicates whether the agent must restart the task to continue.
+	RestartRequired bool `json:"restartRequired,omitempty"`
+	// RecoveryActions enumerates structured recovery options for failed step actions.
+	RecoveryActions []RecoveryAction `json:"recoveryActions,omitempty"`
 	// ExitCode is the command exit code when command execution produced one.
 	ExitCode *int `json:"exitCode,omitempty"`
 	// StdoutSnippet is the truncated stdout excerpt relevant to the step outcome.

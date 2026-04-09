@@ -216,7 +216,7 @@ func TestStepFailurePersistsSnapshot(t *testing.T) {
 	result, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
-	assert.Equal(t, store.latest().Steps[0].Status, string(StepStatusFailed))
+	assert.Equal(t, store.latest().Steps[0].Status, string(StepStatusPending))
 	assert.Assert(t, store.latest().LastFailureMessage != "")
 }
 
