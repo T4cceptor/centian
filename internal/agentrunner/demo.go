@@ -26,12 +26,16 @@ const (
 	AgentGemini = "gemini"
 	// AgentCodex is the supported public agent identifier for the Codex CLI.
 	AgentCodex = "codex"
+	// AgentCodexOllama is the supported public agent identifier for Codex OSS mode via Ollama.
+	AgentCodexOllama = "codex-ollama"
 	// DefaultClaudeModel is the default Claude model alias for demo runs.
 	DefaultClaudeModel = "sonnet"
 	// DefaultGeminiModel is the default Gemini model alias for demo runs.
 	DefaultGeminiModel = "gemini-2.5-flash"
 	// DefaultCodexModel is the default Codex model alias for demo runs (empty uses Codex default).
 	DefaultCodexModel = ""
+	// DefaultCodexOllamaModel is the default Ollama-backed Codex profile alias for demo runs.
+	DefaultCodexOllamaModel = codexOllamaQwenModel
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
 	DefaultAgentTimeout = 5 * time.Minute
 	// TaskTemplateFile is the default task template file name for the task.
@@ -76,6 +80,8 @@ type DemoOptions struct {
 	ClaudeModel       string
 	GeminiModel       string
 	CodexModel        string
+	CodexOllamaModel  string
+	CodexConfigPath   string
 	OpenBrowser       bool
 	Stdout            io.Writer
 	Stderr            io.Writer
@@ -203,6 +209,9 @@ func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	}
 	if strings.TrimSpace(opts.GeminiModel) == "" {
 		opts.GeminiModel = DefaultGeminiModel
+	}
+	if strings.TrimSpace(opts.CodexConfigPath) == "" && strings.TrimSpace(opts.CodexOllamaModel) == "" {
+		opts.CodexOllamaModel = DefaultCodexOllamaModel
 	}
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
@@ -382,7 +391,14 @@ func renderAssets(layout *demoLayout) error {
 }
 
 func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
-	return selectAdapterForAgent(opts.Agent, opts.ClaudeModel, opts.GeminiModel, opts.CodexModel)
+	return selectAdapterForAgent(
+		opts.Agent,
+		opts.ClaudeModel,
+		opts.GeminiModel,
+		opts.CodexModel,
+		opts.CodexOllamaModel,
+		opts.CodexConfigPath,
+	)
 }
 
 func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {

@@ -1,19 +1,6 @@
 __MODEL_BLOCK__
 sandbox_mode = "read-only"
 
-[mcp_servers.centian]
-url = "__MCP_URL__"
-enabled = true
-destructive_enabled = false
-open_world_enabled = false
-default_tools_approval_mode = "auto"
-
-[projects."__WORK_DIR__"]
-trust_level = "trusted"
-destructive_enabled = false
-open_world_enabled = false
-default_tools_approval_mode = "auto"
-
 [apps._default]
 enabled = true
 destructive_enabled = false

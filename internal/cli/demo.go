@@ -26,6 +26,7 @@ Examples:
   centian demo --agent claude
   centian demo --agent gemini
   centian demo --agent codex --model gpt-5.4-mini
+  centian demo --agent codex-ollama --model qwen3.5
   centian demo --agent claude --path ./my-demo
 `,
 	Action: handleDemoCommand,
@@ -33,7 +34,7 @@ Examples:
 		&cli.StringFlag{
 			Name:     "agent",
 			Aliases:  []string{"a"},
-			Usage:    "Agent to run for the demo (v1 supports: claude, gemini, codex)",
+			Usage:    "Agent to run for the demo (v1 supports: claude, gemini, codex, codex-ollama)",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -45,6 +46,10 @@ Examples:
 			Name:    "model",
 			Aliases: []string{"m"},
 			Usage:   singleModelFlagUsage(),
+		},
+		&cli.StringFlag{
+			Name:  "codex-config",
+			Usage: "Base Codex config to copy and patch for codex or codex-ollama runs",
 		},
 	},
 }
@@ -64,6 +69,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	claudeModel := agentrunner.DefaultClaudeModel
 	geminiModel := agentrunner.DefaultGeminiModel
 	codexModel := agentrunner.DefaultCodexModel
+	codexOllamaModel := ""
 	if model := strings.TrimSpace(cmd.String("model")); model != "" {
 		switch agent := strings.ToLower(strings.TrimSpace(cmd.String("agent"))); agent {
 		case agentrunner.AgentClaude:
@@ -72,9 +78,15 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 			geminiModel = normalizeCLIModel(agent, model)
 		case agentrunner.AgentCodex:
 			codexModel = normalizeCLIModel(agent, model)
+		case agentrunner.AgentCodexOllama:
+			codexOllamaModel = normalizeCLIModel(agent, model)
 		default:
 			return fmt.Errorf("unsupported agent %q; cannot apply --model", cmd.String("agent"))
 		}
+	}
+	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	if err != nil {
+		return err
 	}
 
 	runner := agentrunner.DemoRunner{}
@@ -86,6 +98,8 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		ClaudeModel:       claudeModel,
 		GeminiModel:       geminiModel,
 		CodexModel:        codexModel,
+		CodexOllamaModel:  codexOllamaModel,
+		CodexConfigPath:   codexConfigPath,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
 	})
@@ -150,4 +164,12 @@ func resolveDemoRoot(flagValue string) (string, error) {
 		return "", fmt.Errorf("resolve working directory: %w", err)
 	}
 	return filepath.Abs(filepath.Join(cwd, ".centian", "demo"))
+}
+
+func resolveOptionalPath(flagValue string) (string, error) {
+	value := strings.TrimSpace(flagValue)
+	if value == "" {
+		return "", nil
+	}
+	return filepath.Abs(value)
 }

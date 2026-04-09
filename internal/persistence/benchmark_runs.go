@@ -164,6 +164,7 @@ func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
 			request_log_path TEXT,
 			selected_template_path TEXT,
 			error_summary TEXT,
+			agent_metadata_json BLOB,
 			FOREIGN KEY(session_id) REFERENCES benchmark_sessions(session_id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_benchmark_runs_session_case_agent_variant ON benchmark_runs(session_id, case_id, agent, template_variant, attempt)`,

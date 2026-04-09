@@ -93,6 +93,12 @@ Run a benchmark session:
   --agent codex \
   --model gpt-5.4-mini \
   --case assertion_failure_red
+
+./build/centian benchmark run \
+  --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
+  --agent codex-ollama \
+  --model qwen3.5 \
+  --case assertion_failure_red
 ```
 
 Run the demo-derived scenario:
@@ -132,7 +138,8 @@ Compare multiple sessions for one suite:
 ## How To Use Different Agents
 
 The benchmark runner accepts one or more `--agent` flags. The runner executes the same benchmark case(s) once per agent, per template variant, per attempt.
-For a single-agent run, use `--model` / `-m` to select that agent's model. For multi-agent runs, use `--codex-model`, `--claude-model`, and `--gemini-model`.
+For a single-agent run, use `--model` / `-m` to select that agent's model. For multi-agent runs, use `--codex-model`, `--codex-ollama-model`, `--claude-model`, and `--gemini-model`.
+`codex-ollama` also accepts `--codex-config` to use a user-managed base Codex config; Centian copies that config per run and patches the run-local MCP URL and trusted project path.
 
 Examples:
 
@@ -153,6 +160,7 @@ make benchmark-simple-tdd BENCH_AGENT=claude
 The current runner supports:
 
 - `codex`
+- `codex-ollama`
 - `claude`
 - `gemini`
 
@@ -327,7 +335,7 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 - `--agent`
   Required and repeatable. One or more agent ids to execute.
 - `--model`, `-m`
-  Optional. Model for a single selected agent. Shorthand values: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro` (`gemini-3.1-pro-preview`), `flash` (`gemini-3-flash-preview`), `2.5-flash` (`gemini-2.5-flash`).
+  Optional. Model for a single selected agent. Shorthand values: Codex `gpt-5.4`, `gpt-5.4-mini`; Codex Ollama `gemma4`, `qwen3.5` (or a custom Codex profile name); Claude `haiku`, `sonnet`, `opus`; Gemini `pro` (`gemini-3.1-pro-preview`), `flash` (`gemini-3-flash-preview`), `2.5-flash` (`gemini-2.5-flash`).
 - `--repeat`
   Optional. Number of attempts per matrix cell. Default: `1`.
 - `--template-dir`
@@ -342,6 +350,10 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
   Optional. Gemini model override for multi-agent runs.
 - `--codex-model`
   Optional. Codex model override for multi-agent runs.
+- `--codex-ollama-model`
+  Optional. Codex Ollama model/profile override for multi-agent runs.
+- `--codex-config`
+  Optional. Base Codex config to copy and patch for `codex` or `codex-ollama` runs.
 - `--keep-centian-running`
   Optional. Print the live UI URL and prompt whether to shut down the run-local Centian server after the agent finishes. This is useful for interactive inspection, but not recommended for unattended matrix runs.
 

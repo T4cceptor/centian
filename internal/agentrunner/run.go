@@ -11,17 +11,19 @@ import (
 
 // RunOptions configures one headless agent invocation against a Centian MCP URL.
 type RunOptions struct {
-	Agent         string
-	ArtifactRoot  string
-	WorkspacePath string
-	MCPURL        string
-	Prompt        string
-	Timeout       time.Duration
-	ClaudeModel   string
-	GeminiModel   string
-	CodexModel    string
-	Stdout        io.Writer
-	Stderr        io.Writer
+	Agent            string
+	ArtifactRoot     string
+	WorkspacePath    string
+	MCPURL           string
+	Prompt           string
+	Timeout          time.Duration
+	ClaudeModel      string
+	GeminiModel      string
+	CodexModel       string
+	CodexOllamaModel string
+	CodexConfigPath  string
+	Stdout           io.Writer
+	Stderr           io.Writer
 }
 
 // RunResult describes one completed agent invocation.
@@ -66,7 +68,14 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 		MCPURL:          opts.MCPURL,
 	}
 
-	adapter, err := selectAdapterForAgent(opts.Agent, opts.ClaudeModel, opts.GeminiModel, opts.CodexModel)
+	adapter, err := selectAdapterForAgent(
+		opts.Agent,
+		opts.ClaudeModel,
+		opts.GeminiModel,
+		opts.CodexModel,
+		opts.CodexOllamaModel,
+		opts.CodexConfigPath,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -97,16 +106,18 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 	return result, nil
 }
 
-func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel string) (agentAdapter, error) {
+func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel, codexOllamaModel, codexConfigPath string) (agentAdapter, error) {
 	switch strings.ToLower(strings.TrimSpace(agent)) {
 	case AgentClaude:
 		return claudeAdapter{model: claudeModel}, nil
 	case AgentGemini:
 		return geminiAdapter{model: geminiModel}, nil
 	case AgentCodex:
-		return codexAdapter{model: codexModel}, nil
+		return codexAdapter{model: codexModel, baseConfigPath: codexConfigPath}, nil
+	case AgentCodexOllama:
+		return codexOllamaAdapter{model: codexOllamaModel, baseConfigPath: codexConfigPath}, nil
 	default:
-		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, and %q", agent, AgentClaude, AgentGemini, AgentCodex)
+		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, %q, and %q", agent, AgentClaude, AgentGemini, AgentCodex, AgentCodexOllama)
 	}
 }
 
@@ -118,6 +129,8 @@ func selectedModelForAgent(agent string, opts *RunOptions) string {
 		return strings.TrimSpace(opts.GeminiModel)
 	case AgentCodex:
 		return strings.TrimSpace(opts.CodexModel)
+	case AgentCodexOllama:
+		return selectedCodexOllamaModelLabel(opts.CodexOllamaModel, opts.CodexConfigPath)
 	default:
 		return ""
 	}

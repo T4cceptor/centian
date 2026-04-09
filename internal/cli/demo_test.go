@@ -26,7 +26,7 @@ func TestDemoCommandStructure(t *testing.T) {
 			flagNames[typed.Name] = true
 		}
 	}
-	for _, expected := range []string{"agent", "model", "path"} {
+	for _, expected := range []string{"agent", "model", "path", "codex-config"} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on DemoCommand", expected)
 		}

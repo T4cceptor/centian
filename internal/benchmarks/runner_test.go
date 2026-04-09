@@ -219,6 +219,54 @@ func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 	assert.Equal(t, manifest.LatestTaskRunID, "tr_new")
 }
 
+func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	outputRoot := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+
+	runner := &Runner{
+		Now:          fixedClock(),
+		AllocatePort: func() (string, error) { return "40123", nil },
+		StartCentian: fakeStartCentian,
+		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			return &agentrunner.RunResult{
+				Agent:         opts.Agent,
+				SelectedModel: "gemma4",
+			}, nil
+		},
+		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
+			RunID:      "tr_123",
+			TemplateID: "simple_tdd",
+			StartedAt:  100,
+			Status:     "completed",
+		}}),
+		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
+			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
+		},
+		FindLatestRequestLog: fakeRequestLogLookup,
+	}
+
+	session, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Agents:            []string{agentrunner.AgentCodexOllama},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        outputRoot,
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+		Models:            AgentModels{CodexOllama: "gemma4"},
+	})
+	assert.NilError(t, err)
+
+	runPath := filepath.Join(session.InvocationDir, "runs", "current", "codex_ollama", "compile_failure_red", "attempt-001", runFileName)
+	var manifest RunManifest
+	assert.NilError(t, readJSONFile(runPath, &manifest))
+	assert.Equal(t, manifest.AgentID, agentrunner.AgentCodexOllama)
+	assert.Equal(t, manifest.SelectedModel, "gemma4")
+}
+
 func TestRunSuiteRejectsUnknownCase(t *testing.T) {
 	suiteRoot := writeValidSuiteFixture(t)
 	templateDir := writeTemplateVariant(t, "current")

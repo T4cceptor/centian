@@ -455,6 +455,26 @@ func TestCodexCommandConstruction(t *testing.T) {
 	}
 }
 
+func TestCodexOllamaCommandConstruction(t *testing.T) {
+	layout := &demoLayout{CodexConfig: "/tmp/demo/codex-home/config.toml"}
+
+	command, err := codexOllamaAdapter{model: "gemma4"}.command(layout, "prompt")
+	if err != nil {
+		t.Fatalf("command: %v", err)
+	}
+
+	joined := strings.Join(command, " ")
+	for _, expected := range []string{
+		"codex",
+		"--oss",
+		"--profile gemma4-local",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in command %q", expected, joined)
+		}
+	}
+}
+
 func TestCodexEnvSetsCODEXHOME(t *testing.T) {
 	// Given: a Codex adapter with a layout
 	layout := &demoLayout{
@@ -496,6 +516,68 @@ func TestCodexWriteConfig(t *testing.T) {
 	assertFileContains(t, layout.CodexConfig, `default_tools_approval_mode = "auto"`)
 	assertFileContains(t, layout.CodexConfig, `destructive_enabled = false`)
 	assertFileContains(t, layout.CodexConfig, `open_world_enabled = false`)
+}
+
+func TestCodexOllamaWriteDefaultConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	if err := (codexOllamaAdapter{}).writeConfig(layout); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	assertFileContains(t, layout.CodexConfig, `oss_provider = "ollama"`)
+	assertFileContains(t, layout.CodexConfig, `[model_providers.ollama]`)
+	assertFileContains(t, layout.CodexConfig, `[profiles.gemma4-local]`)
+	assertFileContains(t, layout.CodexConfig, `[profiles.qwen3.5-local]`)
+	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
+	assertFileContains(t, layout.CodexConfig, `[projects."/tmp/demo/workspace"]`)
+}
+
+func TestCodexWriteConfigPatchesCustomBase(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseConfigPath := filepath.Join(tmpDir, "base.toml")
+	baseConfig := `
+model = "ignored"
+oss_provider = "ollama"
+
+[mcp_servers.centian]
+url = "http://old"
+enabled = true
+
+[profiles.custom]
+model_provider = "ollama"
+model = "custom:1b"
+`
+	if err := os.WriteFile(baseConfigPath, []byte(baseConfig), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	if err := (codexOllamaAdapter{baseConfigPath: baseConfigPath}).writeConfig(layout); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(layout.CodexConfig)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, `url = "http://old"`) {
+		t.Fatalf("expected old centian block removed, got:\n%s", content)
+	}
+	assertFileContains(t, layout.CodexConfig, `[profiles.custom]`)
+	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
+	assertFileContains(t, layout.CodexConfig, `[projects."/tmp/demo/workspace"]`)
 }
 
 func TestCodexWriteConfigNoModel(t *testing.T) {
@@ -599,5 +681,17 @@ func TestSelectAdapterCodex(t *testing.T) {
 	}
 	if adapter.name() != AgentCodex {
 		t.Fatalf("expected codex adapter, got %q", adapter.name())
+	}
+}
+
+func TestSelectAdapterCodexOllama(t *testing.T) {
+	opts := &DemoOptions{Agent: AgentCodexOllama, CodexOllamaModel: "gemma4"}
+
+	adapter, err := selectAdapter(opts)
+	if err != nil {
+		t.Fatalf("selectAdapter: %v", err)
+	}
+	if adapter.name() != AgentCodexOllama {
+		t.Fatalf("expected codex-ollama adapter, got %q", adapter.name())
 	}
 }

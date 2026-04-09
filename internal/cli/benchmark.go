@@ -79,6 +79,14 @@ var BenchmarkRunCommand = &cli.Command{
 			Name:  "codex-model",
 			Usage: "Override Codex model (" + codexModelHelp + ")",
 		},
+		&cli.StringFlag{
+			Name:  "codex-ollama-model",
+			Usage: "Override Codex Ollama model/profile (" + codexOllamaModelHelp + ")",
+		},
+		&cli.StringFlag{
+			Name:  "codex-config",
+			Usage: "Base Codex config to copy and patch for codex or codex-ollama runs",
+		},
 		&cli.BoolFlag{
 			Name:  "keep-centian-running",
 			Usage: "Print the benchmark UI URL and prompt whether to shut down the Centian server after the agent finishes",
@@ -265,9 +273,22 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 		cmd.String("claude-model"),
 		cmd.String("gemini-model"),
 		cmd.String("codex-model"),
+		cmd.String("codex-ollama-model"),
 	)
 	if err != nil {
 		return nil, err
+	}
+	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	if err != nil {
+		return nil, err
+	}
+	if codexConfigPath == "" {
+		for _, agent := range agents {
+			if strings.EqualFold(agent, agentrunner.AgentCodexOllama) && strings.TrimSpace(models.CodexOllama) == "" {
+				models.CodexOllama = agentrunner.DefaultCodexOllamaModel
+				break
+			}
+		}
 	}
 
 	return &benchmarks.RunOptions{
@@ -280,6 +301,7 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 		Timeout:           cmd.Duration("timeout"),
 		CentianBinaryPath: binaryPath,
 		Models:            models,
+		CodexConfigPath:   codexConfigPath,
 	}, nil
 }
 

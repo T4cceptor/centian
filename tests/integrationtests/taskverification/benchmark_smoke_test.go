@@ -31,8 +31,12 @@ func TestTaskVerificationBenchmarkSmoke(t *testing.T) {
 		caseID = "assertion_failure_red"
 	}
 
-	if _, err := exec.LookPath(agent); err != nil {
-		t.Fatalf("%s is not available: %v", agent, err)
+	agentBinary := agent
+	if agent == "codex-ollama" {
+		agentBinary = "codex"
+	}
+	if _, err := exec.LookPath(agentBinary); err != nil {
+		t.Fatalf("%s is not available: %v", agentBinary, err)
 	}
 	if _, err := exec.LookPath("npx"); err != nil {
 		t.Fatalf("npx is not available: %v", err)

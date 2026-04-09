@@ -39,9 +39,10 @@ type TemplateVariant struct {
 
 // AgentModels contains optional per-agent model overrides.
 type AgentModels struct {
-	Claude string `json:"claude,omitempty"`
-	Gemini string `json:"gemini,omitempty"`
-	Codex  string `json:"codex,omitempty"`
+	Claude      string `json:"claude,omitempty"`
+	Gemini      string `json:"gemini,omitempty"`
+	Codex       string `json:"codex,omitempty"`
+	CodexOllama string `json:"codexOllama,omitempty"`
 }
 
 // RunOptions configures one benchmark invocation.
@@ -55,6 +56,7 @@ type RunOptions struct {
 	Timeout           time.Duration
 	CentianBinaryPath string
 	Models            AgentModels
+	CodexConfigPath   string
 	SessionLabel      string
 	OnCentianReady    func(*RunManifest)
 	AfterRun          func(*RunManifest) error
@@ -571,17 +573,22 @@ func (r *Runner) executeRun(
 		_ = flushManifest()
 		return manifest, err
 	}
-	_, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
-		Agent:         spec.Agent,
-		ArtifactRoot:  agentDir,
-		WorkspacePath: projectDir,
-		MCPURL:        mcpURL,
-		Prompt:        strings.TrimSpace(spec.Prompt.Prompt),
-		Timeout:       opts.Timeout,
-		ClaudeModel:   opts.Models.Claude,
-		GeminiModel:   opts.Models.Gemini,
-		CodexModel:    opts.Models.Codex,
+	runResult, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
+		Agent:            spec.Agent,
+		ArtifactRoot:     agentDir,
+		WorkspacePath:    projectDir,
+		MCPURL:           mcpURL,
+		Prompt:           strings.TrimSpace(spec.Prompt.Prompt),
+		Timeout:          opts.Timeout,
+		ClaudeModel:      opts.Models.Claude,
+		GeminiModel:      opts.Models.Gemini,
+		CodexModel:       opts.Models.Codex,
+		CodexOllamaModel: opts.Models.CodexOllama,
+		CodexConfigPath:  opts.CodexConfigPath,
 	})
+	if runResult != nil && strings.TrimSpace(runResult.SelectedModel) != "" {
+		manifest.SelectedModel = runResult.SelectedModel
+	}
 
 	var captureErrs []string
 	if agentErr != nil {
@@ -888,6 +895,8 @@ func selectedModel(agent string, models AgentModels) string {
 		return models.Gemini
 	case agentrunner.AgentCodex:
 		return models.Codex
+	case agentrunner.AgentCodexOllama:
+		return models.CodexOllama
 	default:
 		return ""
 	}

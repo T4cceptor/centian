@@ -1,0 +1,20 @@
+sandbox_mode = "read-only"
+oss_provider = "ollama"
+
+[model_providers.ollama]
+name = "Ollama"
+base_url = "http://localhost:11434/v1"
+
+[profiles.gemma4-local]
+model_provider = "ollama"
+model = "gemma4:26b"
+
+[profiles.qwen3.5-local]
+model_provider = "ollama"
+model = "qwen3.5:32b"
+
+[apps._default]
+enabled = true
+destructive_enabled = false
+open_world_enabled = false
+default_tools_approval_mode = "auto"

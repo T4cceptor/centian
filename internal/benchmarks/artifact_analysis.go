@@ -48,7 +48,7 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 	case "claude":
 		metadata, err := loadClaudeAgentMetadata(path)
 		return metadata, nil, err
-	case "codex":
+	case "codex", "codex-ollama":
 		metadata, err := loadCodexAgentMetadata(path)
 		return metadata, nil, err
 	default:
