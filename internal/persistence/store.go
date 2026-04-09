@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -20,7 +21,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 4
+const schemaVersion = 10
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -44,6 +45,7 @@ func (e *SchemaMigrationRequiredError) Error() string {
 type TaskRunSummary struct {
 	RunID            string `json:"runId"`
 	TemplateID       string `json:"templateId"`
+	TemplateName     string `json:"templateName,omitempty"`
 	PrincipalID      string `json:"principalId,omitempty"`
 	SessionID        string `json:"sessionId,omitempty"`
 	ClientName       string `json:"clientName,omitempty"`
@@ -156,13 +158,16 @@ type schemaVersionRow struct {
 
 type taskRunSummaryRow struct {
 	RunID              string
+	HasSnapshot        int
 	TemplateID         string
+	TemplateName       string
 	PrincipalID        string
 	SessionID          string
 	ClientName         string
 	ClientVersion      string
 	StartedAt          int64
 	LatestEventAt      int64
+	UpdatedAt          int64
 	Status             string
 	CurrentPhase       string
 	CurrentNodeKind    string
@@ -330,6 +335,15 @@ func (s *Store) createTables(ctx context.Context) error {
 			return fmt.Errorf("failed to bootstrap event store schema: %w", err)
 		}
 	}
+	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
+	}
+	if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
+	}
+	if err := createTaskRunStatsTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap task run stats schema: %w", err)
+	}
 	return nil
 }
 
@@ -337,22 +351,87 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 	if fromVersion == schemaVersion {
 		return nil
 	}
-	if fromVersion == 3 {
-		stmts := []string{
-			`ALTER TABLE task_events ADD COLUMN client_name TEXT`,
-			`ALTER TABLE task_events ADD COLUMN client_version TEXT`,
-		}
-		for _, stmt := range stmts {
-			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("failed to migrate event store schema from v3 to v4: %w", err)
-			}
-		}
+	nextVersion, err := s.migrateSchemaThroughKnownVersions(ctx, fromVersion)
+	if err != nil {
+		return err
+	}
+	fromVersion = nextVersion
+	if fromVersion == schemaVersion {
 		return nil
 	}
 	return &SchemaMigrationRequiredError{
 		StoredVersion:   fromVersion,
 		ExpectedVersion: schemaVersion,
 	}
+}
+
+func (s *Store) migrateSchemaThroughKnownVersions(ctx context.Context, fromVersion int) (int, error) {
+	version := fromVersion
+	for {
+		nextVersion, handled, err := s.migrateSchemaOneStep(ctx, version)
+		if err != nil {
+			return version, err
+		}
+		if !handled {
+			return version, nil
+		}
+		version = nextVersion
+		if version == schemaVersion {
+			return version, nil
+		}
+	}
+}
+
+func (s *Store) migrateSchemaOneStep(ctx context.Context, version int) (int, bool, error) {
+	switch version {
+	case 3:
+		return 4, true, s.migrateV3ToV4(ctx)
+	case 4:
+		return 5, true, nil
+	case 5:
+		return 6, true, migrateSchemaStep(ctx, s.db, "v5 to v6", createTaskRunSnapshotTables)
+	case 6:
+		return 7, true, migrateSchemaStep(ctx, s.db, "v6 to v7", createTaskRunStatsTables)
+	case 7:
+		return 8, true, migrateSchemaStep(ctx, s.db, "v7 to v8", recreateTaskRunStatsTables)
+	case 8:
+		return 9, true, migrateSchemaStep(ctx, s.db, "v8 to v9", createBenchmarkRunTables)
+	case 9:
+		return 10, true, s.migrateV9ToV10(ctx)
+	default:
+		return version, false, nil
+	}
+}
+
+func (s *Store) migrateV3ToV4(ctx context.Context) error {
+	stmts := []string{
+		`ALTER TABLE task_events ADD COLUMN client_name TEXT`,
+		`ALTER TABLE task_events ADD COLUMN client_version TEXT`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to migrate event store schema from v3 to v4: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) migrateV9ToV10(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx,
+		`ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
+		if strings.Contains(err.Error(), "duplicate column name") {
+			return nil
+		}
+		return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
+	}
+	return nil
+}
+
+func migrateSchemaStep(ctx context.Context, db bun.IDB, label string, step func(context.Context, bun.IDB) error) error {
+	if err := step(ctx, db); err != nil {
+		return fmt.Errorf("failed to migrate event store schema from %s: %w", label, err)
+	}
+	return nil
 }
 
 // AppendTaskEvent persists one task lifecycle event.
@@ -379,8 +458,10 @@ func (s *Store) AppendTaskEvent(event *taskverification.TaskEvent) error {
 		RelatedActionRequestID: event.RelatedActionRequestID,
 		PayloadJSON:            event.Payload,
 	}
-	_, err := s.db.NewInsert().Model(&row).Exec(context.Background())
-	return err
+	if _, err := s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForTaskEvent(context.Background(), event)
 }
 
 // AppendActionEventTaskContext persists one action-to-task bridge record.
@@ -392,8 +473,10 @@ func (s *Store) AppendActionEventTaskContext(ctx taskverification.ActionEventTas
 		InvocationNodeKind:  string(ctx.InvocationNodeKind),
 		CreatedAtUnixMilli:  ctx.CreatedAtUnixMilli,
 	}
-	_, err := s.db.NewInsert().Model(&row).Exec(context.Background())
-	return err
+	if _, err := s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForActionContext(context.Background(), ctx)
 }
 
 // AppendActionEvent persists one action event projected from the MCP request log.
@@ -427,8 +510,10 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 		row.OriginalToolName = entry.ToolCall.OriginalName
 		row.IsError = entry.ToolCall.IsError
 	}
-	_, err = s.db.NewInsert().Model(&row).Exec(context.Background())
-	return err
+	if _, err = s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+		return err
+	}
+	return s.refreshTaskRunStatsForActionRequest(context.Background(), entry.RequestID)
 }
 
 // ListTaskRuns returns aggregated task run summaries ordered by start time descending.
@@ -461,27 +546,100 @@ action_counts AS (
 	FROM action_event_task_context ctx
 	JOIN action_events ae ON ae.request_id = ctx.request_id
 	GROUP BY ctx.task_run_id
+),
+snapshot_runs AS (
+	SELECT
+		tr.run_id,
+		1 AS has_snapshot,
+		tr.template_id,
+		tr.template_name,
+		latest.principal_id,
+		latest.session_id,
+		latest.client_name,
+		latest.client_version,
+		COALESCE(agg.started_at, tr.created_at_unix_milli) AS started_at,
+		COALESCE(latest.created_at_unix_milli, tr.updated_at_unix_milli) AS latest_event_at,
+		tr.updated_at_unix_milli AS updated_at,
+		tr.status,
+		tr.phase AS current_phase,
+		latest.resulting_node_kind AS current_node_kind,
+		COALESCE(agg.task_event_count, 0) AS task_event_count,
+		COALESCE(action_counts.action_event_count, 0) AS action_event_count,
+		latest.event_type AS latest_event_type,
+		latest.payload_json AS latest_event_payload
+	FROM task_runs tr
+	LEFT JOIN task_agg agg ON agg.task_run_id = tr.run_id
+	LEFT JOIN latest_task latest ON latest.task_run_id = tr.run_id
+	LEFT JOIN action_counts ON action_counts.task_run_id = tr.run_id
+),
+event_only_runs AS (
+	SELECT
+		agg.task_run_id AS run_id,
+		0 AS has_snapshot,
+		latest.template_id,
+		'' AS template_name,
+		latest.principal_id,
+		latest.session_id,
+		latest.client_name,
+		latest.client_version,
+		agg.started_at,
+		latest.created_at_unix_milli AS latest_event_at,
+		latest.created_at_unix_milli AS updated_at,
+		latest.outcome AS status,
+		latest.resulting_phase_path AS current_phase,
+		latest.resulting_node_kind AS current_node_kind,
+		agg.task_event_count,
+		COALESCE(action_counts.action_event_count, 0) AS action_event_count,
+		latest.event_type AS latest_event_type,
+		latest.payload_json AS latest_event_payload
+	FROM task_agg agg
+	JOIN latest_task latest ON latest.task_run_id = agg.task_run_id
+	LEFT JOIN action_counts ON action_counts.task_run_id = agg.task_run_id
+	LEFT JOIN task_runs tr ON tr.run_id = agg.task_run_id
+	WHERE tr.run_id IS NULL
 )
 SELECT
-	agg.task_run_id AS run_id,
-	latest.template_id,
-	latest.principal_id,
-	latest.session_id,
-	latest.client_name,
-	latest.client_version,
-	agg.started_at,
-	latest.created_at_unix_milli AS latest_event_at,
-	latest.outcome AS status,
-	latest.resulting_phase_path AS current_phase,
-	latest.resulting_node_kind AS current_node_kind,
-	agg.task_event_count,
-	COALESCE(action_counts.action_event_count, 0) AS action_event_count,
-	latest.event_type AS latest_event_type,
-	latest.payload_json AS latest_event_payload
-FROM task_agg agg
-JOIN latest_task latest ON latest.task_run_id = agg.task_run_id
-LEFT JOIN action_counts ON action_counts.task_run_id = agg.task_run_id
-ORDER BY agg.started_at DESC, agg.task_run_id DESC
+	run_id,
+	has_snapshot,
+	template_id,
+	template_name,
+	principal_id,
+	session_id,
+	client_name,
+	client_version,
+	started_at,
+	latest_event_at,
+	updated_at,
+	status,
+	current_phase,
+	current_node_kind,
+	task_event_count,
+	action_event_count,
+	latest_event_type,
+	latest_event_payload
+FROM snapshot_runs
+UNION ALL
+SELECT
+	run_id,
+	has_snapshot,
+	template_id,
+	template_name,
+	principal_id,
+	session_id,
+	client_name,
+	client_version,
+	started_at,
+	latest_event_at,
+	updated_at,
+	status,
+	current_phase,
+	current_node_kind,
+	task_event_count,
+	action_event_count,
+	latest_event_type,
+	latest_event_payload
+FROM event_only_runs
+ORDER BY started_at DESC, run_id DESC
 `
 	if err := s.db.NewRaw(query).Scan(ctx, &rows); err != nil {
 		return nil, err
@@ -490,23 +648,31 @@ ORDER BY agg.started_at DESC, agg.task_run_id DESC
 	summaries := make([]TaskRunSummary, 0, len(rows))
 	for idx := range rows {
 		row := rows[idx]
+		status := row.Status
+		if row.HasSnapshot == 0 {
+			status = taskRunStatus(row.LatestEventType, row.LatestEventPayload, row.Status)
+		}
 		summary := TaskRunSummary{
 			RunID:            row.RunID,
 			TemplateID:       row.TemplateID,
+			TemplateName:     row.TemplateName,
 			PrincipalID:      row.PrincipalID,
 			SessionID:        row.SessionID,
 			ClientName:       row.ClientName,
 			ClientVersion:    row.ClientVersion,
 			StartedAt:        row.StartedAt,
-			Status:           taskRunStatus(row.LatestEventType, row.LatestEventPayload, row.Status),
+			Status:           status,
 			CurrentPhase:     row.CurrentPhase,
 			CurrentNodeKind:  row.CurrentNodeKind,
 			TaskEventCount:   row.TaskEventCount,
 			ActionEventCount: row.ActionEventCount,
 			EventCount:       row.TaskEventCount + row.ActionEventCount,
 		}
-		if isTerminalTaskEvent(row.LatestEventType, row.LatestEventPayload) {
+		if isTerminalTaskEvent(row.LatestEventType, row.LatestEventPayload) || isTerminalTaskStatus(status) {
 			endedAt := row.LatestEventAt
+			if endedAt == 0 {
+				endedAt = row.UpdatedAt
+			}
 			summary.EndedAt = &endedAt
 		}
 		summaries = append(summaries, summary)
@@ -749,6 +915,10 @@ func taskRunStatus(eventType string, payload json.RawMessage, fallback string) s
 		return string(taskverification.TaskStatusTimedOut)
 	}
 	return fallback
+}
+
+func isTerminalTaskStatus(status string) bool {
+	return status == string(taskverification.TaskStatusCompleted) || status == string(taskverification.TaskStatusFailed)
 }
 
 func payloadTaskStatus(payload json.RawMessage) string {

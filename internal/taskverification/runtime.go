@@ -37,6 +37,9 @@ func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) 
 	if handled, result, err := s.completePreviousStepIfNeeded(ctx, run, stepIndex); err != nil {
 		return nil, err
 	} else if handled {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+			return result, persistErr
+		}
 		return result, err
 	}
 	if err := ensureStepCanStart(run, stepIndex); err != nil {
@@ -44,14 +47,24 @@ func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) 
 	}
 
 	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, preConditionsForCheck); failed {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+			return result, persistErr
+		}
 		return result, nil
 	}
 	baselines, result, failed := s.captureInvariantBaselines(ctx, run, step, stepIndex, stepNumber)
 	if failed {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+			return result, persistErr
+		}
 		return result, nil
 	}
 
-	return startWorkflowStep(run, stepIndex, stepNumber, step.ID, baselines), nil
+	result = startWorkflowStep(run, stepIndex, stepNumber, step.ID, baselines)
+	if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+		return result, persistErr
+	}
+	return result, nil
 }
 
 // CompleteStep runs postconditions and invariant verification for an active step.
@@ -73,13 +86,23 @@ func (s *Service) completeWorkflowStep(ctx context.Context, run *RunState, stepI
 	}
 
 	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, postConditionsForCheck); failed {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+			return result, persistErr
+		}
 		return result, nil
 	}
 	if result, failed := s.verifyInvariants(ctx, run, step, stepIndex); failed {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+			return result, persistErr
+		}
 		return result, nil
 	}
 
-	return completeWorkflowStep(run, stepIndex, step), nil
+	result := completeWorkflowStep(run, stepIndex, step)
+	if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
+		return result, persistErr
+	}
+	return result, nil
 }
 
 func startWorkflowStep(run *RunState, stepIndex, stepNumber int, stepID string, baselines map[string]string) *StepResult {
@@ -354,6 +377,9 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 func failureResult(run *RunState, stepIndex, stepNumber int, stepID string, details *stepFailureDetails) *StepResult {
 	if details == nil {
 		details = &stepFailureDetails{}
+	}
+	if stepIndex >= 0 && stepIndex < len(run.Steps) {
+		run.Steps[stepIndex].Status = StepStatusFailed
 	}
 	message := details.summary
 	run.LastFailureMessage = message

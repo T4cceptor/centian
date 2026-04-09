@@ -47,6 +47,7 @@ func main() {
 			cli.InitCommand,
 			cli.StartCommand,
 			cli.DemoCommand,
+			cli.BenchmarkCommand,
 			cli.AuthCommand,
 			config.ServerCommand,
 			cli.ProcessorCommand,

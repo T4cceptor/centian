@@ -149,6 +149,8 @@ centian demo -a codex
 ```
 Note: for the codex demo centian will copy (and later cleanup) existing auth material for the OpenAI API.
 
+Use `-m` / `--model` to override the selected agent model, for example `centian demo -a codex -m gpt-5.4-mini`. Supported shorthand values are: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro`, `flash`, `2.5-flash`.
+
 **What the demo does**
 - Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
 - Start Centian server locally at an available port (selected automatically).

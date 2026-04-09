@@ -138,7 +138,7 @@ func TestStepWithoutChecksStillVerifiesInvariantDrift(t *testing.T) {
 	assert.Equal(t, result.FailurePhase, StepFailurePhaseInvariantVerify)
 	assert.Equal(t, result.FailedInvariantID, "stable_file")
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "after"))
-	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+	assert.Equal(t, run.Steps[0].Status, StepStatusFailed)
 }
 
 func TestStartStepFailsPreconditions(t *testing.T) {
@@ -171,7 +171,7 @@ workflow:
 	assert.Equal(t, result.Summary, result.Message)
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "ok"))
 	assert.Assert(t, result.ExitCode != nil)
-	assert.Equal(t, run.Steps[0].Status, StepStatusPending)
+	assert.Equal(t, run.Steps[0].Status, StepStatusFailed)
 }
 
 func TestScaffoldingStepTransitionsIntoExecution(t *testing.T) {
@@ -281,7 +281,7 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	err := service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready to plan"})
+	err := service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready to plan"})
 	assert.NilError(t, err)
 
 	_, err = service.StartStep(context.Background(), run, 1)
@@ -339,7 +339,7 @@ func TestCompleteStepFailsInvariantMismatch(t *testing.T) {
 	assert.Equal(t, result.FailurePhase, StepFailurePhaseInvariantVerify)
 	assert.Equal(t, result.FailedInvariantID, "stable_file")
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "after"))
-	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
+	assert.Equal(t, run.Steps[0].Status, StepStatusFailed)
 	assert.Assert(t, result.Message != "")
 }
 
@@ -509,14 +509,14 @@ workflow:
           command: "printf 'ok'"
 `)
 
-	err := service.FailTask(run, "stuck")
+	err := service.FailTask(context.Background(), run, "stuck")
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusFailed)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.ErrorContains(t, err, "task is failed")
 
-	err = service.RestartTask(run)
+	err = service.RestartTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
@@ -576,11 +576,11 @@ func newRuntimeTestService(t *testing.T, content string) (*Service, *RunState) {
 	assert.NilError(t, err)
 
 	service := NewService(dir, dir)
-	run, err := service.RegisterTask("task")
+	run, err := service.RegisterTask(context.Background(), "task")
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "Freeze the runtime test plan before execution."})
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{PlanSummary: "Freeze the runtime test plan before execution."})
 	assert.NilError(t, err)
 	return service, run
 }
@@ -593,7 +593,7 @@ func newRuntimeShellTestService(t *testing.T, content string) (*Service, *RunSta
 	assert.NilError(t, err)
 
 	service := NewService(dir, dir)
-	run, err := service.RegisterTask("task")
+	run, err := service.RegisterTask(context.Background(), "task")
 	assert.NilError(t, err)
 	return service, run
 }

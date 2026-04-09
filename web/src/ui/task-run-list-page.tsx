@@ -3,7 +3,14 @@ import { Link } from "react-router-dom";
 
 import { ApiError, fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
-import { formatDuration, formatTaskRunId, formatTimestamp, humanizePhase } from "./format";
+import {
+  formatDuration,
+  formatTaskRunId,
+  formatTemplateLabel,
+  formatTimestamp,
+  formatTimestampCompact,
+  humanizePhase,
+} from "./format";
 import { getTaskRunUIStatus } from "./task-run-status";
 
 // Tracks the high-level fetch state for the list view.
@@ -186,6 +193,10 @@ export function TaskRunListPage() {
         <div className="task-run-table__body" role="rowgroup">
           {runs.map((run) => {
             const uiStatus = getTaskRunUIStatus(run.status, run.endedAt);
+            const templateLabel = formatTemplateLabel(run.templateId, run.templateName);
+            const phaseLabel = getTaskRunDisplayPhase(run);
+            const startedLabel = formatTimestamp(run.startedAt);
+            const startedParts = formatTimestampCompact(run.startedAt);
             return (
               <Link
                 key={run.runId}
@@ -197,7 +208,7 @@ export function TaskRunListPage() {
                   <strong>{formatTaskRunId(run.runId)}</strong>
                 </span>
                 <span className="task-run-row__template" title={run.templateId}>
-                  {run.templateId}
+                  {templateLabel}
                 </span>
                 <span
                   className="task-run-row__agent"
@@ -208,8 +219,13 @@ export function TaskRunListPage() {
                 <span className="task-run-row__status">
                   <span className={`status-badge status-badge--${uiStatus}`}>{uiStatus}</span>
                 </span>
-                <span>{getTaskRunDisplayPhase(run)}</span>
-                <span>{formatTimestamp(run.startedAt)}</span>
+                <span className="task-run-row__phase" title={phaseLabel}>
+                  {phaseLabel}
+                </span>
+                <span className="task-run-row__started" title={startedLabel}>
+                  <span>{startedParts.date}</span>
+                  <span>{startedParts.time}</span>
+                </span>
                 <span>{formatDuration(run.startedAt, run.endedAt, now)}</span>
                 <span>{run.eventCount}</span>
               </Link>

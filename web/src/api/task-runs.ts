@@ -3,6 +3,7 @@ import { loadStoredApiAuth, unauthorizedAuthHeaderHint } from "./api-auth";
 export type TaskRunSummary = {
   runId: string;
   templateId: string;
+  templateName?: string;
   principalId?: string;
   sessionId?: string;
   clientName?: string;

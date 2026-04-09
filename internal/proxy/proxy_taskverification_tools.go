@@ -470,7 +470,7 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		return nil, fmt.Errorf("an active task is already registered for this session")
 	}
 
-	run, err := p.server.TaskVerification.RegisterTask(args.TemplateID)
+	run, err := p.server.TaskVerification.RegisterTask(ctx, args.TemplateID)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +494,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.CompleteOnboarding(session.taskRun, &args.Onboarding); err != nil {
+	if err := p.server.TaskVerification.CompleteOnboarding(ctx, session.taskRun, &args.Onboarding); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
@@ -522,7 +522,7 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.CompletePlanning(session.taskRun, &args.Planning); err != nil {
+	if err := p.server.TaskVerification.CompletePlanning(ctx, session.taskRun, &args.Planning); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
@@ -658,7 +658,7 @@ func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *Ups
 	defer session.taskMu.Unlock()
 
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
-	if err := p.server.TaskVerification.ResumeTask(session.taskRun); err != nil {
+	if err := p.server.TaskVerification.ResumeTask(ctx, session.taskRun); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
@@ -674,7 +674,7 @@ func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *Up
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.RestartTask(session.taskRun); err != nil {
+	if err := p.server.TaskVerification.RestartTask(ctx, session.taskRun); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"error": err.Error(),
 		})
@@ -695,7 +695,7 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.FailTask(session.taskRun, args.Reason); err != nil {
+	if err := p.server.TaskVerification.FailTask(ctx, session.taskRun, args.Reason); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
 			"reason": args.Reason,
 			"error":  err.Error(),
