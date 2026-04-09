@@ -516,6 +516,13 @@ func TestCodexWriteConfig(t *testing.T) {
 	assertFileContains(t, layout.CodexConfig, `default_tools_approval_mode = "auto"`)
 	assertFileContains(t, layout.CodexConfig, `destructive_enabled = false`)
 	assertFileContains(t, layout.CodexConfig, `open_world_enabled = false`)
+	data, err := os.ReadFile(layout.CodexConfig)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "__MODEL_BLOCK__") {
+		t.Fatalf("expected placeholder removed, got:\n%s", string(data))
+	}
 }
 
 func TestCodexOllamaWriteDefaultConfig(t *testing.T) {
@@ -602,6 +609,9 @@ func TestCodexWriteConfigNoModel(t *testing.T) {
 	}
 	if strings.Contains(string(data), "model =") {
 		t.Fatalf("expected no model line, got:\n%s", string(data))
+	}
+	if strings.Contains(string(data), "__MODEL_BLOCK__") {
+		t.Fatalf("expected placeholder removed, got:\n%s", string(data))
 	}
 }
 

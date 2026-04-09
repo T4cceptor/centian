@@ -75,9 +75,13 @@ func loadCodexConfigTemplate(baseConfigPath, defaultAssetName string) (string, e
 		if err != nil {
 			return "", fmt.Errorf("read codex config %q: %w", path, err)
 		}
-		return string(data), nil
+		return strings.ReplaceAll(string(data), "__MODEL_BLOCK__", ""), nil
 	}
-	return asset(defaultAssetName)
+	content, err := asset(defaultAssetName)
+	if err != nil {
+		return "", err
+	}
+	return strings.ReplaceAll(content, "__MODEL_BLOCK__", ""), nil
 }
 
 func patchCodexRuntimeConfig(content, mcpURL, workDir string) string {

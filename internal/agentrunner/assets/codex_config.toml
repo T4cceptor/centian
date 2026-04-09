@@ -1,4 +1,3 @@
-__MODEL_BLOCK__
 sandbox_mode = "read-only"
 
 [apps._default]
