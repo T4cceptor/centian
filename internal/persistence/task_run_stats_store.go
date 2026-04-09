@@ -61,33 +61,33 @@ func (s *Store) ListTaskRunStats(ctx context.Context) ([]TaskRunStatsRecord, err
 	return records, nil
 }
 
-func (s *Store) refreshTaskRunStatsForSnapshot(snapshot *taskruns.PersistedRunSnapshot) error {
+func (s *Store) refreshTaskRunStatsForSnapshot(ctx context.Context, snapshot *taskruns.PersistedRunSnapshot) error {
 	if snapshot == nil {
 		return nil
 	}
-	return s.recomputeTaskRunStats(context.Background(), snapshot.RunID)
+	return s.recomputeTaskRunStats(ctx, snapshot.RunID)
 }
 
-func (s *Store) refreshTaskRunStatsForTaskEvent(event *taskverification.TaskEvent) error {
+func (s *Store) refreshTaskRunStatsForTaskEvent(ctx context.Context, event *taskverification.TaskEvent) error {
 	if event == nil {
 		return nil
 	}
-	return s.recomputeTaskRunStats(context.Background(), event.TaskRunID)
+	return s.recomputeTaskRunStats(ctx, event.TaskRunID)
 }
 
-func (s *Store) refreshTaskRunStatsForActionContext(link taskverification.ActionEventTaskContext) error {
+func (s *Store) refreshTaskRunStatsForActionContext(ctx context.Context, link taskverification.ActionEventTaskContext) error {
 	if strings.TrimSpace(link.TaskRunID) == "" {
 		return nil
 	}
-	return s.recomputeTaskRunStats(context.Background(), link.TaskRunID)
+	return s.recomputeTaskRunStats(ctx, link.TaskRunID)
 }
 
-func (s *Store) refreshTaskRunStatsForActionRequest(requestID string) error {
+func (s *Store) refreshTaskRunStatsForActionRequest(ctx context.Context, requestID string) error {
 	if s == nil || s.db == nil || strings.TrimSpace(requestID) == "" {
 		return nil
 	}
 	rows := make([]actionEventTaskContextRow, 0)
-	if err := s.db.NewSelect().Model(&rows).Where("request_id = ?", requestID).Scan(context.Background()); err != nil {
+	if err := s.db.NewSelect().Model(&rows).Where("request_id = ?", requestID).Scan(ctx); err != nil {
 		return err
 	}
 	seen := make(map[string]struct{}, len(rows))
@@ -97,7 +97,7 @@ func (s *Store) refreshTaskRunStatsForActionRequest(requestID string) error {
 			continue
 		}
 		seen[runID] = struct{}{}
-		if err := s.recomputeTaskRunStats(context.Background(), runID); err != nil {
+		if err := s.recomputeTaskRunStats(ctx, runID); err != nil {
 			return err
 		}
 	}

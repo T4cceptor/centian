@@ -1,6 +1,7 @@
 package taskverification
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -70,7 +71,7 @@ workflow:
           command: "printf '%s' '${testName}'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
@@ -93,7 +94,7 @@ workflow:
     - id: "step_one"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 	run.Phase = TaskPhase("execution.step_one")
 	run.WorkflowReady = true
@@ -106,13 +107,13 @@ workflow:
 	run.LastActivityAt = 123
 	run.ExpiresAt = 456
 
-	err = service.TimeoutTask(run)
+	err = service.TimeoutTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusTimedOut)
 	assert.Equal(t, run.Phase, TaskPhase("execution.step_one"))
 	assert.Equal(t, run.Steps[0].Status, StepStatusActive)
 
-	err = service.ResumeTask(run)
+	err = service.ResumeTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Status, TaskStatusActive)
 	assert.Equal(t, run.Phase, TaskPhase("execution.step_one"))
@@ -264,13 +265,13 @@ workflow:
           command: "printf '%s' '${testName}:${expectedError}'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{
 		PlanSummary: "Freeze the resolved planning parameters before execution.",
 		Parameters: map[string]string{
 			"testName":      "TestThing",
@@ -303,13 +304,13 @@ workflow:
     - id: "Task ${taskName}"
 `, "free_form.yaml")
 
-	run, err := service.RegisterTask("free_form")
+	run, err := service.RegisterTask(context.Background(), "free_form")
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{
 		PlanSummary: "Freeze the resolved task-specific execution path.",
 		Parameters:  map[string]string{"taskName": "Investigate issue"},
 	})
@@ -347,13 +348,13 @@ workflow:
               value: "pytest:boom"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{
 		PlanSummary: "Freeze the editable planning parameters before execution.",
 		Parameters: map[string]string{
 			"testCommand":   "pytest",
@@ -382,7 +383,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 	assert.Assert(t, run.Onboarding == nil)
 
@@ -398,7 +399,7 @@ workflow:
 		OpenQuestions: []string{"Which test should planning target?"},
 	}
 
-	err = service.CompleteOnboarding(run, &artifact)
+	err = service.CompleteOnboarding(context.Background(), run, &artifact)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhasePlanning)
 	assert.Assert(t, run.Onboarding != nil)
@@ -423,7 +424,7 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 	assert.Assert(t, identifiers.IsKind(run.RunID, identifiers.KindTaskRun))
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
@@ -450,13 +451,13 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready again"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready again"})
 	assert.ErrorContains(t, err, "cannot transition to planning")
 }
 
@@ -478,10 +479,10 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{})
 	assert.ErrorContains(t, err, "onboarding.taskSummary is required")
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, run.Onboarding == nil)
@@ -505,12 +506,12 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "stored summary"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "stored summary"})
 	assert.NilError(t, err)
 
-	err = service.RestartTask(run)
+	err = service.RestartTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhaseOnboarding)
 	assert.Assert(t, run.Onboarding != nil)
@@ -536,10 +537,10 @@ workflow:
           command: "printf 'ok'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "Attempt to complete planning before onboarding should still fail by phase."})
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{PlanSummary: "Attempt to complete planning before onboarding should still fail by phase."})
 	assert.ErrorContains(t, err, "cannot transition to")
 }
 
@@ -564,16 +565,16 @@ workflow:
           command: "printf '%s' '${testTarget}'"
 `, "simple_tdd.yaml")
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 
-	err = service.CompletePlanning(run, &PlanningArtifact{})
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{})
 	assert.Assert(t, err != nil)
 	assert.ErrorContains(t, err, "planning.planSummary is required")
 
-	err = service.CompletePlanning(run, &PlanningArtifact{
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{
 		PlanSummary:   "Freeze the targeted test command and selected files before execution.",
 		Parameters:    map[string]string{"testTarget": "pytest -q"},
 		SelectedFiles: []string{"a.go", "a.go"},
@@ -694,11 +695,11 @@ workflow:
           command: "printf 'ok'"
 `, "approval_flow.yaml")
 
-	run, err := service.RegisterTask("approval_flow")
+	run, err := service.RegisterTask(context.Background(), "approval_flow")
 	assert.NilError(t, err)
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "Freeze the plan before waiting for approval."})
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{PlanSummary: "Freeze the plan before waiting for approval."})
 	assert.NilError(t, err)
 	assert.Equal(t, run.Phase, TaskPhase("waiting_for_approval.review_plan"))
 	node, exists := run.CurrentNode()

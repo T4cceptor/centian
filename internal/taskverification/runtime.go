@@ -37,7 +37,7 @@ func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) 
 	if handled, result, err := s.completePreviousStepIfNeeded(ctx, run, stepIndex); err != nil {
 		return nil, err
 	} else if handled {
-		if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
 		return result, err
@@ -47,21 +47,21 @@ func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) 
 	}
 
 	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, preConditionsForCheck); failed {
-		if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
 		return result, nil
 	}
 	baselines, result, failed := s.captureInvariantBaselines(ctx, run, step, stepIndex, stepNumber)
 	if failed {
-		if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
 		return result, nil
 	}
 
 	result = startWorkflowStep(run, stepIndex, stepNumber, step.ID, baselines)
-	if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+	if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 		return result, persistErr
 	}
 	return result, nil
@@ -86,20 +86,20 @@ func (s *Service) completeWorkflowStep(ctx context.Context, run *RunState, stepI
 	}
 
 	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, postConditionsForCheck); failed {
-		if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
 		return result, nil
 	}
 	if result, failed := s.verifyInvariants(ctx, run, step, stepIndex); failed {
-		if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
 		return result, nil
 	}
 
 	result := completeWorkflowStep(run, stepIndex, step)
-	if persistErr := s.persistRunSnapshot(run); persistErr != nil {
+	if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 		return result, persistErr
 	}
 	return result, nil

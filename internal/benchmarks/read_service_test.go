@@ -51,7 +51,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
 	}
-	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "tr_compile",
 		TemplateID:   "simple_tdd",
 		TemplateName: "Simple TDD Current",
@@ -61,7 +61,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 			Task: taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Current"},
 		},
 	}))
-	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "tr_assert",
 		TemplateID:   "simple_tdd",
 		TemplateName: "Simple TDD Current",

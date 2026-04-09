@@ -1,6 +1,7 @@
 package taskverification
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -9,17 +10,17 @@ import (
 
 // RunStore persists the latest snapshot for one task run.
 type RunStore interface {
-	UpsertTaskRunSnapshot(*taskruns.PersistedRunSnapshot) error
+	UpsertTaskRunSnapshot(context.Context, *taskruns.PersistedRunSnapshot) error
 }
 
 type noopRunStore struct{}
 
 // UpsertTaskRunSnapshot satisfies RunStore for non-persistent service setups.
-func (noopRunStore) UpsertTaskRunSnapshot(*taskruns.PersistedRunSnapshot) error {
+func (noopRunStore) UpsertTaskRunSnapshot(context.Context, *taskruns.PersistedRunSnapshot) error {
 	return nil
 }
 
-func (s *Service) persistRunSnapshot(run *RunState) error {
+func (s *Service) persistRunSnapshot(ctx context.Context, run *RunState) error {
 	if s == nil || s.RunStore == nil || run == nil {
 		return nil
 	}
@@ -27,7 +28,7 @@ func (s *Service) persistRunSnapshot(run *RunState) error {
 	if err != nil {
 		return err
 	}
-	return s.RunStore.UpsertTaskRunSnapshot(snapshot)
+	return s.RunStore.UpsertTaskRunSnapshot(ctx, snapshot)
 }
 
 func snapshotRunState(run *RunState) (*taskruns.PersistedRunSnapshot, error) {

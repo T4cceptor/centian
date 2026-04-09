@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/taskverification"
@@ -87,7 +88,7 @@ func (p *CentianEndpoint) timeoutActiveTaskLocked(session *UpstreamSession, rela
 	}
 
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(run)
-	if err := p.server.TaskVerification.TimeoutTask(run); err != nil {
+	if err := p.server.TaskVerification.TimeoutTask(context.Background(), run); err != nil {
 		return
 	}
 	session.taskTimeoutVersion++

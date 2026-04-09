@@ -11,7 +11,7 @@ import (
 )
 
 // UpsertTaskRunSnapshot persists or replaces the latest snapshot for one task run.
-func (s *Store) UpsertTaskRunSnapshot(snapshot *taskruns.PersistedRunSnapshot) error {
+func (s *Store) UpsertTaskRunSnapshot(ctx context.Context, snapshot *taskruns.PersistedRunSnapshot) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("task run store is not initialized")
 	}
@@ -60,10 +60,10 @@ func (s *Store) UpsertTaskRunSnapshot(snapshot *taskruns.PersistedRunSnapshot) e
 		Set("status = EXCLUDED.status").
 		Set("phase = EXCLUDED.phase").
 		Set("payload_json = EXCLUDED.payload_json").
-		Exec(context.Background()); err != nil {
+		Exec(ctx); err != nil {
 		return err
 	}
-	return s.refreshTaskRunStatsForSnapshot(snapshot)
+	return s.refreshTaskRunStatsForSnapshot(ctx, snapshot)
 }
 
 // GetTaskRunSnapshot returns one persisted run snapshot by id.

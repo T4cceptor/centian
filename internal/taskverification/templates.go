@@ -1,6 +1,7 @@
 package taskverification
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -82,7 +83,7 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 }
 
 // RegisterTask creates a shell task run from the selected template.
-func (s *Service) RegisterTask(templateID string) (*RunState, error) {
+func (s *Service) RegisterTask(ctx context.Context, templateID string) (*RunState, error) {
 	template, err := s.loadTemplateByID(templateID)
 	if err != nil {
 		return nil, err
@@ -96,14 +97,14 @@ func (s *Service) RegisterTask(templateID string) (*RunState, error) {
 		Phase:            template.CompiledWorkflow.OnboardingPath,
 		WorkflowReady:    false,
 	}
-	if err := s.persistRunSnapshot(run); err != nil {
+	if err := s.persistRunSnapshot(ctx, run); err != nil {
 		return nil, err
 	}
 	return run, nil
 }
 
 // CompleteOnboarding validates and persists onboarding context, then advances to planning.
-func (s *Service) CompleteOnboarding(run *RunState, artifact *OnboardingArtifact) error {
+func (s *Service) CompleteOnboarding(ctx context.Context, run *RunState, artifact *OnboardingArtifact) error {
 	if err := validateOnboardingArtifact(artifact); err != nil {
 		return err
 	}
@@ -114,11 +115,11 @@ func (s *Service) CompleteOnboarding(run *RunState, artifact *OnboardingArtifact
 	artifactCopy := cloneOnboardingArtifact(artifact)
 	run.Onboarding = &artifactCopy
 	run.LastFailureMessage = ""
-	return s.persistRunSnapshot(run)
+	return s.persistRunSnapshot(ctx, run)
 }
 
 // CompletePlanning validates and freezes planning context, then enters execution.
-func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) error {
+func (s *Service) CompletePlanning(ctx context.Context, run *RunState, artifact *PlanningArtifact) error {
 	if err := validatePlanningArtifact(&run.SelectedTemplate, artifact); err != nil {
 		return err
 	}
@@ -144,11 +145,11 @@ func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) er
 	run.RunnableTemplate = &resolved
 	run.Steps = stepStates
 	run.LastFailureMessage = ""
-	return s.persistRunSnapshot(run)
+	return s.persistRunSnapshot(ctx, run)
 }
 
 // RestartTask resets an existing task run back to its onboarding shell state.
-func (s *Service) RestartTask(run *RunState) error {
+func (s *Service) RestartTask(ctx context.Context, run *RunState) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
@@ -163,11 +164,11 @@ func (s *Service) RestartTask(run *RunState) error {
 	run.ExplicitFailReason = ""
 	run.LastActivityAt = 0
 	run.ExpiresAt = 0
-	return s.persistRunSnapshot(run)
+	return s.persistRunSnapshot(ctx, run)
 }
 
 // FailTask marks a task run as failed without running additional checks.
-func (s *Service) FailTask(run *RunState, reason string) error {
+func (s *Service) FailTask(ctx context.Context, run *RunState, reason string) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
@@ -176,11 +177,11 @@ func (s *Service) FailTask(run *RunState, reason string) error {
 	run.ExplicitFailReason = strings.TrimSpace(reason)
 	run.LastFailureMessage = run.ExplicitFailReason
 	run.ExpiresAt = 0
-	return s.persistRunSnapshot(run)
+	return s.persistRunSnapshot(ctx, run)
 }
 
 // TimeoutTask marks an active task run as timed out without changing its phase or steps.
-func (s *Service) TimeoutTask(run *RunState) error {
+func (s *Service) TimeoutTask(ctx context.Context, run *RunState) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
@@ -189,11 +190,11 @@ func (s *Service) TimeoutTask(run *RunState) error {
 	}
 
 	run.Status = TaskStatusTimedOut
-	return s.persistRunSnapshot(run)
+	return s.persistRunSnapshot(ctx, run)
 }
 
 // ResumeTask reactivates a timed-out task run without resetting its workflow progress.
-func (s *Service) ResumeTask(run *RunState) error {
+func (s *Service) ResumeTask(ctx context.Context, run *RunState) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
 	}
@@ -204,7 +205,7 @@ func (s *Service) ResumeTask(run *RunState) error {
 	run.Status = TaskStatusActive
 	run.LastFailureMessage = ""
 	run.ExpiresAt = 0
-	return s.persistRunSnapshot(run)
+	return s.persistRunSnapshot(ctx, run)
 }
 
 func freezeRunnableContract(run *RunState, planning *PlanningArtifact) (Template, []StepState, error) {

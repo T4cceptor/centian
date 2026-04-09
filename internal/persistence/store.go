@@ -461,7 +461,7 @@ func (s *Store) AppendTaskEvent(event *taskverification.TaskEvent) error {
 	if _, err := s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
 		return err
 	}
-	return s.refreshTaskRunStatsForTaskEvent(event)
+	return s.refreshTaskRunStatsForTaskEvent(context.Background(), event)
 }
 
 // AppendActionEventTaskContext persists one action-to-task bridge record.
@@ -476,7 +476,7 @@ func (s *Store) AppendActionEventTaskContext(ctx taskverification.ActionEventTas
 	if _, err := s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
 		return err
 	}
-	return s.refreshTaskRunStatsForActionContext(ctx)
+	return s.refreshTaskRunStatsForActionContext(context.Background(), ctx)
 }
 
 // AppendActionEvent persists one action event projected from the MCP request log.
@@ -513,7 +513,7 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 	if _, err = s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
 		return err
 	}
-	return s.refreshTaskRunStatsForActionRequest(entry.RequestID)
+	return s.refreshTaskRunStatsForActionRequest(context.Background(), entry.RequestID)
 }
 
 // ListTaskRuns returns aggregated task run summaries ordered by start time descending.

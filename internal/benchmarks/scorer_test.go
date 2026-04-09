@@ -235,7 +235,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 	store, err := persistence.NewSQLiteStore(sharedEventStorePath)
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
-	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        taskRunID,
 		TemplateID:   "simple_tdd",
 		TemplateName: "Simple TDD Current",

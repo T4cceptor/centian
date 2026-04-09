@@ -70,7 +70,7 @@ func TestTaskRunStatsTrackLifecycleAndToolCalls(t *testing.T) {
 			},
 		},
 	}
-	assert.NilError(t, store.UpsertTaskRunSnapshot(snapshot))
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), snapshot))
 
 	now := time.Now().UTC()
 	assert.NilError(t, store.AppendTaskEvent(&taskverification.TaskEvent{
@@ -148,7 +148,7 @@ func TestTaskRunStatsUpdateWhenActionArrivesBeforeContext(t *testing.T) {
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	assert.NilError(t, store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "run-1",
 		TemplateID:   "simple_tdd",
 		TemplateName: "Simple TDD Task",

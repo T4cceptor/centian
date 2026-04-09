@@ -11,9 +11,11 @@ import (
 
 type captureRunStore struct {
 	snapshots []*taskruns.PersistedRunSnapshot
+	lastCtx   context.Context
 }
 
-func (s *captureRunStore) UpsertTaskRunSnapshot(snapshot *taskruns.PersistedRunSnapshot) error {
+func (s *captureRunStore) UpsertTaskRunSnapshot(ctx context.Context, snapshot *taskruns.PersistedRunSnapshot) error {
+	s.lastCtx = ctx
 	payload, err := json.Marshal(snapshot)
 	if err != nil {
 		return err
@@ -31,6 +33,30 @@ func (s *captureRunStore) latest() *taskruns.PersistedRunSnapshot {
 		return nil
 	}
 	return s.snapshots[len(s.snapshots)-1]
+}
+
+func TestRegisterTaskPassesContextToRunStore(t *testing.T) {
+	service := newTemplateTestService(t, `
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Simple TDD Task"
+  description: "Test driven task"
+workflow:
+  onboarding: {}
+  planning: {}
+  execution:
+    - id: "step_one"
+`, "simple_tdd.yaml")
+	store := &captureRunStore{}
+	service.RunStore = store
+
+	ctx := context.WithValue(context.Background(), struct{}{}, "request-scope")
+	run, err := service.RegisterTask(ctx, "simple_tdd")
+	assert.NilError(t, err)
+	assert.Equal(t, run.TemplateID, "simple_tdd")
+	assert.Assert(t, store.lastCtx != nil)
+	assert.Equal(t, store.lastCtx.Value(struct{}{}), "request-scope")
 }
 
 func TestRegisterAndPlanningPersistTaskRunSnapshots(t *testing.T) {
@@ -61,18 +87,18 @@ workflow:
 	store := &captureRunStore{}
 	service.RunStore = store
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 	assert.Equal(t, len(store.snapshots), 1)
 	assert.Equal(t, store.latest().TemplateName, "Simple TDD Task")
 	assert.Equal(t, store.latest().SelectedTemplate.Task.Name, "Simple TDD Task")
 	assert.Assert(t, store.latest().RunnableTemplate == nil)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
 	assert.Equal(t, store.latest().Onboarding.TaskSummary, "ready")
 
-	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "freeze"})
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{PlanSummary: "freeze"})
 	assert.NilError(t, err)
 	assert.Equal(t, store.latest().Planning.PlanSummary, "freeze")
 	assert.Assert(t, store.latest().RunnableTemplate != nil)
@@ -97,28 +123,28 @@ workflow:
 	store := &captureRunStore{}
 	service.RunStore = store
 
-	run, err := service.RegisterTask("simple_tdd")
+	run, err := service.RegisterTask(context.Background(), "simple_tdd")
 	assert.NilError(t, err)
 
-	err = service.CompleteOnboarding(run, &OnboardingArtifact{TaskSummary: "ready"})
+	err = service.CompleteOnboarding(context.Background(), run, &OnboardingArtifact{TaskSummary: "ready"})
 	assert.NilError(t, err)
-	err = service.CompletePlanning(run, &PlanningArtifact{PlanSummary: "freeze"})
+	err = service.CompletePlanning(context.Background(), run, &PlanningArtifact{PlanSummary: "freeze"})
 	assert.NilError(t, err)
 
-	err = service.TimeoutTask(run)
+	err = service.TimeoutTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, store.latest().Status, string(TaskStatusTimedOut))
 
-	err = service.ResumeTask(run)
+	err = service.ResumeTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, store.latest().Status, string(TaskStatusActive))
 
-	err = service.FailTask(run, "stuck")
+	err = service.FailTask(context.Background(), run, "stuck")
 	assert.NilError(t, err)
 	assert.Equal(t, store.latest().Status, string(TaskStatusFailed))
 	assert.Equal(t, store.latest().ExplicitFailReason, "stuck")
 
-	err = service.RestartTask(run)
+	err = service.RestartTask(context.Background(), run)
 	assert.NilError(t, err)
 	assert.Equal(t, store.latest().Status, string(TaskStatusActive))
 	assert.Assert(t, store.latest().Planning == nil)

@@ -638,7 +638,7 @@ func TestListTaskRunsPrefersPersistedSnapshotMetadata(t *testing.T) {
 		Payload:            json.RawMessage(`{"status":"active"}`),
 	})
 
-	err = store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+	err = store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "run-1",
 		TemplateID:   "simple_tdd",
 		TemplateName: "Simple TDD Task",
@@ -667,7 +667,7 @@ func TestListTaskRunsIncludesSnapshotOnlyRuns(t *testing.T) {
 		_ = store.Close()
 	})
 
-	err = store.UpsertTaskRunSnapshot(&taskruns.PersistedRunSnapshot{
+	err = store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "run-only-snapshot",
 		TemplateID:   "simple_tdd",
 		TemplateName: "Simple TDD Task",
