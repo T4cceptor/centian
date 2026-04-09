@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -416,7 +417,11 @@ func (s *Store) migrateV3ToV4(ctx context.Context) error {
 }
 
 func (s *Store) migrateV9ToV10(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
+	if _, err := s.db.ExecContext(ctx,
+		`ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
+		if strings.Contains(err.Error(), "duplicate column name") {
+			return nil
+		}
 		return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
 	}
 	return nil
