@@ -483,8 +483,16 @@ code,
   font-variant-numeric: normal;
 }
 
+.benchmark-event-split__centian {
+  color: rgb(167, 139, 250);
+}
+
 .benchmark-error-split__centian {
   color: var(--accent-danger);
+}
+
+.benchmark-event-split__mcp {
+  color: rgb(50, 210, 250);
 }
 
 .benchmark-error-split__mcp {

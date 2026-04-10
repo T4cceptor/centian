@@ -279,12 +279,14 @@ function ScorecardMetricTable({ rows, dimensionLabel }: { rows: ScorecardMetricR
               totalMcp={row.totalDownstreamToolCalls}
               medianCentian={row.medianTaskToolCalls}
               medianMcp={row.medianDownstreamToolCalls}
+              isEvent={true}
             />
             <ScorecardSplitMetric
               totalCentian={row.totalCentianErrors}
               totalMcp={row.totalDownstreamToolErrors}
               medianCentian={row.medianCentianErrors}
               medianMcp={row.medianDownstreamToolErrors}
+              isEvent={false}
             />
             <span>{formatBenchmarkSeconds(row.medianDurationMillis / 1000)}</span>
             <span className={`benchmark-analysis-row__success ${successRateClassName(row.successRate)}`}>
@@ -305,24 +307,32 @@ function ScorecardSplitMetric({
   totalMcp,
   medianCentian,
   medianMcp,
+  isEvent,
 }: {
   totalCentian: number;
   totalMcp: number;
   medianCentian: number;
   medianMcp: number;
+  isEvent: boolean;
 }) {
+  let centianClassName = "benchmark-error-split__centian"
+  let mcpClassName = "benchmark-error-split__mcp"
+  if (isEvent) {
+    centianClassName = "benchmark-event-split__centian"
+    mcpClassName = "benchmark-event-split__mcp"
+  }
   return (
     <span className="benchmark-metric-stack">
       <span className="benchmark-error-split">
-        <span className="benchmark-error-split__centian">{totalCentian}</span>
+        <span className={centianClassName}>{totalCentian}</span>
         <span>/</span>
-        <span className="benchmark-error-split__mcp">{totalMcp}</span>
+        <span className={mcpClassName}>{totalMcp}</span>
         <small>Total</small>
       </span>
       <span className="benchmark-error-split">
-        <span className="benchmark-error-split__centian">{medianCentian}</span>
+        <span className={centianClassName}>{medianCentian}</span>
         <span>/</span>
-        <span className="benchmark-error-split__mcp">{medianMcp}</span>
+        <span className={mcpClassName}>{medianMcp}</span>
         <small>Median</small>
       </span>
     </span>
