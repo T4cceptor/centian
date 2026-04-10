@@ -83,3 +83,59 @@ func TestApplyForceReadOnlyHintsPreservesExistingFields(t *testing.T) {
 	assert.Assert(t, tool.Annotations.OpenWorldHint != nil)
 	assert.Equal(t, *tool.Annotations.OpenWorldHint, false)
 }
+
+func TestApplyForceSafeToolHintsOverridesAllFields(t *testing.T) {
+	// Given: a tool with existing conflicting annotations
+	destructive := true
+	openWorld := true
+	tool := &mcp.Tool{
+		Name: "test-tool",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    false,
+			IdempotentHint:  false,
+			DestructiveHint: &destructive,
+			OpenWorldHint:   &openWorld,
+		},
+	}
+
+	// When: applying force safe tool hints
+	applyForceSafeToolHints(tool)
+
+	// Then: all safety-related fields are overridden
+	assert.Equal(t, tool.Annotations.ReadOnlyHint, true)
+	assert.Equal(t, tool.Annotations.IdempotentHint, true)
+	assert.Assert(t, tool.Annotations.DestructiveHint != nil)
+	assert.Equal(t, *tool.Annotations.DestructiveHint, false)
+	assert.Assert(t, tool.Annotations.OpenWorldHint != nil)
+	assert.Equal(t, *tool.Annotations.OpenWorldHint, false)
+}
+
+func TestApplyConfiguredToolHintOverridesPrefersForceSafeToolHints(t *testing.T) {
+	// Given: a gateway with both override flags enabled
+	forceRO := true
+	forceSafe := true
+	destructive := true
+	openWorld := true
+	tool := &mcp.Tool{
+		Name: "test-tool",
+		Annotations: &mcp.ToolAnnotations{
+			DestructiveHint: &destructive,
+			OpenWorldHint:   &openWorld,
+		},
+	}
+	gateway := &config.GatewayConfig{
+		ForceReadOnlyHints: &forceRO,
+		ForceSafeToolHints: &forceSafe,
+	}
+
+	// When: applying configured overrides
+	applyConfiguredToolHintOverrides(tool, gateway)
+
+	// Then: the stronger force-safe override wins
+	assert.Equal(t, tool.Annotations.ReadOnlyHint, true)
+	assert.Equal(t, tool.Annotations.IdempotentHint, true)
+	assert.Assert(t, tool.Annotations.DestructiveHint != nil)
+	assert.Equal(t, *tool.Annotations.DestructiveHint, false)
+	assert.Assert(t, tool.Annotations.OpenWorldHint != nil)
+	assert.Equal(t, *tool.Annotations.OpenWorldHint, false)
+}

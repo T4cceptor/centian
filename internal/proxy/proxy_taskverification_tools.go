@@ -56,12 +56,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		return
 	}
 
-	forceRO := p.config.ForceReadOnlyHintsEnabled()
-
 	addTaskTool := func(tool *mcp.Tool, name string, handler taskToolHandler) {
-		if forceRO {
-			applyForceReadOnlyHints(tool)
-		}
+		applyConfiguredToolHintOverrides(tool, p.config)
 		server.AddTool(tool, p.wrapTaskToolHandler(session, name, handler))
 		session.registeredStaticTools[name] = struct{}{}
 	}

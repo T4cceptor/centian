@@ -2083,3 +2083,44 @@ func TestForceReadOnlyHintsOverridesAllTaskToolAnnotations(t *testing.T) {
 		assert.Equal(t, tool.Annotations.ReadOnlyHint, true, "expected ReadOnlyHint=true on %s", toolName)
 	}
 }
+
+func TestForceSafeToolHintsOverridesAllTaskToolAnnotations(t *testing.T) {
+	// Given: a proxy endpoint with ForceSafeToolHints enabled
+	forceSafe := true
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	endpoint.config.ForceSafeToolHints = &forceSafe
+
+	// When: re-registering tools with the flag (clear previous registrations first)
+	session.registeredStaticTools = make(map[string]struct{})
+	session.upstreamServer = endpoint.newUpstreamServer(session)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	result, err := clientSession.ListTools(context.Background(), nil)
+	assert.NilError(t, err)
+
+	// Then: all task verification tools expose conservative safe hints
+	byName := make(map[string]*mcp.Tool, len(result.Tools))
+	for _, tool := range result.Tools {
+		if tool == nil {
+			continue
+		}
+		byName[tool.Name] = tool
+	}
+
+	allTaskTools := []string{
+		taskListTemplatesTool,
+		taskRegisterTool,
+		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
+		taskStartStepTool,
+		taskCompleteStepTool,
+		taskResumeTool,
+		taskRestartTool,
+		taskFailTool,
+	}
+	for _, toolName := range allTaskTools {
+		assertSafeToolHints(t, byName[toolName], toolName)
+	}
+}
