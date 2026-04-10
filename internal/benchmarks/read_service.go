@@ -2,6 +2,8 @@ package benchmarks
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -58,7 +60,18 @@ func (s *ReadService) ListAgentScorecards(ctx context.Context) ([]AgentScorecard
 	return s.query.ListAgentScorecards(ctx)
 }
 
-func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, scorecard *RunScorecard) BenchmarkRunSummary {
+func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, session *persistence.BenchmarkSessionRecord, score *persistence.BenchmarkRunScoreRecord) BenchmarkRunSummary {
+	scorecard, scoreErr := scorecardFromSnapshot(score)
+	if scoreErr != nil {
+		return unscoredRunSummary(session, item, []string{scoreErr.Error()})
+	}
+	if scorecard == nil {
+		errors := []string{"benchmark score unavailable"}
+		if score != nil && len(score.ScoreErrors) > 0 {
+			errors = append([]string(nil), score.ScoreErrors...)
+		}
+		return unscoredRunSummary(session, item, errors)
+	}
 	return BenchmarkRunSummary{
 		ScorecardID:               item.BenchmarkRunID,
 		SessionID:                 item.SessionID,
@@ -74,6 +87,7 @@ func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, scorecard *R
 		TemplateVariant:           scorecard.TemplateVariant,
 		Attempt:                   scorecard.Attempt,
 		RawStatus:                 scorecard.RawStatus,
+		Scored:                    true,
 		LatestTaskRunID:           scorecard.LatestTaskRunID,
 		LinkedTaskRunIDs:          append([]string(nil), scorecard.LinkedTaskRunIDs...),
 		CompletedSuccessfully:     scorecard.Outcome.CompletedSuccessfully,
@@ -99,24 +113,34 @@ func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, scorecard *R
 	}
 }
 
-func runSummaryFromRecord(session persistence.BenchmarkSessionRecord, item persistence.BenchmarkRunRecord, err error) BenchmarkRunSummary {
+func unscoredRunSummary(session *persistence.BenchmarkSessionRecord, item *persistence.BenchmarkRunRecord, errors []string) BenchmarkRunSummary {
+	suiteID := ""
+	suiteName := ""
+	sessionPath := ""
+	if session != nil {
+		suiteID = session.SuiteID
+		suiteName = session.SuiteName
+		sessionPath = session.SessionPath
+	}
 	return BenchmarkRunSummary{
 		ScorecardID:      item.BenchmarkRunID,
 		SessionID:        item.SessionID,
-		SessionPath:      session.SessionPath,
-		SuiteID:          session.SuiteID,
-		SuiteName:        suiteNameFromPath(session.SuitePath),
+		SessionPath:      sessionPath,
+		SuiteID:          suiteID,
+		SuiteName:        suiteName,
 		TemplateID:       item.TemplateID,
+		TemplateName:     item.TemplateName,
 		CaseID:           item.CaseID,
-		CaseName:         caseNamesFromSuitePath(session.SuitePath)[item.CaseID],
+		CaseName:         item.CaseName,
 		Agent:            item.Agent,
 		SelectedModel:    item.SelectedModel,
 		TemplateVariant:  item.TemplateVariant,
 		Attempt:          item.Attempt,
 		RawStatus:        item.Status,
+		Scored:           false,
 		LatestTaskRunID:  item.LatestTaskRunID,
 		LinkedTaskRunIDs: append([]string(nil), item.LinkedTaskRunIDs...),
-		Errors:           []string{err.Error()},
+		Errors:           append([]string(nil), errors...),
 	}
 }
 
@@ -131,7 +155,7 @@ func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 		RawStatus:                 run.RawStatus,
 		LatestTaskRunID:           run.LatestTaskRunID,
 		LinkedTaskRunIDs:          append([]string(nil), run.LinkedTaskRunIDs...),
-		Scored:                    len(run.Errors) == 0,
+		Scored:                    run.Scored,
 		CompletedSuccessfully:     run.CompletedSuccessfully,
 		FinalVerificationPassed:   run.FinalVerificationPassed,
 		FirstPassSuccess:          run.FirstPassSuccess,
@@ -141,6 +165,8 @@ func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 		TimeoutOccurred:           run.TimeoutOccurred,
 		WallClockSeconds:          run.WallClockSeconds,
 		TotalToolCalls:            run.TotalToolCalls,
+		TotalTaskToolCalls:        run.TotalTaskToolCalls,
+		TotalDownstreamToolCalls:  run.TotalDownstreamToolCalls,
 		InputTokens:               run.InputTokens,
 		OutputTokens:              run.OutputTokens,
 		FailedTaskToolCalls:       run.FailedTaskToolCalls,
@@ -151,6 +177,20 @@ func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 		Warnings:                  append([]string(nil), run.Warnings...),
 		Errors:                    append([]string(nil), run.Errors...),
 	}
+}
+
+func scorecardFromSnapshot(score *persistence.BenchmarkRunScoreRecord) (*RunScorecard, error) {
+	if score == nil || strings.TrimSpace(score.ScoreStatus) != benchmarkRunScoreStatusReady {
+		return nil, nil
+	}
+	if len(score.ScorecardJSON) == 0 {
+		return nil, fmt.Errorf("benchmark run score snapshot is missing scorecard payload")
+	}
+	var scorecard RunScorecard
+	if err := json.Unmarshal(score.ScorecardJSON, &scorecard); err != nil {
+		return nil, fmt.Errorf("unmarshal benchmark run score snapshot: %w", err)
+	}
+	return &scorecard, nil
 }
 
 func sortedSetValues(set map[string]struct{}) []string {

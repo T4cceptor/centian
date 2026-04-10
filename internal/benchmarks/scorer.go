@@ -181,6 +181,8 @@ type RunSummaryRow struct {
 	TimeoutOccurred           bool           `json:"timeoutOccurred"`
 	WallClockSeconds          float64        `json:"wallClockSeconds"`
 	TotalToolCalls            int            `json:"totalToolCalls"`
+	TotalTaskToolCalls        int            `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls  int            `json:"totalDownstreamToolCalls"`
 	InputTokens               *int64         `json:"inputTokens,omitempty"`
 	OutputTokens              *int64         `json:"outputTokens,omitempty"`
 	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
@@ -213,6 +215,8 @@ type AggregateSummary struct {
 	MedianFailedTaskToolCalls       float64  `json:"medianFailedTaskToolCalls"`
 	MedianFailedDownstreamToolCalls float64  `json:"medianFailedDownstreamToolCalls"`
 	MedianEditedFilesCount          float64  `json:"medianEditedFilesCount"`
+	TotalTaskToolCalls              int      `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls        int      `json:"totalDownstreamToolCalls"`
 	ManualActionabilityCount        int      `json:"manualActionabilityCount"`
 	AverageManualActionabilityScore *float64 `json:"averageManualActionabilityScore,omitempty"`
 }
@@ -375,6 +379,8 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	row.TimeoutOccurred = scorecard.Outcome.TimeoutOccurred
 	row.WallClockSeconds = scorecard.Efficiency.WallClockSeconds
 	row.TotalToolCalls = scorecard.Efficiency.TotalToolCalls
+	row.TotalTaskToolCalls = scorecard.Process.TotalTaskToolCalls
+	row.TotalDownstreamToolCalls = scorecard.Process.TotalDownstreamToolCalls
 	row.InputTokens = scorecard.Efficiency.InputTokens
 	row.OutputTokens = scorecard.Efficiency.OutputTokens
 	row.FailedTaskToolCalls = scorecard.Process.FailedTaskToolCalls
@@ -448,6 +454,7 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 	}
 	summaries := make([]AggregateSummary, 0, len(grouped))
 	for key, group := range grouped {
+		scoredGroup := filterScoredRows(group)
 		summary := AggregateSummary{
 			Key:                             key,
 			SessionPath:                     keys[key].SessionPath,
@@ -455,28 +462,40 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 			Agent:                           keys[key].Agent,
 			TemplateVariant:                 keys[key].TemplateVariant,
 			RunCount:                        len(group),
-			ScoredRunCount:                  len(group),
-			SuccessRate:                     rate(group, func(row RunSummaryRow) bool { return row.CompletedSuccessfully }),
-			FirstPassSuccessRate:            rate(group, func(row RunSummaryRow) bool { return row.FirstPassSuccess }),
-			FinalVerificationPassRate:       rate(group, func(row RunSummaryRow) bool { return row.FinalVerificationPassed }),
-			InvariantViolationRate:          rate(group, func(row RunSummaryRow) bool { return row.InvariantViolation }),
-			RestartFailTimeoutRate:          rate(group, func(row RunSummaryRow) bool { return row.RestartOccurred || row.FailOccurred || row.TimeoutOccurred }),
-			MedianWallClockSeconds:          medianFloat(extractFloat(group, func(row RunSummaryRow) float64 { return row.WallClockSeconds })),
-			MedianTotalToolCalls:            medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.TotalToolCalls })),
-			MedianInputTokens:               medianFloat(extractOptionalInt64(group, func(row RunSummaryRow) *int64 { return row.InputTokens })),
-			MedianOutputTokens:              medianFloat(extractOptionalInt64(group, func(row RunSummaryRow) *int64 { return row.OutputTokens })),
-			MedianFailedTaskToolCalls:       medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.FailedTaskToolCalls })),
-			MedianFailedDownstreamToolCalls: medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.FailedDownstreamToolCalls })),
-			MedianEditedFilesCount:          medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.EditedFilesCount })),
-			ManualActionabilityCount:        count(group, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
+			ScoredRunCount:                  len(scoredGroup),
+			SuccessRate:                     rate(scoredGroup, func(row RunSummaryRow) bool { return row.CompletedSuccessfully }),
+			FirstPassSuccessRate:            rate(scoredGroup, func(row RunSummaryRow) bool { return row.FirstPassSuccess }),
+			FinalVerificationPassRate:       rate(scoredGroup, func(row RunSummaryRow) bool { return row.FinalVerificationPassed }),
+			InvariantViolationRate:          rate(scoredGroup, func(row RunSummaryRow) bool { return row.InvariantViolation }),
+			RestartFailTimeoutRate:          rate(scoredGroup, func(row RunSummaryRow) bool { return row.RestartOccurred || row.FailOccurred || row.TimeoutOccurred }),
+			MedianWallClockSeconds:          medianFloat(extractFloat(scoredGroup, func(row RunSummaryRow) float64 { return row.WallClockSeconds })),
+			MedianTotalToolCalls:            medianFloat(extractInt(scoredGroup, func(row RunSummaryRow) int { return row.TotalToolCalls })),
+			MedianInputTokens:               medianFloat(extractOptionalInt64(scoredGroup, func(row RunSummaryRow) *int64 { return row.InputTokens })),
+			MedianOutputTokens:              medianFloat(extractOptionalInt64(scoredGroup, func(row RunSummaryRow) *int64 { return row.OutputTokens })),
+			MedianFailedTaskToolCalls:       medianFloat(extractInt(scoredGroup, func(row RunSummaryRow) int { return row.FailedTaskToolCalls })),
+			MedianFailedDownstreamToolCalls: medianFloat(extractInt(scoredGroup, func(row RunSummaryRow) int { return row.FailedDownstreamToolCalls })),
+			MedianEditedFilesCount:          medianFloat(extractInt(scoredGroup, func(row RunSummaryRow) int { return row.EditedFilesCount })),
+			TotalTaskToolCalls:              sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalTaskToolCalls }),
+			TotalDownstreamToolCalls:        sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalDownstreamToolCalls }),
+			ManualActionabilityCount:        count(scoredGroup, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
 		}
-		if avg, ok := averageManualScore(group); ok {
+		if avg, ok := averageManualScore(scoredGroup); ok {
 			summary.AverageManualActionabilityScore = &avg
 		}
 		summaries = append(summaries, summary)
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Key < summaries[j].Key })
 	return summaries
+}
+
+func filterScoredRows(rows []RunSummaryRow) []RunSummaryRow {
+	scored := make([]RunSummaryRow, 0, len(rows))
+	for _, row := range rows {
+		if row.Scored {
+			scored = append(scored, row)
+		}
+	}
+	return scored
 }
 
 func rate(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) float64 {
@@ -522,6 +541,14 @@ func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int
 		values = append(values, float64(*value))
 	}
 	return values
+}
+
+func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
+	total := 0
+	for _, row := range rows {
+		total += valueFn(row)
+	}
+	return total
 }
 
 func medianFloat(values []float64) float64 {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import {
+  type AggregateSummary,
   type BenchmarkComparison,
   type BenchmarkRunSummary,
   type BenchmarkSessionDetail,
@@ -15,18 +16,6 @@ import { formatBenchmarkRate, formatBenchmarkSeconds } from "./benchmark-format"
 import { BenchmarkRunTable } from "./benchmark-run-table";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
-type AnalysisRow = {
-  key: string;
-  label: string;
-  successRate: number;
-  centianErrors: number;
-  mcpErrors: number;
-  medianWallClockSeconds: number;
-  firstPassRate: number;
-  totalCentianActions: number;
-  totalMcpActions: number;
-};
-
 export function BenchmarkSuitePage() {
   const { suiteID = "" } = useParams();
   const [allRuns, setAllRuns] = useState<BenchmarkRunSummary[]>([]);
@@ -134,8 +123,8 @@ export function BenchmarkSuitePage() {
   const variantOptions = Array.from(new Set(allRuns.map((run) => run.templateVariant))).sort();
   const templateTitle = comparison?.templateName ?? runs[0]?.templateName ?? comparison?.templateId ?? suiteID;
   const suiteTitle = comparison?.suiteName ?? sessions[0]?.suiteName ?? suiteID;
-  const variantRows = buildAnalysisRows(runs, (run) => run.templateVariant);
-  const agentRows = buildAnalysisRows(runs, (run) => run.agent);
+  const variantRows = comparison?.aggregates.byTemplateVariant ?? [];
+  const agentRows = comparison?.aggregates.byAgent ?? [];
 
   return (
     <div className="benchmark-page">
@@ -248,7 +237,7 @@ export function BenchmarkSuitePage() {
   );
 }
 
-function BenchmarkAnalysisTable({ rows, firstColumnLabel }: { rows: AnalysisRow[]; firstColumnLabel: string }) {
+function BenchmarkAnalysisTable({ rows, firstColumnLabel }: { rows: AggregateSummary[]; firstColumnLabel: string }) {
   if (rows.length === 0) {
     return <p className="benchmark-empty">No benchmark runs match the current filters.</p>;
   }
@@ -257,6 +246,7 @@ function BenchmarkAnalysisTable({ rows, firstColumnLabel }: { rows: AnalysisRow[
     <div className="benchmark-analysis-table" role="table" aria-label={`Benchmark ${firstColumnLabel.toLowerCase()} analysis`}>
       <div className="benchmark-analysis-table__header" role="row">
         <span>{firstColumnLabel}</span>
+        <span>Scored</span>
         <span>Success Rate</span>
         <span>Errors (Centian/MCP)</span>
         <span>Median Time</span>
@@ -266,21 +256,22 @@ function BenchmarkAnalysisTable({ rows, firstColumnLabel }: { rows: AnalysisRow[
       <div className="benchmark-analysis-table__body" role="rowgroup">
         {rows.map((row) => (
           <div key={row.key} className="benchmark-analysis-row" role="row">
-            <span className="benchmark-analysis-row__label">{row.label}</span>
+            <span className="benchmark-analysis-row__label">{analysisRowLabel(row, firstColumnLabel)}</span>
+            <span>{row.scoredRunCount}/{row.runCount}</span>
             <span className={`benchmark-analysis-row__success ${successRateClassName(row.successRate)}`}>
               {formatBenchmarkRate(row.successRate)}
             </span>
             <span className="benchmark-error-split">
-              <span className="benchmark-error-split__centian">{row.centianErrors}</span>
+              <span className="benchmark-error-split__centian">{row.medianFailedTaskToolCalls}</span>
               <span>/</span>
-              <span className="benchmark-error-split__mcp">{row.mcpErrors}</span>
+              <span className="benchmark-error-split__mcp">{row.medianFailedDownstreamToolCalls}</span>
             </span>
             <span>{formatBenchmarkSeconds(row.medianWallClockSeconds)}</span>
-            <span>{formatBenchmarkRate(row.firstPassRate)}</span>
+            <span>{formatBenchmarkRate(row.firstPassSuccessRate)}</span>
             <span className="benchmark-error-split">
-              <span className="benchmark-error-split__centian">{row.totalCentianActions}</span>
+              <span className="benchmark-error-split__centian">{row.totalTaskToolCalls}</span>
               <span>/</span>
-              <span className="benchmark-error-split__mcp">{row.totalMcpActions}</span>
+              <span className="benchmark-error-split__mcp">{row.totalDownstreamToolCalls}</span>
             </span>
           </div>
         ))}
@@ -289,73 +280,14 @@ function BenchmarkAnalysisTable({ rows, firstColumnLabel }: { rows: AnalysisRow[
   );
 }
 
-function buildAnalysisRows(runs: BenchmarkRunSummary[], keySelector: (run: BenchmarkRunSummary) => string): AnalysisRow[] {
-  const groups = runs.reduce((map, run) => {
-    const key = keySelector(run);
-    const current = map.get(key) ?? {
-      key,
-      label: key,
-      runs: [] as BenchmarkRunSummary[],
-      centianErrors: 0,
-      mcpErrors: 0,
-      totalCentianActions: 0,
-      totalMcpActions: 0,
-    };
-    current.runs.push(run);
-    current.centianErrors += centianErrorCount(run);
-    current.mcpErrors += run.failedDownstreamToolCalls;
-    current.totalCentianActions += run.totalTaskToolCalls;
-    current.totalMcpActions += run.totalDownstreamToolCalls;
-    map.set(key, current);
-    return map;
-  }, new Map<string, { key: string; label: string; runs: BenchmarkRunSummary[]; centianErrors: number; mcpErrors: number; totalCentianActions: number; totalMcpActions: number }>());
-
-  return Array.from(groups.values())
-    .map((group) => ({
-      key: group.key,
-      label: group.label,
-      successRate: rate(group.runs.filter((run) => run.completedSuccessfully).length, group.runs.length),
-      centianErrors: group.centianErrors,
-      mcpErrors: group.mcpErrors,
-      medianWallClockSeconds: median(group.runs.map((run) => run.wallClockSeconds)),
-      firstPassRate: rate(group.runs.filter((run) => run.firstPassSuccess).length, group.runs.length),
-      totalCentianActions: group.totalCentianActions,
-      totalMcpActions: group.totalMcpActions,
-    }))
-    .sort((left, right) => left.label.localeCompare(right.label));
-}
-
-function centianErrorCount(run: BenchmarkRunSummary): number {
-  let count = run.failedTaskToolCalls;
-  if (run.restartOccurred) {
-    count++
+function analysisRowLabel(row: AggregateSummary, firstColumnLabel: string): string {
+  if (firstColumnLabel === "Variant") {
+    return row.templateVariant || row.key;
   }
-  if (run.failOccurred) {
-    count++
+  if (firstColumnLabel === "Agent") {
+    return row.agent || row.key;
   }
-  if (run.timeoutOccurred) {
-    count++
-  }
-  return count;
-}
-
-function rate(successes: number, total: number): number {
-  if (total <= 0) {
-    return 0;
-  }
-  return successes / total;
-}
-
-function median(values: number[]): number {
-  if (values.length === 0) {
-    return 0;
-  }
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[middle-1] + sorted[middle]) / 2;
-  }
-  return sorted[middle];
+  return row.key;
 }
 
 function successRateClassName(value: number): string {

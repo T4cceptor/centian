@@ -93,11 +93,14 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 		SuiteID: "simple_tdd_v1",
 	})
 	assert.NilError(t, err)
+	scoreRecords, err := store.ListBenchmarkRunScores(context.Background())
+	assert.NilError(t, err)
 	sessionRecords, err := store.ListBenchmarkSessions(context.Background(), persistence.BenchmarkSessionFilter{
 		SuiteID: "simple_tdd_v1",
 	})
 	assert.NilError(t, err)
 	assert.Equal(t, len(runRecords), 24)
+	assert.Equal(t, len(scoreRecords), 24)
 	assert.Equal(t, len(sessionRecords), 1)
 	_, statErr := os.Stat(filepath.Join(session.InvocationDir, "runs", "a", "codex", "compile_failure_red", "attempt-001", "selected-template.yaml"))
 	assert.NilError(t, statErr)

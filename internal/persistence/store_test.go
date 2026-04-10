@@ -191,6 +191,16 @@ func TestNewSQLiteStoreMigratesBenchmarkAgentMetadataColumn(t *testing.T) {
 	columns, err := tableColumns(db, "benchmark_runs")
 	assert.NilError(t, err)
 	assert.Assert(t, columns["agent_metadata_json"])
+	assert.Assert(t, columns["case_name"])
+	assert.Assert(t, columns["template_name"])
+	sessionColumns, err := tableColumns(db, "benchmark_sessions")
+	assert.NilError(t, err)
+	assert.Assert(t, sessionColumns["suite_name"])
+	assert.Assert(t, sessionColumns["template_name"])
+	scoreColumns, err := tableColumns(db, "benchmark_run_scores")
+	assert.NilError(t, err)
+	assert.Assert(t, scoreColumns["benchmark_run_id"])
+	assert.Assert(t, scoreColumns["score_status"])
 
 	var version int
 	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)

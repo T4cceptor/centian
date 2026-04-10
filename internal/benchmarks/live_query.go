@@ -27,6 +27,8 @@ type benchmarkQueryStore interface {
 	ListBenchmarkSessions(context.Context, persistence.BenchmarkSessionFilter) ([]persistence.BenchmarkSessionRecord, error)
 	ListBenchmarkRuns(context.Context, *persistence.BenchmarkRunFilter) ([]persistence.BenchmarkRunRecord, error)
 	GetBenchmarkRun(context.Context, string) (*persistence.BenchmarkRunRecord, error)
+	ListBenchmarkRunScores(context.Context) ([]persistence.BenchmarkRunScoreRecord, error)
+	GetBenchmarkRunScore(context.Context, string) (*persistence.BenchmarkRunScoreRecord, error)
 	ListTaskRunSnapshots(context.Context) ([]persistence.TaskRunSnapshotRecord, error)
 	GetTaskRunSnapshot(context.Context, string) (*persistence.TaskRunSnapshotRecord, error)
 	ListTaskRunStats(context.Context) ([]persistence.TaskRunStatsRecord, error)
@@ -166,15 +168,10 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 			grouped[session.SuiteID] = group
 		}
 		group.item.TemplateID = firstNonEmpty(group.item.TemplateID, session.TemplateID)
-		group.item.SuiteName = firstNonEmpty(group.item.SuiteName, suiteNameFromPath(session.SuitePath))
+		group.item.TemplateName = firstNonEmpty(group.item.TemplateName, session.TemplateName)
+		group.item.SuiteName = firstNonEmpty(group.item.SuiteName, session.SuiteName)
 		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli))
 		group.sessionIDs[session.SessionID] = struct{}{}
-		for caseID, caseName := range caseNamesFromSuitePath(session.SuitePath) {
-			group.caseIDs[caseID] = struct{}{}
-			if caseName != "" {
-				group.caseNames[caseName] = struct{}{}
-			}
-		}
 	}
 	for idx := range runs {
 		run := runs[idx]
@@ -190,11 +187,11 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 			continue
 		}
 		group.item.RunCount++
-		group.item.TemplateName = firstNonEmpty(group.item.TemplateName, templateNameForRun(ctx, s.store, &run))
+		group.item.TemplateName = firstNonEmpty(group.item.TemplateName, run.TemplateName, session.TemplateName)
 		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli))
 		group.agents[run.Agent] = struct{}{}
 		group.caseIDs[run.CaseID] = struct{}{}
-		if caseName := caseNamesFromSuitePath(session.SuitePath)[run.CaseID]; caseName != "" {
+		if caseName := strings.TrimSpace(run.CaseName); caseName != "" {
 			group.caseNames[caseName] = struct{}{}
 		}
 		group.variants[run.TemplateVariant] = struct{}{}
@@ -265,14 +262,14 @@ func (s *QueryService) ListSessions(ctx context.Context, suiteID string, filters
 		detail := BenchmarkSessionDetail{
 			SessionID:          session.SessionID,
 			SuiteID:            session.SuiteID,
-			SuiteName:          suiteNameFromPath(session.SuitePath),
+			SuiteName:          session.SuiteName,
 			TemplateID:         session.TemplateID,
-			TemplateName:       templateName,
+			TemplateName:       firstNonEmpty(templateName, session.TemplateName),
 			SessionPath:        session.SessionPath,
 			GeneratedAt:        timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli),
 			RunCount:           len(sessionRuns),
-			ScoredRunCount:     len(sessionRuns),
-			FailedToScoreCount: 0,
+			ScoredRunCount:     count(rows, func(row RunSummaryRow) bool { return row.Scored }),
+			FailedToScoreCount: count(rows, func(row RunSummaryRow) bool { return !row.Scored }),
 			Agents:             sortedSetValues(agents),
 			CaseIDs:            sortedSetValues(caseIDs),
 			CaseNames:          sortedSetValues(caseNames),
@@ -330,6 +327,15 @@ func (s *QueryService) ListRuns(ctx context.Context, suiteID string, filters Ben
 	if err != nil {
 		return nil, err
 	}
+	scoreRows, err := s.store.ListBenchmarkRunScores(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scoreByRunID := make(map[string]*persistence.BenchmarkRunScoreRecord, len(scoreRows))
+	for idx := range scoreRows {
+		score := scoreRows[idx]
+		scoreByRunID[score.BenchmarkRunID] = &score
+	}
 	result := make([]BenchmarkRunSummary, 0, len(runRecords))
 	for idx := range runRecords {
 		run := runRecords[idx]
@@ -340,12 +346,7 @@ func (s *QueryService) ListRuns(ctx context.Context, suiteID string, filters Ben
 		if session == nil {
 			continue
 		}
-		scorecard, err := s.scoreRunRecord(ctx, session, &run)
-		if err != nil {
-			result = append(result, runSummaryFromRecord(*session, run, err))
-			continue
-		}
-		result = append(result, buildBenchmarkRunSummary(&run, scorecard))
+		result = append(result, buildBenchmarkRunSummary(&run, session, scoreByRunID[run.BenchmarkRunID]))
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].SessionPath != result[j].SessionPath {
@@ -376,18 +377,31 @@ func (s *QueryService) GetRun(ctx context.Context, suiteID, scorecardID string) 
 	if len(sessions) == 0 {
 		return nil, ErrBenchmarkRunNotFound
 	}
-	scorecard, err := s.scoreRunRecord(ctx, &sessions[0], run)
+	score, err := s.store.GetBenchmarkRunScore(ctx, scorecardID)
 	if err != nil {
-		return nil, err
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		score = nil
+	}
+	scorecard, scoreErr := scorecardFromSnapshot(score)
+	scoreErrors := []string{"benchmark score unavailable"}
+	if score != nil && len(score.ScoreErrors) > 0 {
+		scoreErrors = append([]string(nil), score.ScoreErrors...)
+	}
+	if scoreErr != nil {
+		scoreErrors = []string{scoreErr.Error()}
 	}
 	return &BenchmarkRunDetail{
 		ScorecardID:  run.BenchmarkRunID,
 		SessionID:    run.SessionID,
 		SessionPath:  sessions[0].SessionPath,
-		SuiteName:    scorecard.SuiteName,
-		TemplateName: scorecard.TemplateName,
-		CaseName:     scorecard.CaseName,
-		Scorecard:    *scorecard,
+		SuiteName:    firstNonEmpty(sessions[0].SuiteName),
+		TemplateName: firstNonEmpty(run.TemplateName, sessions[0].TemplateName),
+		CaseName:     run.CaseName,
+		Scored:       scorecard != nil,
+		ScoreErrors:  scoreErrorsIfUnscored(scorecard, scoreErrors),
+		Scorecard:    scorecard,
 	}, nil
 }
 
@@ -611,6 +625,13 @@ func agentMetadataSelectedModel(metadata *AgentMetadata) string {
 		return ""
 	}
 	return metadata.SelectedModel
+}
+
+func scoreErrorsIfUnscored(scorecard *RunScorecard, scoreErrors []string) []string {
+	if scorecard != nil {
+		return nil
+	}
+	return append([]string(nil), scoreErrors...)
 }
 
 func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID string) *persistence.BenchmarkSessionRecord {

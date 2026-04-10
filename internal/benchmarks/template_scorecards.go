@@ -166,19 +166,18 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		return nil, fmt.Errorf("benchmark query service is not initialized")
 	}
 
-	statsRows, err := s.store.ListTaskRunStats(ctx)
-	if err != nil {
-		return nil, err
-	}
-	statsByRunID := make(map[string]*persistence.TaskRunStatsRecord, len(statsRows))
-	for idx := range statsRows {
-		stats := statsRows[idx]
-		statsByRunID[stats.RunID] = &stats
-	}
-
 	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{})
 	if err != nil {
 		return nil, err
+	}
+	scoreRows, err := s.store.ListBenchmarkRunScores(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scoreByRunID := make(map[string]*persistence.BenchmarkRunScoreRecord, len(scoreRows))
+	for idx := range scoreRows {
+		score := scoreRows[idx]
+		scoreByRunID[score.BenchmarkRunID] = &score
 	}
 
 	type aggregate struct {
@@ -201,18 +200,12 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		if agent == "" {
 			continue
 		}
-		taskRunID := strings.TrimSpace(run.LatestTaskRunID)
-		if taskRunID == "" {
-			taskRunID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
-		}
-		stats := statsByRunID[taskRunID]
-		if stats == nil {
+		score := scoreByRunID[run.BenchmarkRunID]
+		scorecard, err := scorecardFromSnapshot(score)
+		if err != nil || scorecard == nil {
 			continue
 		}
-		model, err := selectedModelForAgentScorecardRun(run)
-		if err != nil {
-			return nil, err
-		}
+		model := firstNonEmpty(strings.TrimSpace(score.SelectedModel), scorecard.SelectedModel, run.SelectedModel)
 		groupKey := agentModelScorecardKey(agent, model)
 		group := grouped[groupKey]
 		if group == nil {
@@ -228,17 +221,25 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 			grouped[groupKey] = group
 		}
 		group.runCount++
-		group.taskToolCalls = append(group.taskToolCalls, stats.TaskToolCallCount)
-		group.downstreamCalls = append(group.downstreamCalls, stats.DownstreamToolCallCount)
-		group.centianErrors = append(group.centianErrors, stats.TaskToolErrorCount+stats.RestartCount+stats.FailCount+stats.TimeoutCount)
-		group.downstreamErrors = append(group.downstreamErrors, stats.DownstreamToolErrorCount)
-		if stats.DurationMillis != nil {
-			group.durationsMillis = append(group.durationsMillis, *stats.DurationMillis)
+		group.taskToolCalls = append(group.taskToolCalls, score.TotalTaskToolCalls)
+		group.downstreamCalls = append(group.downstreamCalls, score.TotalDownstreamToolCalls)
+		centianErrors := score.FailedTaskToolCalls
+		if score.RestartOccurred {
+			centianErrors++
 		}
-		if isSuccessful(run.Status) {
+		if score.FailOccurred {
+			centianErrors++
+		}
+		if score.TimeoutOccurred {
+			centianErrors++
+		}
+		group.centianErrors = append(group.centianErrors, centianErrors)
+		group.downstreamErrors = append(group.downstreamErrors, score.FailedDownstreamToolCalls)
+		group.durationsMillis = append(group.durationsMillis, int64(score.WallClockSeconds*1000))
+		if score.CompletedSuccessfully {
 			group.successCount++
 		}
-		if isFirstPass(run.Status, stats) {
+		if score.FirstPassSuccess {
 			group.firstPassCount++
 		}
 	}

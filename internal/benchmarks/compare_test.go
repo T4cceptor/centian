@@ -117,14 +117,17 @@ func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, 
 	t.Helper()
 	session, err := loadSessionManifest(sessionDir)
 	assert.NilError(t, err)
-	record, err := buildSessionRecord(session)
+	sessionRecord, err := buildSessionRecord(session)
 	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), record))
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
 	for idx := range session.Runs {
 		run, loadErr := loadRunManifest(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName))
 		assert.NilError(t, loadErr)
 		runRecord, recordErr := buildRunRecord(run)
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, timeNowUTC)
+		assert.NilError(t, scoreErr)
+		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}
 }

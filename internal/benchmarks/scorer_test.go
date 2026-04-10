@@ -141,6 +141,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 	runs := []SessionRunManifestEntry{
 		{
 			CaseID:          "compile_failure_red",
+			CaseName:        "Compile Failure Red",
 			AgentID:         "codex",
 			TemplateVariant: "current",
 			Attempt:         1,
@@ -150,6 +151,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		},
 		{
 			CaseID:          "assertion_failure_red",
+			CaseName:        "Assertion Failure Red",
 			AgentID:         "claude",
 			TemplateVariant: "current",
 			Attempt:         1,
@@ -165,7 +167,9 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 
 	session := &SessionManifest{
 		SuiteID:       "simple_tdd_v1",
+		SuiteName:     "Simple TDD Benchmark Suite v1",
 		TemplateID:    "simple_tdd",
+		TemplateName:  "Simple TDD Current",
 		SuitePath:     suiteRoot,
 		InvocationDir: sessionDir,
 		OutputRoot:    filepath.Dir(sessionDir),
@@ -193,6 +197,9 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		runRecord, recordErr := buildRunRecord(run)
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, timeNowUTC)
+		assert.NilError(t, scoreErr)
+		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}
 }
 
@@ -254,8 +261,11 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 
 	run := &RunManifest{
 		SuiteID:             "simple_tdd_v1",
+		SuiteName:           "Simple TDD Benchmark Suite v1",
 		CaseID:              entry.CaseID,
+		CaseName:            entry.CaseName,
 		TemplateID:          "simple_tdd",
+		TemplateName:        "Simple TDD Current",
 		TemplateVariant:     TemplateVariant{Name: "current"},
 		AgentID:             entry.AgentID,
 		SelectedModel:       syntheticSelectedModel(entry.AgentID, opts),

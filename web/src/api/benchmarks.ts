@@ -80,6 +80,7 @@ export type BenchmarkRunSummary = {
   templateVariant: string;
   attempt: number;
   rawStatus: string;
+  scored: boolean;
   latestTaskRunId?: string;
   linkedTaskRunIds?: string[];
   completedSuccessfully: boolean;
@@ -100,6 +101,8 @@ export type BenchmarkRunSummary = {
   editedFilesCount: number;
   errorActionabilityScore?: number;
   agentMetadata?: AgentMetadata;
+  warnings?: string[];
+  errors?: string[];
 };
 
 export type AggregateSummary = {
@@ -122,6 +125,8 @@ export type AggregateSummary = {
   medianFailedTaskToolCalls: number;
   medianFailedDownstreamToolCalls: number;
   medianEditedFilesCount: number;
+  totalTaskToolCalls: number;
+  totalDownstreamToolCalls: number;
   manualActionabilityCount: number;
   averageManualActionabilityScore?: number;
 };
@@ -157,7 +162,9 @@ export type BenchmarkRunDetail = {
   suiteName?: string;
   templateName?: string;
   caseName?: string;
-  scorecard: {
+  scored: boolean;
+  scoreErrors?: string[];
+  scorecard?: {
     suiteId: string;
     suiteName?: string;
     caseId: string;

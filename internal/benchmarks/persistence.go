@@ -5,12 +5,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/persistence"
+)
+
+const (
+	benchmarkRunScoreStatusReady    = "ready"
+	benchmarkRunScoreStatusUnscored = "unscored"
 )
 
 func persistBenchmarkSession(ctx context.Context, storePath string, record *persistence.BenchmarkSessionRecord) error {
@@ -31,6 +37,15 @@ func persistBenchmarkRun(ctx context.Context, storePath string, record *persiste
 	return store.UpsertBenchmarkRun(ctx, record)
 }
 
+func persistBenchmarkRunScore(ctx context.Context, storePath string, record *persistence.BenchmarkRunScoreRecord) error {
+	store, err := openBenchmarkStore(storePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = store.Close() }()
+	return store.UpsertBenchmarkRunScore(ctx, record)
+}
+
 func openBenchmarkStore(storePath string) (*persistence.Store, error) {
 	if strings.TrimSpace(storePath) == "" {
 		return nil, fmt.Errorf("benchmark store path is required")
@@ -46,10 +61,12 @@ func buildSessionRecord(session *SessionManifest) (*persistence.BenchmarkSession
 	return &persistence.BenchmarkSessionRecord{
 		SessionID:          benchmarkSessionID(session.SuiteID, sessionPath),
 		SuiteID:            session.SuiteID,
+		SuiteName:          session.SuiteName,
 		SuitePath:          session.SuitePath,
 		SessionPath:        sessionPath,
 		OutputRoot:         session.OutputRoot,
 		TemplateID:         session.TemplateID,
+		TemplateName:       session.TemplateName,
 		StartedAtUnixMilli: bestTime(session.StartedAt, session.EndedAt).UnixMilli(),
 		EndedAtUnixMilli:   timePointerMillis(session.EndedAt),
 		Status:             session.Status,
@@ -66,10 +83,12 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 		BenchmarkRunID:       benchmarkRunID(run, sessionPath),
 		SessionID:            benchmarkSessionID(run.SuiteID, sessionPath),
 		CaseID:               run.CaseID,
+		CaseName:             run.CaseName,
 		Agent:                run.AgentID,
 		TemplateVariant:      run.TemplateVariant.Name,
 		Attempt:              run.Attempt,
 		TemplateID:           run.TemplateID,
+		TemplateName:         run.TemplateName,
 		SelectedModel:        run.SelectedModel,
 		StartedAtUnixMilli:   bestTime(run.StartedAt, run.EndedAt).UnixMilli(),
 		EndedAtUnixMilli:     timePointerMillis(run.EndedAt),
@@ -94,6 +113,93 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 	}
 	record.AgentMetadataJSON = agentMetadataJSON
 	return record, nil
+}
+
+func buildRunScoreRecord(
+	now time.Time,
+	run *persistence.BenchmarkRunRecord,
+	scorecard *RunScorecard,
+	scoreErrors []string,
+) (*persistence.BenchmarkRunScoreRecord, error) {
+	if run == nil {
+		return nil, fmt.Errorf("benchmark run record is required")
+	}
+	record := &persistence.BenchmarkRunScoreRecord{
+		BenchmarkRunID:       run.BenchmarkRunID,
+		ScoreStatus:          benchmarkRunScoreStatusUnscored,
+		ScoreVersion:         scoreVersion,
+		GeneratedAtUnixMilli: now.UnixMilli(),
+		ScoreErrors:          append([]string(nil), scoreErrors...),
+		SelectedModel:        run.SelectedModel,
+	}
+	if scorecard == nil {
+		if len(record.ScoreErrors) == 0 {
+			record.ScoreErrors = []string{"benchmark score unavailable"}
+		}
+		return record, nil
+	}
+
+	payload, err := json.Marshal(scorecard)
+	if err != nil {
+		return nil, fmt.Errorf("marshal benchmark run scorecard: %w", err)
+	}
+	record.ScoreStatus = benchmarkRunScoreStatusReady
+	record.ScoreVersion = firstNonEmpty(strings.TrimSpace(scorecard.ScoreVersion), scoreVersion)
+	record.ScorecardJSON = payload
+	record.ScoreErrors = append(record.ScoreErrors, scorecard.Errors...)
+	record.SelectedModel = firstNonEmpty(scorecard.SelectedModel, run.SelectedModel)
+	record.CompletedSuccessfully = scorecard.Outcome.CompletedSuccessfully
+	record.FinalVerificationPassed = scorecard.Outcome.FinalVerificationPassed
+	record.FirstPassSuccess = scorecard.Outcome.FirstPassSuccess
+	record.RestartOccurred = scorecard.Outcome.RestartOccurred
+	record.FailOccurred = scorecard.Outcome.FailOccurred
+	record.TimeoutOccurred = scorecard.Outcome.TimeoutOccurred
+	record.InvariantViolation = scorecard.Outcome.InvariantViolation
+	record.WallClockSeconds = scorecard.Efficiency.WallClockSeconds
+	record.TotalToolCalls = scorecard.Efficiency.TotalToolCalls
+	record.TotalTaskToolCalls = scorecard.Process.TotalTaskToolCalls
+	record.TotalDownstreamToolCalls = scorecard.Process.TotalDownstreamToolCalls
+	record.FailedTaskToolCalls = scorecard.Process.FailedTaskToolCalls
+	record.FailedDownstreamToolCalls = scorecard.Process.FailedDownstreamToolCalls
+	record.InputTokens = scorecard.Efficiency.InputTokens
+	record.OutputTokens = scorecard.Efficiency.OutputTokens
+	record.EditedFilesCount = scorecard.Efficiency.EditedFilesCount
+	record.ErrorActionabilityScore = scorecard.Manual.ErrorActionabilityScore
+	return record, nil
+}
+
+func buildPersistedRunScoreRecord(
+	ctx context.Context,
+	storePath string,
+	session *persistence.BenchmarkSessionRecord,
+	run *persistence.BenchmarkRunRecord,
+	now func() time.Time,
+) (*persistence.BenchmarkRunScoreRecord, error) {
+	if session == nil {
+		return nil, fmt.Errorf("benchmark session record is required")
+	}
+	if run == nil {
+		return nil, fmt.Errorf("benchmark run record is required")
+	}
+	store, err := openBenchmarkStore(storePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = store.Close() }()
+
+	query := NewQueryService(store).withDefaults()
+	if now != nil {
+		query.now = now
+	}
+	scorecard, scoreErr := query.scoreRunRecord(ctx, session, run)
+	if scoreErr == nil {
+		return buildRunScoreRecord(query.now(), run, scorecard, nil)
+	}
+	scoreErrors := []string{scoreErr.Error()}
+	if errors.Is(scoreErr, context.Canceled) || errors.Is(scoreErr, context.DeadlineExceeded) {
+		scoreErrors = append(scoreErrors, "benchmark score generation interrupted")
+	}
+	return buildRunScoreRecord(query.now(), run, nil, scoreErrors)
 }
 
 func buildAgentMetadataJSON(run *RunManifest) (json.RawMessage, error) {

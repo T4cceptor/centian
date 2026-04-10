@@ -65,7 +65,9 @@ type RunOptions struct {
 // SessionManifest describes one benchmark invocation and all concrete runs.
 type SessionManifest struct {
 	SuiteID          string                    `json:"suiteId"`
+	SuiteName        string                    `json:"suiteName,omitempty"`
 	TemplateID       string                    `json:"templateId"`
+	TemplateName     string                    `json:"templateName,omitempty"`
 	SuitePath        string                    `json:"suitePath"`
 	InvocationDir    string                    `json:"invocationDir"`
 	OutputRoot       string                    `json:"outputRoot"`
@@ -82,6 +84,7 @@ type SessionManifest struct {
 // SessionRunManifestEntry summarizes one concrete run under a session.
 type SessionRunManifestEntry struct {
 	CaseID              string `json:"caseId"`
+	CaseName            string `json:"caseName,omitempty"`
 	AgentID             string `json:"agentId"`
 	TemplateVariant     string `json:"templateVariant"`
 	Attempt             int    `json:"attempt"`
@@ -95,8 +98,11 @@ type SessionRunManifestEntry struct {
 // RunManifest describes one concrete benchmark run.
 type RunManifest struct {
 	SuiteID             string           `json:"suiteId"`
+	SuiteName           string           `json:"suiteName,omitempty"`
 	CaseID              string           `json:"caseId"`
+	CaseName            string           `json:"caseName,omitempty"`
 	TemplateID          string           `json:"templateId"`
+	TemplateName        string           `json:"templateName,omitempty"`
 	TemplateVariant     TemplateVariant  `json:"templateVariant"`
 	AgentID             string           `json:"agentId"`
 	Attempt             int              `json:"attempt"`
@@ -137,6 +143,7 @@ type Runner struct {
 	FindLatestRequestLog func(string) (string, error)
 	PersistSession       func(context.Context, string, *persistence.BenchmarkSessionRecord) error
 	PersistRun           func(context.Context, string, *persistence.BenchmarkRunRecord) error
+	PersistRunScore      func(context.Context, string, *persistence.BenchmarkRunScoreRecord) error
 }
 
 // StartCentianOptions configures one benchmark-local Centian child process.
@@ -177,6 +184,7 @@ func NewRunner() *Runner {
 		FindLatestRequestLog: findLatestRequestLog,
 		PersistSession:       persistBenchmarkSession,
 		PersistRun:           persistBenchmarkRun,
+		PersistRunScore:      persistBenchmarkRunScore,
 	}
 }
 
@@ -295,6 +303,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	}
 	session := &SessionManifest{
 		SuiteID:          suite.Suite.ID,
+		SuiteName:        strings.TrimSpace(suite.Suite.Name),
 		TemplateID:       suite.Suite.TemplateID,
 		SuitePath:        suiteRoot,
 		InvocationDir:    sessionDir,
@@ -315,9 +324,10 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 
 	anyFailure := false
 	for _, spec := range specs {
-		manifest, runErr := r.executeRun(ctx, sessionDir, suite, spec, opts)
+		manifest, runErr := r.executeRun(ctx, session, suite, spec, opts)
 		entry := SessionRunManifestEntry{
 			CaseID:              spec.CaseRef.ID,
+			CaseName:            manifest.CaseName,
 			AgentID:             spec.Agent,
 			TemplateVariant:     spec.TemplateVariant.Name,
 			Attempt:             spec.Attempt,
@@ -328,6 +338,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 			ErrorSummary:        manifest.ErrorSummary,
 		}
 		session.Runs = append(session.Runs, entry)
+		session.TemplateName = firstNonEmpty(session.TemplateName, manifest.TemplateName)
 		if runErr != nil {
 			anyFailure = true
 		}
@@ -387,16 +398,23 @@ func (r *Runner) withDefaults() *Runner {
 	if r.PersistRun == nil {
 		r.PersistRun = persistBenchmarkRun
 	}
+	if r.PersistRunScore == nil {
+		r.PersistRunScore = persistBenchmarkRunScore
+	}
 	return r
 }
 
 func (r *Runner) executeRun(
 	ctx context.Context,
-	sessionDir string,
+	session *SessionManifest,
 	suite *SuiteDefinition,
 	spec runSpec,
 	opts *RunOptions,
 ) (*RunManifest, error) {
+	if session == nil {
+		return nil, fmt.Errorf("session manifest is required")
+	}
+	sessionDir := strings.TrimSpace(session.InvocationDir)
 	runDir := filepath.Join(
 		sessionDir,
 		"runs",
@@ -416,7 +434,9 @@ func (r *Runner) executeRun(
 	if err != nil {
 		manifest := &RunManifest{
 			SuiteID:         suite.Suite.ID,
+			SuiteName:       strings.TrimSpace(suite.Suite.Name),
 			CaseID:          spec.CaseRef.ID,
+			CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
 			TemplateID:      suite.Suite.TemplateID,
 			TemplateVariant: spec.TemplateVariant,
 			AgentID:         spec.Agent,
@@ -439,7 +459,9 @@ func (r *Runner) executeRun(
 	}
 	manifest := &RunManifest{
 		SuiteID:         suite.Suite.ID,
+		SuiteName:       strings.TrimSpace(suite.Suite.Name),
 		CaseID:          spec.CaseRef.ID,
+		CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
 		TemplateID:      suite.Suite.TemplateID,
 		TemplateVariant: spec.TemplateVariant,
 		AgentID:         spec.Agent,
@@ -470,7 +492,21 @@ func (r *Runner) executeRun(
 		if err != nil {
 			return err
 		}
-		return r.PersistRun(ctx, manifest.ArtifactPaths.EventStorePath, record)
+		if err := r.PersistRun(ctx, manifest.ArtifactPaths.EventStorePath, record); err != nil {
+			return err
+		}
+		if manifest.EndedAt.IsZero() || r.PersistRunScore == nil {
+			return nil
+		}
+		sessionRecord, err := buildSessionRecord(session)
+		if err != nil {
+			return err
+		}
+		scoreRecord, err := buildPersistedRunScoreRecord(ctx, manifest.ArtifactPaths.EventStorePath, sessionRecord, record, r.Now)
+		if err != nil {
+			return err
+		}
+		return r.PersistRunScore(ctx, manifest.ArtifactPaths.EventStorePath, scoreRecord)
 	}
 
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
@@ -514,6 +550,7 @@ func (r *Runner) executeRun(
 		_ = flushManifest()
 		return manifest, err
 	}
+	manifest.TemplateName = firstNonEmpty(readTemplateName(selectedTemplatePath), manifest.TemplateName)
 	if err := copyFile(selectedTemplateSourcePath, filepath.Join(runtimeTemplatesDir, filepath.Base(selectedTemplateSourcePath))); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
@@ -749,6 +786,26 @@ func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, e
 		seen[name] = struct{}{}
 	}
 	return normalized, nil
+}
+
+func readTemplateName(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	var payload struct {
+		Task struct {
+			Name string `yaml:"name"`
+		} `yaml:"task"`
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	if err := yaml.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Task.Name)
 }
 
 func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {

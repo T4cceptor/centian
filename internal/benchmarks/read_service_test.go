@@ -27,30 +27,8 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	sessionOneManifest, err := loadSessionManifest(sessionOne)
-	assert.NilError(t, err)
-	sessionOneRecord, err := buildSessionRecord(sessionOneManifest)
-	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionOneRecord))
-	for idx := range sessionOneManifest.Runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionOne, sessionOneManifest.Runs[idx].RelativeRunDir, runFileName))
-		assert.NilError(t, loadErr)
-		record, recordErr := buildRunRecord(run)
-		assert.NilError(t, recordErr)
-		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
-	}
-	sessionTwoManifest, err := loadSessionManifest(sessionTwo)
-	assert.NilError(t, err)
-	sessionTwoRecord, err := buildSessionRecord(sessionTwoManifest)
-	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionTwoRecord))
-	for idx := range sessionTwoManifest.Runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionTwo, sessionTwoManifest.Runs[idx].RelativeRunDir, runFileName))
-		assert.NilError(t, loadErr)
-		record, recordErr := buildRunRecord(run)
-		assert.NilError(t, recordErr)
-		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
-	}
+	persistSyntheticBenchmarkArtifacts(t, store, sessionOne)
+	persistSyntheticBenchmarkArtifacts(t, store, sessionTwo)
 	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "tr_compile",
 		TemplateID:   "simple_tdd",
@@ -173,4 +151,49 @@ func TestReadServiceReturnsNilForMissingResources(t *testing.T) {
 	comparison, err := service.GetComparison(context.Background(), "simple_tdd_v1", BenchmarkRunFilters{})
 	assert.Assert(t, errors.Is(err, ErrBenchmarkComparisonNotFound))
 	assert.Assert(t, comparison == nil)
+}
+
+func TestReadServiceTreatsLegacyRunsWithoutScoreSnapshotsAsUnscored(t *testing.T) {
+	root := t.TempDir()
+	sessionDir := filepath.Join(root, "simple_tdd_v1", "20260404210000_run")
+	writeSyntheticScoringSessionAt(t, sessionDir, syntheticSessionOptions{})
+
+	store, err := persistence.NewSQLiteStore(filepath.Join(root, "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	session, err := loadSessionManifest(sessionDir)
+	assert.NilError(t, err)
+	sessionRecord, err := buildSessionRecord(session)
+	assert.NilError(t, err)
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
+	for idx := range session.Runs {
+		run, loadErr := loadRunManifest(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName))
+		assert.NilError(t, loadErr)
+		runRecord, recordErr := buildRunRecord(run)
+		assert.NilError(t, recordErr)
+		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+	}
+
+	service := NewReadService(store)
+	runs, err := service.ListRuns(context.Background(), "simple_tdd_v1", BenchmarkRunFilters{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runs), 2)
+	assert.Assert(t, !runs[0].Scored)
+	assert.Assert(t, len(runs[0].Errors) > 0)
+
+	runDetail, err := service.GetRun(context.Background(), "simple_tdd_v1", runs[0].ScorecardID)
+	assert.NilError(t, err)
+	assert.Assert(t, runDetail != nil)
+	assert.Assert(t, !runDetail.Scored)
+	assert.Assert(t, runDetail.Scorecard == nil)
+	assert.Assert(t, len(runDetail.ScoreErrors) > 0)
+
+	comparison, err := service.GetComparison(context.Background(), "simple_tdd_v1", BenchmarkRunFilters{})
+	assert.NilError(t, err)
+	assert.Assert(t, comparison != nil)
+	assert.Equal(t, comparison.RunCount, 2)
+	assert.Equal(t, comparison.Aggregates.ByAgent[0].RunCount, 1)
+	assert.Equal(t, comparison.Aggregates.ByAgent[0].ScoredRunCount, 0)
+	assert.Equal(t, comparison.Aggregates.ByAgent[0].SuccessRate, 0.0)
 }

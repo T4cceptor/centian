@@ -21,7 +21,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 10
+const schemaVersion = 11
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -338,6 +338,9 @@ func (s *Store) createTables(ctx context.Context) error {
 	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
+	if err := createBenchmarkRunScoreTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run score schema: %w", err)
+	}
 	if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
 	}
@@ -398,6 +401,8 @@ func (s *Store) migrateSchemaOneStep(ctx context.Context, version int) (int, boo
 		return 9, true, migrateSchemaStep(ctx, s.db, "v8 to v9", createBenchmarkRunTables)
 	case 9:
 		return 10, true, s.migrateV9ToV10(ctx)
+	case 10:
+		return 11, true, s.migrateV10ToV11(ctx)
 	default:
 		return version, false, nil
 	}
@@ -423,6 +428,29 @@ func (s *Store) migrateV9ToV10(ctx context.Context) error {
 			return nil
 		}
 		return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) migrateV10ToV11(ctx context.Context) error {
+	stmts := []string{
+		`ALTER TABLE benchmark_sessions ADD COLUMN suite_name TEXT`,
+		`ALTER TABLE benchmark_sessions ADD COLUMN template_name TEXT`,
+		`ALTER TABLE benchmark_runs ADD COLUMN case_name TEXT`,
+		`ALTER TABLE benchmark_runs ADD COLUMN template_name TEXT`,
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.ExecContext(ctx, stmt); err != nil &&
+			!strings.Contains(err.Error(), "duplicate column name") &&
+			!strings.Contains(err.Error(), "no such table") {
+			return fmt.Errorf("failed to migrate event store schema from v10 to v11: %w", err)
+		}
+	}
+	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to migrate event store schema from v10 to v11: %w", err)
+	}
+	if err := createBenchmarkRunScoreTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to migrate event store schema from v10 to v11: %w", err)
 	}
 	return nil
 }

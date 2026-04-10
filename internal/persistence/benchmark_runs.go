@@ -22,10 +22,12 @@ type benchmarkSessionRow struct {
 	SessionID          string `bun:"session_id,pk"`
 	SchemaVersion      int
 	SuiteID            string
+	SuiteName          string
 	SuitePath          string
 	SessionPath        string
 	OutputRoot         string
 	TemplateID         string
+	TemplateName       string
 	StartedAtUnixMilli int64
 	EndedAtUnixMilli   sql.NullInt64
 	Status             string
@@ -38,10 +40,12 @@ type benchmarkRunRow struct {
 	SchemaVersion        int
 	SessionID            string
 	CaseID               string
+	CaseName             string
 	Agent                string
 	TemplateVariant      string
 	Attempt              int
 	TemplateID           string
+	TemplateName         string
 	SelectedModel        string
 	StartedAtUnixMilli   int64
 	EndedAtUnixMilli     sql.NullInt64
@@ -66,10 +70,12 @@ type benchmarkRunRow struct {
 type BenchmarkSessionRecord struct {
 	SessionID          string `json:"sessionId"`
 	SuiteID            string `json:"suiteId"`
+	SuiteName          string `json:"suiteName,omitempty"`
 	SuitePath          string `json:"suitePath"`
 	SessionPath        string `json:"sessionPath"`
 	OutputRoot         string `json:"outputRoot"`
 	TemplateID         string `json:"templateId"`
+	TemplateName       string `json:"templateName,omitempty"`
 	StartedAtUnixMilli int64  `json:"startedAtUnixMilli"`
 	EndedAtUnixMilli   *int64 `json:"endedAtUnixMilli,omitempty"`
 	Status             string `json:"status"`
@@ -81,10 +87,12 @@ type BenchmarkRunRecord struct {
 	BenchmarkRunID       string          `json:"benchmarkRunId"`
 	SessionID            string          `json:"sessionId"`
 	CaseID               string          `json:"caseId"`
+	CaseName             string          `json:"caseName,omitempty"`
 	Agent                string          `json:"agent"`
 	TemplateVariant      string          `json:"templateVariant"`
 	Attempt              int             `json:"attempt"`
 	TemplateID           string          `json:"templateId"`
+	TemplateName         string          `json:"templateName,omitempty"`
 	SelectedModel        string          `json:"selectedModel,omitempty"`
 	StartedAtUnixMilli   int64           `json:"startedAtUnixMilli"`
 	EndedAtUnixMilli     *int64          `json:"endedAtUnixMilli,omitempty"`
@@ -127,10 +135,12 @@ func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
 			session_id TEXT PRIMARY KEY,
 			schema_version INTEGER NOT NULL,
 			suite_id TEXT NOT NULL,
+			suite_name TEXT,
 			suite_path TEXT NOT NULL,
 			session_path TEXT NOT NULL,
 			output_root TEXT NOT NULL,
 			template_id TEXT NOT NULL,
+			template_name TEXT,
 			started_at_unix_milli INTEGER NOT NULL,
 			ended_at_unix_milli INTEGER,
 			status TEXT NOT NULL,
@@ -143,10 +153,12 @@ func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
 			schema_version INTEGER NOT NULL,
 			session_id TEXT NOT NULL,
 			case_id TEXT NOT NULL,
+			case_name TEXT,
 			agent TEXT NOT NULL,
 			template_variant TEXT NOT NULL,
 			attempt INTEGER NOT NULL,
 			template_id TEXT NOT NULL,
+			template_name TEXT,
 			selected_model TEXT,
 			started_at_unix_milli INTEGER NOT NULL,
 			ended_at_unix_milli INTEGER,
@@ -187,10 +199,12 @@ func benchmarkSessionRowFromRecord(record *BenchmarkSessionRecord) *benchmarkSes
 		SessionID:          record.SessionID,
 		SchemaVersion:      benchmarkRunSchemaVersion,
 		SuiteID:            record.SuiteID,
+		SuiteName:          record.SuiteName,
 		SuitePath:          record.SuitePath,
 		SessionPath:        record.SessionPath,
 		OutputRoot:         record.OutputRoot,
 		TemplateID:         record.TemplateID,
+		TemplateName:       record.TemplateName,
 		StartedAtUnixMilli: record.StartedAtUnixMilli,
 		Status:             record.Status,
 		RepeatCount:        record.RepeatCount,
@@ -208,10 +222,12 @@ func (row *benchmarkSessionRow) toRecord() *BenchmarkSessionRecord {
 	return &BenchmarkSessionRecord{
 		SessionID:          row.SessionID,
 		SuiteID:            row.SuiteID,
+		SuiteName:          row.SuiteName,
 		SuitePath:          row.SuitePath,
 		SessionPath:        row.SessionPath,
 		OutputRoot:         row.OutputRoot,
 		TemplateID:         row.TemplateID,
+		TemplateName:       row.TemplateName,
 		StartedAtUnixMilli: row.StartedAtUnixMilli,
 		EndedAtUnixMilli:   nullInt64Pointer(row.EndedAtUnixMilli),
 		Status:             row.Status,
@@ -232,10 +248,12 @@ func benchmarkRunRowFromRecord(record *BenchmarkRunRecord) (*benchmarkRunRow, er
 		SchemaVersion:        benchmarkRunSchemaVersion,
 		SessionID:            record.SessionID,
 		CaseID:               record.CaseID,
+		CaseName:             record.CaseName,
 		Agent:                record.Agent,
 		TemplateVariant:      record.TemplateVariant,
 		Attempt:              record.Attempt,
 		TemplateID:           record.TemplateID,
+		TemplateName:         record.TemplateName,
 		SelectedModel:        record.SelectedModel,
 		StartedAtUnixMilli:   record.StartedAtUnixMilli,
 		Status:               record.Status,
@@ -268,10 +286,12 @@ func (row *benchmarkRunRow) toRecord() (*BenchmarkRunRecord, error) {
 		BenchmarkRunID:       row.BenchmarkRunID,
 		SessionID:            row.SessionID,
 		CaseID:               row.CaseID,
+		CaseName:             row.CaseName,
 		Agent:                row.Agent,
 		TemplateVariant:      row.TemplateVariant,
 		Attempt:              row.Attempt,
 		TemplateID:           row.TemplateID,
+		TemplateName:         row.TemplateName,
 		SelectedModel:        row.SelectedModel,
 		StartedAtUnixMilli:   row.StartedAtUnixMilli,
 		EndedAtUnixMilli:     nullInt64Pointer(row.EndedAtUnixMilli),
