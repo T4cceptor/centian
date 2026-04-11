@@ -537,10 +537,11 @@ func TestCodexOllamaWriteDefaultConfig(t *testing.T) {
 		t.Fatalf("writeConfig: %v", err)
 	}
 
-	assertFileContains(t, layout.CodexConfig, `oss_provider = "ollama"`)
-	assertFileContains(t, layout.CodexConfig, `[model_providers.ollama]`)
+	assertFileContains(t, layout.CodexConfig, `oss_provider = "ollama-custom"`)
+	assertFileContains(t, layout.CodexConfig, `[model_providers.ollama-custom]`)
 	assertFileContains(t, layout.CodexConfig, `[profiles.gemma4-local]`)
 	assertFileContains(t, layout.CodexConfig, `[profiles.qwen3.5-local]`)
+	assertFileContains(t, layout.CodexConfig, `model_provider = "ollama-custom"`)
 	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
 	assertFileContains(t, layout.CodexConfig, `[projects."/tmp/demo/workspace"]`)
 }

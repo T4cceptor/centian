@@ -28,7 +28,7 @@ run_scenario() {
     --repeat "${REPEAT}"
   )
 
-  if [[ "${agent}" == "codex" && -n "${CODEX_CONFIG_PATH}" ]]; then
+  if [[ ( "${agent}" == "codex" || "${agent}" == "codex-ollama" ) && -n "${CODEX_CONFIG_PATH}" ]]; then
     cmd+=(--codex-config "${CODEX_CONFIG_PATH}")
   fi
   if [[ -n "${CENTIAN_CONFIG_PATH}" ]]; then
@@ -79,8 +79,8 @@ fi
 # run_scenario "gemini / gemini-3-flash-preview" "gemini" "gemini-3-flash-preview"
 #run_scenario "codex / gpt-5.4" "codex" "gpt-5.4"
 # run_scenario "codex / gpt-5.4-mini" "codex" "gpt-5.4-mini"
-run_scenario "claude / sonnet" "claude" "sonnet"
-# run_scenario "claude / opus" "claude" "opus"
+# run_scenario "claude / sonnet" "claude" "sonnet"
+run_scenario "claude / opus" "claude" "opus"
 
 echo
 echo "All benchmark scenarios finished."
