@@ -104,6 +104,12 @@ func (s *Store) refreshTaskRunStatsForActionRequest(ctx context.Context, request
 	return nil
 }
 
+// RecomputeTaskRunStats recomputes and persists stats for the given task run from raw events.
+// Call this before reading stats when you need a guaranteed up-to-date view.
+func (s *Store) RecomputeTaskRunStats(ctx context.Context, runID string) error {
+	return s.recomputeTaskRunStats(ctx, runID)
+}
+
 func (s *Store) recomputeTaskRunStats(ctx context.Context, runID string) error {
 	if s == nil || s.db == nil || strings.TrimSpace(runID) == "" {
 		return nil
@@ -214,7 +220,15 @@ WITH task_agg AS (
 		MAX(created_at_unix_milli) AS task_end,
 		SUM(CASE WHEN event_type = 'task_restarted' THEN 1 ELSE 0 END) AS restart_count,
 		SUM(CASE WHEN event_type = 'task_failed' THEN 1 ELSE 0 END) AS fail_count,
-		SUM(CASE WHEN event_type = 'task_timed_out' THEN 1 ELSE 0 END) AS timeout_count
+		SUM(CASE WHEN event_type = 'task_timed_out' THEN 1 ELSE 0 END) AS timeout_count,
+		SUM(CASE WHEN outcome = 'failed'
+			AND event_type NOT IN ('task_restarted', 'task_failed', 'task_timed_out', 'task_registered', 'approval_wait_entered')
+			AND NOT EXISTS (
+				SELECT 1 FROM action_events ae
+				WHERE ae.request_id = task_events.related_action_request_id
+				AND ae.is_error = 1
+			)
+			THEN 1 ELSE 0 END) AS step_failure_count
 	FROM task_events
 	WHERE task_run_id = ?
 ),
@@ -248,7 +262,7 @@ SELECT
 	COALESCE((SELECT timeout_count FROM task_agg), 0) AS timeout_count,
 	COALESCE((SELECT task_calls FROM call_agg), 0) AS task_calls,
 	COALESCE((SELECT downstream_calls FROM call_agg), 0) AS downstream_calls,
-	COALESCE((SELECT task_errors FROM call_agg), 0) AS task_errors,
+	COALESCE((SELECT task_errors FROM call_agg), 0) + COALESCE((SELECT step_failure_count FROM task_agg), 0) AS task_errors,
 	COALESCE((SELECT downstream_errors FROM call_agg), 0) AS downstream_errors
 `
 	if err := s.db.NewRaw(query, runID, runID).Scan(ctx, row); err != nil {

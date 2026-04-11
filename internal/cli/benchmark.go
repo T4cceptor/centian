@@ -11,6 +11,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/benchmarks"
+	"github.com/T4cceptor/centian/internal/config"
 	"github.com/urfave/cli/v3"
 )
 
@@ -22,6 +23,7 @@ var BenchmarkCommand = &cli.Command{
 		BenchmarkRunCommand,
 		BenchmarkScoreCommand,
 		BenchmarkCompareCommand,
+		BenchmarkBackfillScoresCommand,
 	},
 }
 
@@ -140,6 +142,43 @@ var BenchmarkCompareCommand = &cli.Command{
 	Action: handleBenchmarkCompareCommand,
 }
 
+// BenchmarkBackfillScoresCommand rescans legacy benchmark artifacts and persists DB score snapshots.
+var BenchmarkBackfillScoresCommand = &cli.Command{
+	Name:  "backfill-scores",
+	Usage: "Backfill persisted benchmark run scores from legacy artifacts",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "suite",
+			Usage: "Limit backfill to one benchmark suite id",
+		},
+		&cli.StringFlag{
+			Name:  "session",
+			Usage: "Limit backfill to one benchmark session id",
+		},
+		&cli.StringFlag{
+			Name:  "agent",
+			Usage: "Limit backfill to one agent id",
+		},
+		&cli.StringFlag{
+			Name:  "case",
+			Usage: "Limit backfill to one benchmark case id",
+		},
+		&cli.StringFlag{
+			Name:  "template-variant",
+			Usage: "Limit backfill to one template variant",
+		},
+		&cli.StringSliceFlag{
+			Name:  "path-remap",
+			Usage: "Rewrite one old artifact path prefix using OLD=NEW form (repeatable)",
+		},
+		&cli.BoolFlag{
+			Name:  "force",
+			Usage: "Recompute and overwrite existing benchmark run score snapshots",
+		},
+	},
+	Action: handleBenchmarkBackfillScoresCommand,
+}
+
 func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -213,6 +252,28 @@ func handleBenchmarkCompareCommand(ctx context.Context, cmd *cli.Command) error 
 	comparison, _, err := comparer.CompareSuite(ctx, options)
 	if comparison != nil {
 		encoded, marshalErr := json.MarshalIndent(comparison, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		fmt.Println(string(encoded))
+	}
+	return err
+}
+
+func handleBenchmarkBackfillScoresCommand(ctx context.Context, cmd *cli.Command) error {
+	storePath, err := config.ResolveEventStorePath(nil)
+	if err != nil {
+		return err
+	}
+	options, err := buildBenchmarkBackfillOptions(cmd, storePath)
+	if err != nil {
+		return err
+	}
+
+	service := benchmarks.NewBackfillService()
+	result, err := service.BackfillScores(ctx, options)
+	if result != nil {
+		encoded, marshalErr := json.MarshalIndent(result, "", "  ")
 		if marshalErr != nil {
 			return marshalErr
 		}
@@ -339,6 +400,23 @@ func buildBenchmarkCompareOptions(cmd *cli.Command) (*benchmarks.CompareOptions,
 	}, nil
 }
 
+func buildBenchmarkBackfillOptions(cmd *cli.Command, storePath string) (*benchmarks.BackfillOptions, error) {
+	pathRemaps, err := parsePathRemaps(cmd.StringSlice("path-remap"))
+	if err != nil {
+		return nil, err
+	}
+	return &benchmarks.BackfillOptions{
+		MainStorePath:   storePath,
+		SuiteID:         strings.TrimSpace(cmd.String("suite")),
+		SessionID:       strings.TrimSpace(cmd.String("session")),
+		Agent:           strings.TrimSpace(cmd.String("agent")),
+		CaseID:          strings.TrimSpace(cmd.String("case")),
+		TemplateVariant: strings.TrimSpace(cmd.String("template-variant")),
+		PathRemaps:      pathRemaps,
+		Force:           cmd.Bool("force"),
+	}, nil
+}
+
 func splitCSVValues(values []string) []string {
 	result := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
@@ -380,6 +458,34 @@ func parseTemplateVariants(values []string) ([]benchmarks.TemplateVariant, error
 		})
 	}
 	return variants, nil
+}
+
+func parsePathRemaps(values []string) ([]benchmarks.PathRemap, error) {
+	remaps := make([]benchmarks.PathRemap, 0, len(values))
+	for _, raw := range splitCSVValues(values) {
+		from, to, ok := strings.Cut(raw, "=")
+		if !ok {
+			return nil, fmt.Errorf("path-remap %q must use OLD=NEW format", raw)
+		}
+		from = strings.TrimSpace(from)
+		to = strings.TrimSpace(to)
+		if from == "" || to == "" {
+			return nil, fmt.Errorf("path-remap %q must use OLD=NEW format", raw)
+		}
+		fromPath, err := filepath.Abs(from)
+		if err != nil {
+			return nil, fmt.Errorf("resolve path-remap source %q: %w", raw, err)
+		}
+		toPath, err := filepath.Abs(to)
+		if err != nil {
+			return nil, fmt.Errorf("resolve path-remap target %q: %w", raw, err)
+		}
+		remaps = append(remaps, benchmarks.PathRemap{
+			From: fromPath,
+			To:   toPath,
+		})
+	}
+	return remaps, nil
 }
 
 func defaultResolutionStart(suitePath string) string {

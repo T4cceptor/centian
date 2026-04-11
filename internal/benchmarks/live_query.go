@@ -33,6 +33,7 @@ type benchmarkQueryStore interface {
 	GetTaskRunSnapshot(context.Context, string) (*persistence.TaskRunSnapshotRecord, error)
 	ListTaskRunStats(context.Context) ([]persistence.TaskRunStatsRecord, error)
 	GetTaskRunStats(context.Context, string) (*persistence.TaskRunStatsRecord, error)
+	RecomputeTaskRunStats(context.Context, string) error
 }
 
 // QueryService is the single live benchmark query/scoring service used by CLI and API.
@@ -487,11 +488,9 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		}
 		return nil, err
 	}
-	stats, err := s.store.GetTaskRunStats(ctx, latestTaskRunID)
+	s.recomputeStatsForLinkedRuns(ctx, latestTaskRunID, run.LinkedTaskRunIDs)
+	stats, err := s.aggregateTaskRunStats(ctx, latestTaskRunID, run.LinkedTaskRunIDs)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("task run stats %q were not found", latestTaskRunID)
-		}
 		return nil, err
 	}
 	manual, manualPath, err := loadManualScore(filepath.Join(run.RunDir, manualScoreFileName))
@@ -589,6 +588,56 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		GeneratedAt:   s.now(),
 		Warnings:      warnings,
 	}, nil
+}
+
+// aggregateTaskRunStats sums stats from all linked task run IDs so that errors from
+// scaffolding or intermediate runs are not lost. The latest task run must be present;
+// additional linked runs are added on top if available.
+func (s *QueryService) aggregateTaskRunStats(ctx context.Context, latestTaskRunID string, linkedRunIDs []string) (*persistence.TaskRunStatsRecord, error) {
+	latest, err := s.store.GetTaskRunStats(ctx, latestTaskRunID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("task run stats %q were not found", latestTaskRunID)
+		}
+		return nil, err
+	}
+	for _, runID := range linkedRunIDs {
+		if strings.TrimSpace(runID) == "" || runID == latestTaskRunID {
+			continue
+		}
+		extra, err := s.store.GetTaskRunStats(ctx, runID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // non-latest linked run may have no stats row; skip it
+			}
+			return nil, err
+		}
+		latest.TaskToolCallCount += extra.TaskToolCallCount
+		latest.DownstreamToolCallCount += extra.DownstreamToolCallCount
+		latest.TaskToolErrorCount += extra.TaskToolErrorCount
+		latest.DownstreamToolErrorCount += extra.DownstreamToolErrorCount
+		latest.RestartCount += extra.RestartCount
+		latest.FailCount += extra.FailCount
+		latest.TimeoutCount += extra.TimeoutCount
+	}
+	return latest, nil
+}
+
+// recomputeStatsForLinkedRuns refreshes task_run_stats from raw events for all unique run IDs
+// associated with a benchmark run. Errors are ignored — stale stats are preferable to a hard failure.
+func (s *QueryService) recomputeStatsForLinkedRuns(ctx context.Context, latestTaskRunID string, linkedRunIDs []string) {
+	seen := make(map[string]struct{})
+	for _, runID := range append([]string{latestTaskRunID}, linkedRunIDs...) {
+		runID = strings.TrimSpace(runID)
+		if runID == "" {
+			continue
+		}
+		if _, already := seen[runID]; already {
+			continue
+		}
+		seen[runID] = struct{}{}
+		_ = s.store.RecomputeTaskRunStats(ctx, runID)
+	}
 }
 
 func runAgentMetadata(run *persistence.BenchmarkRunRecord, agentStdoutPath string) (*AgentMetadata, []string, error) {

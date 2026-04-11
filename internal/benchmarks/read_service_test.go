@@ -110,7 +110,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.Equal(t, len(scorecards), 1)
 	assert.Equal(t, scorecards[0].TemplateID, "simple_tdd")
 	assert.Equal(t, scorecards[0].TemplateName, "Simple TDD Current")
-	assert.Equal(t, scorecards[0].RunCount, 2)
+	assert.Equal(t, scorecards[0].RunCount, 4) // 2 sessions × 2 runs each
 	assert.Assert(t, scorecards[0].TotalTaskToolCalls >= scorecards[0].MedianTaskToolCalls)
 	assert.Assert(t, scorecards[0].TotalDownstreamToolCalls >= scorecards[0].MedianDownstreamToolCalls)
 	assert.Equal(t, scorecards[0].SuccessRate, 1.0)
