@@ -89,6 +89,10 @@ var BenchmarkRunCommand = &cli.Command{
 			Name:  "codex-config",
 			Usage: "Base Codex config to copy and patch for codex or codex-ollama runs",
 		},
+		&cli.StringFlag{
+			Name:  "centian-config",
+			Usage: "Base Centian config to copy and patch for benchmark runs",
+		},
 		&cli.BoolFlag{
 			Name:  "keep-centian-running",
 			Usage: "Print the benchmark UI URL and prompt whether to shut down the Centian server after the agent finishes",
@@ -310,12 +314,6 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	}
 
 	startPath := defaultResolutionStart(suitePath)
-	if len(templateVariants) == 0 {
-		templateVariants, err = benchmarks.ResolveDefaultTemplateVariants(startPath)
-		if err != nil {
-			return nil, err
-		}
-	}
 	outputRoot := strings.TrimSpace(cmd.String("output-root"))
 	if outputRoot == "" {
 		outputRoot, err = benchmarks.ResolveDefaultOutputRoot(startPath)
@@ -343,6 +341,22 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	if err != nil {
 		return nil, err
 	}
+	centianConfigPath, err := resolveOptionalPath(cmd.String("centian-config"))
+	if err != nil {
+		return nil, err
+	}
+	if len(templateVariants) == 0 && centianConfigPath != "" {
+		templateVariants, err = benchmarks.ResolveTemplateVariantsFromCentianConfig(centianConfigPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(templateVariants) == 0 {
+		templateVariants, err = benchmarks.ResolveDefaultTemplateVariants(startPath)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if codexConfigPath == "" {
 		for _, agent := range agents {
 			if strings.EqualFold(agent, agentrunner.AgentCodexOllama) && strings.TrimSpace(models.CodexOllama) == "" {
@@ -363,6 +377,8 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 		CentianBinaryPath: binaryPath,
 		Models:            models,
 		CodexConfigPath:   codexConfigPath,
+		CentianConfigPath: centianConfigPath,
+		SessionLabel:      defaultBenchmarkSessionLabel(templateVariants, agents),
 	}, nil
 }
 
@@ -491,9 +507,14 @@ func parsePathRemaps(values []string) ([]benchmarks.PathRemap, error) {
 func defaultResolutionStart(suitePath string) string {
 	cwd, err := os.Getwd()
 	if err == nil {
-		if _, rootErr := benchmarks.FindRepoRoot(cwd); rootErr == nil {
-			return cwd
-		}
+		return cwd
 	}
 	return suitePath
+}
+
+func defaultBenchmarkSessionLabel(variants []benchmarks.TemplateVariant, agents []string) string {
+	if len(variants) != 1 || len(agents) != 1 {
+		return ""
+	}
+	return variants[0].Name + "_" + agents[0] + "_run"
 }

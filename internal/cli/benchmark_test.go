@@ -48,7 +48,7 @@ func TestBenchmarkRunCommandStructure(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"suite", "case", "agent", "repeat", "template-dir", "timeout",
-		"output-root", "model", "claude-model", "gemini-model", "codex-model", "codex-ollama-model", "codex-config", "keep-centian-running",
+		"output-root", "model", "claude-model", "gemini-model", "codex-model", "codex-ollama-model", "codex-config", "centian-config", "keep-centian-running",
 	} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on BenchmarkRunCommand", expected)
@@ -182,6 +182,64 @@ func TestBuildBenchmarkRunOptionsResolvesDefaults(t *testing.T) {
 	}
 	if filepath.Base(opts.OutputRoot) != "benchmarks" {
 		t.Fatalf("expected benchmark output root, got %s", opts.OutputRoot)
+	}
+	if opts.SessionLabel != "" {
+		t.Fatalf("expected empty session label for multi-agent run, got %q", opts.SessionLabel)
+	}
+}
+
+func TestBuildBenchmarkRunOptionsUsesTemplateDirFromCentianConfig(t *testing.T) {
+	suiteRoot := t.TempDir()
+	templateDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "centian.config.json")
+	if err := os.WriteFile(configPath, []byte(`{
+  "name": "Benchmark Config",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "__PORT__",
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": `+`"`+templateDir+`"`+`
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite",
+        "path": "__EVENT_STORE_PATH__"
+      }
+    }
+  },
+  "gateways": {
+    "taskverification": {
+      "mcpServers": {}
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cmd := &urfavecli.Command{
+		Flags: BenchmarkRunCommand.Flags,
+	}
+	cmd.Set("suite", suiteRoot)
+	cmd.Set("agent", "codex")
+	cmd.Set("repeat", "1")
+	cmd.Set("centian-config", configPath)
+
+	opts, err := buildBenchmarkRunOptions(cmd, "/tmp/centian")
+	if err != nil {
+		t.Fatalf("buildBenchmarkRunOptions: %v", err)
+	}
+	if opts.CentianConfigPath != configPath {
+		t.Fatalf("expected centian config path %q, got %q", configPath, opts.CentianConfigPath)
+	}
+	if len(opts.TemplateVariants) != 1 || opts.TemplateVariants[0].Name != "current" || opts.TemplateVariants[0].SourceDir != templateDir {
+		t.Fatalf("expected template variant from centian config, got %+v", opts.TemplateVariants)
+	}
+	if opts.SessionLabel != "current_codex_run" {
+		t.Fatalf("expected derived session label, got %q", opts.SessionLabel)
 	}
 }
 

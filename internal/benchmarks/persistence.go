@@ -250,11 +250,17 @@ func sessionPathFromRun(run *RunManifest) string {
 	if runDir == "" {
 		return ""
 	}
-	sessionPath := runDir
-	for i := 0; i < 5; i++ {
-		sessionPath = filepath.Dir(sessionPath)
+	current := runDir
+	for {
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		if filepath.Base(parent) == "runs" {
+			return filepath.Dir(parent)
+		}
+		current = parent
 	}
-	return sessionPath
 }
 
 func bestTime(primary, fallback time.Time) time.Time {

@@ -57,6 +57,7 @@ type RunOptions struct {
 	CentianBinaryPath string
 	Models            AgentModels
 	CodexConfigPath   string
+	CentianConfigPath string
 	SessionLabel      string
 	OnCentianReady    func(*RunManifest)
 	AfterRun          func(*RunManifest) error
@@ -188,15 +189,38 @@ func NewRunner() *Runner {
 	}
 }
 
-// ResolveDefaultTemplateVariants uses the repo's integrated templates as the implicit current variant.
+// ResolveDefaultTemplateVariants uses task-templates/integrated under the working
+// directory as the implicit current variant, with a repo-root fallback for
+// backwards compatibility.
 func ResolveDefaultTemplateVariants(start string) ([]TemplateVariant, error) {
-	repoRoot, err := FindRepoRoot(start)
+	searchRoot, err := filepath.Abs(start)
+	if err != nil {
+		return nil, fmt.Errorf("resolve template search root %q: %w", start, err)
+	}
+	info, err := os.Stat(searchRoot)
 	if err != nil {
 		return nil, err
 	}
-	sourceDir := filepath.Join(repoRoot, "task-templates", "integrated")
-	if _, err := os.Stat(sourceDir); err != nil {
-		return nil, fmt.Errorf("default template dir %q is not available: %w", sourceDir, err)
+	if !info.IsDir() {
+		searchRoot = filepath.Dir(searchRoot)
+	}
+	candidates := []string{
+		filepath.Join(searchRoot, "task-templates", "integrated"),
+	}
+	if repoRoot, rootErr := FindRepoRoot(searchRoot); rootErr == nil {
+		candidates = append(candidates, filepath.Join(repoRoot, "task-templates", "integrated"))
+	}
+	var sourceDir string
+	for _, candidate := range candidates {
+		candidateInfo, candidateErr := os.Stat(candidate)
+		if candidateErr != nil || !candidateInfo.IsDir() {
+			continue
+		}
+		sourceDir = candidate
+		break
+	}
+	if sourceDir == "" {
+		return nil, fmt.Errorf("default template dir was not found; use --template-dir, --centian-config, or create task-templates/integrated under %q", searchRoot)
 	}
 	return []TemplateVariant{{
 		Name:      "current",
@@ -204,13 +228,54 @@ func ResolveDefaultTemplateVariants(start string) ([]TemplateVariant, error) {
 	}}, nil
 }
 
-// ResolveDefaultOutputRoot uses the taskverification tmp benchmark area under the repo root.
-func ResolveDefaultOutputRoot(start string) (string, error) {
-	repoRoot, err := FindRepoRoot(start)
-	if err != nil {
-		return "", err
+// ResolveTemplateVariantsFromCentianConfig uses a custom Centian config as the
+// implicit current template variant when it declares a concrete templates path.
+func ResolveTemplateVariantsFromCentianConfig(configPath string) ([]TemplateVariant, error) {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return nil, nil
 	}
-	return filepath.Join(repoRoot, "tests", "integrationtests", "taskverification", ".tmp", "benchmarks"), nil
+	cfg, err := config.LoadConfigFromPath(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("load centian config %q: %w", configPath, err)
+	}
+	cfg.ResolveProjects()
+	project := benchmarkDefaultProject(cfg)
+	if project == nil {
+		return nil, nil
+	}
+	templatesPath := project.TaskVerificationCapability().GetTemplatesPath()
+	if templatesPath == "" || strings.Contains(templatesPath, "__TEMPLATES_DIR__") {
+		return nil, nil
+	}
+	if !filepath.IsAbs(templatesPath) {
+		templatesPath = filepath.Join(filepath.Dir(configPath), templatesPath)
+	}
+	info, err := os.Stat(templatesPath)
+	if err != nil {
+		return nil, fmt.Errorf("template dir from centian config %q is not available: %w", templatesPath, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("template dir from centian config %q must be a directory", templatesPath)
+	}
+	return []TemplateVariant{{
+		Name:      "current",
+		SourceDir: templatesPath,
+	}}, nil
+}
+
+// ResolveDefaultOutputRoot uses a local .centian benchmark workspace under the
+// working directory instead of the repo test fixture tree.
+func ResolveDefaultOutputRoot(start string) (string, error) {
+	root, err := filepath.Abs(start)
+	if err != nil {
+		return "", fmt.Errorf("resolve benchmark output root base %q: %w", start, err)
+	}
+	info, err := os.Stat(root)
+	if err == nil && !info.IsDir() {
+		root = filepath.Dir(root)
+	}
+	return filepath.Join(root, ".centian", "benchmarks"), nil
 }
 
 // FindRepoRoot walks upward from start until it finds a repo root containing go.mod.
@@ -323,6 +388,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	}
 
 	anyFailure := false
+	sessionStorePath := ""
 	for _, spec := range specs {
 		manifest, runErr := r.executeRun(ctx, session, suite, spec, opts)
 		entry := SessionRunManifestEntry{
@@ -339,6 +405,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		}
 		session.Runs = append(session.Runs, entry)
 		session.TemplateName = firstNonEmpty(session.TemplateName, manifest.TemplateName)
+		sessionStorePath = firstNonEmpty(sessionStorePath, manifest.ArtifactPaths.EventStorePath)
 		if runErr != nil {
 			anyFailure = true
 		}
@@ -353,9 +420,13 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if record, err := buildSessionRecord(session); err != nil {
 		return session, err
 	} else {
-		storePath, pathErr := config.ResolveEventStorePath(nil)
-		if pathErr != nil {
-			return session, pathErr
+		storePath := strings.TrimSpace(sessionStorePath)
+		if storePath == "" {
+			var pathErr error
+			storePath, pathErr = config.ResolveEventStorePath(nil)
+			if pathErr != nil {
+				return session, pathErr
+			}
 		}
 		if err := r.PersistSession(ctx, storePath, record); err != nil {
 			return session, err
@@ -418,10 +489,7 @@ func (r *Runner) executeRun(
 	runDir := filepath.Join(
 		sessionDir,
 		"runs",
-		sanitizeName(spec.TemplateVariant.Name),
-		sanitizeName(spec.Agent),
-		sanitizeName(spec.CaseRef.ID),
-		fmt.Sprintf("attempt-%03d", spec.Attempt),
+		benchmarkRunDirName(spec),
 	)
 	projectDir := filepath.Join(runDir, "project")
 	logsDir := filepath.Join(runDir, "logs")
@@ -430,7 +498,7 @@ func (r *Runner) executeRun(
 	selectedTemplatePath := filepath.Join(runDir, "selected-template.yaml")
 	runtimeDir := filepath.Join(runDir, ".runtime")
 	runtimeTemplatesDir := filepath.Join(runtimeDir, "templates")
-	eventStorePath, err := config.ResolveEventStorePath(nil)
+	defaultEventStorePath, err := config.ResolveEventStorePath(nil)
 	if err != nil {
 		manifest := &RunManifest{
 			SuiteID:         suite.Suite.ID,
@@ -476,7 +544,7 @@ func (r *Runner) executeRun(
 			AgentDir:             agentDir,
 			ConfigPath:           configPath,
 			EventStoreMode:       configuredSharedEventStoreMode,
-			EventStorePath:       eventStorePath,
+			EventStorePath:       defaultEventStorePath,
 			SelectedTemplatePath: selectedTemplatePath,
 		},
 	}
@@ -567,7 +635,16 @@ func (r *Runner) executeRun(
 	}
 	baseURL := "http://127.0.0.1:" + port
 	mcpURL := baseURL + "/mcp/taskverification"
-	if err := writeCentianConfig(configPath, runtimeTemplatesDir, projectDir, filepath.Join(logsDir, "internal.log"), eventStorePath, port); err != nil {
+	renderedConfig, err := renderCentianConfig(opts.CentianConfigPath, runtimeTemplatesDir, projectDir, filepath.Join(logsDir, "internal.log"), defaultEventStorePath, port)
+	if err != nil {
+		manifest.ErrorSummary = err.Error()
+		manifest.EndedAt = r.Now()
+		_ = flushManifest()
+		return manifest, err
+	}
+	manifest.ArtifactPaths.EventStorePath = renderedConfig.EffectiveEventStorePath
+	if err := os.WriteFile(configPath, renderedConfig.Content, 0o644); err != nil {
+		err = fmt.Errorf("write benchmark config: %w", err)
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
 		_ = flushManifest()
@@ -877,30 +954,113 @@ func normalizeList(values []string) []string {
 	return result
 }
 
-func writeCentianConfig(configPath string, templatesDir string, projectDir string, internalLog string, eventStorePath string, port string) error {
-	content, err := asset("centian_config.json")
+func benchmarkRunDirName(spec runSpec) string {
+	parts := []string{
+		sanitizeName(spec.TemplateVariant.Name),
+		sanitizeName(spec.Agent),
+		sanitizeName(spec.CaseRef.ID),
+		fmt.Sprintf("attempt_%03d", spec.Attempt),
+	}
+	return strings.Join(parts, "_")
+}
+
+type renderedCentianConfig struct {
+	Content                 []byte
+	EffectiveEventStorePath string
+}
+
+func renderCentianConfig(baseConfigPath string, templatesDir string, projectDir string, internalLog string, defaultEventStorePath string, port string) (*renderedCentianConfig, error) {
+	content, err := loadBenchmarkCentianConfigTemplate(baseConfigPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resolved := strings.NewReplacer(
 		"__PORT__", port,
 		"__TEMPLATES_DIR__", templatesDir,
 		"__PROJECT_DIR__", projectDir,
 		"__INTERNAL_LOG__", internalLog,
-		"__EVENT_STORE_PATH__", eventStorePath,
-	).Replace(content)
-	var payload any
+		"__EVENT_STORE_PATH__", defaultEventStorePath,
+	).Replace(string(content))
+	var payload config.GlobalConfig
 	if err := json.Unmarshal([]byte(resolved), &payload); err != nil {
-		return fmt.Errorf("parse rendered benchmark config: %w", err)
+		return nil, fmt.Errorf("parse rendered benchmark config: %w", err)
 	}
+	payload.ResolveProjects()
+	if payload.Proxy != nil && strings.TrimSpace(payload.Proxy.LogFile) != "" {
+		payload.Proxy.LogFile = resolveBenchmarkBaseConfigPath(baseConfigPath, payload.Proxy.LogFile)
+	}
+	effectiveEventStorePath := defaultEventStorePath
+	if project := benchmarkDefaultProject(&payload); project != nil {
+		if taskVerification := project.TaskVerificationCapability(); taskVerification != nil && strings.TrimSpace(taskVerification.TemplatesPath) != "" {
+			taskVerification.TemplatesPath = resolveBenchmarkBaseConfigPath(baseConfigPath, taskVerification.TemplatesPath)
+		}
+		if settings := project.EventStorageCapability(); settings != nil && strings.TrimSpace(settings.Path) != "" {
+			settings.Path = resolveBenchmarkBaseConfigPath(baseConfigPath, settings.Path)
+			effectiveEventStorePath = settings.Path
+		}
+	}
+	effectiveEventStorePath = firstNonEmpty(effectiveEventStorePath, defaultEventStorePath)
+	effectiveEventStorePath = resolveBenchmarkConfigPath(projectDir, effectiveEventStorePath)
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode rendered benchmark config: %w", err)
+		return nil, fmt.Errorf("encode rendered benchmark config: %w", err)
 	}
-	if err := os.WriteFile(configPath, encoded, 0o644); err != nil {
-		return fmt.Errorf("write benchmark config: %w", err)
+	return &renderedCentianConfig{
+		Content:                 encoded,
+		EffectiveEventStorePath: effectiveEventStorePath,
+	}, nil
+}
+
+func loadBenchmarkCentianConfigTemplate(baseConfigPath string) ([]byte, error) {
+	baseConfigPath = strings.TrimSpace(baseConfigPath)
+	if baseConfigPath == "" {
+		content, err := asset("centian_config.json")
+		if err != nil {
+			return nil, err
+		}
+		return []byte(content), nil
+	}
+	content, err := os.ReadFile(baseConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read centian config %q: %w", baseConfigPath, err)
+	}
+	return content, nil
+}
+
+func resolveBenchmarkBaseConfigPath(baseConfigPath string, configuredPath string) string {
+	configuredPath = strings.TrimSpace(configuredPath)
+	if configuredPath == "" || filepath.IsAbs(configuredPath) {
+		return configuredPath
+	}
+	baseConfigPath = strings.TrimSpace(baseConfigPath)
+	if baseConfigPath == "" {
+		return configuredPath
+	}
+	return filepath.Join(filepath.Dir(baseConfigPath), configuredPath)
+}
+
+func benchmarkDefaultProject(cfg *config.GlobalConfig) *config.ProjectConfig {
+	if cfg == nil {
+		return nil
+	}
+	if project := cfg.GetDefaultProject(); project != nil {
+		return project
+	}
+	if len(cfg.Projects) != 1 {
+		return nil
+	}
+	for _, project := range cfg.Projects {
+		return project
 	}
 	return nil
+}
+
+func resolveBenchmarkConfigPath(workingDir string, configuredPath string) string {
+	configuredPath = strings.TrimSpace(configuredPath)
+	if configuredPath == "" || filepath.IsAbs(configuredPath) {
+		return configuredPath
+	}
+	return filepath.Join(workingDir, configuredPath)
 }
 
 func writeJSONFile(path string, value any) error {

@@ -14,20 +14,19 @@ import (
 	"gotest.tools/assert"
 )
 
-func TestResolveDefaultPathsFromRepoRoot(t *testing.T) {
-	repoRoot := t.TempDir()
-	assert.NilError(t, os.WriteFile(filepath.Join(repoRoot, "go.mod"), []byte("module example.com/test\n"), 0o644))
-	assert.NilError(t, os.MkdirAll(filepath.Join(repoRoot, "task-templates", "integrated"), 0o755))
-	assert.NilError(t, os.MkdirAll(filepath.Join(repoRoot, "tests", "integrationtests", "taskverification"), 0o755))
+func TestResolveDefaultPathsFromWorkingDirectory(t *testing.T) {
+	workingDir := t.TempDir()
+	assert.NilError(t, os.MkdirAll(filepath.Join(workingDir, "task-templates", "integrated"), 0o755))
 
-	variants, err := ResolveDefaultTemplateVariants(repoRoot)
+	variants, err := ResolveDefaultTemplateVariants(workingDir)
 	assert.NilError(t, err)
 	assert.Equal(t, len(variants), 1)
 	assert.Equal(t, variants[0].Name, "current")
+	assert.Equal(t, variants[0].SourceDir, filepath.Join(workingDir, "task-templates", "integrated"))
 
-	outputRoot, err := ResolveDefaultOutputRoot(repoRoot)
+	outputRoot, err := ResolveDefaultOutputRoot(workingDir)
 	assert.NilError(t, err)
-	assert.Equal(t, outputRoot, filepath.Join(repoRoot, "tests", "integrationtests", "taskverification", ".tmp", "benchmarks"))
+	assert.Equal(t, outputRoot, filepath.Join(workingDir, ".centian", "benchmarks"))
 }
 
 func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
@@ -79,7 +78,7 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	assert.Equal(t, len(session.Runs), 24)
 	assert.Equal(t, launches, 24)
 
-	runPath := filepath.Join(session.InvocationDir, "runs", "a", "codex", "compile_failure_red", "attempt-001", runFileName)
+	runPath := filepath.Join(session.InvocationDir, "runs", "a_codex_compile_failure_red_attempt_001", runFileName)
 	data, err := os.ReadFile(runPath)
 	assert.NilError(t, err)
 	assert.Assert(t, strings.Contains(string(data), `"latestTaskRunId": "tr_123"`))
@@ -102,10 +101,11 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	assert.Equal(t, len(runRecords), 24)
 	assert.Equal(t, len(scoreRecords), 24)
 	assert.Equal(t, len(sessionRecords), 1)
-	_, statErr := os.Stat(filepath.Join(session.InvocationDir, "runs", "a", "codex", "compile_failure_red", "attempt-001", "selected-template.yaml"))
+	_, statErr := os.Stat(filepath.Join(session.InvocationDir, "runs", "a_codex_compile_failure_red_attempt_001", "selected-template.yaml"))
 	assert.NilError(t, statErr)
-	_, statErr = os.Stat(filepath.Join(session.InvocationDir, "runs", "a", "codex", "compile_failure_red", "attempt-001", "templates"))
+	_, statErr = os.Stat(filepath.Join(session.InvocationDir, "runs", "a_codex_compile_failure_red_attempt_001", "templates"))
 	assert.Assert(t, os.IsNotExist(statErr))
+	assert.Assert(t, strings.Contains(filepath.Base(session.InvocationDir), "_run"))
 }
 
 func TestRunSuiteContinuesAfterFailure(t *testing.T) {
@@ -152,7 +152,7 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 	assert.Equal(t, launches, 2)
 	assert.Equal(t, session.Status, "failed")
 
-	secondRunPath := filepath.Join(session.InvocationDir, "runs", "current", "codex", "assertion_failure_red", "attempt-001", runFileName)
+	secondRunPath := filepath.Join(session.InvocationDir, "runs", "current_codex_assertion_failure_red_attempt_001", runFileName)
 	_, statErr := os.Stat(secondRunPath)
 	assert.NilError(t, statErr)
 }
@@ -215,7 +215,7 @@ func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, fetchCalls, 2)
 
-	runPath := filepath.Join(session.InvocationDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", runFileName)
+	runPath := filepath.Join(session.InvocationDir, "runs", "current_codex_compile_failure_red_attempt_001", runFileName)
 	var manifest RunManifest
 	assert.NilError(t, readJSONFile(runPath, &manifest))
 	assert.DeepEqual(t, manifest.LinkedTaskRunIDs, []string{"tr_new"})
@@ -263,7 +263,7 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	runPath := filepath.Join(session.InvocationDir, "runs", "current", "codex_ollama", "compile_failure_red", "attempt-001", runFileName)
+	runPath := filepath.Join(session.InvocationDir, "runs", "current_codex_ollama_compile_failure_red_attempt_001", runFileName)
 	var manifest RunManifest
 	assert.NilError(t, readJSONFile(runPath, &manifest))
 	assert.Equal(t, manifest.AgentID, agentrunner.AgentCodexOllama)
@@ -382,9 +382,183 @@ func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
 		CentianBinaryPath: "/tmp/centian",
 	})
 	assert.Assert(t, err != nil)
-	runPath := filepath.Join(session.InvocationDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", runFileName)
+	runPath := filepath.Join(session.InvocationDir, "runs", "current_codex_compile_failure_red_attempt_001", runFileName)
 	_, statErr := os.Stat(runPath)
 	assert.NilError(t, statErr)
+}
+
+func TestRunSuitePersistsSessionToConfiguredEventStore(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	outputRoot := t.TempDir()
+	customStorePath := filepath.Join(t.TempDir(), "custom-events.sqlite")
+	centianConfigPath := filepath.Join(t.TempDir(), "centian.config.json")
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	mustWriteFile(t, centianConfigPath, `{
+  "name": "Benchmark Config",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "__PORT__",
+    "logFile": "__INTERNAL_LOG__",
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "__TEMPLATES_DIR__"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite",
+        "path": "`+customStorePath+`"
+      }
+    }
+  },
+  "gateways": {
+    "taskverification": {
+      "mcpServers": {}
+    }
+  }
+}`)
+
+	runner := &Runner{
+		Now:          fixedClock(),
+		AllocatePort: func() (string, error) { return "40123", nil },
+		StartCentian: fakeStartCentian,
+		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+		},
+		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
+			RunID:      "tr_123",
+			TemplateID: "simple_tdd",
+			StartedAt:  100,
+			Status:     "completed",
+		}}),
+		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
+			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
+		},
+		FindLatestRequestLog: fakeRequestLogLookup,
+	}
+
+	session, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Agents:            []string{"codex"},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        outputRoot,
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+		CentianConfigPath: centianConfigPath,
+	})
+	assert.NilError(t, err)
+
+	store, err := persistence.NewSQLiteStore(customStorePath)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	sessionRecords, err := store.ListBenchmarkSessions(context.Background(), persistence.BenchmarkSessionFilter{
+		SuiteID: "simple_tdd_v1",
+	})
+	assert.NilError(t, err)
+	runRecords, err := store.ListBenchmarkRuns(context.Background(), &persistence.BenchmarkRunFilter{
+		SuiteID: "simple_tdd_v1",
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(sessionRecords), 1)
+	assert.Equal(t, sessionRecords[0].SessionID, benchmarkSessionID(session.SuiteID, session.InvocationDir))
+	assert.Equal(t, len(runRecords), 1)
+	assert.Equal(t, runRecords[0].EventStorePath, customStorePath)
+}
+
+func TestRenderCentianConfigPreservesHardcodedPaths(t *testing.T) {
+	templateDir := filepath.Join(t.TempDir(), "templates")
+	customStorePath := filepath.Join(t.TempDir(), "custom-events.sqlite")
+	baseConfigPath := filepath.Join(t.TempDir(), "centian.config.json")
+	mustWriteFile(t, baseConfigPath, `{
+  "name": "Benchmark Config",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "__PORT__",
+    "logFile": "__INTERNAL_LOG__",
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "`+templateDir+`"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite",
+        "path": "`+customStorePath+`"
+      }
+    }
+  },
+  "gateways": {
+    "taskverification": {
+      "mcpServers": {}
+    }
+  }
+}`)
+
+	rendered, err := renderCentianConfig(
+		baseConfigPath,
+		"/tmp/runtime-templates",
+		"/tmp/project",
+		"/tmp/internal.log",
+		"/tmp/default-events.sqlite",
+		"40123",
+	)
+	assert.NilError(t, err)
+	assert.Equal(t, rendered.EffectiveEventStorePath, customStorePath)
+	assert.Assert(t, strings.Contains(string(rendered.Content), `"templatesPath": "`+templateDir+`"`))
+	assert.Assert(t, strings.Contains(string(rendered.Content), `"path": "`+customStorePath+`"`))
+	assert.Assert(t, strings.Contains(string(rendered.Content), `"port": "40123"`))
+	assert.Assert(t, strings.Contains(string(rendered.Content), `"logFile": "/tmp/internal.log"`))
+	assert.Assert(t, !strings.Contains(string(rendered.Content), "/tmp/runtime-templates"))
+	assert.Assert(t, !strings.Contains(string(rendered.Content), "/tmp/default-events.sqlite"))
+}
+
+func TestRenderCentianConfigResolvesRelativeEventStorePathAgainstProjectDir(t *testing.T) {
+	baseConfigPath := filepath.Join(t.TempDir(), "centian.config.json")
+	mustWriteFile(t, baseConfigPath, `{
+  "name": "Benchmark Config",
+  "version": "1.0.0",
+  "auth": false,
+  "proxy": {
+    "host": "127.0.0.1",
+    "port": "__PORT__",
+    "capabilities": {
+      "taskVerification": {
+        "enabled": true,
+        "templatesPath": "__TEMPLATES_DIR__"
+      },
+      "eventStorage": {
+        "enabled": true,
+        "driver": "sqlite",
+        "path": "relative/events.sqlite"
+      }
+    }
+  },
+  "gateways": {
+    "taskverification": {
+      "mcpServers": {}
+    }
+  }
+}`)
+
+	rendered, err := renderCentianConfig(
+		baseConfigPath,
+		"/tmp/runtime-templates",
+		"/tmp/project",
+		"/tmp/internal.log",
+		"/tmp/default-events.sqlite",
+		"40123",
+	)
+	assert.NilError(t, err)
+	expectedStorePath := filepath.Join(filepath.Dir(baseConfigPath), "relative", "events.sqlite")
+	assert.Equal(t, rendered.EffectiveEventStorePath, expectedStorePath)
+	assert.Assert(t, strings.Contains(string(rendered.Content), `"path": "`+expectedStorePath+`"`))
 }
 
 func fakeStartCentian(_ context.Context, _ StartCentianOptions) (*StartedCentian, error) {

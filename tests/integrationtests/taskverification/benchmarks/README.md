@@ -124,14 +124,14 @@ Score an existing session:
 
 ```bash
 ./build/centian benchmark score \
-  --session tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1/<timestamp>_run
+  --session .centian/benchmarks/simple_tdd_v1/<timestamp>_run
 ```
 
 Compare multiple sessions for one suite:
 
 ```bash
 ./build/centian benchmark compare \
-  --root tests/integrationtests/taskverification/.tmp/benchmarks \
+  --root .centian/benchmarks \
   --suite simple_tdd_v1
 ```
 
@@ -179,16 +179,16 @@ The checked-in files under this directory are inputs. They define what should be
 
 ## Preserved Local Outputs
 
-The benchmark runner preserves local outputs under the existing taskverification `.tmp` tree. One benchmark CLI invocation creates an invocation directory:
+The benchmark runner preserves local outputs under a local Centian workspace. One benchmark CLI invocation creates an invocation directory:
 
 ```text
-tests/integrationtests/taskverification/.tmp/benchmarks/<suite-id>/<timestamp>_<label>/
+.centian/benchmarks/<suite-id>/<timestamp>_<label>/
 ```
 
 That directory contains:
 
 - `session.json`
-- `runs/<template-variant>/<agent>/<case-id>/attempt-001/`
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/`
 
 Each preserved run contains:
 
@@ -339,11 +339,13 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 - `--repeat`
   Optional. Number of attempts per matrix cell. Default: `1`.
 - `--template-dir`
-  Optional and repeatable. Template variant in `name=path` form. If omitted, the implicit default is `current=<repo-root>/task-templates/integrated`.
+  Optional and repeatable. Template variant in `name=path` form. If omitted, the runner first tries `current=<working-dir>/task-templates/integrated`, then falls back to the repo-root path for backwards compatibility.
 - `--timeout`
   Optional. Per-run timeout. Default: `15m`.
 - `--output-root`
-  Optional. Root directory for preserved benchmark artifacts. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
+  Optional. Root directory for preserved benchmark artifacts. Default: `.centian/benchmarks` under the current working directory.
+- `--centian-config`
+  Optional. Base Centian config to copy and patch for benchmark runs. Placeholders such as `__EVENT_STORE_PATH__` and `__TEMPLATES_DIR__` are only resolved if present; otherwise hardcoded paths are preserved.
 - `--claude-model`
   Optional. Claude model override for multi-agent runs.
 - `--gemini-model`
@@ -366,7 +368,7 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 ### `centian benchmark compare`
 
 - `--root`
-  Required. Root directory containing benchmark suite session directories, usually `tests/integrationtests/taskverification/.tmp/benchmarks`.
+  Required. Root directory containing benchmark suite session directories, usually `.centian/benchmarks`.
 - `--suite`
   Required. Suite id to compare, for example `simple_tdd_v1`.
 - `--agent`
@@ -390,7 +392,7 @@ These variables can be overridden:
 - `BENCH_REPEAT`
   Repeat count per matrix cell. Default: `1`.
 - `BENCH_OUTPUT_ROOT`
-  Preserved benchmark output root. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
+  Preserved benchmark output root. Default: `.centian/benchmarks`.
 - `BENCH_TIMEOUT`
   Per-run timeout. Default: `15m`.
 

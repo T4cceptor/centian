@@ -400,11 +400,7 @@ func scorecardSessionPath(run *RunManifest, scorecard *RunScorecard) string {
 	if run == nil || strings.TrimSpace(run.ArtifactPaths.RunDir) == "" {
 		return ""
 	}
-	sessionPath := filepath.Clean(run.ArtifactPaths.RunDir)
-	for i := 0; i < 5; i++ {
-		sessionPath = filepath.Dir(sessionPath)
-	}
-	return sessionPath
+	return sessionPathFromRun(run)
 }
 
 func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {

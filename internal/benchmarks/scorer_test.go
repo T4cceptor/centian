@@ -54,8 +54,8 @@ func TestScoreSessionBuildsLiveSummary(t *testing.T) {
 
 func TestScoreSessionUsesPersistedAgentMetadata(t *testing.T) {
 	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "agent", "agent.stdout.log")))
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "claude", "assertion_failure_red", "attempt-001", "agent", "agent.stdout.log")))
+	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current_codex_compile_failure_red_attempt_001", "agent", "agent.stdout.log")))
+	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current_claude_assertion_failure_red_attempt_001", "agent", "agent.stdout.log")))
 
 	scorer := NewScorer()
 	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
@@ -145,7 +145,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 			AgentID:         "codex",
 			TemplateVariant: "current",
 			Attempt:         1,
-			RelativeRunDir:  filepath.Join("runs", "current", "codex", "compile_failure_red", "attempt-001"),
+			RelativeRunDir:  filepath.Join("runs", "current_codex_compile_failure_red_attempt_001"),
 			Status:          "completed",
 			LatestTaskRunID: "tr_compile",
 		},
@@ -155,7 +155,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 			AgentID:         "claude",
 			TemplateVariant: "current",
 			Attempt:         1,
-			RelativeRunDir:  filepath.Join("runs", "current", "claude", "assertion_failure_red", "attempt-001"),
+			RelativeRunDir:  filepath.Join("runs", "current_claude_assertion_failure_red_attempt_001"),
 			Status:          "completed",
 			LatestTaskRunID: "tr_assert",
 		},
