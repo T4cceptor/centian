@@ -46,11 +46,11 @@ func TestBenchmarkCommandStructure(t *testing.T) {
 	if BenchmarkCommand.Name != "benchmark" {
 		t.Fatalf("expected benchmark command name, got %q", BenchmarkCommand.Name)
 	}
-	if len(BenchmarkCommand.Commands) != 4 {
-		t.Fatalf("expected 4 benchmark subcommands, got %d", len(BenchmarkCommand.Commands))
+	if len(BenchmarkCommand.Commands) != 3 {
+		t.Fatalf("expected 3 benchmark subcommands, got %d", len(BenchmarkCommand.Commands))
 	}
-	if BenchmarkCommand.Commands[0] != BenchmarkRunCommand || BenchmarkCommand.Commands[1] != BenchmarkScoreCommand || BenchmarkCommand.Commands[2] != BenchmarkCompareCommand || BenchmarkCommand.Commands[3] != BenchmarkBackfillScoresCommand {
-		t.Fatal("expected benchmark run, score, compare, and backfill-scores subcommands to be registered")
+	if BenchmarkCommand.Commands[0] != BenchmarkRunCommand || BenchmarkCommand.Commands[1] != BenchmarkScoreCommand || BenchmarkCommand.Commands[2] != BenchmarkCompareCommand {
+		t.Fatal("expected benchmark run, score, and compare subcommands to be registered")
 	}
 }
 
@@ -121,31 +121,6 @@ func TestBenchmarkCompareCommandStructure(t *testing.T) {
 	for _, expected := range []string{"root", "suite", "agent", "case", "template-variant"} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on BenchmarkCompareCommand", expected)
-		}
-	}
-}
-
-func TestBenchmarkBackfillScoresCommandStructure(t *testing.T) {
-	if BenchmarkBackfillScoresCommand == nil {
-		t.Fatal("BenchmarkBackfillScoresCommand is nil")
-	}
-	if BenchmarkBackfillScoresCommand.Name != "backfill-scores" {
-		t.Fatalf("expected benchmark backfill command name, got %q", BenchmarkBackfillScoresCommand.Name)
-	}
-	flagNames := map[string]bool{}
-	for _, flag := range BenchmarkBackfillScoresCommand.Flags {
-		switch typed := flag.(type) {
-		case *urfavecli.StringFlag:
-			flagNames[typed.Name] = true
-		case *urfavecli.StringSliceFlag:
-			flagNames[typed.Name] = true
-		case *urfavecli.BoolFlag:
-			flagNames[typed.Name] = true
-		}
-	}
-	for _, expected := range []string{"suite", "session", "agent", "case", "template-variant", "path-remap", "force"} {
-		if !flagNames[expected] {
-			t.Fatalf("expected %q flag on BenchmarkBackfillScoresCommand", expected)
 		}
 	}
 }
@@ -353,47 +328,6 @@ func TestBuildBenchmarkCompareOptionsRequiresSuite(t *testing.T) {
 	_, err := buildBenchmarkCompareOptions(cmd)
 	if err == nil || err.Error() != "suite id is required" {
 		t.Fatalf("expected missing suite error, got %v", err)
-	}
-}
-
-func TestParsePathRemapsRejectsInvalidFormat(t *testing.T) {
-	_, err := parsePathRemaps([]string{"broken"})
-	if err == nil || err.Error() != `path-remap "broken" must use OLD=NEW format` {
-		t.Fatalf("expected invalid path-remap error, got %v", err)
-	}
-}
-
-func TestBuildBenchmarkBackfillOptionsParsesFiltersAndPathRemaps(t *testing.T) {
-	cmd := newTestCLICommand(BenchmarkBackfillScoresCommand.Flags)
-	oldRoot := filepath.Join(t.TempDir(), "old")
-	newRoot := filepath.Join(t.TempDir(), "new")
-	storePath := filepath.Join(t.TempDir(), "events.sqlite")
-	cmd.Set("suite", "simple_tdd_v1")
-	cmd.Set("session", "session-1")
-	cmd.Set("agent", "codex")
-	cmd.Set("case", "compile_failure_red")
-	cmd.Set("template-variant", "current")
-	cmd.Set("path-remap", oldRoot+"="+newRoot)
-	cmd.Set("force", "true")
-
-	opts, err := buildBenchmarkBackfillOptions(cmd, storePath)
-	if err != nil {
-		t.Fatalf("buildBenchmarkBackfillOptions: %v", err)
-	}
-	if opts.MainStorePath != storePath {
-		t.Fatalf("expected main store path %q, got %q", storePath, opts.MainStorePath)
-	}
-	if opts.SuiteID != "simple_tdd_v1" || opts.SessionID != "session-1" || opts.Agent != "codex" || opts.CaseID != "compile_failure_red" || opts.TemplateVariant != "current" {
-		t.Fatalf("unexpected backfill filters: %+v", opts)
-	}
-	if !opts.Force {
-		t.Fatal("expected force to be true")
-	}
-	if len(opts.PathRemaps) != 1 {
-		t.Fatalf("expected one path remap, got %+v", opts.PathRemaps)
-	}
-	if opts.PathRemaps[0].From != oldRoot || opts.PathRemaps[0].To != newRoot {
-		t.Fatalf("unexpected path remap %+v", opts.PathRemaps[0])
 	}
 }
 

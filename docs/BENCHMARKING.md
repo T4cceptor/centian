@@ -211,8 +211,7 @@ Benchmark run metadata includes selected model plus persisted agent metadata JSO
 
 - normal UI and API reads do not rescore from filesystem artifacts
 - per-run score snapshots are persisted in SQLite at run time
-- legacy rows without a persisted score snapshot remain visible as unscored instead of contributing synthetic zero metrics
-- the one-off `benchmark backfill-scores` command is the artifact-based recovery path for older runs
+- runs that fail to score inline remain visible as unscored instead of contributing synthetic zero metrics
 
 ## Benchmark API
 
@@ -285,14 +284,6 @@ If you expect parent/child cleanup to cascade, enable foreign keys before delete
 
 ```sql
 PRAGMA foreign_keys = ON;
-```
-
-If your benchmark data is split across machines or old paths, prefer the dedicated recovery path instead of manual DB edits:
-
-```bash
-centian benchmark backfill-scores \
-  --suite centian_demo_v1 \
-  --path-remap /old/prefix=/new/prefix
 ```
 
 ## Related Files
