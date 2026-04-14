@@ -30,15 +30,21 @@ type codexOllamaAdapter struct {
 
 func (codexAdapter) name() string { return AgentCodex }
 
+// name retruns "codex-ollama".
 func (codexOllamaAdapter) name() string { return AgentCodexOllama }
 
+// isAvailable checks if "codex" are available on path.
 func (codexAdapter) isAvailable() error {
 	_, err := exec.LookPath("codex")
 	return err
 }
 
+// isAvailable checks if both "codex" and "ollama" are available on path.
 func (codexOllamaAdapter) isAvailable() error {
 	_, err := exec.LookPath("codex")
+	if err == nil {
+		_, err = exec.LookPath("ollama")
+	}
 	return err
 }
 
