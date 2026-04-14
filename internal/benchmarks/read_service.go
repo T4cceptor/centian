@@ -3,6 +3,7 @@ package benchmarks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -62,7 +63,7 @@ func (s *ReadService) ListAgentScorecards(ctx context.Context) ([]AgentScorecard
 
 func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, session *persistence.BenchmarkSessionRecord, score *persistence.BenchmarkRunScoreRecord) BenchmarkRunSummary {
 	scorecard, scoreErr := scorecardFromSnapshot(score)
-	if scoreErr != nil {
+	if scoreErr != nil && !errors.Is(scoreErr, errBenchmarkScoreUnavailable) {
 		return unscoredRunSummary(session, item, []string{scoreErr.Error()})
 	}
 	if scorecard == nil {
@@ -181,7 +182,7 @@ func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 
 func scorecardFromSnapshot(score *persistence.BenchmarkRunScoreRecord) (*RunScorecard, error) {
 	if score == nil || strings.TrimSpace(score.ScoreStatus) != benchmarkRunScoreStatusReady {
-		return nil, nil
+		return nil, errBenchmarkScoreUnavailable
 	}
 	if len(score.ScorecardJSON) == 0 {
 		return nil, fmt.Errorf("benchmark run score snapshot is missing scorecard payload")
@@ -192,6 +193,8 @@ func scorecardFromSnapshot(score *persistence.BenchmarkRunScoreRecord) (*RunScor
 	}
 	return &scorecard, nil
 }
+
+var errBenchmarkScoreUnavailable = errors.New("benchmark score unavailable")
 
 func sortedSetValues(set map[string]struct{}) []string {
 	if len(set) == 0 {

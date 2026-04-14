@@ -71,7 +71,7 @@ func writeCodexRuntimeConfig(layout *demoLayout, baseConfigPath, defaultAssetNam
 
 func loadCodexConfigTemplate(baseConfigPath, defaultAssetName string) (string, error) {
 	if path := strings.TrimSpace(baseConfigPath); path != "" {
-		data, err := os.ReadFile(path)
+		data, err := readCodexConfigFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read codex config %q: %w", path, err)
 		}
@@ -104,12 +104,10 @@ open_world_enabled = false
 default_tools_approval_mode = "auto"
 `, mcpURL, strconv.Quote(workDir)))
 
-	switch {
-	case content == "":
+	if content == "" {
 		return runtimeBlock + "\n"
-	default:
-		return content + "\n\n" + runtimeBlock + "\n"
 	}
+	return content + "\n\n" + runtimeBlock + "\n"
 }
 
 func removeCodexTable(content, header string) string {
@@ -221,16 +219,22 @@ func (c codexAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	return command, nil
 }
 
-func (c codexOllamaAdapter) command(_ *demoLayout, _ string) ([]string, error) {
+func (c codexOllamaAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	profile, err := resolveCodexOllamaProfile(c.model, c.baseConfigPath)
 	if err != nil {
 		return nil, err
 	}
 	return []string{
 		"codex",
-		"--oss",
+		"exec",
+		"--skip-git-repo-check",
+		"--json",
+		"-C", layout.WorkspacePath,
+		"-o", filepath.Join(layout.RootPath, "codex_output.txt"),
+		"--oss", // TODO: ollama-cloud models would require NOT to send this parameter instead
 		"--profile",
 		profile,
+		"-",
 	}, nil
 }
 
@@ -278,11 +282,16 @@ func codexOllamaProfileAlias(model string) (string, bool) {
 }
 
 func firstCodexProfileFromFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := readCodexConfigFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read codex config %q: %w", path, err)
 	}
 	return firstCodexProfileName(string(data)), nil
+}
+
+func readCodexConfigFile(path string) ([]byte, error) {
+	//nolint:gosec // The CLI intentionally reads a user-selected local Codex config path.
+	return os.ReadFile(path)
 }
 
 func firstCodexProfileName(content string) string {

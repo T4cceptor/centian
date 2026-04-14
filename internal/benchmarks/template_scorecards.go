@@ -264,7 +264,6 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 	return result, nil
 }
 
-
 func agentModelScorecardKey(agent, model string) string {
 	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(model)
 }
@@ -285,7 +284,6 @@ func templateIdentityKey(templateID, templateName string) string {
 	}
 	return templateID + "::" + templateName
 }
-
 
 // scorecardCentianErrorCount returns the total centian-side error count for one run:
 // failed task tool calls plus any restart, fail, and timeout events.

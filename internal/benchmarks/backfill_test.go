@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/persistence"
@@ -182,7 +183,7 @@ func TestBackfillScoresAppliesPathRemapsWithoutMutatingStoredMetadata(t *testing
 	assert.NilError(t, err)
 	assert.Assert(t, len(runRows) > 0)
 	assert.Assert(t, filepath.Clean(runRows[0].RunDir) != filepath.Clean(applyPathRemaps(runRows[0].RunDir, result.PathRemaps)))
-	assert.Assert(t, filepath.HasPrefix(filepath.Clean(runRows[0].RunDir), filepath.Clean(oldRoot)))
+	assert.Assert(t, pathHasDirPrefix(runRows[0].RunDir, oldRoot))
 }
 
 func persistLegacyBenchmarkArtifacts(t *testing.T, store *persistence.Store, sessionDir string) {
@@ -199,4 +200,12 @@ func persistLegacyBenchmarkArtifacts(t *testing.T, store *persistence.Store, ses
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
 	}
+}
+
+func pathHasDirPrefix(path, prefix string) bool {
+	relative, err := filepath.Rel(filepath.Clean(prefix), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)))
 }

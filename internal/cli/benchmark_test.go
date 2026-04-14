@@ -9,6 +9,36 @@ import (
 	urfavecli "github.com/urfave/cli/v3"
 )
 
+func newTestCLICommand(flags []urfavecli.Flag) *urfavecli.Command {
+	return &urfavecli.Command{Flags: cloneTestCLIFlags(flags)}
+}
+
+func cloneTestCLIFlags(flags []urfavecli.Flag) []urfavecli.Flag {
+	cloned := make([]urfavecli.Flag, 0, len(flags))
+	for _, flag := range flags {
+		switch typed := flag.(type) {
+		case *urfavecli.StringFlag:
+			clonedFlag := *typed
+			cloned = append(cloned, &clonedFlag)
+		case *urfavecli.StringSliceFlag:
+			clonedFlag := *typed
+			cloned = append(cloned, &clonedFlag)
+		case *urfavecli.IntFlag:
+			clonedFlag := *typed
+			cloned = append(cloned, &clonedFlag)
+		case *urfavecli.DurationFlag:
+			clonedFlag := *typed
+			cloned = append(cloned, &clonedFlag)
+		case *urfavecli.BoolFlag:
+			clonedFlag := *typed
+			cloned = append(cloned, &clonedFlag)
+		default:
+			cloned = append(cloned, flag)
+		}
+	}
+	return cloned
+}
+
 func TestBenchmarkCommandStructure(t *testing.T) {
 	if BenchmarkCommand == nil {
 		t.Fatal("BenchmarkCommand is nil")
@@ -121,9 +151,7 @@ func TestBenchmarkBackfillScoresCommandStructure(t *testing.T) {
 }
 
 func TestBuildBenchmarkRunOptionsRequiresAgent(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkRunCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkRunCommand.Flags)
 	cmd.Set("suite", t.TempDir())
 	cmd.Set("repeat", "1")
 
@@ -134,9 +162,7 @@ func TestBuildBenchmarkRunOptionsRequiresAgent(t *testing.T) {
 }
 
 func TestBuildBenchmarkRunOptionsRejectsInvalidRepeat(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkRunCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkRunCommand.Flags)
 	cmd.Set("suite", t.TempDir())
 	cmd.Set("agent", "codex")
 	cmd.Set("repeat", "0")
@@ -159,9 +185,7 @@ func TestBuildBenchmarkRunOptionsResolvesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkRunCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkRunCommand.Flags)
 	cmd.Set("suite", filepath.Join(cwd, "..", "..", "tests", "integrationtests", "taskverification", "benchmarks", "simple_tdd_v1"))
 	cmd.Set("agent", "codex,claude")
 	cmd.Set("repeat", "1")
@@ -220,9 +244,7 @@ func TestBuildBenchmarkRunOptionsUsesTemplateDirFromCentianConfig(t *testing.T) 
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkRunCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkRunCommand.Flags)
 	cmd.Set("suite", suiteRoot)
 	cmd.Set("agent", "codex")
 	cmd.Set("repeat", "1")
@@ -278,9 +300,7 @@ func TestBenchmarkAgentModelsFromFlagsAppliesCodexOllamaSingleModelFlag(t *testi
 }
 
 func TestBuildBenchmarkRunOptionsRequiresSuite(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkRunCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkRunCommand.Flags)
 	cmd.Set("suite", "")
 	cmd.Set("agent", "codex")
 	cmd.Set("repeat", "1")
@@ -292,9 +312,7 @@ func TestBuildBenchmarkRunOptionsRequiresSuite(t *testing.T) {
 }
 
 func TestBuildBenchmarkScoreOptionsRequiresSession(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkScoreCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkScoreCommand.Flags)
 	cmd.Set("session", "")
 
 	_, err := buildBenchmarkScoreOptions(cmd)
@@ -304,9 +322,7 @@ func TestBuildBenchmarkScoreOptionsRequiresSession(t *testing.T) {
 }
 
 func TestBuildBenchmarkScoreOptionsResolvesAbsolutePath(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkScoreCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkScoreCommand.Flags)
 	sessionDir := t.TempDir()
 	cmd.Set("session", sessionDir)
 
@@ -320,9 +336,7 @@ func TestBuildBenchmarkScoreOptionsResolvesAbsolutePath(t *testing.T) {
 }
 
 func TestBuildBenchmarkCompareOptionsRequiresRoot(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkCompareCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkCompareCommand.Flags)
 	cmd.Set("suite", "simple_tdd_v1")
 
 	_, err := buildBenchmarkCompareOptions(cmd)
@@ -332,9 +346,7 @@ func TestBuildBenchmarkCompareOptionsRequiresRoot(t *testing.T) {
 }
 
 func TestBuildBenchmarkCompareOptionsRequiresSuite(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkCompareCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkCompareCommand.Flags)
 	cmd.Set("root", t.TempDir())
 	cmd.Set("suite", "")
 
@@ -352,9 +364,7 @@ func TestParsePathRemapsRejectsInvalidFormat(t *testing.T) {
 }
 
 func TestBuildBenchmarkBackfillOptionsParsesFiltersAndPathRemaps(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkBackfillScoresCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkBackfillScoresCommand.Flags)
 	oldRoot := filepath.Join(t.TempDir(), "old")
 	newRoot := filepath.Join(t.TempDir(), "new")
 	storePath := filepath.Join(t.TempDir(), "events.sqlite")
@@ -388,9 +398,7 @@ func TestBuildBenchmarkBackfillOptionsParsesFiltersAndPathRemaps(t *testing.T) {
 }
 
 func TestBuildBenchmarkCompareOptionsResolvesFilters(t *testing.T) {
-	cmd := &urfavecli.Command{
-		Flags: BenchmarkCompareCommand.Flags,
-	}
+	cmd := newTestCLICommand(BenchmarkCompareCommand.Flags)
 	root := t.TempDir()
 	cmd.Set("root", root)
 	cmd.Set("suite", "simple_tdd_v1")

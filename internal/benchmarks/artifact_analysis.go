@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const benchmarkAgentClaude = "claude"
+
 func loadManualScore(path string) (*ManualScoreInput, string, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -45,7 +47,7 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 		return nil, nil, err
 	}
 	switch agentID {
-	case "claude":
+	case benchmarkAgentClaude:
 		metadata, err := loadClaudeAgentMetadata(path)
 		return metadata, nil, err
 	case "codex", "codex-ollama":

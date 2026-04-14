@@ -287,84 +287,33 @@ func handleBenchmarkBackfillScoresCommand(ctx context.Context, cmd *cli.Command)
 }
 
 func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.RunOptions, error) {
-	suiteFlag := strings.TrimSpace(cmd.String("suite"))
-	if suiteFlag == "" {
-		return nil, fmt.Errorf("suite path is required")
-	}
-	suitePath, err := filepath.Abs(suiteFlag)
+	suitePath, err := resolveBenchmarkSuitePath(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("resolve suite path: %w", err)
+		return nil, err
 	}
-	repeat := cmd.Int("repeat")
-	if !cmd.IsSet("repeat") && repeat == 0 {
-		repeat = 1
+	repeat, err := resolveBenchmarkRepeat(cmd)
+	if err != nil {
+		return nil, err
 	}
-	if repeat <= 0 {
-		return nil, fmt.Errorf("repeat must be greater than zero")
-	}
-
 	agents := splitCSVValues(cmd.StringSlice("agent"))
 	if len(agents) == 0 {
 		return nil, fmt.Errorf("at least one agent is required")
 	}
 	caseIDs := splitCSVValues(cmd.StringSlice("case"))
-	templateVariants, err := parseTemplateVariants(cmd.StringSlice("template-dir"))
-	if err != nil {
-		return nil, err
-	}
-
 	startPath := defaultResolutionStart(suitePath)
-	outputRoot := strings.TrimSpace(cmd.String("output-root"))
-	if outputRoot == "" {
-		outputRoot, err = benchmarks.ResolveDefaultOutputRoot(startPath)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		outputRoot, err = filepath.Abs(outputRoot)
-		if err != nil {
-			return nil, fmt.Errorf("resolve output root: %w", err)
-		}
-	}
-	models, err := benchmarkAgentModelsFromFlags(
-		cmd.String("model"),
-		agents,
-		cmd.String("claude-model"),
-		cmd.String("gemini-model"),
-		cmd.String("codex-model"),
-		cmd.String("codex-ollama-model"),
-	)
+	outputRoot, err := resolveBenchmarkOutputRoot(cmd, startPath)
 	if err != nil {
 		return nil, err
 	}
-	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	models, codexConfigPath, centianConfigPath, err := resolveBenchmarkModelConfigOptions(cmd, agents)
 	if err != nil {
 		return nil, err
 	}
-	centianConfigPath, err := resolveOptionalPath(cmd.String("centian-config"))
+	templateVariants, err := resolveBenchmarkTemplateVariants(cmd, startPath, centianConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	if len(templateVariants) == 0 && centianConfigPath != "" {
-		templateVariants, err = benchmarks.ResolveTemplateVariantsFromCentianConfig(centianConfigPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if len(templateVariants) == 0 {
-		templateVariants, err = benchmarks.ResolveDefaultTemplateVariants(startPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if codexConfigPath == "" {
-		for _, agent := range agents {
-			if strings.EqualFold(agent, agentrunner.AgentCodexOllama) && strings.TrimSpace(models.CodexOllama) == "" {
-				models.CodexOllama = agentrunner.DefaultCodexOllamaModel
-				break
-			}
-		}
-	}
+	applyDefaultCodexOllamaModel(agents, &models, codexConfigPath)
 
 	return &benchmarks.RunOptions{
 		SuitePath:         suitePath,
@@ -380,6 +329,93 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 		CentianConfigPath: centianConfigPath,
 		SessionLabel:      defaultBenchmarkSessionLabel(templateVariants, agents),
 	}, nil
+}
+
+func resolveBenchmarkSuitePath(cmd *cli.Command) (string, error) {
+	suiteFlag := strings.TrimSpace(cmd.String("suite"))
+	if suiteFlag == "" {
+		return "", fmt.Errorf("suite path is required")
+	}
+	suitePath, err := filepath.Abs(suiteFlag)
+	if err != nil {
+		return "", fmt.Errorf("resolve suite path: %w", err)
+	}
+	return suitePath, nil
+}
+
+func resolveBenchmarkRepeat(cmd *cli.Command) (int, error) {
+	repeat := cmd.Int("repeat")
+	if !cmd.IsSet("repeat") && repeat == 0 {
+		repeat = 1
+	}
+	if repeat <= 0 {
+		return 0, fmt.Errorf("repeat must be greater than zero")
+	}
+	return repeat, nil
+}
+
+func resolveBenchmarkOutputRoot(cmd *cli.Command, startPath string) (string, error) {
+	outputRoot := strings.TrimSpace(cmd.String("output-root"))
+	if outputRoot == "" {
+		return benchmarks.ResolveDefaultOutputRoot(startPath)
+	}
+	resolved, err := filepath.Abs(outputRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve output root: %w", err)
+	}
+	return resolved, nil
+}
+
+func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) (benchmarks.AgentModels, string, string, error) {
+	models, err := benchmarkAgentModelsFromFlags(
+		cmd.String("model"),
+		agents,
+		cmd.String("claude-model"),
+		cmd.String("gemini-model"),
+		cmd.String("codex-model"),
+		cmd.String("codex-ollama-model"),
+	)
+	if err != nil {
+		return benchmarks.AgentModels{}, "", "", err
+	}
+	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	if err != nil {
+		return benchmarks.AgentModels{}, "", "", err
+	}
+	centianConfigPath, err := resolveOptionalPath(cmd.String("centian-config"))
+	if err != nil {
+		return benchmarks.AgentModels{}, "", "", err
+	}
+	return models, codexConfigPath, centianConfigPath, nil
+}
+
+func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfigPath string) ([]benchmarks.TemplateVariant, error) {
+	templateVariants, err := parseTemplateVariants(cmd.StringSlice("template-dir"))
+	if err != nil {
+		return nil, err
+	}
+	if len(templateVariants) == 0 && centianConfigPath != "" {
+		templateVariants, err = benchmarks.ResolveTemplateVariantsFromCentianConfig(centianConfigPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(templateVariants) == 0 {
+		return benchmarks.ResolveDefaultTemplateVariants(startPath)
+	}
+	return templateVariants, nil
+}
+
+func applyDefaultCodexOllamaModel(agents []string, models *benchmarks.AgentModels, codexConfigPath string) {
+	if models == nil || codexConfigPath != "" {
+		return
+	}
+	for _, agent := range agents {
+		if strings.EqualFold(agent, agentrunner.AgentCodexOllama) && strings.TrimSpace(models.CodexOllama) == "" {
+			models.CodexOllama = agentrunner.DefaultCodexOllamaModel
+			return
+		}
+	}
 }
 
 func buildBenchmarkScoreOptions(cmd *cli.Command) (*benchmarks.ScoreOptions, error) {

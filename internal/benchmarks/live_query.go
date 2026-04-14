@@ -390,7 +390,7 @@ func (s *QueryService) GetRun(ctx context.Context, suiteID, scorecardID string) 
 	if score != nil && len(score.ScoreErrors) > 0 {
 		scoreErrors = append([]string(nil), score.ScoreErrors...)
 	}
-	if scoreErr != nil {
+	if scoreErr != nil && !errors.Is(scoreErr, errBenchmarkScoreUnavailable) {
 		scoreErrors = []string{scoreErr.Error()}
 	}
 	return &BenchmarkRunDetail{
@@ -690,44 +690,6 @@ func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID st
 		}
 	}
 	return nil
-}
-
-func templateNameForRun(ctx context.Context, store benchmarkQueryStore, run *persistence.BenchmarkRunRecord) string {
-	if store == nil || run == nil {
-		return ""
-	}
-	runID := strings.TrimSpace(run.LatestTaskRunID)
-	if runID == "" {
-		runID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
-	}
-	if runID == "" {
-		return ""
-	}
-	snapshot, err := store.GetTaskRunSnapshot(ctx, runID)
-	if err != nil || snapshot == nil {
-		return ""
-	}
-	return templateNameFromSnapshot(snapshot)
-}
-
-func caseNamesFromSuitePath(suitePath string) map[string]string {
-	result := map[string]string{}
-	suiteCtx, err := loadSuiteContext(suitePath)
-	if err != nil {
-		return result
-	}
-	for caseID, caseCtx := range suiteCtx.caseDefs {
-		result[caseID] = caseCtx.caseDef.Case.Name
-	}
-	return result
-}
-
-func suiteNameFromPath(suitePath string) string {
-	suiteCtx, err := loadSuiteContext(suitePath)
-	if err != nil || suiteCtx == nil || suiteCtx.suite == nil {
-		return ""
-	}
-	return suiteCtx.suite.Suite.Name
 }
 
 func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) string {
