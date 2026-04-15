@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"gopkg.in/yaml.v3"
@@ -178,7 +178,7 @@ type runSpec struct {
 func NewRunner() *Runner {
 	return &Runner{
 		Now:                  time.Now,
-		AllocatePort:         allocateFreePort,
+		AllocatePort:         common.AllocateFreePort,
 		StartCentian:         startCentianProcess,
 		LaunchAgent:          agentrunner.Run,
 		FetchTaskRuns:        fetchTaskRuns,
@@ -357,7 +357,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if err != nil {
 		return nil, err
 	}
-	agents := normalizeList(opts.Agents)
+	agents := common.NormalizeCSVList(opts.Agents)
 	caseIDs := make([]string, 0, len(selectedRefs))
 	for _, ref := range selectedRefs {
 		caseIDs = append(caseIDs, ref.ID)
@@ -415,7 +415,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if anyFailure {
 		session.Status = "failed"
 	}
-	if err := writeJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
+	if err := common.WriteJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
 		return nil, err
 	}
 	if record, err := buildSessionRecord(session); err != nil {
@@ -448,7 +448,7 @@ func (r *Runner) withDefaults() *Runner {
 		r.Now = time.Now
 	}
 	if r.AllocatePort == nil {
-		r.AllocatePort = allocateFreePort
+		r.AllocatePort = common.AllocateFreePort
 	}
 	if r.StartCentian == nil {
 		r.StartCentian = startCentianProcess
@@ -554,7 +554,7 @@ func (r *Runner) executeRun(
 	}
 	flushManifest := func() error {
 		runPath := filepath.Join(runDir, runFileName)
-		if err := writeJSONFile(runPath, manifest); err != nil {
+		if err := common.WriteJSONFile(runPath, manifest); err != nil {
 			return err
 		}
 		if strings.TrimSpace(manifest.ArtifactPaths.EventStorePath) == "" {
@@ -603,7 +603,7 @@ func (r *Runner) executeRun(
 		_ = flushManifest()
 		return manifest, err
 	}
-	if err := copyDir(fixtureRoot, projectDir); err != nil {
+	if err := common.CopyDir(fixtureRoot, projectDir); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
 		_ = flushManifest()
@@ -616,14 +616,14 @@ func (r *Runner) executeRun(
 		_ = flushManifest()
 		return manifest, err
 	}
-	if err := copyFile(selectedTemplateSourcePath, selectedTemplatePath); err != nil {
+	if err := common.CopyFile(selectedTemplateSourcePath, selectedTemplatePath); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
 		_ = flushManifest()
 		return manifest, err
 	}
 	manifest.TemplateName = firstNonEmpty(readTemplateName(selectedTemplatePath), manifest.TemplateName)
-	if err := copyFile(selectedTemplateSourcePath, filepath.Join(runtimeTemplatesDir, filepath.Base(selectedTemplateSourcePath))); err != nil {
+	if err := common.CopyFile(selectedTemplateSourcePath, filepath.Join(runtimeTemplatesDir, filepath.Base(selectedTemplateSourcePath))); err != nil {
 		manifest.ErrorSummary = err.Error()
 		manifest.EndedAt = r.Now()
 		_ = flushManifest()
@@ -822,7 +822,7 @@ func selectCaseRefs(suite *SuiteDefinition, caseIDs []string) ([]SuiteCaseRef, e
 	if len(caseIDs) == 0 {
 		return append([]SuiteCaseRef(nil), suite.Cases...), nil
 	}
-	selected := normalizeList(caseIDs)
+	selected := common.NormalizeCSVList(caseIDs)
 	available := make(map[string]SuiteCaseRef, len(suite.Cases))
 	for _, ref := range suite.Cases {
 		available[ref.ID] = ref
@@ -846,7 +846,7 @@ func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, e
 	seen := map[string]struct{}{}
 	normalized := make([]TemplateVariant, 0, len(variants))
 	for _, variant := range variants {
-		name := sanitizeName(variant.Name)
+		name := common.NormalizeSlug(variant.Name)
 		if name == "" {
 			return nil, fmt.Errorf("template variant name is required")
 		}
@@ -946,32 +946,12 @@ func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 }
 
 // normalizeList splits comma-separated values, trims blanks, and preserves first-seen order.
-func normalizeList(values []string) []string {
-	// TODO: move to global utils
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, raw := range values {
-		for _, part := range strings.Split(raw, ",") {
-			value := strings.TrimSpace(part)
-			if value == "" {
-				continue
-			}
-			if _, exists := seen[value]; exists {
-				continue
-			}
-			result = append(result, value)
-			seen[value] = struct{}{}
-		}
-	}
-	return result
-}
-
 // benchmarkRunDirName builds the stable on-disk directory name for one run.
 func benchmarkRunDirName(spec runSpec) string {
 	parts := []string{
-		sanitizeName(spec.TemplateVariant.Name),
-		sanitizeName(spec.Agent),
-		sanitizeName(spec.CaseRef.ID),
+		common.NormalizeSlug(spec.TemplateVariant.Name),
+		common.NormalizeSlug(spec.Agent),
+		common.NormalizeSlug(spec.CaseRef.ID),
 		fmt.Sprintf("attempt_%03d", spec.Attempt),
 	}
 	return strings.Join(parts, "_")
@@ -1082,22 +1062,9 @@ func resolveBenchmarkConfigPath(workingDir string, configuredPath string) string
 	return filepath.Join(workingDir, configuredPath)
 }
 
-// writeJSONFile writes pretty-printed JSON and creates parent directories as needed.
-func writeJSONFile(path string, value any) error {
-	// TODO: move into global utils
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
 // createSessionDir creates a unique timestamped session directory under the suite output root.
 func createSessionDir(outputRoot string, suiteID string, label string, now time.Time) (string, error) {
-	if label = sanitizeName(label); label == "" {
+	if label = common.NormalizeSlug(label); label == "" {
 		label = defaultSessionLabel
 	}
 	root := filepath.Join(outputRoot, suiteID)
@@ -1197,71 +1164,10 @@ func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummar
 	return &sorted[0]
 }
 
-// sanitizeName lowercases free-form labels into stable filesystem-safe segments.
-func sanitizeName(value string) string {
-	// TODO: move into global utils
-	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "" {
-		return ""
-	}
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	return strings.Trim(b.String(), "_")
-}
-
-// copyDir recursively copies a fixture tree into the run workspace.
-func copyDir(src string, dst string) error {
-	// TODO: move into global utils
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, info.Mode())
-	})
-}
-
-// copyFile copies one file into the destination path, creating parent directories first.
-func copyFile(src, dst string) error {
-	// TODO: move into global utils
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0o644)
-}
-
 // startCentianProcess launches a run-local Centian child process and waits for its API/MCP endpoints.
 func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*StartedCentian, error) {
-	// TODO: move into global utils - see agentrunner package
+	// This stays package-local because the benchmark runner needs custom lifecycle,
+	// readiness, and shutdown behavior that differs from the demo flow.
 	stdoutPath := filepath.Join(opts.LogsDir, "centian.stdout.log")
 	stderrPath := filepath.Join(opts.LogsDir, "centian.stderr.log")
 	stdoutFile, err := os.Create(stdoutPath)
@@ -1311,39 +1217,16 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 
 // waitForCentian polls API and MCP endpoints until the child server is ready.
 func waitForCentian(baseURL string, mcpURL string) error {
-	// TODO: move into global utils
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(45 * time.Second)
 	apiURL := baseURL + "/api/task-runs"
 	for time.Now().Before(deadline) {
-		if isEndpointReachable(client, mcpURL) && isJSONEndpointReady(client, apiURL) {
+		if common.IsEndpointReachable(client, mcpURL) && common.IsJSONEndpointReady(client, apiURL) {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("centian did not become ready in time")
-}
-
-// isEndpointReachable checks basic HTTP reachability without requiring a specific payload.
-func isEndpointReachable(client *http.Client, endpoint string) bool {
-	// TODO: move into global utils - see agentrunner package
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode < 500
-}
-
-// isJSONEndpointReady checks that an HTTP endpoint is ready to serve successful JSON responses.
-func isJSONEndpointReady(client *http.Client, endpoint string) bool {
-	// TODO: move into global utils - see agentrunner package
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode == http.StatusOK
 }
 
 // fetchTaskRuns reads the current task-run list from the run-local Centian API.
@@ -1393,19 +1276,4 @@ func findLatestRequestLog(logDir string) (string, error) {
 	}
 	sort.Strings(matches)
 	return matches[len(matches)-1], nil
-}
-
-// allocateFreePort reserves an ephemeral localhost port for a benchmark-local Centian server.
-func allocateFreePort() (string, error) {
-	// TODO: move into global utils - see agentrunner package
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("allocate port: %w", err)
-	}
-	defer func() { _ = listener.Close() }()
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		return "", fmt.Errorf("split host port: %w", err)
-	}
-	return port, nil
 }

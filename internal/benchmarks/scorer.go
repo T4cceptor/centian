@@ -1,13 +1,13 @@
 package benchmarks
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 const (
@@ -221,7 +221,7 @@ type scoreRunContext struct {
 // loadSessionManifest reads and minimally validates a preserved benchmark session manifest.
 func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 	var session SessionManifest
-	if err := readJSONFile(filepath.Join(sessionDir, sessionFileName), &session); err != nil {
+	if err := common.ReadJSONFile(filepath.Join(sessionDir, sessionFileName), &session); err != nil {
 		return nil, fmt.Errorf("load session manifest: %w", err)
 	}
 	if strings.TrimSpace(session.SuiteID) == "" {
@@ -521,13 +521,4 @@ func agentUsageOutputTokens(metadata *AgentMetadata) *int64 {
 		return nil
 	}
 	return metadata.Usage.OutputTokens
-}
-
-// readJSONFile reads JSON from disk into target.
-func readJSONFile(path string, target any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, target)
 }

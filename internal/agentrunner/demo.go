@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,8 +14,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 const (
@@ -41,10 +41,10 @@ const (
 )
 
 // allocateFreePortFunc is swappable in tests that need deterministic ports.
-var allocateFreePortFunc = allocateFreePort
+var allocateFreePortFunc = common.AllocateFreePort
 
 // processExistsFunc is swappable in tests that simulate stale or live demo PID files.
-var processExistsFunc = processExists
+var processExistsFunc = common.ProcessExists
 
 // disposableDemoPaths are rebuilt on each demo run and are safe to remove when reusing a demo root.
 var disposableDemoPaths = []string{
@@ -190,7 +190,7 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 		UIPublicURL:   layout.BaseURL + "/ui/tasks",
 		MCPURL:        layout.MCPURL,
 		PID:           centianCmd.Process.Pid,
-		StopHint:      fmt.Sprintf("kill $(cat %s)", shellQuote(layout.PIDPath)),
+		StopHint:      fmt.Sprintf("kill $(cat %s)", common.ShellQuote(layout.PIDPath)),
 	}
 
 	if options.OpenBrowser && runtime.GOOS == "darwin" {
@@ -413,7 +413,8 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 
 // startCentianProcess launches the demo-local Centian child process and returns a watcher channel.
 func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {
-	// TODO: move into global utils
+	// This stays package-local because the demo flow needs its own process watcher
+	// and layout-specific wiring around the shared readiness helpers.
 	binary := strings.TrimSpace(opts.CentianBinaryPath)
 	if binary == "" {
 		return nil, nil, fmt.Errorf("centian binary path is required")
@@ -458,7 +459,7 @@ func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 			return fmt.Errorf("centian exited before becoming ready: %w", err)
 		default:
 		}
-		if isEndpointReachable(client, layout.MCPURL) && isJSONEndpointReady(client, layout.BaseURL+"/api/task-runs") {
+		if common.IsEndpointReachable(client, layout.MCPURL) && common.IsJSONEndpointReady(client, layout.BaseURL+"/api/task-runs") {
 			return nil
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -516,7 +517,7 @@ func runAgentPrompt(
 		if ctx.Err() != nil {
 			return fmt.Errorf("agent timed out after %s", timeout)
 		}
-		return fmt.Errorf("agent failed: %w\nstdout:\n%s\nstderr:\n%s", err, trimOutput(stdout.String()), trimOutput(stderr.String()))
+		return fmt.Errorf("agent failed: %w\nstdout:\n%s\nstderr:\n%s", err, common.TrimOutput(stdout.String()), common.TrimOutput(stderr.String()))
 	}
 	if stdoutMirror != nil && stdout.Len() > 0 {
 		_, _ = io.Copy(stdoutMirror, &stdout)
@@ -551,84 +552,6 @@ func loadPrompt(path string) string {
 	//nolint:gosec // The prompt file path is generated inside the demo workspace layout.
 	data, _ := os.ReadFile(path)
 	return string(data)
-}
-
-// endpointReturnsExpected wraps a GET request in a caller-provided readiness predicate.
-func endpointReturnsExpected(client *http.Client, endpoint string, expected func(resp *http.Response, err error) bool) bool {
-	// TODO: move to global utils
-	resp, err := client.Get(endpoint)
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	return expected(resp, err)
-}
-
-// isEndpointReachable reports whether an endpoint responds without a server-side failure.
-func isEndpointReachable(client *http.Client, endpoint string) bool {
-	return endpointReturnsExpected(client, endpoint, func(resp *http.Response, err error) bool {
-		return resp.StatusCode < 500
-	})
-}
-
-// isJSONEndpointReady reports whether an endpoint is ready to serve successful JSON responses.
-func isJSONEndpointReady(client *http.Client, endpoint string) bool {
-	return endpointReturnsExpected(client, endpoint, func(resp *http.Response, err error) bool {
-		return resp.StatusCode == http.StatusOK
-	})
-}
-
-// allocateFreePort reserves an ephemeral localhost port for the demo-local Centian server.
-func allocateFreePort() (string, error) {
-	// TODO: move to global utils
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("allocate port: %w", err)
-	}
-	defer func() {
-		_ = listener.Close()
-	}()
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		return "", fmt.Errorf("split host port: %w", err)
-	}
-	return port, nil
-}
-
-// trimOutput limits captured command output to the tail section included in surfaced errors.
-func trimOutput(value string) string {
-	// TODO: move to global utils
-	value = strings.TrimSpace(value)
-	if len(value) > 4000 {
-		return value[:4000] + "\n...truncated..."
-	}
-	return value
-}
-
-// shellQuote wraps a path in single quotes for copy-paste shell commands in user output.
-func shellQuote(value string) string {
-	// TODO: move to global utils
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
-}
-
-// processExists reports whether the current OS still sees the given PID.
-func processExists(pid int) bool {
-	// TODO: move to global utils
-	if pid <= 0 {
-		return false
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = process.Signal(syscall.Signal(0))
-	if err == nil {
-		return true
-	}
-	if errors.Is(err, os.ErrProcessDone) {
-		return false
-	}
-	var errno syscall.Errno
-	return errors.As(err, &errno) && errno == syscall.EPERM
 }
 
 // printDemoStatus emits the key paths and URLs the user needs after the demo is ready.

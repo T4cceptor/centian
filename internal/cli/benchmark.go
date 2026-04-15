@@ -10,6 +10,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/benchmarks"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/urfave/cli/v3"
 )
 
@@ -150,11 +151,11 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	if err != nil {
 		return nil, err
 	}
-	agents := splitCSVValues(cmd.StringSlice("agent"))
+	agents := common.NormalizeCSVList(cmd.StringSlice("agent"))
 	if len(agents) == 0 {
 		return nil, fmt.Errorf("at least one agent is required")
 	}
-	caseIDs := splitCSVValues(cmd.StringSlice("case"))
+	caseIDs := common.NormalizeCSVList(cmd.StringSlice("case"))
 	startPath := defaultResolutionStart(suitePath)
 	outputRoot, err := resolveBenchmarkOutputRoot(cmd, startPath)
 	if err != nil {
@@ -278,28 +279,9 @@ func validateCodexOllamaOptions(agents []string, models benchmarks.AgentModels, 
 	return nil
 }
 
-func splitCSVValues(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, raw := range values {
-		for _, part := range strings.Split(raw, ",") {
-			value := strings.TrimSpace(part)
-			if value == "" {
-				continue
-			}
-			if _, exists := seen[value]; exists {
-				continue
-			}
-			result = append(result, value)
-			seen[value] = struct{}{}
-		}
-	}
-	return result
-}
-
 func parseTemplateVariants(values []string) ([]benchmarks.TemplateVariant, error) {
 	variants := make([]benchmarks.TemplateVariant, 0, len(values))
-	for _, raw := range splitCSVValues(values) {
+	for _, raw := range common.NormalizeCSVList(values) {
 		name, path, ok := strings.Cut(raw, "=")
 		if !ok {
 			return nil, fmt.Errorf("template-dir %q must use name=path format", raw)

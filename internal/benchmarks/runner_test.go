@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"gotest.tools/assert"
 )
@@ -217,7 +218,7 @@ func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 
 	runPath := filepath.Join(session.InvocationDir, "runs", "current_codex_compile_failure_red_attempt_001", runFileName)
 	var manifest RunManifest
-	assert.NilError(t, readJSONFile(runPath, &manifest))
+	assert.NilError(t, common.ReadJSONFile(runPath, &manifest))
 	assert.DeepEqual(t, manifest.LinkedTaskRunIDs, []string{"tr_new"})
 	assert.Equal(t, manifest.LatestTaskRunID, "tr_new")
 }
@@ -265,7 +266,7 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 
 	runPath := filepath.Join(session.InvocationDir, "runs", "current_codex_ollama_compile_failure_red_attempt_001", runFileName)
 	var manifest RunManifest
-	assert.NilError(t, readJSONFile(runPath, &manifest))
+	assert.NilError(t, common.ReadJSONFile(runPath, &manifest))
 	assert.Equal(t, manifest.AgentID, agentrunner.AgentCodexOllama)
 	assert.Equal(t, manifest.SelectedModel, "local-oss")
 }

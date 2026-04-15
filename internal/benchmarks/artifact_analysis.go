@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 const benchmarkAgentClaude = "claude"
@@ -24,7 +26,7 @@ func loadManualScore(path string) (*ManualScoreInput, string, error) {
 		return nil, "", err
 	}
 	var manual ManualScoreInput
-	if err := readJSONFile(path, &manual); err != nil {
+	if err := common.ReadJSONFile(path, &manual); err != nil {
 		return nil, "", fmt.Errorf("load manual score input: %w", err)
 	}
 	if manual.ErrorActionabilityScore != nil {

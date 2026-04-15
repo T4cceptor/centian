@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 type fakeAdapter struct {
@@ -27,8 +29,8 @@ func TestPrepareLayoutRejectsNonDemoNonEmptyDir(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -49,8 +51,8 @@ func TestPrepareLayoutAllowsEmptyExistingDir(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -82,8 +84,8 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -176,8 +178,8 @@ func TestPrepareLayoutBlocksLivePID(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return true }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -198,8 +200,8 @@ func TestPrepareLayoutRemovesStalePID(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -221,7 +223,7 @@ func TestPrepareLayoutRemovesStalePID(t *testing.T) {
 
 func TestRenderAssetsWritesExpectedFiles(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = allocateFreePort }()
+	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	root := filepath.Join(t.TempDir(), "demo")
 	layout, err := prepareLayout(&DemoOptions{RootPath: root})
@@ -309,7 +311,7 @@ func TestGeminiCommandConstruction(t *testing.T) {
 
 func TestGeminiWriteConfig(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = allocateFreePort }()
+	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	root := filepath.Join(t.TempDir(), "demo")
 	layout, err := prepareLayout(&DemoOptions{RootPath: root})
@@ -387,14 +389,14 @@ func TestWritePIDAndStopHint(t *testing.T) {
 	if strings.TrimSpace(string(data)) != "12345" {
 		t.Fatalf("unexpected pid file contents: %q", string(data))
 	}
-	if got := shellQuote(path); !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
+	if got := common.ShellQuote(path); !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
 		t.Fatalf("shellQuote should single-quote the path, got %q", got)
 	}
 }
 
 func TestRunDemoUnsupportedAgent(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = allocateFreePort }()
+	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	_, err := (DemoRunner{}).RunDemo(context.Background(), &DemoOptions{
 		Agent:             "unsupported-agent",

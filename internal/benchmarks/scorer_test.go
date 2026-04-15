@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
@@ -82,7 +83,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		}},
 		Runs: runs,
 	}
-	assert.NilError(t, writeJSONFile(filepath.Join(sessionDir, sessionFileName), session))
+	assert.NilError(t, common.WriteJSONFile(filepath.Join(sessionDir, sessionFileName), session))
 	store, err := persistence.NewSQLiteStore(sharedEventStorePath)
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -109,7 +110,7 @@ func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, 
 	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
 	for idx := range session.Runs {
 		var run RunManifest
-		loadErr := readJSONFile(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName), &run)
+		loadErr := common.ReadJSONFile(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName), &run)
 		assert.NilError(t, loadErr)
 		runRecord, recordErr := buildRunRecord(&run)
 		assert.NilError(t, recordErr)
@@ -134,7 +135,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 	agentDir := filepath.Join(runDir, "agent")
 	assert.NilError(t, os.MkdirAll(logsDir, 0o755))
 	assert.NilError(t, os.MkdirAll(agentDir, 0o755))
-	assert.NilError(t, copyDir(fixtureRoot, projectDir))
+	assert.NilError(t, common.CopyDir(fixtureRoot, projectDir))
 	selectedTemplatePath := filepath.Join(runDir, "selected-template.yaml")
 	assert.NilError(t, os.WriteFile(selectedTemplatePath, []byte("version: \"0.1\"\ntask:\n  id: simple_tdd\n  name: Simple TDD Current\nworkflow:\n  onboarding: {}\n  planning: {}\n  execution: []\n"), 0o644))
 
@@ -204,7 +205,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 			SelectedTemplatePath: selectedTemplatePath,
 		},
 	}
-	assert.NilError(t, writeJSONFile(filepath.Join(runDir, runFileName), run))
+	assert.NilError(t, common.WriteJSONFile(filepath.Join(runDir, runFileName), run))
 	return run
 }
 
