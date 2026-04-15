@@ -413,6 +413,7 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 
 // startCentianProcess launches the demo-local Centian child process and returns a watcher channel.
 func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {
+	// TODO: move into global utils
 	binary := strings.TrimSpace(opts.CentianBinaryPath)
 	if binary == "" {
 		return nil, nil, fmt.Errorf("centian binary path is required")

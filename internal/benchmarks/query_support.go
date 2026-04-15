@@ -20,12 +20,3 @@ func loadSuiteContext(suiteRoot string) (*suiteContext, error) {
 	}
 	return &suiteContext{suite: suite, caseDefs: caseDefs}, nil
 }
-
-// loadRunManifest loads one preserved benchmark run manifest from disk.
-func loadRunManifest(path string) (*RunManifest, error) {
-	var run RunManifest
-	if err := readJSONFile(path, &run); err != nil {
-		return nil, fmt.Errorf("load run manifest %q: %w", path, err)
-	}
-	return &run, nil
-}

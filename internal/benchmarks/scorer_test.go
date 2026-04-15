@@ -58,8 +58,9 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		},
 	}
 
+	runManifests := make([]*RunManifest, 0, len(runs))
 	for _, entry := range runs {
-		writeSyntheticRun(t, sessionDir, suiteRoot, sharedEventStorePath, entry, opts)
+		runManifests = append(runManifests, writeSyntheticRun(t, sessionDir, suiteRoot, sharedEventStorePath, entry, opts))
 	}
 
 	session := &SessionManifest{
@@ -88,10 +89,8 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 	sessionRecord, err := buildSessionRecord(session)
 	assert.NilError(t, err)
 	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
-	for idx := range runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionDir, runs[idx].RelativeRunDir, runFileName))
-		assert.NilError(t, loadErr)
-		runRecord, recordErr := buildRunRecord(run)
+	for idx := range runManifests {
+		runRecord, recordErr := buildRunRecord(runManifests[idx])
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
 		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, timeNowUTC)
@@ -109,9 +108,10 @@ func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, 
 	assert.NilError(t, err)
 	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
 	for idx := range session.Runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName))
+		var run RunManifest
+		loadErr := readJSONFile(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName), &run)
 		assert.NilError(t, loadErr)
-		runRecord, recordErr := buildRunRecord(run)
+		runRecord, recordErr := buildRunRecord(&run)
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
 		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, timeNowUTC)
@@ -120,7 +120,7 @@ func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, 
 	}
 }
 
-func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, sharedEventStorePath string, entry SessionRunManifestEntry, opts syntheticSessionOptions) {
+func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, sharedEventStorePath string, entry SessionRunManifestEntry, opts syntheticSessionOptions) *RunManifest {
 	t.Helper()
 
 	caseDef, err := LoadCase(suiteRoot, SuiteCaseRef{ID: entry.CaseID, Path: filepath.Join("cases", entry.CaseID)})
@@ -205,6 +205,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		},
 	}
 	assert.NilError(t, writeJSONFile(filepath.Join(runDir, runFileName), run))
+	return run
 }
 
 func syntheticEventsForCase(caseID string) []persistence.TaskRunEvent {

@@ -485,6 +485,7 @@ func (r *Runner) executeRun(
 	spec runSpec,
 	opts *RunOptions,
 ) (*RunManifest, error) {
+	// TODO: refactor to reduce length
 	if session == nil {
 		return nil, fmt.Errorf("session manifest is required")
 	}
@@ -946,6 +947,7 @@ func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 
 // normalizeList splits comma-separated values, trims blanks, and preserves first-seen order.
 func normalizeList(values []string) []string {
+	// TODO: move to global utils
 	result := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, raw := range values {
@@ -1082,6 +1084,7 @@ func resolveBenchmarkConfigPath(workingDir string, configuredPath string) string
 
 // writeJSONFile writes pretty-printed JSON and creates parent directories as needed.
 func writeJSONFile(path string, value any) error {
+	// TODO: move into global utils
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -1196,6 +1199,7 @@ func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummar
 
 // sanitizeName lowercases free-form labels into stable filesystem-safe segments.
 func sanitizeName(value string) string {
+	// TODO: move into global utils
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
 		return ""
@@ -1218,6 +1222,7 @@ func sanitizeName(value string) string {
 
 // copyDir recursively copies a fixture tree into the run workspace.
 func copyDir(src string, dst string) error {
+	// TODO: move into global utils
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -1243,6 +1248,7 @@ func copyDir(src string, dst string) error {
 
 // copyFile copies one file into the destination path, creating parent directories first.
 func copyFile(src, dst string) error {
+	// TODO: move into global utils
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
@@ -1255,6 +1261,7 @@ func copyFile(src, dst string) error {
 
 // startCentianProcess launches a run-local Centian child process and waits for its API/MCP endpoints.
 func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*StartedCentian, error) {
+	// TODO: move into global utils - see agentrunner package
 	stdoutPath := filepath.Join(opts.LogsDir, "centian.stdout.log")
 	stderrPath := filepath.Join(opts.LogsDir, "centian.stderr.log")
 	stdoutFile, err := os.Create(stdoutPath)
@@ -1304,6 +1311,7 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 
 // waitForCentian polls API and MCP endpoints until the child server is ready.
 func waitForCentian(baseURL string, mcpURL string) error {
+	// TODO: move into global utils
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(45 * time.Second)
 	apiURL := baseURL + "/api/task-runs"
@@ -1318,6 +1326,7 @@ func waitForCentian(baseURL string, mcpURL string) error {
 
 // isEndpointReachable checks basic HTTP reachability without requiring a specific payload.
 func isEndpointReachable(client *http.Client, endpoint string) bool {
+	// TODO: move into global utils - see agentrunner package
 	resp, err := client.Get(endpoint)
 	if err != nil {
 		return false
@@ -1328,6 +1337,7 @@ func isEndpointReachable(client *http.Client, endpoint string) bool {
 
 // isJSONEndpointReady checks that an HTTP endpoint is ready to serve successful JSON responses.
 func isJSONEndpointReady(client *http.Client, endpoint string) bool {
+	// TODO: move into global utils - see agentrunner package
 	resp, err := client.Get(endpoint)
 	if err != nil {
 		return false
@@ -1387,6 +1397,7 @@ func findLatestRequestLog(logDir string) (string, error) {
 
 // allocateFreePort reserves an ephemeral localhost port for a benchmark-local Centian server.
 func allocateFreePort() (string, error) {
+	// TODO: move into global utils - see agentrunner package
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", fmt.Errorf("allocate port: %w", err)
