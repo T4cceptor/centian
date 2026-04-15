@@ -142,7 +142,42 @@ func TestNewSQLiteStoreBootstrapIsIdempotent(t *testing.T) {
 	assert.Assert(t, storeB.DB() != nil)
 }
 
-func TestNewSQLiteStoreMigratesBenchmarkAgentMetadataColumn(t *testing.T) {
+func TestNewSQLiteStoreMigratesMainSchemaV4ToCurrentSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	seedSchemaVersion4Store(t, db)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.NilError(t, err)
+	assert.NilError(t, store.Close())
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	columns, err := tableColumns(db, "benchmark_runs")
+	assert.NilError(t, err)
+	assert.Assert(t, columns["agent_metadata_json"])
+	assert.Assert(t, columns["case_name"])
+	assert.Assert(t, columns["template_name"])
+	sessionColumns, err := tableColumns(db, "benchmark_sessions")
+	assert.NilError(t, err)
+	assert.Assert(t, sessionColumns["suite_name"])
+	assert.Assert(t, sessionColumns["template_name"])
+	scoreColumns, err := tableColumns(db, "benchmark_run_scores")
+	assert.NilError(t, err)
+	assert.Assert(t, scoreColumns["benchmark_run_id"])
+	assert.Assert(t, scoreColumns["score_status"])
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, schemaVersion)
+}
+
+func TestNewSQLiteStoreRejectsIntermediateBranchSchemaVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.sqlite")
 
 	db, err := sql.Open(sqliteshim.ShimName, path)
@@ -182,30 +217,27 @@ func TestNewSQLiteStoreMigratesBenchmarkAgentMetadataColumn(t *testing.T) {
 	assert.NilError(t, db.Close())
 
 	store, err := NewSQLiteStore(path)
-	assert.NilError(t, err)
-	assert.NilError(t, store.Close())
+	assert.Assert(t, store == nil)
+	var migrationErr *SchemaMigrationRequiredError
+	assert.Assert(t, errors.As(err, &migrationErr))
+	assert.Equal(t, migrationErr.StoredVersion, 9)
+	assert.Equal(t, migrationErr.ExpectedVersion, schemaVersion)
 
 	db, err = sql.Open(sqliteshim.ShimName, path)
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
+
 	columns, err := tableColumns(db, "benchmark_runs")
 	assert.NilError(t, err)
-	assert.Assert(t, columns["agent_metadata_json"])
-	assert.Assert(t, columns["case_name"])
-	assert.Assert(t, columns["template_name"])
-	sessionColumns, err := tableColumns(db, "benchmark_sessions")
-	assert.NilError(t, err)
-	assert.Assert(t, sessionColumns["suite_name"])
-	assert.Assert(t, sessionColumns["template_name"])
+	assert.Assert(t, !columns["agent_metadata_json"])
 	scoreColumns, err := tableColumns(db, "benchmark_run_scores")
 	assert.NilError(t, err)
-	assert.Assert(t, scoreColumns["benchmark_run_id"])
-	assert.Assert(t, scoreColumns["score_status"])
+	assert.Equal(t, len(scoreColumns), 0)
 
 	var version int
 	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
 	assert.NilError(t, err)
-	assert.Equal(t, version, schemaVersion)
+	assert.Equal(t, version, 9)
 }
 
 func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) {
@@ -869,6 +901,72 @@ func seedActionEvent(t *testing.T, store *Store, event *ActionEventRecord) {
 	t.Helper()
 	_, err := store.DB().NewInsert().Model(event).Exec(context.Background())
 	assert.NilError(t, err)
+}
+
+func seedSchemaVersion4Store(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	_, err := db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 4)`)
+	assert.NilError(t, err)
+
+	stmts := []string{
+		`CREATE TABLE task_events (
+			id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			created_at_unix_milli INTEGER NOT NULL,
+			task_run_id TEXT NOT NULL,
+			session_id TEXT,
+			template_id TEXT NOT NULL,
+			principal_id TEXT,
+			client_name TEXT,
+			client_version TEXT,
+			phase_path TEXT NOT NULL,
+			node_kind TEXT,
+			resulting_phase_path TEXT NOT NULL,
+			resulting_node_kind TEXT,
+			event_type TEXT NOT NULL,
+			outcome TEXT NOT NULL,
+			related_action_request_id TEXT,
+			payload_json BLOB
+		)`,
+		`CREATE INDEX idx_task_events_task_run_id ON task_events(task_run_id)`,
+		`CREATE INDEX idx_task_events_created_at ON task_events(created_at_unix_milli)`,
+		`CREATE TABLE action_events (
+			id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			created_at_unix_milli INTEGER NOT NULL,
+			request_id TEXT NOT NULL,
+			session_id TEXT,
+			principal_id TEXT,
+			transport TEXT,
+			direction TEXT,
+			message_type TEXT,
+			gateway TEXT,
+			server_name TEXT,
+			endpoint TEXT,
+			tool_name TEXT,
+			original_tool_name TEXT,
+			success BOOLEAN NOT NULL,
+			is_error BOOLEAN NOT NULL,
+			payload_json BLOB
+		)`,
+		`CREATE INDEX idx_action_events_request_id ON action_events(request_id)`,
+		`CREATE INDEX idx_action_events_created_at ON action_events(created_at_unix_milli)`,
+		`CREATE TABLE action_event_task_context (
+			request_id TEXT PRIMARY KEY,
+			task_run_id TEXT NOT NULL,
+			invocation_phase_path TEXT NOT NULL,
+			invocation_node_kind TEXT,
+			created_at_unix_milli INTEGER NOT NULL
+		)`,
+		`CREATE INDEX idx_action_event_task_context_task_run_id ON action_event_task_context(task_run_id)`,
+	}
+	for _, stmt := range stmts {
+		_, err = db.Exec(stmt)
+		assert.NilError(t, err)
+	}
 }
 
 func tableColumns(db *sql.DB, table string) (map[string]bool, error) {

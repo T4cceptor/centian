@@ -15,8 +15,6 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 )
 
-const benchmarkAgentClaude = "claude"
-
 // loadManualScore reads optional reviewer input and validates supported fields.
 func loadManualScore(path string) (*ManualScoreInput, string, error) {
 	if _, err := os.Stat(path); err != nil {
@@ -51,12 +49,13 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 		return nil, nil, err
 	}
 	switch agentID {
-	case benchmarkAgentClaude:
+	case "claude":
 		metadata, err := loadClaudeAgentMetadata(path)
 		return metadata, nil, err
 	case "codex", "codex-ollama":
 		metadata, err := loadCodexAgentMetadata(path)
 		return metadata, nil, err
+	// TODO: missing gemini?
 	default:
 		return &AgentMetadata{
 			Format:  agentID,
@@ -257,6 +256,7 @@ func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
 
 // anyMap returns value when it is already a JSON-like object map.
 func anyMap(value any) map[string]any {
+	// TODO: move to global utils
 	if value == nil {
 		return nil
 	}
@@ -269,6 +269,7 @@ func anyMap(value any) map[string]any {
 
 // stringValue converts string-like JSON fields without failing hard on other types.
 func stringValue(value any) string {
+	// TODO: move to global utils
 	typed, ok := value.(string)
 	if !ok {
 		return ""
@@ -278,6 +279,7 @@ func stringValue(value any) string {
 
 // intPtrFromAny converts a loosely typed numeric field into *int.
 func intPtrFromAny(value any) *int {
+	// TODO: move to global utils
 	if parsed, ok := parseInt64(value); ok {
 		result := int(parsed)
 		return &result
@@ -287,6 +289,7 @@ func intPtrFromAny(value any) *int {
 
 // int64PtrFromAny converts a loosely typed numeric field into *int64.
 func int64PtrFromAny(value any) *int64 {
+	// TODO: move to global utils
 	if parsed, ok := parseInt64(value); ok {
 		return &parsed
 	}
@@ -295,6 +298,7 @@ func int64PtrFromAny(value any) *int64 {
 
 // float64PtrFromAny converts a loosely typed numeric field into *float64.
 func float64PtrFromAny(value any) *float64 {
+	// TODO: move to global utils
 	switch typed := value.(type) {
 	case float64:
 		return &typed
@@ -323,6 +327,7 @@ func float64PtrFromAny(value any) *float64 {
 
 // parseInt64 accepts common JSON number encodings used in agent logs.
 func parseInt64(value any) (int64, bool) {
+	// TODO: move to global utils
 	switch typed := value.(type) {
 	case int:
 		return int64(typed), true
