@@ -264,10 +264,12 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 	return result, nil
 }
 
+// agentModelScorecardKey groups one agent/model pair into a stable map key.
 func agentModelScorecardKey(agent, model string) string {
 	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(model)
 }
 
+// agentScorecardModels expands one run into the models credited for agent scorecards.
 func agentScorecardModels(model string) []string {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -276,6 +278,7 @@ func agentScorecardModels(model string) []string {
 	return []string{model}
 }
 
+// templateIdentityKey groups scorecards by logical template identity.
 func templateIdentityKey(templateID, templateName string) string {
 	templateID = strings.TrimSpace(templateID)
 	templateName = strings.TrimSpace(templateName)
@@ -285,8 +288,7 @@ func templateIdentityKey(templateID, templateName string) string {
 	return templateID + "::" + templateName
 }
 
-// scorecardCentianErrorCount returns the total centian-side error count for one run:
-// failed task tool calls plus any restart, fail, and timeout events.
+// scorecardCentianErrorCount returns task-tool failures plus restart/fail/timeout events.
 func scorecardCentianErrorCount(sc *RunScorecard) int {
 	if sc == nil {
 		return 0
@@ -294,6 +296,7 @@ func scorecardCentianErrorCount(sc *RunScorecard) int {
 	return sc.Process.FailedTaskToolCalls + sc.Process.RestartCount + sc.Process.FailCount + sc.Process.TimeoutCount
 }
 
+// scorecardRate computes a success fraction while tolerating empty groups.
 func scorecardRate(successes, total int) float64 {
 	if total <= 0 {
 		return 0
@@ -301,6 +304,7 @@ func scorecardRate(successes, total int) float64 {
 	return float64(successes) / float64(total)
 }
 
+// sumInt returns the total of values.
 func sumInt(values []int) int {
 	total := 0
 	for _, value := range values {
@@ -309,6 +313,7 @@ func sumInt(values []int) int {
 	return total
 }
 
+// medianInt returns the median integer value, or zero for empty slices.
 func medianInt(values []int) int {
 	if len(values) == 0 {
 		return 0
@@ -322,6 +327,7 @@ func medianInt(values []int) int {
 	return sorted[middle]
 }
 
+// medianInt64 returns the median int64 value, or zero for empty slices.
 func medianInt64(values []int64) int64 {
 	if len(values) == 0 {
 		return 0

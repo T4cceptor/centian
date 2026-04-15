@@ -19,6 +19,7 @@ const (
 	benchmarkRunScoreStatusUnscored = "unscored"
 )
 
+// persistBenchmarkSession upserts one benchmark session record into the event store.
 func persistBenchmarkSession(ctx context.Context, storePath string, record *persistence.BenchmarkSessionRecord) error {
 	store, err := openBenchmarkStore(storePath)
 	if err != nil {
@@ -28,6 +29,7 @@ func persistBenchmarkSession(ctx context.Context, storePath string, record *pers
 	return store.UpsertBenchmarkSession(ctx, record)
 }
 
+// persistBenchmarkRun upserts one benchmark run record into the event store.
 func persistBenchmarkRun(ctx context.Context, storePath string, record *persistence.BenchmarkRunRecord) error {
 	store, err := openBenchmarkStore(storePath)
 	if err != nil {
@@ -37,6 +39,7 @@ func persistBenchmarkRun(ctx context.Context, storePath string, record *persiste
 	return store.UpsertBenchmarkRun(ctx, record)
 }
 
+// persistBenchmarkRunScore upserts one persisted score snapshot into the event store.
 func persistBenchmarkRunScore(ctx context.Context, storePath string, record *persistence.BenchmarkRunScoreRecord) error {
 	store, err := openBenchmarkStore(storePath)
 	if err != nil {
@@ -46,6 +49,7 @@ func persistBenchmarkRunScore(ctx context.Context, storePath string, record *per
 	return store.UpsertBenchmarkRunScore(ctx, record)
 }
 
+// openBenchmarkStore validates storePath and opens the shared benchmark SQLite store.
 func openBenchmarkStore(storePath string) (*persistence.Store, error) {
 	if strings.TrimSpace(storePath) == "" {
 		return nil, fmt.Errorf("benchmark store path is required")
@@ -53,6 +57,7 @@ func openBenchmarkStore(storePath string) (*persistence.Store, error) {
 	return persistence.NewSQLiteStore(storePath)
 }
 
+// buildSessionRecord converts an in-memory session manifest into its persisted row shape.
 func buildSessionRecord(session *SessionManifest) (*persistence.BenchmarkSessionRecord, error) {
 	if session == nil {
 		return nil, fmt.Errorf("session manifest is required")
@@ -74,6 +79,7 @@ func buildSessionRecord(session *SessionManifest) (*persistence.BenchmarkSession
 	}, nil
 }
 
+// buildRunRecord converts a run manifest into the persisted benchmark run row.
 func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 	if run == nil {
 		return nil, fmt.Errorf("run manifest is required")
@@ -115,6 +121,7 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 	return record, nil
 }
 
+// buildRunScoreRecord converts one scored run into the persisted score snapshot row.
 func buildRunScoreRecord(
 	now time.Time,
 	run *persistence.BenchmarkRunRecord,
@@ -168,6 +175,7 @@ func buildRunScoreRecord(
 	return record, nil
 }
 
+// buildPersistedRunScoreRecord scores a persisted run against task-run data and snapshots the result.
 func buildPersistedRunScoreRecord(
 	ctx context.Context,
 	storePath string,
@@ -202,6 +210,7 @@ func buildPersistedRunScoreRecord(
 	return buildRunScoreRecord(query.now(), run, nil, scoreErrors)
 }
 
+// buildAgentMetadataJSON parses agent stdout and stores the normalized metadata JSON blob.
 func buildAgentMetadataJSON(run *RunManifest) (json.RawMessage, error) {
 	agentID := strings.TrimSpace(run.AgentID)
 	agentDir := strings.TrimSpace(run.ArtifactPaths.AgentDir)
@@ -223,10 +232,12 @@ func buildAgentMetadataJSON(run *RunManifest) (json.RawMessage, error) {
 	return payload, nil
 }
 
+// benchmarkSessionID builds a stable session identifier from suite and path identity.
 func benchmarkSessionID(suiteID, sessionPath string) string {
 	return benchmarkStableID("session", suiteID, filepath.Clean(sessionPath))
 }
 
+// benchmarkRunID builds a stable run identifier from suite, matrix cell, and run directory.
 func benchmarkRunID(run *RunManifest, sessionPath string) string {
 	return benchmarkStableID(
 		"run",
@@ -240,11 +251,13 @@ func benchmarkRunID(run *RunManifest, sessionPath string) string {
 	)
 }
 
+// benchmarkStableID hashes a logical identity tuple into a short persisted benchmark ID.
 func benchmarkStableID(parts ...string) string {
 	hash := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
 	return "bm_" + hex.EncodeToString(hash[:16])
 }
 
+// sessionPathFromRun walks up from a run directory to its enclosing session directory.
 func sessionPathFromRun(run *RunManifest) string {
 	runDir := filepath.Clean(strings.TrimSpace(run.ArtifactPaths.RunDir))
 	if runDir == "" {
@@ -263,6 +276,7 @@ func sessionPathFromRun(run *RunManifest) string {
 	}
 }
 
+// bestTime prefers primary when set and otherwise falls back to the alternate timestamp.
 func bestTime(primary, fallback time.Time) time.Time {
 	if !primary.IsZero() {
 		return primary
@@ -270,6 +284,7 @@ func bestTime(primary, fallback time.Time) time.Time {
 	return fallback
 }
 
+// timePointerMillis converts a non-zero timestamp into a nullable unix-millis pointer.
 func timePointerMillis(value time.Time) *int64 {
 	if value.IsZero() {
 		return nil

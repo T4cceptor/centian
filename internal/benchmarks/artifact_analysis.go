@@ -15,6 +15,7 @@ import (
 
 const benchmarkAgentClaude = "claude"
 
+// loadManualScore reads optional reviewer input and validates supported fields.
 func loadManualScore(path string) (*ManualScoreInput, string, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -39,6 +40,7 @@ func loadManualScore(path string) (*ManualScoreInput, string, error) {
 	return &manual, path, nil
 }
 
+// loadAgentMetadata dispatches to the agent-specific log parser for one run.
 func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -61,6 +63,7 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 	}
 }
 
+// loadClaudeAgentMetadata reads the last Claude result payload from a JSONL log.
 func loadClaudeAgentMetadata(path string) (*AgentMetadata, error) {
 	lines, err := readNonEmptyLines(path)
 	if err != nil {
@@ -89,6 +92,7 @@ func loadClaudeAgentMetadata(path string) (*AgentMetadata, error) {
 	return &AgentMetadata{Format: "claude_result", LogPath: path}, nil
 }
 
+// loadCodexAgentMetadata extracts thread and token usage data from Codex JSONL output.
 func loadCodexAgentMetadata(path string) (*AgentMetadata, error) {
 	lines, err := readNonEmptyLines(path)
 	if err != nil {
@@ -113,6 +117,7 @@ func loadCodexAgentMetadata(path string) (*AgentMetadata, error) {
 	return metadata, nil
 }
 
+// detectInvariantViolation reports whether any locked fixture path changed during the run.
 func detectInvariantViolation(seedRoot string, projectRoot string, lockedPaths []string) (bool, error) {
 	for _, lockedPath := range lockedPaths {
 		seedBytes, err := os.ReadFile(filepath.Join(seedRoot, lockedPath))
@@ -133,6 +138,7 @@ func detectInvariantViolation(seedRoot string, projectRoot string, lockedPaths [
 	return false, nil
 }
 
+// collectEditedFiles returns the relative file paths that differ from the seed fixture.
 func collectEditedFiles(seedRoot string, projectRoot string) ([]string, error) {
 	seedFiles, err := collectRelativeFiles(seedRoot)
 	if err != nil {
@@ -161,6 +167,7 @@ func collectEditedFiles(seedRoot string, projectRoot string) ([]string, error) {
 	return edited, nil
 }
 
+// collectRelativeFiles snapshots every file under root keyed by slash-normalized relative path.
 func collectRelativeFiles(root string) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -184,6 +191,7 @@ func collectRelativeFiles(root string) (map[string][]byte, error) {
 	return files, err
 }
 
+// readNonEmptyLines returns trimmed log lines while skipping separators and blanks.
 func readNonEmptyLines(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -206,6 +214,7 @@ func readNonEmptyLines(path string) ([]string, error) {
 	return lines, nil
 }
 
+// parseAgentUsageMap normalizes Claude-style usage payload fields.
 func parseAgentUsageMap(payload map[string]any) AgentUsageMetadata {
 	return AgentUsageMetadata{
 		InputTokens:              int64PtrFromAny(payload["input_tokens"]),
@@ -216,6 +225,7 @@ func parseAgentUsageMap(payload map[string]any) AgentUsageMetadata {
 	}
 }
 
+// parseCodexUsageMap normalizes Codex usage payload fields.
 func parseCodexUsageMap(payload map[string]any) AgentUsageMetadata {
 	return AgentUsageMetadata{
 		InputTokens:       int64PtrFromAny(payload["input_tokens"]),
@@ -224,6 +234,7 @@ func parseCodexUsageMap(payload map[string]any) AgentUsageMetadata {
 	}
 }
 
+// parseClaudeModelUsage normalizes Claude's per-model usage map when present.
 func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
 	if len(payload) == 0 {
 		return nil
@@ -242,6 +253,7 @@ func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
 	return result
 }
 
+// anyMap returns value when it is already a JSON-like object map.
 func anyMap(value any) map[string]any {
 	if value == nil {
 		return nil
@@ -253,6 +265,7 @@ func anyMap(value any) map[string]any {
 	return nil
 }
 
+// stringValue converts string-like JSON fields without failing hard on other types.
 func stringValue(value any) string {
 	typed, ok := value.(string)
 	if !ok {
@@ -261,6 +274,7 @@ func stringValue(value any) string {
 	return typed
 }
 
+// intPtrFromAny converts a loosely typed numeric field into *int.
 func intPtrFromAny(value any) *int {
 	if parsed, ok := parseInt64(value); ok {
 		result := int(parsed)
@@ -269,6 +283,7 @@ func intPtrFromAny(value any) *int {
 	return nil
 }
 
+// int64PtrFromAny converts a loosely typed numeric field into *int64.
 func int64PtrFromAny(value any) *int64 {
 	if parsed, ok := parseInt64(value); ok {
 		return &parsed
@@ -276,6 +291,7 @@ func int64PtrFromAny(value any) *int64 {
 	return nil
 }
 
+// float64PtrFromAny converts a loosely typed numeric field into *float64.
 func float64PtrFromAny(value any) *float64 {
 	switch typed := value.(type) {
 	case float64:
@@ -303,6 +319,7 @@ func float64PtrFromAny(value any) *float64 {
 	return nil
 }
 
+// parseInt64 accepts common JSON number encodings used in agent logs.
 func parseInt64(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case int:

@@ -61,6 +61,7 @@ func (s *ReadService) ListAgentScorecards(ctx context.Context) ([]AgentScorecard
 	return s.query.ListAgentScorecards(ctx)
 }
 
+// buildBenchmarkRunSummary maps one persisted run plus optional score snapshot into the read model.
 func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, session *persistence.BenchmarkSessionRecord, score *persistence.BenchmarkRunScoreRecord) BenchmarkRunSummary {
 	scorecard, scoreErr := scorecardFromSnapshot(score)
 	if scoreErr != nil && !errors.Is(scoreErr, errBenchmarkScoreUnavailable) {
@@ -114,6 +115,7 @@ func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, session *per
 	}
 }
 
+// unscoredRunSummary produces the fallback read model when no usable score snapshot exists.
 func unscoredRunSummary(session *persistence.BenchmarkSessionRecord, item *persistence.BenchmarkRunRecord, errors []string) BenchmarkRunSummary {
 	suiteID := ""
 	suiteName := ""
@@ -145,6 +147,7 @@ func unscoredRunSummary(session *persistence.BenchmarkSessionRecord, item *persi
 	}
 }
 
+// toRunSummaryRow converts the API/UI run summary into the shared aggregate row shape.
 func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 	return RunSummaryRow{
 		SessionPath:               run.SessionPath,
@@ -180,6 +183,7 @@ func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 	}
 }
 
+// scorecardFromSnapshot decodes the persisted scorecard payload when the snapshot is ready.
 func scorecardFromSnapshot(score *persistence.BenchmarkRunScoreRecord) (*RunScorecard, error) {
 	if score == nil || strings.TrimSpace(score.ScoreStatus) != benchmarkRunScoreStatusReady {
 		return nil, errBenchmarkScoreUnavailable
@@ -194,8 +198,10 @@ func scorecardFromSnapshot(score *persistence.BenchmarkRunScoreRecord) (*RunScor
 	return &scorecard, nil
 }
 
+// errBenchmarkScoreUnavailable marks runs that are visible but do not yet have a usable score snapshot.
 var errBenchmarkScoreUnavailable = errors.New("benchmark score unavailable")
 
+// sortedSetValues returns deterministic, sorted values from a string set.
 func sortedSetValues(set map[string]struct{}) []string {
 	if len(set) == 0 {
 		return nil
@@ -208,6 +214,7 @@ func sortedSetValues(set map[string]struct{}) []string {
 	return values
 }
 
+// firstNonEmpty returns the first non-blank string in values.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
@@ -217,6 +224,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// hasRunScopedFilter reports whether the filter narrows the run set inside a suite.
 func hasRunScopedFilter(filters BenchmarkRunFilters) bool {
 	return filters.SessionID != "" || filters.CaseID != "" || filters.Agent != "" || filters.TemplateVariant != "" || filters.TemplateID != ""
 }

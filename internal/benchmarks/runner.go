@@ -163,6 +163,7 @@ type StartedCentian struct {
 	Stop func() error
 }
 
+// runSpec is one expanded benchmark matrix cell ready for execution.
 type runSpec struct {
 	CaseRef         SuiteCaseRef
 	CaseDef         *CaseDefinition
@@ -438,6 +439,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	return session, nil
 }
 
+// withDefaults fills nil runner hooks with the default local implementations.
 func (r *Runner) withDefaults() *Runner {
 	if r == nil {
 		return NewRunner()
@@ -475,6 +477,7 @@ func (r *Runner) withDefaults() *Runner {
 	return r
 }
 
+// executeRun executes one benchmark matrix cell and persists its raw artifacts and score snapshot.
 func (r *Runner) executeRun(
 	ctx context.Context,
 	session *SessionManifest,
@@ -745,6 +748,7 @@ func (r *Runner) executeRun(
 	return manifest, nil
 }
 
+// captureRunArtifacts records the request log and newly created task runs for one benchmark run.
 func (r *Runner) captureRunArtifacts(
 	manifest *RunManifest,
 	logsDir string,
@@ -771,6 +775,7 @@ func (r *Runner) captureRunArtifacts(
 	return nil
 }
 
+// buildRunSpecs expands cases, template variants, agents, and attempts into executable runs.
 func buildRunSpecs(
 	suiteRoot string,
 	caseRefs []SuiteCaseRef,
@@ -808,6 +813,7 @@ func buildRunSpecs(
 	return specs, nil
 }
 
+// selectCaseRefs keeps suite order while validating the requested case IDs.
 func selectCaseRefs(suite *SuiteDefinition, caseIDs []string) ([]SuiteCaseRef, error) {
 	if suite == nil {
 		return nil, fmt.Errorf("suite definition is required")
@@ -831,6 +837,7 @@ func selectCaseRefs(suite *SuiteDefinition, caseIDs []string) ([]SuiteCaseRef, e
 	return refs, nil
 }
 
+// normalizeTemplateVariants validates names, deduplicates variants, and resolves source dirs.
 func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, error) {
 	if len(variants) == 0 {
 		return nil, fmt.Errorf("at least one template variant is required")
@@ -865,6 +872,7 @@ func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, e
 	return normalized, nil
 }
 
+// readTemplateName extracts task.name from a template file when available.
 func readTemplateName(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -885,6 +893,7 @@ func readTemplateName(path string) string {
 	return strings.TrimSpace(payload.Task.Name)
 }
 
+// resolveSelectedTemplateFile finds the one template file whose task.id matches templateID.
 func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 	if strings.TrimSpace(sourceDir) == "" {
 		return "", fmt.Errorf("template source dir is required")
@@ -935,6 +944,7 @@ func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 	return selectedPath, nil
 }
 
+// normalizeList splits comma-separated values, trims blanks, and preserves first-seen order.
 func normalizeList(values []string) []string {
 	result := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
@@ -954,6 +964,7 @@ func normalizeList(values []string) []string {
 	return result
 }
 
+// benchmarkRunDirName builds the stable on-disk directory name for one run.
 func benchmarkRunDirName(spec runSpec) string {
 	parts := []string{
 		sanitizeName(spec.TemplateVariant.Name),
@@ -964,11 +975,13 @@ func benchmarkRunDirName(spec runSpec) string {
 	return strings.Join(parts, "_")
 }
 
+// renderedCentianConfig contains the final per-run Centian config and resolved store path.
 type renderedCentianConfig struct {
 	Content                 []byte
 	EffectiveEventStorePath string
 }
 
+// renderCentianConfig materializes the run-local Centian config and resolves effective paths.
 func renderCentianConfig(baseConfigPath string, templatesDir string, projectDir string, internalLog string, defaultEventStorePath string, port string) (*renderedCentianConfig, error) {
 	content, err := loadBenchmarkCentianConfigTemplate(baseConfigPath)
 	if err != nil {
@@ -1011,6 +1024,7 @@ func renderCentianConfig(baseConfigPath string, templatesDir string, projectDir 
 	}, nil
 }
 
+// loadBenchmarkCentianConfigTemplate loads either the embedded default config or a caller-supplied base file.
 func loadBenchmarkCentianConfigTemplate(baseConfigPath string) ([]byte, error) {
 	baseConfigPath = strings.TrimSpace(baseConfigPath)
 	if baseConfigPath == "" {
@@ -1027,6 +1041,7 @@ func loadBenchmarkCentianConfigTemplate(baseConfigPath string) ([]byte, error) {
 	return content, nil
 }
 
+// resolveBenchmarkBaseConfigPath resolves configured paths relative to the chosen base config file.
 func resolveBenchmarkBaseConfigPath(baseConfigPath string, configuredPath string) string {
 	configuredPath = strings.TrimSpace(configuredPath)
 	if configuredPath == "" || filepath.IsAbs(configuredPath) {
@@ -1039,6 +1054,7 @@ func resolveBenchmarkBaseConfigPath(baseConfigPath string, configuredPath string
 	return filepath.Join(filepath.Dir(baseConfigPath), configuredPath)
 }
 
+// benchmarkDefaultProject returns the effective project config used for a benchmark run.
 func benchmarkDefaultProject(cfg *config.GlobalConfig) *config.ProjectConfig {
 	if cfg == nil {
 		return nil
@@ -1055,6 +1071,7 @@ func benchmarkDefaultProject(cfg *config.GlobalConfig) *config.ProjectConfig {
 	return nil
 }
 
+// resolveBenchmarkConfigPath resolves non-absolute configured paths relative to the run workspace.
 func resolveBenchmarkConfigPath(workingDir string, configuredPath string) string {
 	configuredPath = strings.TrimSpace(configuredPath)
 	if configuredPath == "" || filepath.IsAbs(configuredPath) {
@@ -1063,6 +1080,7 @@ func resolveBenchmarkConfigPath(workingDir string, configuredPath string) string
 	return filepath.Join(workingDir, configuredPath)
 }
 
+// writeJSONFile writes pretty-printed JSON and creates parent directories as needed.
 func writeJSONFile(path string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -1074,6 +1092,7 @@ func writeJSONFile(path string, value any) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// createSessionDir creates a unique timestamped session directory under the suite output root.
 func createSessionDir(outputRoot string, suiteID string, label string, now time.Time) (string, error) {
 	if label = sanitizeName(label); label == "" {
 		label = defaultSessionLabel
@@ -1096,6 +1115,7 @@ func createSessionDir(outputRoot string, suiteID string, label string, now time.
 	}
 }
 
+// relativeRunDir returns the run path relative to the enclosing session directory when possible.
 func relativeRunDir(sessionDir string, runDir string) string {
 	rel, err := filepath.Rel(sessionDir, runDir)
 	if err != nil {
@@ -1104,6 +1124,7 @@ func relativeRunDir(sessionDir string, runDir string) string {
 	return rel
 }
 
+// selectedModel returns the agent-specific model override selected for the run.
 func selectedModel(agent string, models AgentModels) string {
 	switch agent {
 	case agentrunner.AgentClaude:
@@ -1119,6 +1140,7 @@ func selectedModel(agent string, models AgentModels) string {
 	}
 }
 
+// taskRunIDs extracts run IDs in order from fetched task-run summaries.
 func taskRunIDs(runs []persistence.TaskRunSummary) []string {
 	result := make([]string, 0, len(runs))
 	for _, run := range runs {
@@ -1127,6 +1149,7 @@ func taskRunIDs(runs []persistence.TaskRunSummary) []string {
 	return result
 }
 
+// taskRunIDSet builds a membership set for fetched task runs.
 func taskRunIDSet(runs []persistence.TaskRunSummary) map[string]struct{} {
 	if len(runs) == 0 {
 		return nil
@@ -1144,6 +1167,7 @@ func taskRunIDSet(runs []persistence.TaskRunSummary) map[string]struct{} {
 	return result
 }
 
+// filterNewTaskRuns removes runs that already existed before the benchmark agent started.
 func filterNewTaskRuns(runs []persistence.TaskRunSummary, baseline map[string]struct{}) []persistence.TaskRunSummary {
 	if len(baseline) == 0 {
 		return runs
@@ -1158,6 +1182,7 @@ func filterNewTaskRuns(runs []persistence.TaskRunSummary, baseline map[string]st
 	return filtered
 }
 
+// latestTaskRun returns the most recently started task run from the observed set.
 func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummary {
 	if len(runs) == 0 {
 		return nil
@@ -1169,6 +1194,7 @@ func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummar
 	return &sorted[0]
 }
 
+// sanitizeName lowercases free-form labels into stable filesystem-safe segments.
 func sanitizeName(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
@@ -1190,6 +1216,7 @@ func sanitizeName(value string) string {
 	return strings.Trim(b.String(), "_")
 }
 
+// copyDir recursively copies a fixture tree into the run workspace.
 func copyDir(src string, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -1214,6 +1241,7 @@ func copyDir(src string, dst string) error {
 	})
 }
 
+// copyFile copies one file into the destination path, creating parent directories first.
 func copyFile(src, dst string) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -1225,6 +1253,7 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0o644)
 }
 
+// startCentianProcess launches a run-local Centian child process and waits for its API/MCP endpoints.
 func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*StartedCentian, error) {
 	stdoutPath := filepath.Join(opts.LogsDir, "centian.stdout.log")
 	stderrPath := filepath.Join(opts.LogsDir, "centian.stderr.log")
@@ -1273,6 +1302,7 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 	}, nil
 }
 
+// waitForCentian polls API and MCP endpoints until the child server is ready.
 func waitForCentian(baseURL string, mcpURL string) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(45 * time.Second)
@@ -1286,6 +1316,7 @@ func waitForCentian(baseURL string, mcpURL string) error {
 	return fmt.Errorf("centian did not become ready in time")
 }
 
+// isEndpointReachable checks basic HTTP reachability without requiring a specific payload.
 func isEndpointReachable(client *http.Client, endpoint string) bool {
 	resp, err := client.Get(endpoint)
 	if err != nil {
@@ -1295,6 +1326,7 @@ func isEndpointReachable(client *http.Client, endpoint string) bool {
 	return resp.StatusCode < 500
 }
 
+// isJSONEndpointReady checks that an HTTP endpoint is ready to serve successful JSON responses.
 func isJSONEndpointReady(client *http.Client, endpoint string) bool {
 	resp, err := client.Get(endpoint)
 	if err != nil {
@@ -1304,6 +1336,7 @@ func isJSONEndpointReady(client *http.Client, endpoint string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// fetchTaskRuns reads the current task-run list from the run-local Centian API.
 func fetchTaskRuns(baseURL string) ([]persistence.TaskRunSummary, error) {
 	resp, err := http.Get(baseURL + "/api/task-runs")
 	if err != nil {
@@ -1321,6 +1354,7 @@ func fetchTaskRuns(baseURL string) ([]persistence.TaskRunSummary, error) {
 	return runs, nil
 }
 
+// fetchTaskRunEvents reads raw task-run events from the run-local Centian API.
 func fetchTaskRunEvents(baseURL string, runID string) ([]persistence.TaskRunEvent, error) {
 	resp, err := http.Get(baseURL + "/api/task-runs/" + runID + "/events")
 	if err != nil {
@@ -1338,6 +1372,7 @@ func fetchTaskRunEvents(baseURL string, runID string) ([]persistence.TaskRunEven
 	return events, nil
 }
 
+// findLatestRequestLog returns the most recent request log created for the run.
 func findLatestRequestLog(logDir string) (string, error) {
 	matches, err := filepath.Glob(filepath.Join(logDir, "requests_*.jsonl"))
 	if err != nil {
@@ -1350,6 +1385,7 @@ func findLatestRequestLog(logDir string) (string, error) {
 	return matches[len(matches)-1], nil
 }
 
+// allocateFreePort reserves an ephemeral localhost port for a benchmark-local Centian server.
 func allocateFreePort() (string, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

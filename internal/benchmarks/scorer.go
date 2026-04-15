@@ -212,11 +212,13 @@ type AggregateSummary struct {
 	AverageManualActionabilityScore *float64 `json:"averageManualActionabilityScore,omitempty"`
 }
 
+// scoreRunContext holds the resolved case definition and fixture root for scoring.
 type scoreRunContext struct {
 	caseDef  *CaseDefinition
 	caseRoot string
 }
 
+// loadSessionManifest reads and minimally validates a preserved benchmark session manifest.
 func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 	var session SessionManifest
 	if err := readJSONFile(filepath.Join(sessionDir, sessionFileName), &session); err != nil {
@@ -231,6 +233,7 @@ func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 	return &session, nil
 }
 
+// loadCaseContexts expands each suite case into the data needed for scoring helpers.
 func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scoreRunContext, error) {
 	result := make(map[string]scoreRunContext, len(suite.Cases))
 	for _, ref := range suite.Cases {
@@ -247,6 +250,7 @@ func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scor
 	return result, nil
 }
 
+// secondsBetween returns elapsed seconds when both timestamps are valid and ordered.
 func secondsBetween(start time.Time, end time.Time) float64 {
 	if start.IsZero() || end.IsZero() || end.Before(start) {
 		return 0
@@ -254,6 +258,7 @@ func secondsBetween(start time.Time, end time.Time) float64 {
 	return end.Sub(start).Seconds()
 }
 
+// buildRunSummaryRow merges session entry, run manifest, and scorecard data into one aggregate row.
 func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scorecard *RunScorecard, errors []string, warnings []string) RunSummaryRow {
 	row := RunSummaryRow{
 		SessionPath:     scorecardSessionPath(run, scorecard),
@@ -306,6 +311,7 @@ func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scoreca
 	return row
 }
 
+// scorecardSessionPath prefers the scored session path and falls back to deriving it from run artifacts.
 func scorecardSessionPath(run *RunManifest, scorecard *RunScorecard) string {
 	if scorecard != nil {
 		return scorecard.SessionPath
@@ -316,6 +322,7 @@ func scorecardSessionPath(run *RunManifest, scorecard *RunScorecard) string {
 	return sessionPathFromRun(run)
 }
 
+// compareRunRows provides stable ordering for session and comparison run tables.
 func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {
 	if a.TemplateVariant != b.TemplateVariant {
 		return a.TemplateVariant < b.TemplateVariant
@@ -329,6 +336,7 @@ func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {
 	return a.Attempt < b.Attempt
 }
 
+// buildAggregates computes the standard aggregate groupings used across benchmark views.
 func buildAggregates(rows []RunSummaryRow) SessionSummaryAggregates {
 	return SessionSummaryAggregates{
 		ByCase:  aggregateRows(rows, func(row RunSummaryRow) aggregateKey { return aggregateKey{Key: row.CaseID, CaseID: row.CaseID} }),
@@ -345,6 +353,7 @@ func buildAggregates(rows []RunSummaryRow) SessionSummaryAggregates {
 	}
 }
 
+// aggregateKey preserves group identity plus dimensions needed in the aggregate output.
 type aggregateKey struct {
 	SessionPath     string
 	Key             string
@@ -353,6 +362,7 @@ type aggregateKey struct {
 	TemplateVariant string
 }
 
+// aggregateRows groups run rows by key and derives rollup metrics for each group.
 func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey) []AggregateSummary {
 	grouped := map[string][]RunSummaryRow{}
 	keys := map[string]aggregateKey{}
@@ -397,6 +407,7 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 	return summaries
 }
 
+// filterScoredRows drops runs that never produced a usable score snapshot.
 func filterScoredRows(rows []RunSummaryRow) []RunSummaryRow {
 	scored := make([]RunSummaryRow, 0, len(rows))
 	for _, row := range rows {
@@ -407,6 +418,7 @@ func filterScoredRows(rows []RunSummaryRow) []RunSummaryRow {
 	return scored
 }
 
+// rate computes the fraction of rows matching predicate.
 func rate(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) float64 {
 	if len(rows) == 0 {
 		return 0
@@ -414,6 +426,7 @@ func rate(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) float64 {
 	return float64(count(rows, predicate)) / float64(len(rows))
 }
 
+// count returns the number of rows matching predicate.
 func count(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) int {
 	total := 0
 	for _, row := range rows {
@@ -424,6 +437,7 @@ func count(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) int {
 	return total
 }
 
+// extractInt projects integer row values into float64 slices for median math.
 func extractInt(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) []float64 {
 	values := make([]float64, 0, len(rows))
 	for _, row := range rows {
@@ -432,6 +446,7 @@ func extractInt(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) []float64
 	return values
 }
 
+// extractFloat projects float row values for aggregate math.
 func extractFloat(rows []RunSummaryRow, valueFn func(RunSummaryRow) float64) []float64 {
 	values := make([]float64, 0, len(rows))
 	for _, row := range rows {
@@ -440,6 +455,7 @@ func extractFloat(rows []RunSummaryRow, valueFn func(RunSummaryRow) float64) []f
 	return values
 }
 
+// extractOptionalInt64 projects optional int64 values while skipping nils.
 func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int64) []float64 {
 	values := make([]float64, 0, len(rows))
 	for _, row := range rows {
@@ -452,6 +468,7 @@ func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int
 	return values
 }
 
+// sumIntRows sums one integer field across rows.
 func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
 	total := 0
 	for _, row := range rows {
@@ -460,6 +477,7 @@ func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
 	return total
 }
 
+// medianFloat returns the median of values, or zero when the slice is empty.
 func medianFloat(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
@@ -472,6 +490,7 @@ func medianFloat(values []float64) float64 {
 	return (values[mid-1] + values[mid]) / 2
 }
 
+// averageManualScore computes the average reviewer actionability score when present.
 func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 	total := 0
 	count := 0
@@ -488,6 +507,7 @@ func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 	return float64(total) / float64(count), true
 }
 
+// agentUsageInputTokens returns normalized input tokens from parsed agent metadata.
 func agentUsageInputTokens(metadata *AgentMetadata) *int64 {
 	if metadata == nil {
 		return nil
@@ -495,6 +515,7 @@ func agentUsageInputTokens(metadata *AgentMetadata) *int64 {
 	return metadata.Usage.InputTokens
 }
 
+// agentUsageOutputTokens returns normalized output tokens from parsed agent metadata.
 func agentUsageOutputTokens(metadata *AgentMetadata) *int64 {
 	if metadata == nil {
 		return nil
@@ -502,6 +523,7 @@ func agentUsageOutputTokens(metadata *AgentMetadata) *int64 {
 	return metadata.Usage.OutputTokens
 }
 
+// readJSONFile reads JSON from disk into target.
 func readJSONFile(path string, target any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

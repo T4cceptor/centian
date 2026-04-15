@@ -2,11 +2,13 @@ package benchmarks
 
 import "fmt"
 
+// suiteContext caches the loaded suite plus resolved case definitions needed for scoring.
 type suiteContext struct {
 	suite    *SuiteDefinition
 	caseDefs map[string]scoreRunContext
 }
 
+// loadSuiteContext loads the suite once and expands all case contexts used during scoring.
 func loadSuiteContext(suiteRoot string) (*suiteContext, error) {
 	suite, err := LoadSuite(suiteRoot)
 	if err != nil {
@@ -19,6 +21,7 @@ func loadSuiteContext(suiteRoot string) (*suiteContext, error) {
 	return &suiteContext{suite: suite, caseDefs: caseDefs}, nil
 }
 
+// loadRunManifest loads one preserved benchmark run manifest from disk.
 func loadRunManifest(path string) (*RunManifest, error) {
 	var run RunManifest
 	if err := readJSONFile(path, &run); err != nil {

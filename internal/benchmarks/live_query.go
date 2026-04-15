@@ -14,6 +14,7 @@ import (
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
+// Benchmark read/query errors exposed to higher-level API and UI callers.
 var (
 	// ErrBenchmarkSessionNotFound indicates that the requested benchmark session does not exist.
 	ErrBenchmarkSessionNotFound = errors.New("benchmark session not found")
@@ -23,6 +24,7 @@ var (
 	ErrBenchmarkComparisonNotFound = errors.New("benchmark comparison not found")
 )
 
+// benchmarkQueryStore captures the persistence reads needed by the live query layer.
 type benchmarkQueryStore interface {
 	ListBenchmarkSessions(context.Context, persistence.BenchmarkSessionFilter) ([]persistence.BenchmarkSessionRecord, error)
 	ListBenchmarkRuns(context.Context, *persistence.BenchmarkRunFilter) ([]persistence.BenchmarkRunRecord, error)
@@ -47,6 +49,7 @@ func NewQueryService(store benchmarkQueryStore) *QueryService {
 	return &QueryService{now: timeNowUTC, store: store}
 }
 
+// withDefaults ensures the query service always has a clock configured.
 func (s *QueryService) withDefaults() *QueryService {
 	if s == nil {
 		return &QueryService{now: timeNowUTC}
@@ -388,6 +391,7 @@ func (s *QueryService) GetComparison(ctx context.Context, suiteID string, filter
 	}, nil
 }
 
+// scoreRunRecord derives a fresh run scorecard from persisted benchmark and task-run state.
 func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.BenchmarkSessionRecord, run *persistence.BenchmarkRunRecord) (*RunScorecard, error) {
 	if session == nil || run == nil {
 		return nil, fmt.Errorf("benchmark session and run are required")
@@ -566,6 +570,7 @@ func (s *QueryService) recomputeStatsForLinkedRuns(ctx context.Context, latestTa
 	}
 }
 
+// runAgentMetadata prefers persisted agent metadata and falls back to parsing stdout logs.
 func runAgentMetadata(run *persistence.BenchmarkRunRecord, agentStdoutPath string) (*AgentMetadata, []string, error) {
 	if run == nil {
 		return nil, nil, fmt.Errorf("benchmark run is required")
@@ -581,6 +586,7 @@ func runAgentMetadata(run *persistence.BenchmarkRunRecord, agentStdoutPath strin
 	return enrichAgentMetadata(metadata, run.SelectedModel), warnings, err
 }
 
+// enrichAgentMetadata fills gaps that can be recovered from the run manifest itself.
 func enrichAgentMetadata(metadata *AgentMetadata, selectedModel string) *AgentMetadata {
 	model := strings.TrimSpace(selectedModel)
 	if metadata == nil {
@@ -595,6 +601,7 @@ func enrichAgentMetadata(metadata *AgentMetadata, selectedModel string) *AgentMe
 	return metadata
 }
 
+// agentMetadataSelectedModel returns the selected model from parsed agent metadata.
 func agentMetadataSelectedModel(metadata *AgentMetadata) string {
 	if metadata == nil {
 		return ""
@@ -602,6 +609,7 @@ func agentMetadataSelectedModel(metadata *AgentMetadata) string {
 	return metadata.SelectedModel
 }
 
+// scoreErrorsIfUnscored exposes score errors only when the run still lacks a scorecard.
 func scoreErrorsIfUnscored(scorecard *RunScorecard, scoreErrors []string) []string {
 	if scorecard != nil {
 		return nil
@@ -609,6 +617,7 @@ func scoreErrorsIfUnscored(scorecard *RunScorecard, scoreErrors []string) []stri
 	return append([]string(nil), scoreErrors...)
 }
 
+// findSessionByID finds one persisted session row by its stable identifier.
 func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID string) *persistence.BenchmarkSessionRecord {
 	for idx := range sessions {
 		if sessions[idx].SessionID == sessionID {
@@ -618,6 +627,7 @@ func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID st
 	return nil
 }
 
+// templateNameFromSnapshot derives the most specific template name available in the snapshot payload.
 func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) string {
 	if snapshot == nil || snapshot.Payload == nil {
 		return ""
@@ -633,6 +643,7 @@ func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) strin
 	)
 }
 
+// latestLinkedTaskRunID returns the last non-empty linked task run id.
 func latestLinkedTaskRunID(runIDs []string) string {
 	for idx := len(runIDs) - 1; idx >= 0; idx-- {
 		if trimmed := strings.TrimSpace(runIDs[idx]); trimmed != "" {
@@ -642,6 +653,7 @@ func latestLinkedTaskRunID(runIDs []string) string {
 	return ""
 }
 
+// durationSeconds prefers persisted duration millis and falls back to wall-clock timestamps.
 func durationSeconds(durationMillis *int64, start, end time.Time) float64 {
 	if durationMillis != nil && *durationMillis > 0 {
 		return float64(*durationMillis) / 1000.0
@@ -649,10 +661,12 @@ func durationSeconds(durationMillis *int64, start, end time.Time) float64 {
 	return secondsBetween(start, end)
 }
 
+// timeNowUTC centralizes UTC timestamp generation for persisted score snapshots.
 func timeNowUTC() time.Time {
 	return time.Now().UTC()
 }
 
+// timeFromMillis resolves a nullable unix-millis field with a required fallback timestamp.
 func timeFromMillis(primary *int64, fallback int64) time.Time {
 	if primary != nil && *primary > 0 {
 		return time.UnixMilli(*primary).UTC()
@@ -660,6 +674,7 @@ func timeFromMillis(primary *int64, fallback int64) time.Time {
 	return time.UnixMilli(fallback).UTC()
 }
 
+// timeFromUnixMillis converts persisted unix milliseconds into UTC time.
 func timeFromUnixMillis(value int64) time.Time {
 	if value <= 0 {
 		return time.Time{}
@@ -667,6 +682,7 @@ func timeFromUnixMillis(value int64) time.Time {
 	return time.UnixMilli(value).UTC()
 }
 
+// latestTime keeps the later of two timestamps while tolerating zero current values.
 func latestTime(current, candidate time.Time) time.Time {
 	if current.IsZero() {
 		return candidate
@@ -677,6 +693,7 @@ func latestTime(current, candidate time.Time) time.Time {
 	return current
 }
 
+// runRecordToManifest rebuilds the manifest-shaped view expected by aggregate helpers.
 func runRecordToManifest(run *persistence.BenchmarkRunRecord) *RunManifest {
 	if run == nil {
 		return nil

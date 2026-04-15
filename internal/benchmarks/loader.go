@@ -180,6 +180,7 @@ func ValidateSuite(root string, suite *SuiteDefinition) error {
 	return nil
 }
 
+// validateCase enforces one case's required files and prompt/fixture contract.
 func validateCase(caseRoot string, ref SuiteCaseRef, def *CaseDefinition) error {
 	if def == nil {
 		return fmt.Errorf("case definition is required")
@@ -248,6 +249,7 @@ func validateCase(caseRoot string, ref SuiteCaseRef, def *CaseDefinition) error 
 	return nil
 }
 
+// loadYAMLFile reads one YAML file into target.
 func loadYAMLFile(path string, target any) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -259,6 +261,7 @@ func loadYAMLFile(path string, target any) error {
 	return nil
 }
 
+// resolveExistingFile validates that relativePath exists under root and is a file.
 func resolveExistingFile(root, relativePath, fieldName string) (string, error) {
 	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
 	if err != nil {
@@ -274,6 +277,7 @@ func resolveExistingFile(root, relativePath, fieldName string) (string, error) {
 	return resolved, nil
 }
 
+// resolveExistingDir validates that relativePath exists under root and is a directory.
 func resolveExistingDir(root, relativePath, fieldName string) (string, error) {
 	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
 	if err != nil {
@@ -289,6 +293,7 @@ func resolveExistingDir(root, relativePath, fieldName string) (string, error) {
 	return resolved, nil
 }
 
+// ensureExistingPath validates that relativePath exists under root.
 func ensureExistingPath(root, relativePath, fieldName string) error {
 	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
 	if err != nil {
@@ -300,6 +305,7 @@ func ensureExistingPath(root, relativePath, fieldName string) error {
 	return nil
 }
 
+// resolvePathUnderRoot resolves a relative path and rejects paths escaping the suite root.
 func resolvePathUnderRoot(root, relativePath, fieldName string) (string, error) {
 	trimmed := strings.TrimSpace(relativePath)
 	if trimmed == "" {
