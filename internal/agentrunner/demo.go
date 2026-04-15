@@ -37,7 +37,7 @@ const (
 	// DefaultCodexOllamaModel is the default Ollama-backed Codex profile alias for demo runs.
 	DefaultCodexOllamaModel = codexOllamaQwenModel
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
-	DefaultAgentTimeout = 5 * time.Minute
+	DefaultAgentTimeout = 5 * time.Minute // TODO: might not be enough with Ollama Qwen
 	// TaskTemplateFile is the default task template file name for the task.
 	TaskTemplateFile = "guided_tdd_workflow.yaml"
 )
@@ -535,29 +535,29 @@ func loadPrompt(path string) string {
 	return string(data)
 }
 
-func isEndpointReachable(client *http.Client, endpoint string) bool {
+func endpointReturnsExpected(client *http.Client, endpoint string, expected func(resp *http.Response, err error) bool) bool {
+	// TODO: move to global utils
 	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
-	return resp.StatusCode < 500
+	return expected(resp, err)
+}
+
+func isEndpointReachable(client *http.Client, endpoint string) bool {
+	return endpointReturnsExpected(client, endpoint, func(resp *http.Response, err error) bool {
+		return resp.StatusCode < 500
+	})
 }
 
 func isJSONEndpointReady(client *http.Client, endpoint string) bool {
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	return resp.StatusCode == http.StatusOK
+	return endpointReturnsExpected(client, endpoint, func(resp *http.Response, err error) bool {
+		return resp.StatusCode == http.StatusOK
+	})
 }
 
 func allocateFreePort() (string, error) {
+	// TODO: move to global utils
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", fmt.Errorf("allocate port: %w", err)
@@ -573,6 +573,7 @@ func allocateFreePort() (string, error) {
 }
 
 func trimOutput(value string) string {
+	// TODO: move to global utils
 	value = strings.TrimSpace(value)
 	if len(value) > 4000 {
 		return value[:4000] + "\n...truncated..."
@@ -581,10 +582,12 @@ func trimOutput(value string) string {
 }
 
 func shellQuote(value string) string {
+	// TODO: move to global utils
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func processExists(pid int) bool {
+	// TODO: move to global utils
 	if pid <= 0 {
 		return false
 	}
