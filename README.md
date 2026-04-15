@@ -132,7 +132,7 @@ What you'll see:
 
 - `node` (tested with `v24.2.0`) and `npx` (tested with `11.3.0`) available on your `PATH` - required to launch filesystem and shell MCP servers, and run tests
 - Claude Code, Gemini CLI, or OpenAI Codex installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or it's not signed in.
-- For `codex-ollama`, make sure local Ollama is running at `http://localhost:11434/v1`. Centian provides built-in `gemma4` and `qwen3.5` Codex OSS profiles, and you can override the base Codex config with `--codex-config`.
+- For `codex-ollama`, make sure local Ollama is running at `http://localhost:11434/v1` and pass `--codex-config` pointing to a valid Codex config that already defines the local OSS profile you want to use. Centian only patches the run-local MCP URL and trusted project path; it does not create Ollama profiles for you. The current local setup has been tested on a MacBook Pro M4 with 48 GB RAM using a `gpt-oss-20b` profile, but actual model viability depends on the host machine and Ollama setup.
 
 **Claude Code** (sonnet)
 ```bash
@@ -150,14 +150,12 @@ centian demo -a codex
 ```
 Note: for the codex demo centian will copy (and later cleanup) existing auth material for the OpenAI API.
 
-**Codex OSS via Ollama** (default profile alias: `qwen3.5`)
+**Codex OSS via Ollama** (explicit Codex profile required)
 ```bash
-centian demo -a codex-ollama
-centian demo -a codex-ollama -m gemma4
-centian demo -a codex-ollama --codex-config ~/.codex/config.toml
+centian demo -a codex-ollama --codex-config ~/.codex/config.toml --profile local-oss
 ```
 
-Use `-m` / `--model` to override the selected agent model, for example `centian demo -a codex -m gpt-5.4-mini`. Supported shorthand values are: Codex `gpt-5.4`, `gpt-5.4-mini`; Codex Ollama `gemma4`, `qwen3.5` (or a custom Codex profile name); Claude `haiku`, `sonnet`, `opus`; Gemini `pro`, `flash`, `2.5-flash`.
+Use `-m` / `--model` to override the selected agent model, for example `centian demo -a codex -m gpt-5.4-mini`. Supported shorthand values are: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro`, `flash`, `2.5-flash`. For `codex-ollama`, use `--profile` instead of `--model`.
 
 **What the demo does**
 - Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.

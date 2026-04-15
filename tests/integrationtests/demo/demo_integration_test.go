@@ -160,8 +160,21 @@ func TestCentianDemoCodexOllama(t *testing.T) {
 		t.Fatalf("build centian binary: %v\n%s", err, strings.TrimSpace(string(output)))
 	}
 
+	codexConfigPath := filepath.Join(root, "codex.toml")
+	if err := os.WriteFile(codexConfigPath, []byte(`
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "read-only"
+
+[profiles.local-oss]
+model_provider = "ollama"
+model = "gpt-oss-20b"
+`), 0o600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
 	demoRoot := filepath.Join(root, "demo")
-	cmd := exec.Command(binary, "demo", "--agent", "codex-ollama", "--path", demoRoot)
+	cmd := exec.Command(binary, "demo", "--agent", "codex-ollama", "--path", demoRoot, "--codex-config", codexConfigPath, "--profile", "local-oss")
 	cmd.Dir = repoRoot(t)
 	cmd.Env = os.Environ()
 	if output, err := cmd.CombinedOutput(); err != nil {

@@ -39,10 +39,10 @@ type TemplateVariant struct {
 
 // AgentModels contains optional per-agent model overrides.
 type AgentModels struct {
-	Claude      string `json:"claude,omitempty"`
-	Gemini      string `json:"gemini,omitempty"`
-	Codex       string `json:"codex,omitempty"`
-	CodexOllama string `json:"codexOllama,omitempty"`
+	Claude             string `json:"claude,omitempty"`
+	Gemini             string `json:"gemini,omitempty"`
+	Codex              string `json:"codex,omitempty"`
+	CodexOllamaProfile string `json:"codexOllamaProfile,omitempty"`
 }
 
 // RunOptions configures one benchmark invocation.
@@ -691,17 +691,17 @@ func (r *Runner) executeRun(
 		return manifest, err
 	}
 	runResult, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
-		Agent:            spec.Agent,
-		ArtifactRoot:     agentDir,
-		WorkspacePath:    projectDir,
-		MCPURL:           mcpURL,
-		Prompt:           strings.TrimSpace(spec.Prompt.Prompt),
-		Timeout:          opts.Timeout,
-		ClaudeModel:      opts.Models.Claude,
-		GeminiModel:      opts.Models.Gemini,
-		CodexModel:       opts.Models.Codex,
-		CodexOllamaModel: opts.Models.CodexOllama,
-		CodexConfigPath:  opts.CodexConfigPath,
+		Agent:              spec.Agent,
+		ArtifactRoot:       agentDir,
+		WorkspacePath:      projectDir,
+		MCPURL:             mcpURL,
+		Prompt:             strings.TrimSpace(spec.Prompt.Prompt),
+		Timeout:            opts.Timeout,
+		ClaudeModel:        opts.Models.Claude,
+		GeminiModel:        opts.Models.Gemini,
+		CodexModel:         opts.Models.Codex,
+		CodexOllamaProfile: opts.Models.CodexOllamaProfile,
+		CodexConfigPath:    opts.CodexConfigPath,
 	})
 	if runResult != nil && strings.TrimSpace(runResult.SelectedModel) != "" {
 		manifest.SelectedModel = runResult.SelectedModel
@@ -1134,7 +1134,7 @@ func selectedModel(agent string, models AgentModels) string {
 	case agentrunner.AgentCodex:
 		return models.Codex
 	case agentrunner.AgentCodexOllama:
-		return models.CodexOllama
+		return models.CodexOllamaProfile
 	default:
 		return ""
 	}

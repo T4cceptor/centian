@@ -11,19 +11,19 @@ import (
 
 // RunOptions configures one headless agent invocation against a Centian MCP URL.
 type RunOptions struct {
-	Agent            string
-	ArtifactRoot     string
-	WorkspacePath    string
-	MCPURL           string
-	Prompt           string
-	Timeout          time.Duration
-	ClaudeModel      string
-	GeminiModel      string
-	CodexModel       string
-	CodexOllamaModel string
-	CodexConfigPath  string
-	Stdout           io.Writer
-	Stderr           io.Writer
+	Agent              string
+	ArtifactRoot       string
+	WorkspacePath      string
+	MCPURL             string
+	Prompt             string
+	Timeout            time.Duration
+	ClaudeModel        string
+	GeminiModel        string
+	CodexModel         string
+	CodexOllamaProfile string
+	CodexConfigPath    string
+	Stdout             io.Writer
+	Stderr             io.Writer
 }
 
 // RunResult describes one completed agent invocation.
@@ -73,7 +73,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 		opts.ClaudeModel,
 		opts.GeminiModel,
 		opts.CodexModel,
-		opts.CodexOllamaModel,
+		opts.CodexOllamaProfile,
 		opts.CodexConfigPath,
 	)
 	if err != nil {
@@ -107,7 +107,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 }
 
 // selectAdapterForAgent maps a public agent identifier to its concrete adapter implementation.
-func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel, codexOllamaModel, codexConfigPath string) (agentAdapter, error) {
+func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel, codexOllamaProfile, codexConfigPath string) (agentAdapter, error) {
 	switch strings.ToLower(strings.TrimSpace(agent)) {
 	case AgentClaude:
 		return claudeAdapter{model: claudeModel}, nil
@@ -116,7 +116,7 @@ func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel, codexOll
 	case AgentCodex:
 		return codexAdapter{model: codexModel, baseConfigPath: codexConfigPath}, nil
 	case AgentCodexOllama:
-		return codexOllamaAdapter{model: codexOllamaModel, baseConfigPath: codexConfigPath}, nil
+		return codexOllamaAdapter{profile: codexOllamaProfile, baseConfigPath: codexConfigPath}, nil
 	default:
 		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, %q, and %q", agent, AgentClaude, AgentGemini, AgentCodex, AgentCodexOllama)
 	}
@@ -132,7 +132,7 @@ func selectedModelForAgent(agent string, opts *RunOptions) string {
 	case AgentCodex:
 		return strings.TrimSpace(opts.CodexModel)
 	case AgentCodexOllama:
-		return selectedCodexOllamaModelLabel(opts.CodexOllamaModel, opts.CodexConfigPath)
+		return strings.TrimSpace(opts.CodexOllamaProfile)
 	default:
 		return ""
 	}

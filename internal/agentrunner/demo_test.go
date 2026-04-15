@@ -456,9 +456,14 @@ func TestCodexCommandConstruction(t *testing.T) {
 }
 
 func TestCodexOllamaCommandConstruction(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseConfigPath := filepath.Join(tmpDir, "base.toml")
+	if err := os.WriteFile(baseConfigPath, []byte("[profiles.local-oss]\nmodel = \"gpt-oss-20b\"\n"), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
 	layout := &demoLayout{CodexConfig: "/tmp/demo/codex-home/config.toml"}
 
-	command, err := codexOllamaAdapter{model: "gemma4"}.command(layout, "prompt")
+	command, err := codexOllamaAdapter{profile: "local-oss", baseConfigPath: baseConfigPath}.command(layout, "prompt")
 	if err != nil {
 		t.Fatalf("command: %v", err)
 	}
@@ -467,7 +472,7 @@ func TestCodexOllamaCommandConstruction(t *testing.T) {
 	for _, expected := range []string{
 		"codex",
 		"--oss",
-		"--profile gemma4-local",
+		"--profile local-oss",
 	} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("expected %q in command %q", expected, joined)
@@ -525,7 +530,7 @@ func TestCodexWriteConfig(t *testing.T) {
 	}
 }
 
-func TestCodexOllamaWriteDefaultConfig(t *testing.T) {
+func TestCodexOllamaWriteConfigRequiresBaseConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	layout := &demoLayout{
 		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
@@ -533,17 +538,10 @@ func TestCodexOllamaWriteDefaultConfig(t *testing.T) {
 		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
 	}
 
-	if err := (codexOllamaAdapter{}).writeConfig(layout); err != nil {
-		t.Fatalf("writeConfig: %v", err)
+	err := (codexOllamaAdapter{}).writeConfig(layout)
+	if err == nil || err.Error() != "codex-ollama requires --codex-config pointing to a Codex config with local OSS profiles" {
+		t.Fatalf("expected missing codex config error, got %v", err)
 	}
-
-	assertFileContains(t, layout.CodexConfig, `oss_provider = "ollama-custom"`)
-	assertFileContains(t, layout.CodexConfig, `[model_providers.ollama-custom]`)
-	assertFileContains(t, layout.CodexConfig, `[profiles.gemma4-local]`)
-	assertFileContains(t, layout.CodexConfig, `[profiles.qwen3.5-local]`)
-	assertFileContains(t, layout.CodexConfig, `model_provider = "ollama-custom"`)
-	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
-	assertFileContains(t, layout.CodexConfig, `[projects."/tmp/demo/workspace"]`)
 }
 
 func TestCodexWriteConfigPatchesCustomBase(t *testing.T) {
@@ -696,7 +694,11 @@ func TestSelectAdapterCodex(t *testing.T) {
 }
 
 func TestSelectAdapterCodexOllama(t *testing.T) {
-	opts := &DemoOptions{Agent: AgentCodexOllama, CodexOllamaModel: "gemma4"}
+	opts := &DemoOptions{
+		Agent:              AgentCodexOllama,
+		CodexOllamaProfile: "local-oss",
+		CodexConfigPath:    "/tmp/codex.toml",
+	}
 
 	adapter, err := selectAdapter(opts)
 	if err != nil {

@@ -9,18 +9,16 @@ import (
 )
 
 const (
-	codexModelStable     = "gpt-5.4"
-	codexModelMini       = "gpt-5.4-mini"
-	codexModelHelp       = codexModelStable + ", " + codexModelMini
-	codexOllamaGemma     = "gemma4"
-	codexOllamaQwen      = "qwen3.5"
-	codexOllamaModelHelp = codexOllamaGemma + ", " + codexOllamaQwen + ", or custom Codex profile name"
-	claudeModelHelp      = "haiku, sonnet, opus"
-	geminiModelHelp      = "pro (gemini-3.1-pro-preview), flash (gemini-3-flash-preview), 2.5-flash (gemini-2.5-flash)"
+	codexModelStable       = "gpt-5.4"
+	codexModelMini         = "gpt-5.4-mini"
+	codexModelHelp         = codexModelStable + ", " + codexModelMini
+	codexOllamaProfileHelp = "profile name from the supplied Codex config"
+	claudeModelHelp        = "haiku, sonnet, opus"
+	geminiModelHelp        = "pro (gemini-3.1-pro-preview), flash (gemini-3-flash-preview), 2.5-flash (gemini-2.5-flash)"
 )
 
 func singleModelFlagUsage() string {
-	return fmt.Sprintf("Model for selected agent. Codex: %s; Codex Ollama: %s; Claude: %s; Gemini: %s", codexModelHelp, codexOllamaModelHelp, claudeModelHelp, geminiModelHelp)
+	return fmt.Sprintf("Model for selected agent. Codex: %s; Claude: %s; Gemini: %s", codexModelHelp, claudeModelHelp, geminiModelHelp)
 }
 
 func normalizeCLIModel(agent, model string) string {
@@ -36,13 +34,6 @@ func normalizeCLIModel(agent, model string) string {
 			return codexModelStable
 		case "gpt5.4-mini", codexModelMini:
 			return codexModelMini
-		}
-	case agentrunner.AgentCodexOllama:
-		switch normalized {
-		case codexOllamaGemma:
-			return codexOllamaGemma
-		case codexOllamaQwen:
-			return codexOllamaQwen
 		}
 	case agentrunner.AgentClaude:
 		switch normalized {
@@ -62,19 +53,37 @@ func normalizeCLIModel(agent, model string) string {
 	return trimmed
 }
 
-func benchmarkAgentModelsFromFlags(cmdModel string, agents []string, claudeModel, geminiModel, codexModel, codexOllamaModel string) (benchmarks.AgentModels, error) {
+func benchmarkAgentModelsFromFlags(cmdModel, cmdProfile string, agents []string, claudeModel, geminiModel, codexModel string) (benchmarks.AgentModels, error) {
 	models := benchmarks.AgentModels{
-		Claude:      normalizeCLIModel(agentrunner.AgentClaude, claudeModel),
-		Gemini:      normalizeCLIModel(agentrunner.AgentGemini, geminiModel),
-		Codex:       normalizeCLIModel(agentrunner.AgentCodex, codexModel),
-		CodexOllama: normalizeCLIModel(agentrunner.AgentCodexOllama, codexOllamaModel),
+		Claude: normalizeCLIModel(agentrunner.AgentClaude, claudeModel),
+		Gemini: normalizeCLIModel(agentrunner.AgentGemini, geminiModel),
+		Codex:  normalizeCLIModel(agentrunner.AgentCodex, codexModel),
 	}
+	profile := strings.TrimSpace(cmdProfile)
 	model := strings.TrimSpace(cmdModel)
-	if model == "" {
+	if profile == "" && model == "" {
 		return models, nil
 	}
+
+	if profile != "" {
+		hasCodexOllama := false
+		for _, agent := range agents {
+			if strings.EqualFold(strings.TrimSpace(agent), agentrunner.AgentCodexOllama) {
+				hasCodexOllama = true
+				break
+			}
+		}
+		if !hasCodexOllama {
+			return benchmarks.AgentModels{}, fmt.Errorf("--profile can only be used when --agent codex-ollama is selected")
+		}
+		models.CodexOllamaProfile = profile
+		if model == "" {
+			return models, nil
+		}
+	}
+
 	if len(agents) != 1 {
-		return benchmarks.AgentModels{}, fmt.Errorf("--model can only be used with exactly one agent; use --claude-model, --gemini-model, --codex-model, or --codex-ollama-model for multi-agent runs")
+		return benchmarks.AgentModels{}, fmt.Errorf("--model can only be used with exactly one non-codex-ollama agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs")
 	}
 	agent := strings.ToLower(strings.TrimSpace(agents[0]))
 	normalized := normalizeCLIModel(agent, model)
@@ -95,12 +104,11 @@ func benchmarkAgentModelsFromFlags(cmdModel string, agents []string, claudeModel
 		}
 		models.Codex = normalized
 	case agentrunner.AgentCodexOllama:
-		if models.CodexOllama != "" {
-			return benchmarks.AgentModels{}, fmt.Errorf("--model cannot be combined with --codex-ollama-model")
+		if model != "" {
+			return benchmarks.AgentModels{}, fmt.Errorf("--model is not supported for codex-ollama; use --profile")
 		}
-		models.CodexOllama = normalized
 	default:
-		return benchmarks.AgentModels{}, fmt.Errorf("unsupported agent %q; cannot apply --model", agents[0])
+		return benchmarks.AgentModels{}, fmt.Errorf("unsupported agent %q; cannot apply --model/--profile", agents[0])
 	}
 	return models, nil
 }

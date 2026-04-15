@@ -11,7 +11,6 @@ func TestNormalizeCLIModel(t *testing.T) {
 	}{
 		{name: "codex mini typo", agent: "codex", input: "gpt5.4-mini", expected: "gpt-5.4-mini"},
 		{name: "codex full", agent: "codex", input: "gpt5.4", expected: "gpt-5.4"},
-		{name: "codex ollama gemma alias", agent: "codex-ollama", input: "Gemma4", expected: "gemma4"},
 		{name: "codex ollama custom passthrough", agent: "codex-ollama", input: "my-profile", expected: "my-profile"},
 		{name: "claude alias", agent: "claude", input: "Sonnet", expected: "sonnet"},
 		{name: "gemini pro latest", agent: "gemini", input: "pro", expected: "gemini-3.1-pro-preview"},

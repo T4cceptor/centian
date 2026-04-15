@@ -139,13 +139,16 @@ Agent/model selection:
 
 - use one or more `--agent`
 - for single-agent runs use `--model` / `-m`
-- for multi-agent runs use `--codex-model`, `--claude-model`, `--gemini-model`
+- `codex-ollama` is the exception: it requires `--codex-config` plus `--profile`, because the model comes from the named Codex profile
+- for multi-agent runs use `--profile` for `codex-ollama`, plus `--codex-model`, `--claude-model`, `--gemini-model` as needed
 
 Supported model shorthands:
 
 - Codex: `gpt-5.4`, `gpt-5.4-mini`
 - Claude: `haiku`, `sonnet`, `opus`
 - Gemini: `pro`, `flash`, `2.5-flash`
+
+`codex-ollama` does not have built-in defaults. Supply a Codex config that already defines the local OSS profile you want to run.
 
 Template and config resolution:
 

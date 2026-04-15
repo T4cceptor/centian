@@ -65,6 +65,10 @@ var BenchmarkRunCommand = &cli.Command{
 			Usage:   singleModelFlagUsage(),
 		},
 		&cli.StringFlag{
+			Name:  "profile",
+			Usage: "Codex Ollama profile for single-agent codex-ollama runs (" + codexOllamaProfileHelp + ")",
+		},
+		&cli.StringFlag{
 			Name:  "claude-model",
 			Usage: "Override Claude model (" + claudeModelHelp + ")",
 		},
@@ -75,10 +79,6 @@ var BenchmarkRunCommand = &cli.Command{
 		&cli.StringFlag{
 			Name:  "codex-model",
 			Usage: "Override Codex model (" + codexModelHelp + ")",
-		},
-		&cli.StringFlag{
-			Name:  "codex-ollama-model",
-			Usage: "Override Codex Ollama model/profile (" + codexOllamaModelHelp + ")",
 		},
 		&cli.StringFlag{
 			Name:  "codex-config",
@@ -168,7 +168,9 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	if err != nil {
 		return nil, err
 	}
-	applyDefaultCodexOllamaModel(agents, &models, codexConfigPath)
+	if err := validateCodexOllamaOptions(agents, models, codexConfigPath); err != nil {
+		return nil, err
+	}
 
 	return &benchmarks.RunOptions{
 		SuitePath:         suitePath,
@@ -224,11 +226,11 @@ func resolveBenchmarkOutputRoot(cmd *cli.Command, startPath string) (string, err
 func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) (benchmarks.AgentModels, string, string, error) {
 	models, err := benchmarkAgentModelsFromFlags(
 		cmd.String("model"),
+		cmd.String("profile"),
 		agents,
 		cmd.String("claude-model"),
 		cmd.String("gemini-model"),
 		cmd.String("codex-model"),
-		cmd.String("codex-ollama-model"),
 	)
 	if err != nil {
 		return benchmarks.AgentModels{}, "", "", err
@@ -261,16 +263,19 @@ func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfig
 	return templateVariants, nil
 }
 
-func applyDefaultCodexOllamaModel(agents []string, models *benchmarks.AgentModels, codexConfigPath string) {
-	if models == nil || codexConfigPath != "" {
-		return
-	}
+func validateCodexOllamaOptions(agents []string, models benchmarks.AgentModels, codexConfigPath string) error {
 	for _, agent := range agents {
-		if strings.EqualFold(agent, agentrunner.AgentCodexOllama) && strings.TrimSpace(models.CodexOllama) == "" {
-			models.CodexOllama = agentrunner.DefaultCodexOllamaModel
-			return
+		if !strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
+			continue
+		}
+		if strings.TrimSpace(codexConfigPath) == "" {
+			return fmt.Errorf("codex-ollama requires --codex-config")
+		}
+		if strings.TrimSpace(models.CodexOllamaProfile) == "" {
+			return fmt.Errorf("codex-ollama requires an explicit profile; use --profile")
 		}
 	}
+	return nil
 }
 
 func splitCSVValues(values []string) []string {

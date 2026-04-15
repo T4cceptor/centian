@@ -78,7 +78,7 @@ func TestBenchmarkRunCommandStructure(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"suite", "case", "agent", "repeat", "template-dir", "timeout",
-		"output-root", "model", "claude-model", "gemini-model", "codex-model", "codex-ollama-model", "codex-config", "centian-config", "keep-centian-running",
+		"output-root", "model", "profile", "claude-model", "gemini-model", "codex-model", "codex-config", "centian-config", "keep-centian-running",
 	} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on BenchmarkRunCommand", expected)
@@ -202,7 +202,7 @@ func TestBuildBenchmarkRunOptionsUsesTemplateDirFromCentianConfig(t *testing.T) 
 }
 
 func TestBenchmarkAgentModelsFromFlagsAppliesSingleModelFlag(t *testing.T) {
-	models, err := benchmarkAgentModelsFromFlags("gpt5.4-mini", []string{"codex"}, "", "", "", "")
+	models, err := benchmarkAgentModelsFromFlags("gpt5.4-mini", "", []string{"codex"}, "", "", "")
 	if err != nil {
 		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
 	}
@@ -212,26 +212,50 @@ func TestBenchmarkAgentModelsFromFlagsAppliesSingleModelFlag(t *testing.T) {
 }
 
 func TestBenchmarkAgentModelsFromFlagsRejectsSingleModelWithMultipleAgents(t *testing.T) {
-	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", []string{"codex", "claude"}, "", "", "", "")
-	if err == nil || err.Error() != "--model can only be used with exactly one agent; use --claude-model, --gemini-model, --codex-model, or --codex-ollama-model for multi-agent runs" {
+	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", "", []string{"codex", "claude"}, "", "", "")
+	if err == nil || err.Error() != "--model can only be used with exactly one non-codex-ollama agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs" {
 		t.Fatalf("expected multi-agent model error, got %v", err)
 	}
 }
 
 func TestBenchmarkAgentModelsFromFlagsRejectsSingleAndAgentModelConflict(t *testing.T) {
-	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", []string{"codex"}, "", "", "gpt-5.4", "")
+	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", "", []string{"codex"}, "", "", "gpt-5.4")
 	if err == nil || err.Error() != "--model cannot be combined with --codex-model" {
 		t.Fatalf("expected model conflict error, got %v", err)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsAppliesCodexOllamaSingleModelFlag(t *testing.T) {
-	models, err := benchmarkAgentModelsFromFlags("gemma4", []string{"codex-ollama"}, "", "", "", "")
+func TestBenchmarkAgentModelsFromFlagsAppliesCodexOllamaSingleProfileFlag(t *testing.T) {
+	models, err := benchmarkAgentModelsFromFlags("", "local-oss", []string{"codex-ollama"}, "", "", "")
 	if err != nil {
 		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
 	}
-	if models.CodexOllama != "gemma4" {
-		t.Fatalf("expected normalized codex-ollama model, got %q", models.CodexOllama)
+	if models.CodexOllamaProfile != "local-oss" {
+		t.Fatalf("expected codex-ollama profile, got %q", models.CodexOllamaProfile)
+	}
+}
+
+func TestBenchmarkAgentModelsFromFlagsRejectsCodexOllamaModelFlag(t *testing.T) {
+	_, err := benchmarkAgentModelsFromFlags("gpt-oss-20b", "", []string{"codex-ollama"}, "", "", "")
+	if err == nil || err.Error() != "--model is not supported for codex-ollama; use --profile" {
+		t.Fatalf("expected codex-ollama model flag error, got %v", err)
+	}
+}
+
+func TestBenchmarkAgentModelsFromFlagsAppliesProfileInMultiAgentRun(t *testing.T) {
+	models, err := benchmarkAgentModelsFromFlags("", "local-oss", []string{"codex", "codex-ollama"}, "", "", "")
+	if err != nil {
+		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
+	}
+	if models.CodexOllamaProfile != "local-oss" {
+		t.Fatalf("expected codex-ollama profile, got %q", models.CodexOllamaProfile)
+	}
+}
+
+func TestBenchmarkAgentModelsFromFlagsRejectsProfileWithoutCodexOllamaAgent(t *testing.T) {
+	_, err := benchmarkAgentModelsFromFlags("", "local-oss", []string{"codex", "claude"}, "", "", "")
+	if err == nil || err.Error() != "--profile can only be used when --agent codex-ollama is selected" {
+		t.Fatalf("expected profile agent error, got %v", err)
 	}
 }
 

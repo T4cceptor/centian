@@ -10,12 +10,7 @@ import (
 )
 
 const (
-	codexHostedConfigAsset  = "codex_config.toml"
-	codexOllamaConfigAsset  = "codex_ollama_config.toml"
-	codexOllamaGemmaModel   = "gemma4"
-	codexOllamaGemmaProfile = "gemma4-local"
-	codexOllamaQwenModel    = "qwen3.5"
-	codexOllamaQwenProfile  = "qwen3.5-local"
+	codexHostedConfigAsset = "codex_config.toml"
 )
 
 // codexAdapter runs the hosted Codex CLI against the demo-local MCP server.
@@ -26,7 +21,7 @@ type codexAdapter struct {
 
 // codexOllamaAdapter runs Codex OSS mode against a local Ollama-backed profile.
 type codexOllamaAdapter struct {
-	model          string
+	profile        string
 	baseConfigPath string
 }
 
@@ -58,7 +53,10 @@ func (c codexAdapter) writeConfig(layout *demoLayout) error {
 
 // writeConfig renders the runtime Codex config for local Ollama-backed OSS usage.
 func (c codexOllamaAdapter) writeConfig(layout *demoLayout) error {
-	return writeCodexRuntimeConfig(layout, c.baseConfigPath, codexOllamaConfigAsset, "")
+	if strings.TrimSpace(c.baseConfigPath) == "" {
+		return fmt.Errorf("codex-ollama requires --codex-config pointing to a Codex config with local OSS profiles")
+	}
+	return writeCodexRuntimeConfig(layout, c.baseConfigPath, "", "")
 }
 
 // writeCodexRuntimeConfig loads a base config, patches MCP/project settings, and writes CODEX_HOME.
@@ -89,6 +87,9 @@ func loadCodexConfigTemplate(baseConfigPath, defaultAssetName string) (string, e
 			return "", fmt.Errorf("read codex config %q: %w", path, err)
 		}
 		return strings.ReplaceAll(string(data), "__MODEL_BLOCK__", ""), nil
+	}
+	if strings.TrimSpace(defaultAssetName) == "" {
+		return "", fmt.Errorf("codex config path is required")
 	}
 	content, err := asset(defaultAssetName)
 	if err != nil {
@@ -243,7 +244,7 @@ func (c codexAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 
 // command builds the non-interactive Codex OSS invocation for one Ollama-backed run.
 func (c codexOllamaAdapter) command(layout *demoLayout, _ string) ([]string, error) {
-	profile, err := resolveCodexOllamaProfile(c.model, c.baseConfigPath)
+	profile, err := resolveCodexOllamaProfile(c.profile, c.baseConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -262,58 +263,32 @@ func (c codexOllamaAdapter) command(layout *demoLayout, _ string) ([]string, err
 }
 
 // resolveCodexOllamaProfile chooses the Codex profile name to pass to `codex exec --profile`.
-func resolveCodexOllamaProfile(model, baseConfigPath string) (string, error) {
-	if profile, ok := codexOllamaProfileAlias(model); ok {
-		return profile, nil
+func resolveCodexOllamaProfile(profile, baseConfigPath string) (string, error) {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return "", fmt.Errorf("codex-ollama requires an explicit profile name")
 	}
-	if profile := strings.TrimSpace(model); profile != "" {
-		return profile, nil
+	path := strings.TrimSpace(baseConfigPath)
+	if path == "" {
+		return "", fmt.Errorf("codex-ollama requires --codex-config")
 	}
-	if path := strings.TrimSpace(baseConfigPath); path != "" {
-		profile, err := firstCodexProfileFromFile(path)
-		if err != nil {
-			return "", err
-		}
-		if profile != "" {
-			return profile, nil
-		}
+	ok, err := codexProfileExistsInFile(path, profile)
+	if err != nil {
+		return "", err
 	}
-	return codexOllamaQwenProfile, nil
+	if !ok {
+		return "", fmt.Errorf("codex profile %q was not found in %q", profile, path)
+	}
+	return profile, nil
 }
 
-// selectedCodexOllamaModelLabel returns the persisted label describing the selected Codex OSS profile.
-func selectedCodexOllamaModelLabel(model, baseConfigPath string) string {
-	if value := strings.TrimSpace(model); value != "" {
-		return value
-	}
-	if path := strings.TrimSpace(baseConfigPath); path != "" {
-		profile, err := firstCodexProfileFromFile(path)
-		if err == nil {
-			return profile
-		}
-	}
-	return DefaultCodexOllamaModel
-}
-
-// codexOllamaProfileAlias maps supported shorthand model aliases to embedded profile names.
-func codexOllamaProfileAlias(model string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(model)) {
-	case codexOllamaGemmaModel:
-		return codexOllamaGemmaProfile, true
-	case codexOllamaQwenModel:
-		return codexOllamaQwenProfile, true
-	default:
-		return "", false
-	}
-}
-
-// firstCodexProfileFromFile returns the first profile name declared in a Codex config file.
-func firstCodexProfileFromFile(path string) (string, error) {
+// codexProfileExistsInFile reports whether path defines the requested profile table.
+func codexProfileExistsInFile(path, profile string) (bool, error) {
 	data, err := readCodexConfigFile(path)
 	if err != nil {
-		return "", fmt.Errorf("read codex config %q: %w", path, err)
+		return false, fmt.Errorf("read codex config %q: %w", path, err)
 	}
-	return firstCodexProfileName(string(data)), nil
+	return codexProfileExists(string(data), profile), nil
 }
 
 // readCodexConfigFile reads a caller-supplied Codex config file from disk.
@@ -322,8 +297,12 @@ func readCodexConfigFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
 }
 
-// firstCodexProfileName extracts the first `[profiles.*]` table name from TOML-like content.
-func firstCodexProfileName(content string) string {
+// codexProfileExists reports whether TOML-like content contains the named `[profiles.*]` table.
+func codexProfileExists(content, profile string) bool {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return false
+	}
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "[profiles.") || !strings.HasSuffix(trimmed, "]") {
@@ -331,9 +310,9 @@ func firstCodexProfileName(content string) string {
 		}
 		name := strings.TrimSuffix(strings.TrimPrefix(trimmed, "[profiles."), "]")
 		name = strings.TrimSpace(strings.Trim(name, `"`))
-		if name != "" {
-			return name
+		if name == profile {
+			return true
 		}
 	}
-	return ""
+	return false
 }

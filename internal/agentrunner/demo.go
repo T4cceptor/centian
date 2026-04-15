@@ -34,10 +34,8 @@ const (
 	DefaultGeminiModel = "gemini-2.5-flash"
 	// DefaultCodexModel is the default Codex model alias for demo runs (empty uses Codex default).
 	DefaultCodexModel = ""
-	// DefaultCodexOllamaModel is the default Ollama-backed Codex profile alias for demo runs.
-	DefaultCodexOllamaModel = codexOllamaQwenModel
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
-	DefaultAgentTimeout = 5 * time.Minute // TODO: might not be enough with Ollama Qwen
+	DefaultAgentTimeout = 5 * time.Minute
 	// TaskTemplateFile is the default task template file name for the task.
 	TaskTemplateFile = "guided_tdd_workflow.yaml"
 )
@@ -78,18 +76,18 @@ var allowedDemoRootEntries = map[string]struct{}{
 
 // DemoOptions configures a single demo run.
 type DemoOptions struct {
-	Agent             string
-	RootPath          string
-	CentianBinaryPath string
-	Timeout           time.Duration
-	ClaudeModel       string
-	GeminiModel       string
-	CodexModel        string
-	CodexOllamaModel  string
-	CodexConfigPath   string
-	OpenBrowser       bool
-	Stdout            io.Writer
-	Stderr            io.Writer
+	Agent              string
+	RootPath           string
+	CentianBinaryPath  string
+	Timeout            time.Duration
+	ClaudeModel        string
+	GeminiModel        string
+	CodexModel         string
+	CodexOllamaProfile string
+	CodexConfigPath    string
+	OpenBrowser        bool
+	Stdout             io.Writer
+	Stderr             io.Writer
 }
 
 // DemoResult describes the generated demo workspace and running Centian instance.
@@ -217,9 +215,6 @@ func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	}
 	if strings.TrimSpace(opts.GeminiModel) == "" {
 		opts.GeminiModel = DefaultGeminiModel
-	}
-	if strings.TrimSpace(opts.CodexConfigPath) == "" && strings.TrimSpace(opts.CodexOllamaModel) == "" {
-		opts.CodexOllamaModel = DefaultCodexOllamaModel
 	}
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
@@ -411,7 +406,7 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 		opts.ClaudeModel,
 		opts.GeminiModel,
 		opts.CodexModel,
-		opts.CodexOllamaModel,
+		opts.CodexOllamaProfile,
 		opts.CodexConfigPath,
 	)
 }

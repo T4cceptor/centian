@@ -26,7 +26,7 @@ Examples:
   centian demo --agent claude
   centian demo --agent gemini
   centian demo --agent codex --model gpt-5.4-mini
-  centian demo --agent codex-ollama --model qwen3.5
+  centian demo --agent codex-ollama --codex-config ~/.codex/config.toml --profile my-local-oss
   centian demo --agent claude --path ./my-demo
 `,
 	Action: handleDemoCommand,
@@ -46,6 +46,10 @@ Examples:
 			Name:    "model",
 			Aliases: []string{"m"},
 			Usage:   singleModelFlagUsage(),
+		},
+		&cli.StringFlag{
+			Name:  "profile",
+			Usage: "Codex Ollama profile from the supplied Codex config (" + codexOllamaProfileHelp + ")",
 		},
 		&cli.StringFlag{
 			Name:  "codex-config",
@@ -69,7 +73,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	claudeModel := agentrunner.DefaultClaudeModel
 	geminiModel := agentrunner.DefaultGeminiModel
 	codexModel := agentrunner.DefaultCodexModel
-	codexOllamaModel := ""
+	codexOllamaProfile := strings.TrimSpace(cmd.String("profile"))
 	if model := strings.TrimSpace(cmd.String("model")); model != "" {
 		switch agent := strings.ToLower(strings.TrimSpace(cmd.String("agent"))); agent {
 		case agentrunner.AgentClaude:
@@ -79,7 +83,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		case agentrunner.AgentCodex:
 			codexModel = normalizeCLIModel(agent, model)
 		case agentrunner.AgentCodexOllama:
-			codexOllamaModel = normalizeCLIModel(agent, model)
+			return fmt.Errorf("--model is not supported for codex-ollama; use --profile")
 		default:
 			return fmt.Errorf("unsupported agent %q; cannot apply --model", cmd.String("agent"))
 		}
@@ -88,20 +92,30 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	if strings.EqualFold(strings.TrimSpace(cmd.String("agent")), agentrunner.AgentCodexOllama) {
+		if codexConfigPath == "" {
+			return fmt.Errorf("codex-ollama requires --codex-config")
+		}
+		if codexOllamaProfile == "" {
+			return fmt.Errorf("codex-ollama requires --profile")
+		}
+	} else if codexOllamaProfile != "" {
+		return fmt.Errorf("--profile can only be used with --agent codex-ollama")
+	}
 
 	runner := agentrunner.DemoRunner{}
 	result, err := runner.RunDemo(ctx, &agentrunner.DemoOptions{
-		Agent:             cmd.String("agent"),
-		RootPath:          rootPath,
-		CentianBinaryPath: binaryPath,
-		Timeout:           5 * time.Minute,
-		ClaudeModel:       claudeModel,
-		GeminiModel:       geminiModel,
-		CodexModel:        codexModel,
-		CodexOllamaModel:  codexOllamaModel,
-		CodexConfigPath:   codexConfigPath,
-		Stdout:            os.Stdout,
-		Stderr:            os.Stderr,
+		Agent:              cmd.String("agent"),
+		RootPath:           rootPath,
+		CentianBinaryPath:  binaryPath,
+		Timeout:            5 * time.Minute,
+		ClaudeModel:        claudeModel,
+		GeminiModel:        geminiModel,
+		CodexModel:         codexModel,
+		CodexOllamaProfile: codexOllamaProfile,
+		CodexConfigPath:    codexConfigPath,
+		Stdout:             os.Stdout,
+		Stderr:             os.Stderr,
 	})
 	if result != nil {
 		fmt.Printf("Agent run finished. UI: %s\n", result.UIPublicURL)

@@ -235,7 +235,7 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
 			return &agentrunner.RunResult{
 				Agent:         opts.Agent,
-				SelectedModel: "gemma4",
+				SelectedModel: "local-oss",
 			}, nil
 		},
 		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
@@ -259,7 +259,7 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 		OutputRoot:        outputRoot,
 		Timeout:           time.Minute,
 		CentianBinaryPath: "/tmp/centian",
-		Models:            AgentModels{CodexOllama: "gemma4"},
+		Models:            AgentModels{CodexOllamaProfile: "local-oss"},
 	})
 	assert.NilError(t, err)
 
@@ -267,7 +267,7 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 	var manifest RunManifest
 	assert.NilError(t, readJSONFile(runPath, &manifest))
 	assert.Equal(t, manifest.AgentID, agentrunner.AgentCodexOllama)
-	assert.Equal(t, manifest.SelectedModel, "gemma4")
+	assert.Equal(t, manifest.SelectedModel, "local-oss")
 }
 
 func TestRunSuiteRejectsUnknownCase(t *testing.T) {
