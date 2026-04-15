@@ -18,28 +18,31 @@ const (
 	codexOllamaQwenProfile  = "qwen3.5-local"
 )
 
+// codexAdapter runs the hosted Codex CLI against the demo-local MCP server.
 type codexAdapter struct {
 	model          string
 	baseConfigPath string
 }
 
+// codexOllamaAdapter runs Codex OSS mode against a local Ollama-backed profile.
 type codexOllamaAdapter struct {
 	model          string
 	baseConfigPath string
 }
 
+// name returns the public agent identifier for the hosted Codex CLI.
 func (codexAdapter) name() string { return AgentCodex }
 
-// name retruns "codex-ollama".
+// name returns the public agent identifier for Codex OSS mode via Ollama.
 func (codexOllamaAdapter) name() string { return AgentCodexOllama }
 
-// isAvailable checks if "codex" are available on path.
+// isAvailable checks whether the Codex CLI is installed on PATH.
 func (codexAdapter) isAvailable() error {
 	_, err := exec.LookPath("codex")
 	return err
 }
 
-// isAvailable checks if both "codex" and "ollama" are available on path.
+// isAvailable checks whether both the Codex CLI and Ollama are installed on PATH.
 func (codexOllamaAdapter) isAvailable() error {
 	_, err := exec.LookPath("codex")
 	if err == nil {
@@ -48,14 +51,17 @@ func (codexOllamaAdapter) isAvailable() error {
 	return err
 }
 
+// writeConfig renders the runtime Codex config for hosted model usage.
 func (c codexAdapter) writeConfig(layout *demoLayout) error {
 	return writeCodexRuntimeConfig(layout, c.baseConfigPath, codexHostedConfigAsset, c.model)
 }
 
+// writeConfig renders the runtime Codex config for local Ollama-backed OSS usage.
 func (c codexOllamaAdapter) writeConfig(layout *demoLayout) error {
 	return writeCodexRuntimeConfig(layout, c.baseConfigPath, codexOllamaConfigAsset, "")
 }
 
+// writeCodexRuntimeConfig loads a base config, patches MCP/project settings, and writes CODEX_HOME.
 func writeCodexRuntimeConfig(layout *demoLayout, baseConfigPath, defaultAssetName, model string) error {
 	content, err := loadCodexConfigTemplate(baseConfigPath, defaultAssetName)
 	if err != nil {
@@ -75,6 +81,7 @@ func writeCodexRuntimeConfig(layout *demoLayout, baseConfigPath, defaultAssetNam
 	return nil
 }
 
+// loadCodexConfigTemplate loads either the caller-supplied Codex config or an embedded default.
 func loadCodexConfigTemplate(baseConfigPath, defaultAssetName string) (string, error) {
 	if path := strings.TrimSpace(baseConfigPath); path != "" {
 		data, err := readCodexConfigFile(path)
@@ -90,6 +97,7 @@ func loadCodexConfigTemplate(baseConfigPath, defaultAssetName string) (string, e
 	return strings.ReplaceAll(content, "__MODEL_BLOCK__", ""), nil
 }
 
+// patchCodexRuntimeConfig injects the demo-local MCP server and trusted project block.
 func patchCodexRuntimeConfig(content, mcpURL, workDir string) string {
 	content = strings.TrimRight(content, "\n")
 	content = removeCodexTable(content, "[mcp_servers.centian]")
@@ -116,6 +124,7 @@ default_tools_approval_mode = "auto"
 	return content + "\n\n" + runtimeBlock + "\n"
 }
 
+// removeCodexTable removes one TOML table so runtime settings can replace it deterministically.
 func removeCodexTable(content, header string) string {
 	lines := strings.Split(content, "\n")
 	result := make([]string, 0, len(lines))
@@ -137,6 +146,7 @@ func removeCodexTable(content, header string) string {
 	return strings.TrimSpace(strings.Join(result, "\n"))
 }
 
+// setCodexRootModel writes or replaces the top-level model field when a hosted model override is set.
 func setCodexRootModel(content, model string) string {
 	content = strings.TrimRight(content, "\n")
 	model = strings.TrimSpace(model)
@@ -173,6 +183,7 @@ func setCodexRootModel(content, model string) string {
 	return strings.TrimSpace(strings.Join(result, "\n")) + "\n"
 }
 
+// copyCodexAuth mirrors the user's Codex auth.json into the demo-specific CODEX_HOME if present.
 func copyCodexAuth(codexHome string) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -196,22 +207,27 @@ func copyCodexAuth(codexHome string) error {
 	}
 }
 
+// env points Codex at the demo-specific CODEX_HOME.
 func (codexAdapter) env(layout *demoLayout) []string {
 	return []string{"CODEX_HOME=" + filepath.Dir(layout.CodexConfig)}
 }
 
+// env points Codex OSS mode at the demo-specific CODEX_HOME.
 func (codexOllamaAdapter) env(layout *demoLayout) []string {
 	return []string{"CODEX_HOME=" + filepath.Dir(layout.CodexConfig)}
 }
 
+// cleanup removes the demo-specific CODEX_HOME tree after the run.
 func (codexAdapter) cleanup(layout *demoLayout) error {
 	return os.RemoveAll(filepath.Dir(layout.CodexConfig))
 }
 
+// cleanup removes the demo-specific CODEX_HOME tree after the run.
 func (codexOllamaAdapter) cleanup(layout *demoLayout) error {
 	return os.RemoveAll(filepath.Dir(layout.CodexConfig))
 }
 
+// command builds the non-interactive hosted Codex CLI invocation for one run.
 func (c codexAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	command := []string{
 		"codex",
@@ -225,6 +241,7 @@ func (c codexAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	return command, nil
 }
 
+// command builds the non-interactive Codex OSS invocation for one Ollama-backed run.
 func (c codexOllamaAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	profile, err := resolveCodexOllamaProfile(c.model, c.baseConfigPath)
 	if err != nil {
@@ -244,6 +261,7 @@ func (c codexOllamaAdapter) command(layout *demoLayout, _ string) ([]string, err
 	}, nil
 }
 
+// resolveCodexOllamaProfile chooses the Codex profile name to pass to `codex exec --profile`.
 func resolveCodexOllamaProfile(model, baseConfigPath string) (string, error) {
 	if profile, ok := codexOllamaProfileAlias(model); ok {
 		return profile, nil
@@ -263,6 +281,7 @@ func resolveCodexOllamaProfile(model, baseConfigPath string) (string, error) {
 	return codexOllamaQwenProfile, nil
 }
 
+// selectedCodexOllamaModelLabel returns the persisted label describing the selected Codex OSS profile.
 func selectedCodexOllamaModelLabel(model, baseConfigPath string) string {
 	if value := strings.TrimSpace(model); value != "" {
 		return value
@@ -276,6 +295,7 @@ func selectedCodexOllamaModelLabel(model, baseConfigPath string) string {
 	return DefaultCodexOllamaModel
 }
 
+// codexOllamaProfileAlias maps supported shorthand model aliases to embedded profile names.
 func codexOllamaProfileAlias(model string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(model)) {
 	case codexOllamaGemmaModel:
@@ -287,6 +307,7 @@ func codexOllamaProfileAlias(model string) (string, bool) {
 	}
 }
 
+// firstCodexProfileFromFile returns the first profile name declared in a Codex config file.
 func firstCodexProfileFromFile(path string) (string, error) {
 	data, err := readCodexConfigFile(path)
 	if err != nil {
@@ -295,11 +316,13 @@ func firstCodexProfileFromFile(path string) (string, error) {
 	return firstCodexProfileName(string(data)), nil
 }
 
+// readCodexConfigFile reads a caller-supplied Codex config file from disk.
 func readCodexConfigFile(path string) ([]byte, error) {
 	//nolint:gosec // The CLI intentionally reads a user-selected local Codex config path.
 	return os.ReadFile(path)
 }
 
+// firstCodexProfileName extracts the first `[profiles.*]` table name from TOML-like content.
 func firstCodexProfileName(content string) string {
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)

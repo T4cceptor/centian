@@ -42,9 +42,13 @@ const (
 	TaskTemplateFile = "guided_tdd_workflow.yaml"
 )
 
+// allocateFreePortFunc is swappable in tests that need deterministic ports.
 var allocateFreePortFunc = allocateFreePort
+
+// processExistsFunc is swappable in tests that simulate stale or live demo PID files.
 var processExistsFunc = processExists
 
+// disposableDemoPaths are rebuilt on each demo run and are safe to remove when reusing a demo root.
 var disposableDemoPaths = []string{
 	"workspace",
 	"templates",
@@ -56,6 +60,7 @@ var disposableDemoPaths = []string{
 	"codex_output.txt",
 }
 
+// allowedDemoRootEntries defines the expected top-level files in a reusable demo root.
 var allowedDemoRootEntries = map[string]struct{}{
 	"workspace":              {},
 	"templates":              {},
@@ -104,6 +109,7 @@ type DemoResult struct {
 // DemoRunner provisions and launches a self-contained Centian demo workspace.
 type DemoRunner struct{}
 
+// agentAdapter abstracts the per-agent config, environment, and command construction.
 type agentAdapter interface {
 	name() string
 	isAvailable() error
@@ -113,6 +119,7 @@ type agentAdapter interface {
 	env(*demoLayout) []string
 }
 
+// demoLayout contains all generated paths and URLs for one demo workspace.
 type demoLayout struct {
 	RootPath        string
 	WorkspacePath   string
@@ -200,6 +207,7 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 	return result, nil
 }
 
+// normalizeOptions fills omitted demo options with platform and agent defaults.
 func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultAgentTimeout
@@ -225,6 +233,7 @@ func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	return opts
 }
 
+// prepareLayout creates the demo directory layout and allocates a loopback port.
 func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	root := strings.TrimSpace(opts.RootPath)
 	if root == "" {
@@ -264,6 +273,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	return layout, nil
 }
 
+// prepareDemoRoot validates or initializes the chosen demo root before assets are rendered.
 func prepareDemoRoot(path string) error {
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -294,6 +304,7 @@ func prepareDemoRoot(path string) error {
 	return nil
 }
 
+// looksLikeDemoRoot reports whether an existing directory only contains expected demo artifacts.
 func looksLikeDemoRoot(entries []os.DirEntry) bool {
 	hasMarker := false
 	for _, entry := range entries {
@@ -308,6 +319,7 @@ func looksLikeDemoRoot(entries []os.DirEntry) bool {
 	return hasMarker
 }
 
+// ensureNoLiveDemoProcess prevents reusing a demo root that still has a live Centian child.
 func ensureNoLiveDemoProcess(pidPath string) error {
 	//nolint:gosec // pidPath is always the fixed centian.pid file inside the prepared demo root.
 	data, err := os.ReadFile(pidPath)
@@ -337,6 +349,7 @@ func ensureNoLiveDemoProcess(pidPath string) error {
 	return nil
 }
 
+// removeDisposableDemoAssets clears runtime-generated files while preserving durable logs.
 func removeDisposableDemoAssets(root string) error {
 	for _, relativePath := range disposableDemoPaths {
 		target := filepath.Join(root, relativePath)
@@ -347,6 +360,7 @@ func removeDisposableDemoAssets(root string) error {
 	return nil
 }
 
+// renderAssets writes the default config, prompt, and template assets into the demo workspace.
 func renderAssets(layout *demoLayout) error {
 	configTemplate, err := asset("centian_config.json")
 	if err != nil {
@@ -390,6 +404,7 @@ func renderAssets(layout *demoLayout) error {
 	return nil
 }
 
+// selectAdapter chooses the concrete adapter for the requested demo agent.
 func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 	return selectAdapterForAgent(
 		opts.Agent,
@@ -401,6 +416,7 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 	)
 }
 
+// startCentianProcess launches the demo-local Centian child process and returns a watcher channel.
 func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {
 	binary := strings.TrimSpace(opts.CentianBinaryPath)
 	if binary == "" {
@@ -428,10 +444,12 @@ func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-ch
 	return cmd, errCh, nil
 }
 
+// writePID records the child Centian process ID for reuse and shutdown flows.
 func writePID(path string, pid int) error {
 	return os.WriteFile(path, []byte(strconv.Itoa(pid)+"\n"), 0o600)
 }
 
+// waitForCentian blocks until both the MCP and JSON API endpoints are serving successfully.
 func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 	deadline := time.Now().Add(45 * time.Second)
@@ -452,10 +470,12 @@ func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 	return fmt.Errorf("centian did not become ready in time; inspect %s", layout.InternalLogPath)
 }
 
+// runAgent loads the saved prompt file and executes the selected agent against the demo MCP server.
 func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opts *DemoOptions) error {
 	return runAgentPrompt(ctx, adapter, layout, loadPrompt(layout.PromptPath), opts.Stdout, opts.Stderr, opts.Timeout)
 }
 
+// runAgentPrompt executes one agent command, mirrors logs, and returns trimmed failure output.
 func runAgentPrompt(
 	ctx context.Context,
 	adapter agentAdapter,
@@ -511,6 +531,7 @@ func runAgentPrompt(
 	return nil
 }
 
+// openAgentLog appends a run separator and opens the log file for one agent stream.
 func openAgentLog(path, agentName string) (*os.File, error) {
 	//nolint:gosec // path is a fixed log file path generated by the internal demo layout.
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -529,12 +550,14 @@ func openAgentLog(path, agentName string) (*os.File, error) {
 	return file, nil
 }
 
+// loadPrompt reads the rendered demo prompt from disk.
 func loadPrompt(path string) string {
 	//nolint:gosec // The prompt file path is generated inside the demo workspace layout.
 	data, _ := os.ReadFile(path)
 	return string(data)
 }
 
+// endpointReturnsExpected wraps a GET request in a caller-provided readiness predicate.
 func endpointReturnsExpected(client *http.Client, endpoint string, expected func(resp *http.Response, err error) bool) bool {
 	// TODO: move to global utils
 	resp, err := client.Get(endpoint)
@@ -544,18 +567,21 @@ func endpointReturnsExpected(client *http.Client, endpoint string, expected func
 	return expected(resp, err)
 }
 
+// isEndpointReachable reports whether an endpoint responds without a server-side failure.
 func isEndpointReachable(client *http.Client, endpoint string) bool {
 	return endpointReturnsExpected(client, endpoint, func(resp *http.Response, err error) bool {
 		return resp.StatusCode < 500
 	})
 }
 
+// isJSONEndpointReady reports whether an endpoint is ready to serve successful JSON responses.
 func isJSONEndpointReady(client *http.Client, endpoint string) bool {
 	return endpointReturnsExpected(client, endpoint, func(resp *http.Response, err error) bool {
 		return resp.StatusCode == http.StatusOK
 	})
 }
 
+// allocateFreePort reserves an ephemeral localhost port for the demo-local Centian server.
 func allocateFreePort() (string, error) {
 	// TODO: move to global utils
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -572,6 +598,7 @@ func allocateFreePort() (string, error) {
 	return port, nil
 }
 
+// trimOutput limits captured command output to the tail section included in surfaced errors.
 func trimOutput(value string) string {
 	// TODO: move to global utils
 	value = strings.TrimSpace(value)
@@ -581,11 +608,13 @@ func trimOutput(value string) string {
 	return value
 }
 
+// shellQuote wraps a path in single quotes for copy-paste shell commands in user output.
 func shellQuote(value string) string {
 	// TODO: move to global utils
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
+// processExists reports whether the current OS still sees the given PID.
 func processExists(pid int) bool {
 	// TODO: move to global utils
 	if pid <= 0 {
@@ -606,6 +635,7 @@ func processExists(pid int) bool {
 	return errors.As(err, &errno) && errno == syscall.EPERM
 }
 
+// printDemoStatus emits the key paths and URLs the user needs after the demo is ready.
 func printDemoStatus(w io.Writer, result *DemoResult) {
 	if w == nil || result == nil {
 		return

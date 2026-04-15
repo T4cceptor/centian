@@ -106,6 +106,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 	return result, nil
 }
 
+// selectAdapterForAgent maps a public agent identifier to its concrete adapter implementation.
 func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel, codexOllamaModel, codexConfigPath string) (agentAdapter, error) {
 	switch strings.ToLower(strings.TrimSpace(agent)) {
 	case AgentClaude:
@@ -121,6 +122,7 @@ func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel, codexOll
 	}
 }
 
+// selectedModelForAgent returns the model label to persist for the completed run.
 func selectedModelForAgent(agent string, opts *RunOptions) string {
 	switch agent {
 	case AgentClaude:
