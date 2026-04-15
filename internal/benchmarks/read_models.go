@@ -88,6 +88,24 @@ type BenchmarkSessionDetail struct {
 	Runs               []BenchmarkRunSummary    `json:"runs,omitempty"`
 }
 
+// ComparisonAggregates contains grouped aggregates across scored sessions.
+type ComparisonAggregates struct {
+	BySession          []AggregateSummary `json:"bySession"`
+	ByCase             []AggregateSummary `json:"byCase"`
+	ByAgent            []AggregateSummary `json:"byAgent"`
+	ByTemplateVariant  []AggregateSummary `json:"byTemplateVariant"`
+	ByCaseAgentVariant []AggregateSummary `json:"byCaseAgentVariant"`
+}
+
+// ComparisonSession is the compact per-session row preserved in comparison output.
+type ComparisonSession struct {
+	SessionPath        string    `json:"sessionPath"`
+	GeneratedAt        time.Time `json:"generatedAt"`
+	RunCount           int       `json:"runCount"`
+	ScoredRunCount     int       `json:"scoredRunCount"`
+	FailedToScoreCount int       `json:"failedToScoreCount"`
+}
+
 // BenchmarkRunDetail returns the full stored scorecard for one run.
 type BenchmarkRunDetail struct {
 	ScorecardID  string        `json:"scorecardId"`
@@ -101,7 +119,7 @@ type BenchmarkRunDetail struct {
 	Scorecard    *RunScorecard `json:"scorecard,omitempty"`
 }
 
-// BenchmarkComparisonView is the read-side comparison result used by the UI.
+// BenchmarkComparisonView is the read-side comparison result used by the API and UI.
 type BenchmarkComparisonView struct {
 	SuiteID      string                `json:"suiteId"`
 	SuiteName    string                `json:"suiteName,omitempty"`

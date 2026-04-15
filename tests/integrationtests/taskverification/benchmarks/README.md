@@ -80,7 +80,7 @@ That target:
 
 - builds `./build/centian`
 - runs `centian benchmark run`
-- prints a live `centian benchmark score` view for the newest preserved session
+- prints the newest preserved session path for follow-up UI/API inspection
 - prints the live Centian UI URL for each run as soon as the server is ready
 
 ### Direct CLI commands
@@ -120,20 +120,14 @@ Keep the Centian server alive after the agent finishes and prompt for shutdown:
   --keep-centian-running
 ```
 
-Score an existing session:
+Inspect an existing session:
 
-```bash
-./build/centian benchmark score \
-  --session .centian/benchmarks/simple_tdd_v1/<timestamp>_run
-```
+- UI: `/ui/benchmarks/simple_tdd_v1/sessions/<session-id>`
+- API: `GET /api/benchmarks/suites/simple_tdd_v1/sessions/<session-id>`
 
 Compare multiple sessions for one suite:
 
-```bash
-./build/centian benchmark compare \
-  --root .centian/benchmarks \
-  --suite simple_tdd_v1
-```
+- API: `GET /api/benchmarks/suites/simple_tdd_v1/comparison`
 
 ## How To Use Different Agents
 
@@ -222,7 +216,7 @@ The most useful files after a run are:
 - `run.json -> artifactPaths.eventStorePath`
   The shared SQLite event store used by the run, normally `~/.centian/logs/events.sqlite`.
 
-`centian benchmark score` and `centian benchmark compare` now derive their JSON output live from:
+Benchmark UI and API views derive their output live from:
 
 - persisted benchmark `session` / `run` artifacts
 - persisted `task_runs`
@@ -309,14 +303,14 @@ In practice:
 - if time goes down but invariant violations go up, that is not an improvement
 - if one agent regresses while another improves, compare by agent rather than averaging too early
 
-`centian benchmark score` is the easiest way to compare runs inside one benchmark invocation because it already groups results by:
+Session detail views already group runs inside one benchmark invocation by:
 
 - case
 - agent
 - template variant
 - case + agent + template variant
 
-For comparisons across multiple sessions of the same suite, use `centian benchmark compare`. That command reads persisted benchmark `session` / `run` artifacts plus default task-run persistence and prints cross-session aggregates grouped by:
+For comparisons across multiple sessions of the same suite, use `GET /api/benchmarks/suites/{suiteID}/comparison`. That read model groups cross-session aggregates by:
 
 - session
 - case
@@ -359,25 +353,12 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 - `--keep-centian-running`
   Optional. Print the live UI URL and prompt whether to shut down the run-local Centian server after the agent finishes. This is useful for interactive inspection, but not recommended for unattended matrix runs.
 
-### `centian benchmark score`
+### Session and comparison reads
 
-- `--session`
-  Required. Path to one preserved benchmark session directory containing `session.json`.
-  The command prints a live session score summary as JSON to stdout. It does not write `scorecard.json` or `summary.json`.
-
-### `centian benchmark compare`
-
-- `--root`
-  Required. Root directory containing benchmark suite session directories, usually `.centian/benchmarks`.
-- `--suite`
-  Required. Suite id to compare, for example `simple_tdd_v1`.
-- `--agent`
-  Optional and repeatable. Limit comparison to one or more agents.
-- `--case`
-  Optional and repeatable. Limit comparison to one or more benchmark cases.
-- `--template-variant`
-  Optional and repeatable. Limit comparison to one or more template variants.
-  The command prints a live comparison summary as JSON to stdout. It does not write `comparison.json`.
+- Session UI: `/ui/benchmarks/{suiteID}/sessions/{sessionID}`
+- Session API: `GET /api/benchmarks/suites/{suiteID}/sessions/{sessionID}`
+- Comparison API: `GET /api/benchmarks/suites/{suiteID}/comparison`
+- Comparison filters use query params from the benchmark read API, such as `sessionId`, `caseId`, `agent`, `templateVariant`, and `templateId`.
 
 ### `make benchmark-simple-tdd`
 

@@ -108,7 +108,7 @@ test-taskverification-blackbox: ## Run opt-in host-native black-box taskverifica
 		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build go test -v ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
 	fi
 
-benchmark-simple-tdd: build-go ## Run one local simple_tdd benchmark case and score the newest session
+benchmark-simple-tdd: build-go ## Run one local simple_tdd benchmark case and print newest session
 	@echo "Running benchmark suite $(BENCH_SUITE) with agent $(BENCH_AGENT) and case $(BENCH_CASE)..."
 	@mkdir -p $(BENCH_OUTPUT_ROOT)
 	@./$(BUILD_DIR)/$(BINARY_NAME) benchmark run \
@@ -126,9 +126,9 @@ benchmark-score-latest: build-go ## Score the newest preserved simple_tdd benchm
 		echo "No benchmark session found under $(BENCH_OUTPUT_ROOT)/simple_tdd_v1"; \
 		exit 1; \
 	fi; \
-	echo "Scoring benchmark session: $$session_dir"; \
-	./$(BUILD_DIR)/$(BINARY_NAME) benchmark score --session "$$session_dir"; \
-	echo "Summary: $$session_dir/summary.json"
+	echo "Newest benchmark session: $$session_dir"; \
+	echo "Inspect in UI: /ui/benchmarks/simple_tdd_v1/sessions/<session-id>"; \
+	echo "Inspect in API: /api/benchmarks/suites/simple_tdd_v1/sessions/<session-id>"
 
 test-all: test test-integration ## Run all tests (unit + integration)
 

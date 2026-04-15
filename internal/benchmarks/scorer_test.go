@@ -14,109 +14,6 @@ import (
 	"gotest.tools/assert"
 )
 
-func TestScoreSessionBuildsLiveSummary(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{
-		includeInvariantViolation: true,
-	})
-
-	scorer := &Scorer{Now: func() time.Time { return time.Date(2026, 4, 4, 15, 0, 0, 0, time.UTC) }}
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-
-	assert.Equal(t, summary.RunCount, 2)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Equal(t, summary.FailedToScoreCount, 0)
-	assert.Equal(t, len(summary.Aggregates.ByCase), 2)
-	assert.Equal(t, len(summary.Aggregates.ByAgent), 2)
-	assert.Equal(t, len(summary.Aggregates.ByTemplateVariant), 1)
-	assert.Equal(t, len(summary.Aggregates.ByCaseAgentVariant), 2)
-	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
-	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
-	assert.Assert(t, summary.Runs[0].SelectedModel != "")
-	assert.Assert(t, summary.Runs[0].AgentMetadata.SelectedModel != "")
-	assert.Equal(t, summary.Runs[0].SessionPath, sessionDir)
-	assert.Equal(t, summary.Runs[0].EventStoreMode, "configured_shared")
-	assert.Equal(t, summary.Runs[0].Agent, "claude")
-	assert.Assert(t, summary.Runs[0].InputTokens != nil)
-	assert.Equal(t, *summary.Runs[0].InputTokens, int64(123))
-	assert.Assert(t, summary.Runs[0].OutputTokens != nil)
-	assert.Equal(t, *summary.Runs[0].OutputTokens, int64(222))
-	assert.Equal(t, summary.Runs[1].Agent, "codex")
-	assert.Assert(t, summary.Runs[1].InputTokens != nil)
-	assert.Equal(t, *summary.Runs[1].InputTokens, int64(111))
-	assert.Assert(t, summary.Runs[1].OutputTokens != nil)
-	assert.Equal(t, *summary.Runs[1].OutputTokens, int64(666))
-	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianInputTokens, float64(123))
-	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianInputTokens, float64(111))
-	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianOutputTokens, float64(222))
-	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianOutputTokens, float64(666))
-}
-
-func TestScoreSessionUsesPersistedAgentMetadata(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current_codex_compile_failure_red_attempt_001", "agent", "agent.stdout.log")))
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current_claude_assertion_failure_red_attempt_001", "agent", "agent.stdout.log")))
-
-	scorer := NewScorer()
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
-	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
-	assert.Equal(t, summary.Runs[0].AgentMetadata.SelectedModel, summary.Runs[0].SelectedModel)
-	assert.Assert(t, summary.Runs[0].InputTokens != nil)
-	assert.Assert(t, summary.Runs[1].InputTokens != nil)
-}
-
-func TestScoreSessionUsesSharedTaskRunPersistence(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-
-	scorer := NewScorer()
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-}
-
-func TestScoreSessionIgnoresUnrelatedTaskRunsInSharedSQLiteStore(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	storePath := filepath.Join(sessionDir, "shared-events.sqlite")
-	assert.NilError(t, writeSyntheticEventStore(storePath, "tr_unrelated", []persistence.TaskRunEvent{
-		{
-			Source:             persistence.TaskRunEventSourceTask,
-			ID:                 "unrelated-restart",
-			CreatedAtUnixMilli: 9_999,
-			EventType:          "task_restarted",
-		},
-	}))
-
-	scorer := NewScorer()
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Equal(t, summary.Runs[1].RestartOccurred, false)
-	assert.Equal(t, summary.Runs[1].FirstPassSuccess, true)
-}
-
-func TestScoreSessionRejectsInvalidManualScore(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{
-		invalidManualScoreForCase: "assertion_failure_red",
-	})
-
-	scorer := &Scorer{Now: func() time.Time { return time.Date(2026, 4, 4, 16, 0, 0, 0, time.UTC) }}
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.ErrorContains(t, err, "failed to score 1 benchmark run(s)")
-
-	assert.Equal(t, summary.RunCount, 2)
-	assert.Equal(t, summary.ScoredRunCount, 1)
-	assert.Equal(t, summary.FailedToScoreCount, 1)
-}
-
-func TestScoreSessionRequiresSessionManifest(t *testing.T) {
-	scorer := NewScorer()
-	_, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: t.TempDir()})
-	assert.ErrorContains(t, err, "load session manifest")
-}
-
 type syntheticSessionOptions struct {
 	includeInvariantViolation bool
 	invalidManualScoreForCase string
@@ -198,6 +95,26 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
 		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, timeNowUTC)
+		assert.NilError(t, scoreErr)
+		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
+	}
+}
+
+func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, sessionDir string) {
+	t.Helper()
+
+	session, err := loadSessionManifest(sessionDir)
+	assert.NilError(t, err)
+	sessionRecord, err := buildSessionRecord(session)
+	assert.NilError(t, err)
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
+	for idx := range session.Runs {
+		run, loadErr := loadRunManifest(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName))
+		assert.NilError(t, loadErr)
+		runRecord, recordErr := buildRunRecord(run)
+		assert.NilError(t, recordErr)
+		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, timeNowUTC)
 		assert.NilError(t, scoreErr)
 		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}

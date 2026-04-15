@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,8 +19,6 @@ var BenchmarkCommand = &cli.Command{
 	Usage: "Run local taskverification benchmarks",
 	Commands: []*cli.Command{
 		BenchmarkRunCommand,
-		BenchmarkScoreCommand,
-		BenchmarkCompareCommand,
 	},
 }
 
@@ -99,51 +96,6 @@ var BenchmarkRunCommand = &cli.Command{
 	Action: handleBenchmarkRunCommand,
 }
 
-// BenchmarkScoreCommand scores one preserved benchmark session from disk.
-var BenchmarkScoreCommand = &cli.Command{
-	Name:  "score",
-	Usage: "Score a preserved benchmark session",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "session",
-			Usage:    "Path to the preserved benchmark session directory",
-			Required: true,
-		},
-	},
-	Action: handleBenchmarkScoreCommand,
-}
-
-// BenchmarkCompareCommand compares scored benchmark sessions for one suite.
-var BenchmarkCompareCommand = &cli.Command{
-	Name:  "compare",
-	Usage: "Compare scored benchmark sessions for one suite",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "root",
-			Usage:    "Root directory containing benchmark suite session folders",
-			Required: true,
-		},
-		&cli.StringFlag{
-			Name:     "suite",
-			Usage:    "Benchmark suite id to compare",
-			Required: true,
-		},
-		&cli.StringSliceFlag{
-			Name:  "agent",
-			Usage: "Limit comparison to specific agents (repeat or comma-separate)",
-		},
-		&cli.StringSliceFlag{
-			Name:  "case",
-			Usage: "Limit comparison to specific benchmark cases (repeat or comma-separate)",
-		},
-		&cli.StringSliceFlag{
-			Name:  "template-variant",
-			Usage: "Limit comparison to specific template variants (repeat or comma-separate)",
-		},
-	},
-	Action: handleBenchmarkCompareCommand,
-}
-
 func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -185,42 +137,6 @@ func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	if session != nil {
 		fmt.Printf("Benchmark session: %s\n", session.InvocationDir)
 		fmt.Printf("Status: %s\n", session.Status)
-	}
-	return err
-}
-
-func handleBenchmarkScoreCommand(ctx context.Context, cmd *cli.Command) error {
-	options, err := buildBenchmarkScoreOptions(cmd)
-	if err != nil {
-		return err
-	}
-
-	scorer := benchmarks.NewScorer()
-	summary, err := scorer.ScoreSession(ctx, options)
-	if summary != nil {
-		encoded, marshalErr := json.MarshalIndent(summary, "", "  ")
-		if marshalErr != nil {
-			return marshalErr
-		}
-		fmt.Println(string(encoded))
-	}
-	return err
-}
-
-func handleBenchmarkCompareCommand(ctx context.Context, cmd *cli.Command) error {
-	options, err := buildBenchmarkCompareOptions(cmd)
-	if err != nil {
-		return err
-	}
-
-	comparer := benchmarks.NewComparer()
-	comparison, _, err := comparer.CompareSuite(ctx, options)
-	if comparison != nil {
-		encoded, marshalErr := json.MarshalIndent(comparison, "", "  ")
-		if marshalErr != nil {
-			return marshalErr
-		}
-		fmt.Println(string(encoded))
 	}
 	return err
 }
@@ -355,40 +271,6 @@ func applyDefaultCodexOllamaModel(agents []string, models *benchmarks.AgentModel
 			return
 		}
 	}
-}
-
-func buildBenchmarkScoreOptions(cmd *cli.Command) (*benchmarks.ScoreOptions, error) {
-	sessionFlag := strings.TrimSpace(cmd.String("session"))
-	if sessionFlag == "" {
-		return nil, fmt.Errorf("session path is required")
-	}
-	sessionPath, err := filepath.Abs(sessionFlag)
-	if err != nil {
-		return nil, fmt.Errorf("resolve session path: %w", err)
-	}
-	return &benchmarks.ScoreOptions{SessionPath: sessionPath}, nil
-}
-
-func buildBenchmarkCompareOptions(cmd *cli.Command) (*benchmarks.CompareOptions, error) {
-	rootFlag := strings.TrimSpace(cmd.String("root"))
-	if rootFlag == "" {
-		return nil, fmt.Errorf("root path is required")
-	}
-	rootPath, err := filepath.Abs(rootFlag)
-	if err != nil {
-		return nil, fmt.Errorf("resolve root path: %w", err)
-	}
-	suiteID := strings.TrimSpace(cmd.String("suite"))
-	if suiteID == "" {
-		return nil, fmt.Errorf("suite id is required")
-	}
-	return &benchmarks.CompareOptions{
-		RootPath:         rootPath,
-		SuiteID:          suiteID,
-		Agents:           splitCSVValues(cmd.StringSlice("agent")),
-		CaseIDs:          splitCSVValues(cmd.StringSlice("case")),
-		TemplateVariants: splitCSVValues(cmd.StringSlice("template-variant")),
-	}, nil
 }
 
 func splitCSVValues(values []string) []string {

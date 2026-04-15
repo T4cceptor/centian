@@ -126,20 +126,14 @@ centian benchmark run \
   --output-root /path/to/benchmark-artifacts
 ```
 
-Score one preserved session:
+Inspect one preserved session in the embedded UI or API:
 
-```bash
-centian benchmark score \
-  --session .centian/benchmarks/<suite-id>/<timestamp>_<label>
-```
+- UI: `/ui/benchmarks/<suite-id>/sessions/<session-id>`
+- API: `GET /api/benchmarks/suites/<suite-id>/sessions/<session-id>`
 
-Compare persisted sessions:
+Compare persisted sessions through the API:
 
-```bash
-centian benchmark compare \
-  --root .centian/benchmarks \
-  --suite simple_tdd_v1
-```
+- `GET /api/benchmarks/suites/simple_tdd_v1/comparison`
 
 Agent/model selection:
 

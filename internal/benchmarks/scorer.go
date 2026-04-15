@@ -1,7 +1,6 @@
 package benchmarks
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,20 +8,12 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/T4cceptor/centian/internal/config"
-	"github.com/T4cceptor/centian/internal/persistence"
 )
 
 const (
 	manualScoreFileName = "manual_score.json"
 	scoreVersion        = "v1"
 )
-
-// ScoreOptions configures scoring for one preserved benchmark session.
-type ScoreOptions struct {
-	SessionPath string
-}
 
 // ManualScoreInput stores optional reviewer-supplied scoring inputs.
 type ManualScoreInput struct {
@@ -221,67 +212,9 @@ type AggregateSummary struct {
 	AverageManualActionabilityScore *float64 `json:"averageManualActionabilityScore,omitempty"`
 }
 
-// Scorer computes benchmark scorecards and session summaries from preserved artifacts.
-type Scorer struct {
-	Now func() time.Time
-}
-
 type scoreRunContext struct {
 	caseDef  *CaseDefinition
 	caseRoot string
-}
-
-// NewScorer returns a benchmark scorer with default local behavior.
-func NewScorer() *Scorer {
-	return &Scorer{Now: time.Now}
-}
-
-// ScoreSession computes derived scorecards for one preserved benchmark session.
-func (s *Scorer) ScoreSession(_ context.Context, opts *ScoreOptions) (*SessionSummary, error) {
-	s = s.withDefaults()
-	if opts == nil {
-		return nil, fmt.Errorf("score options are required")
-	}
-	sessionDir := strings.TrimSpace(opts.SessionPath)
-	if sessionDir == "" {
-		return nil, fmt.Errorf("session path is required")
-	}
-	sessionDir, err := filepath.Abs(sessionDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve session path: %w", err)
-	}
-	info, err := os.Stat(sessionDir)
-	if err != nil {
-		return nil, fmt.Errorf("stat session path: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("session path %q must be a directory", sessionDir)
-	}
-
-	session, err := loadSessionManifest(sessionDir)
-	if err != nil {
-		return nil, err
-	}
-	storePath := eventStorePathForSession(session)
-	store, err := persistence.NewSQLiteStore(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = store.Close() }()
-
-	query := NewQueryService(store)
-	query.now = s.Now
-	return query.ScoreSessionManifest(context.Background(), session)
-}
-
-func (s *Scorer) withDefaults() *Scorer {
-	if s == nil {
-		return NewScorer()
-	}
-	if s.Now == nil {
-		s.Now = time.Now
-	}
-	return s
 }
 
 func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
@@ -296,26 +229,6 @@ func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 		return nil, fmt.Errorf("session manifest must define suitePath")
 	}
 	return &session, nil
-}
-
-func eventStorePathForSession(session *SessionManifest) string {
-	if session != nil {
-		for idx := range session.Runs {
-			runPath := filepath.Join(session.InvocationDir, session.Runs[idx].RelativeRunDir, runFileName)
-			run, err := loadRunManifest(runPath)
-			if err != nil {
-				continue
-			}
-			if trimmed := strings.TrimSpace(run.ArtifactPaths.EventStorePath); trimmed != "" {
-				return trimmed
-			}
-		}
-	}
-	storePath, err := config.ResolveEventStorePath(nil)
-	if err != nil {
-		return ""
-	}
-	return storePath
 }
 
 func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scoreRunContext, error) {

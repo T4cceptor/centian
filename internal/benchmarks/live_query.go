@@ -36,7 +36,7 @@ type benchmarkQueryStore interface {
 	RecomputeTaskRunStats(context.Context, string) error
 }
 
-// QueryService is the single live benchmark query/scoring service used by CLI and API.
+// QueryService is the single live benchmark query/scoring service used by the API and UI.
 type QueryService struct {
 	now   func() time.Time
 	store benchmarkQueryStore
@@ -55,80 +55,6 @@ func (s *QueryService) withDefaults() *QueryService {
 		s.now = timeNowUTC
 	}
 	return s
-}
-
-// ScoreSessionManifest computes a live session score summary from benchmark manifests and persisted task-run data.
-func (s *QueryService) ScoreSessionManifest(ctx context.Context, session *SessionManifest) (*SessionSummary, error) {
-	s = s.withDefaults()
-	if s.store == nil {
-		return nil, fmt.Errorf("benchmark query service is not initialized")
-	}
-	if session == nil {
-		return nil, fmt.Errorf("session manifest is required")
-	}
-	sessionPath := filepath.Clean(strings.TrimSpace(session.InvocationDir))
-	sessionID := benchmarkSessionID(session.SuiteID, sessionPath)
-	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{SessionID: sessionID})
-	if err != nil {
-		return nil, err
-	}
-	runByDir := make(map[string]*persistence.BenchmarkRunRecord, len(runs))
-	for idx := range runs {
-		run := runs[idx]
-		runByDir[filepath.Clean(run.RunDir)] = &run
-	}
-
-	summary := &SessionSummary{
-		ScoreVersion: scoreVersion,
-		SessionPath:  sessionPath,
-		SuiteID:      session.SuiteID,
-		GeneratedAt:  s.now(),
-		RunCount:     len(session.Runs),
-		Runs:         make([]RunSummaryRow, 0, len(session.Runs)),
-	}
-
-	scoredRows := make([]RunSummaryRow, 0, len(session.Runs))
-	scoreFailures := 0
-	for idx := range session.Runs {
-		entry := session.Runs[idx]
-		runDir := filepath.Clean(filepath.Join(sessionPath, entry.RelativeRunDir))
-		run := runByDir[runDir]
-		if run == nil {
-			summary.Runs = append(summary.Runs, buildRunSummaryRow(entry, nil, nil, []string{"benchmark run record was not found"}, nil))
-			scoreFailures++
-			continue
-		}
-		sessionRecord := &persistence.BenchmarkSessionRecord{
-			SessionID:          sessionID,
-			SuiteID:            session.SuiteID,
-			SuitePath:          session.SuitePath,
-			SessionPath:        sessionPath,
-			OutputRoot:         session.OutputRoot,
-			TemplateID:         session.TemplateID,
-			StartedAtUnixMilli: session.StartedAt.UnixMilli(),
-			EndedAtUnixMilli:   timePointerMillis(session.EndedAt),
-			Status:             session.Status,
-			RepeatCount:        session.Repeat,
-		}
-		scorecard, err := s.scoreRunRecord(ctx, sessionRecord, run)
-		if err != nil {
-			summary.Runs = append(summary.Runs, buildRunSummaryRow(entry, nil, nil, []string{err.Error()}, nil))
-			scoreFailures++
-			continue
-		}
-		row := buildRunSummaryRow(entry, runRecordToManifest(run), scorecard, nil, scorecard.Warnings)
-		summary.Runs = append(summary.Runs, row)
-		scoredRows = append(scoredRows, row)
-	}
-
-	sort.Slice(summary.Runs, func(i, j int) bool { return compareRunRows(summary.Runs[i], summary.Runs[j]) })
-	summary.ScoredRunCount = len(scoredRows)
-	summary.FailedToScoreCount = scoreFailures
-	summary.Aggregates = buildAggregates(scoredRows)
-	if scoreFailures > 0 {
-		return summary, fmt.Errorf("failed to score %d benchmark run(s)", scoreFailures)
-	}
-	return summary, nil
 }
 
 // ListSuites returns benchmark suite summaries derived from persisted benchmark sessions and runs.
