@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"gopkg.in/yaml.v3"
 )
 
@@ -82,9 +83,7 @@ type CaseConstraints struct {
 }
 
 // PromptDefinition is the user-style prompt for one benchmark case.
-type PromptDefinition struct {
-	Prompt string `yaml:"prompt"`
-}
+type PromptDefinition = common.PromptDefinition
 
 // LoadSuite loads and validates a benchmark suite rooted at the given directory.
 func LoadSuite(root string) (*SuiteDefinition, error) {
@@ -123,15 +122,7 @@ func LoadPrompt(caseRoot, promptFile string) (*PromptDefinition, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	var prompt PromptDefinition
-	if err := loadYAMLFile(promptPath, &prompt); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(prompt.Prompt) == "" {
-		return nil, fmt.Errorf("prompt file %q must define a non-empty prompt", promptPath)
-	}
-	return &prompt, nil
+	return common.LoadPromptDefinition(promptPath)
 }
 
 // ValidateSuite validates a suite and all referenced cases structurally.

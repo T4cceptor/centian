@@ -51,6 +51,7 @@ var disposableDemoPaths = []string{
 	"workspace",
 	"templates",
 	"config.json",
+	"prompt.yaml",
 	"prompt.md",
 	"centian.pid",
 	"claude_mcp_config.json",
@@ -64,6 +65,7 @@ var allowedDemoRootEntries = map[string]struct{}{
 	"templates":              {},
 	"logs":                   {},
 	"config.json":            {},
+	"prompt.yaml":            {},
 	"prompt.md":              {},
 	"agent.stdout.log":       {},
 	"agent.stderr.log":       {},
@@ -243,7 +245,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 		TemplatesPath:   filepath.Join(root, "templates"),
 		LogsPath:        filepath.Join(root, "logs"),
 		ConfigPath:      filepath.Join(root, "config.json"),
-		PromptPath:      filepath.Join(root, "prompt.md"),
+		PromptPath:      filepath.Join(root, "prompt.yaml"),
 		AgentStdoutPath: filepath.Join(root, "agent.stdout.log"),
 		AgentStderrPath: filepath.Join(root, "agent.stderr.log"),
 		InternalLogPath: filepath.Join(root, "logs", "internal.log"),
@@ -380,12 +382,12 @@ func renderAssets(layout *demoLayout) error {
 		return fmt.Errorf("write config.json: %w", err)
 	}
 
-	prompt, err := asset("prompt.md")
+	prompt, err := asset("prompt.yaml")
 	if err != nil {
 		return err
 	}
 	if err := os.WriteFile(layout.PromptPath, []byte(prompt), 0o600); err != nil {
-		return fmt.Errorf("write prompt.md: %w", err)
+		return fmt.Errorf("write prompt.yaml: %w", err)
 	}
 
 	template, err := asset(TaskTemplateFile)
@@ -443,14 +445,14 @@ func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-ch
 
 // writePID records the child Centian process ID for reuse and shutdown flows.
 func writePID(path string, pid int) error {
+	// TODO: move into global utils
 	return os.WriteFile(path, []byte(strconv.Itoa(pid)+"\n"), 0o600)
 }
 
 // waitForCentian blocks until both the MCP and JSON API endpoints are serving successfully.
 func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
+	err := common.WaitForReadiness(client, 45*time.Second, 500*time.Millisecond, func() error {
 		select {
 		case err := <-errCh:
 			if err == nil {
@@ -458,18 +460,25 @@ func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 			}
 			return fmt.Errorf("centian exited before becoming ready: %w", err)
 		default:
-		}
-		if common.IsEndpointReachable(client, layout.MCPURL) && common.IsJSONEndpointReady(client, layout.BaseURL+"/api/task-runs") {
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+	}, func(client *http.Client) bool {
+		return common.IsEndpointReachable(client, layout.MCPURL) &&
+			common.IsJSONEndpointReady(client, layout.BaseURL+"/api/task-runs")
+	})
+	if errors.Is(err, common.ErrReadinessTimeout) {
+		return fmt.Errorf("centian did not become ready in time; inspect %s", layout.InternalLogPath)
 	}
-	return fmt.Errorf("centian did not become ready in time; inspect %s", layout.InternalLogPath)
+	return err
 }
 
 // runAgent loads the saved prompt file and executes the selected agent against the demo MCP server.
 func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opts *DemoOptions) error {
-	return runAgentPrompt(ctx, adapter, layout, loadPrompt(layout.PromptPath), opts.Stdout, opts.Stderr, opts.Timeout)
+	prompt, err := common.LoadPromptDefinition(layout.PromptPath)
+	if err != nil {
+		return err
+	}
+	return runAgentPrompt(ctx, adapter, layout, prompt.Prompt, opts.Stdout, opts.Stderr, opts.Timeout)
 }
 
 // runAgentPrompt executes one agent command, mirrors logs, and returns trimmed failure output.
@@ -545,13 +554,6 @@ func openAgentLog(path, agentName string) (*os.File, error) {
 		return nil, err
 	}
 	return file, nil
-}
-
-// loadPrompt reads the rendered demo prompt from disk.
-func loadPrompt(path string) string {
-	//nolint:gosec // The prompt file path is generated inside the demo workspace layout.
-	data, _ := os.ReadFile(path)
-	return string(data)
 }
 
 // printDemoStatus emits the key paths and URLs the user needs after the demo is ready.

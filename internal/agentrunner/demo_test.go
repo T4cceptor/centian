@@ -107,7 +107,7 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 		filepath.Join(root, "workspace", ".gemini", "x"): "stale-gemini",
 		filepath.Join(root, "templates", "old.yaml"):     "stale-template",
 		filepath.Join(root, "config.json"):               "stale-config",
-		filepath.Join(root, "prompt.md"):                 "stale-prompt",
+		filepath.Join(root, "prompt.yaml"):               "stale-prompt",
 		filepath.Join(root, "claude_mcp_config.json"):    "stale-agent-config",
 		filepath.Join(root, "centian.pid"):               "12345\n",
 	} {
@@ -142,7 +142,7 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 		filepath.Join(root, "workspace", ".gemini", "x"),
 		filepath.Join(root, "templates", "old.yaml"),
 		filepath.Join(root, "config.json"),
-		filepath.Join(root, "prompt.md"),
+		filepath.Join(root, "prompt.yaml"),
 		filepath.Join(root, "claude_mcp_config.json"),
 		filepath.Join(root, "centian.pid"),
 	} {
@@ -330,14 +330,14 @@ func TestRunAgentAppendsLogs(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "demo")
 	layout := &demoLayout{
 		WorkspacePath:   root,
-		PromptPath:      filepath.Join(root, "prompt.md"),
+		PromptPath:      filepath.Join(root, "prompt.yaml"),
 		AgentStdoutPath: filepath.Join(root, "agent.stdout.log"),
 		AgentStderrPath: filepath.Join(root, "agent.stderr.log"),
 	}
 	if err := os.MkdirAll(layout.WorkspacePath, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
 	}
-	if err := os.WriteFile(layout.PromptPath, []byte("prompt"), 0o644); err != nil {
+	if err := os.WriteFile(layout.PromptPath, []byte("prompt: |\n  prompt\n"), 0o644); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
 

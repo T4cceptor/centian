@@ -1218,15 +1218,15 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 // waitForCentian polls API and MCP endpoints until the child server is ready.
 func waitForCentian(baseURL string, mcpURL string) error {
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(45 * time.Second)
 	apiURL := baseURL + "/api/task-runs"
-	for time.Now().Before(deadline) {
-		if common.IsEndpointReachable(client, mcpURL) && common.IsJSONEndpointReady(client, apiURL) {
-			return nil
-		}
-		time.Sleep(500 * time.Millisecond)
+	err := common.WaitForReadiness(client, 45*time.Second, 500*time.Millisecond, nil, func(client *http.Client) bool {
+		return common.IsEndpointReachable(client, mcpURL) &&
+			common.IsJSONEndpointReady(client, apiURL)
+	})
+	if errors.Is(err, common.ErrReadinessTimeout) {
+		return fmt.Errorf("centian did not become ready in time")
 	}
-	return fmt.Errorf("centian did not become ready in time")
+	return err
 }
 
 // fetchTaskRuns reads the current task-run list from the run-local Centian API.
