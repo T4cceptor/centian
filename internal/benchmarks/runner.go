@@ -351,7 +351,6 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if err != nil {
 		return nil, err
 	}
-	agents := executionAgents(executions)
 	caseIDs := make([]string, 0, len(selectedRefs))
 	for _, ref := range selectedRefs {
 		caseIDs = append(caseIDs, ref.ID)
@@ -371,7 +370,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		StartedAt:        r.Now(),
 		Status:           runStatusCompleted,
 		Repeat:           opts.Repeat,
-		Agents:           agents,
+		Agents:           executionAgents(executions),
 		CaseIDs:          caseIDs,
 		TemplateVariants: templateVariants,
 		Runs:             []SessionRunManifestEntry{},
