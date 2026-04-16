@@ -25,13 +25,14 @@ func normalizeCLIModel(agent, model string) string {
 }
 
 func benchmarkExecutionsFromFlags(cmdModel, cmdProfile string, agents []string, claudeModel, geminiModel, codexModel, codexConfigPath string) ([]agentrunner.AgentExecutionOptions, error) {
-	executions := buildBenchmarkExecutions(agents, benchmarkExecutionFlagInputs{
+	inputs := &benchmarkExecutionFlagInputs{
 		profile:         cmdProfile,
 		claudeModel:     claudeModel,
 		geminiModel:     geminiModel,
 		codexModel:      codexModel,
 		codexConfigPath: codexConfigPath,
-	})
+	}
+	executions := buildBenchmarkExecutions(agents, inputs)
 	profile := strings.TrimSpace(cmdProfile)
 	model := strings.TrimSpace(cmdModel)
 	if profile == "" && model == "" {
@@ -57,7 +58,7 @@ type benchmarkExecutionFlagInputs struct {
 	codexConfigPath string
 }
 
-func buildBenchmarkExecutions(agents []string, inputs benchmarkExecutionFlagInputs) []agentrunner.AgentExecutionOptions {
+func buildBenchmarkExecutions(agents []string, inputs *benchmarkExecutionFlagInputs) []agentrunner.AgentExecutionOptions {
 	executions := make([]agentrunner.AgentExecutionOptions, 0, len(agents))
 	for _, agent := range agents {
 		executions = append(executions, buildBenchmarkExecution(strings.ToLower(strings.TrimSpace(agent)), inputs))
@@ -65,7 +66,7 @@ func buildBenchmarkExecutions(agents []string, inputs benchmarkExecutionFlagInpu
 	return executions
 }
 
-func buildBenchmarkExecution(agent string, inputs benchmarkExecutionFlagInputs) agentrunner.AgentExecutionOptions {
+func buildBenchmarkExecution(agent string, inputs *benchmarkExecutionFlagInputs) agentrunner.AgentExecutionOptions {
 	exec := agentrunner.AgentExecutionOptions{Agent: agent}
 	switch agent {
 	case agentrunner.AgentClaude:

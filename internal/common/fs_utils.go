@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -35,20 +36,25 @@ func WriteJSONFile(path string, value any) error {
 
 // CopyDir recursively copies a directory tree into dst.
 func CopyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	root, err := os.OpenRoot(src)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+
+	return fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
+		target := copyTargetPath(dst, path)
+		if entry.IsDir() {
 			return os.MkdirAll(target, secureDirPerm)
 		}
-		// #nosec G304 -- filepath.Walk enumerates files rooted at src; this intentionally copies that tree.
-		data, err := os.ReadFile(path)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		data, err := root.ReadFile(path)
 		if err != nil {
 			return err
 		}
@@ -70,6 +76,13 @@ func CopyFile(src, dst string) error {
 		return err
 	}
 	return writeCopiedFile(dst, data, 0o644)
+}
+
+func copyTargetPath(dst, walkPath string) string {
+	if walkPath == "." {
+		return dst
+	}
+	return filepath.Join(dst, walkPath)
 }
 
 func writeCopiedFile(path string, data []byte, mode os.FileMode) error {
