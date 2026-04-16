@@ -54,25 +54,21 @@ func NormalizeExecutionOptions(opts AgentExecutionOptions) (AgentExecutionOption
 	opts.Profile = strings.TrimSpace(opts.Profile)
 	opts.CodexConfigPath = strings.TrimSpace(opts.CodexConfigPath)
 
+	if opts.Agent != AgentCodexOllama && opts.Profile != "" {
+		// return error if selected agent is NOT codex-ollama, and profile is available
+		return AgentExecutionOptions{}, fmt.Errorf("profile is only supported for %q", AgentCodexOllama)
+	}
+
 	switch opts.Agent {
 	case AgentClaude:
-		if opts.Profile != "" {
-			return AgentExecutionOptions{}, fmt.Errorf("profile is only supported for %q", AgentCodexOllama)
-		}
 		if opts.Model == "" {
 			opts.Model = DefaultClaudeModel
 		}
 	case AgentGemini:
-		if opts.Profile != "" {
-			return AgentExecutionOptions{}, fmt.Errorf("profile is only supported for %q", AgentCodexOllama)
-		}
 		if opts.Model == "" {
 			opts.Model = DefaultGeminiModel
 		}
 	case AgentCodex:
-		if opts.Profile != "" {
-			return AgentExecutionOptions{}, fmt.Errorf("profile is only supported for %q", AgentCodexOllama)
-		}
 		if opts.Model == "" {
 			opts.Model = DefaultCodexModel
 		}
