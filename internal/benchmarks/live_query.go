@@ -692,37 +692,3 @@ func latestTime(current, candidate time.Time) time.Time {
 	}
 	return current
 }
-
-// runRecordToManifest rebuilds the manifest-shaped view expected by aggregate helpers.
-func runRecordToManifest(run *persistence.BenchmarkRunRecord) *RunManifest {
-	if run == nil {
-		return nil
-	}
-	return &RunManifest{
-		SuiteID:             "",
-		CaseID:              run.CaseID,
-		TemplateID:          run.TemplateID,
-		TemplateVariant:     TemplateVariant{Name: run.TemplateVariant},
-		AgentID:             run.Agent,
-		Attempt:             run.Attempt,
-		SelectedModel:       run.SelectedModel,
-		StartedAt:           timeFromUnixMillis(run.StartedAtUnixMilli),
-		EndedAt:             timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli),
-		Status:              run.Status,
-		LatestTaskRunID:     run.LatestTaskRunID,
-		LatestTaskRunStatus: run.LatestTaskRunStatus,
-		LinkedTaskRunIDs:    append([]string(nil), run.LinkedTaskRunIDs...),
-		ArtifactPaths: RunArtifactPaths{
-			RunDir:               run.RunDir,
-			ProjectDir:           run.ProjectDir,
-			LogsDir:              run.LogsDir,
-			AgentDir:             run.AgentDir,
-			ConfigPath:           run.ConfigPath,
-			EventStoreMode:       run.EventStoreMode,
-			EventStorePath:       run.EventStorePath,
-			RequestLogPath:       run.RequestLogPath,
-			SelectedTemplatePath: run.SelectedTemplatePath,
-		},
-		ErrorSummary: run.ErrorSummary,
-	}
-}

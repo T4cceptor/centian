@@ -161,7 +161,7 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	if err != nil {
 		return nil, err
 	}
-	models, codexConfigPath, centianConfigPath, err := resolveBenchmarkModelConfigOptions(cmd, agents)
+	executions, _, centianConfigPath, err := resolveBenchmarkModelConfigOptions(cmd, agents)
 	if err != nil {
 		return nil, err
 	}
@@ -169,23 +169,21 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	if err != nil {
 		return nil, err
 	}
-	if err := validateCodexOllamaOptions(agents, models, codexConfigPath); err != nil {
+	if err := validateCodexOllamaOptions(executions); err != nil {
 		return nil, err
 	}
 
 	return &benchmarks.RunOptions{
 		SuitePath:         suitePath,
 		CaseIDs:           caseIDs,
-		Agents:            agents,
+		Executions:        executions,
 		Repeat:            repeat,
 		TemplateVariants:  templateVariants,
 		OutputRoot:        outputRoot,
 		Timeout:           cmd.Duration("timeout"),
 		CentianBinaryPath: binaryPath,
-		Models:            models,
-		CodexConfigPath:   codexConfigPath,
 		CentianConfigPath: centianConfigPath,
-		SessionLabel:      defaultBenchmarkSessionLabel(templateVariants, agents),
+		SessionLabel:      defaultBenchmarkSessionLabel(templateVariants, executions),
 	}, nil
 }
 
@@ -224,27 +222,28 @@ func resolveBenchmarkOutputRoot(cmd *cli.Command, startPath string) (string, err
 	return resolved, nil
 }
 
-func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) (benchmarks.AgentModels, string, string, error) {
-	models, err := benchmarkAgentModelsFromFlags(
+func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) ([]agentrunner.AgentExecutionOptions, string, string, error) {
+	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	if err != nil {
+		return nil, "", "", err
+	}
+	executions, err := benchmarkExecutionsFromFlags(
 		cmd.String("model"),
 		cmd.String("profile"),
 		agents,
 		cmd.String("claude-model"),
 		cmd.String("gemini-model"),
 		cmd.String("codex-model"),
+		codexConfigPath,
 	)
 	if err != nil {
-		return benchmarks.AgentModels{}, "", "", err
-	}
-	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
-	if err != nil {
-		return benchmarks.AgentModels{}, "", "", err
+		return nil, "", "", err
 	}
 	centianConfigPath, err := resolveOptionalPath(cmd.String("centian-config"))
 	if err != nil {
-		return benchmarks.AgentModels{}, "", "", err
+		return nil, "", "", err
 	}
-	return models, codexConfigPath, centianConfigPath, nil
+	return executions, codexConfigPath, centianConfigPath, nil
 }
 
 func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfigPath string) ([]benchmarks.TemplateVariant, error) {
@@ -264,15 +263,15 @@ func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfig
 	return templateVariants, nil
 }
 
-func validateCodexOllamaOptions(agents []string, models benchmarks.AgentModels, codexConfigPath string) error {
-	for _, agent := range agents {
-		if !strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
+func validateCodexOllamaOptions(executions []agentrunner.AgentExecutionOptions) error {
+	for _, exec := range executions {
+		if !strings.EqualFold(exec.Agent, agentrunner.AgentCodexOllama) {
 			continue
 		}
-		if strings.TrimSpace(codexConfigPath) == "" {
+		if strings.TrimSpace(exec.CodexConfigPath) == "" {
 			return fmt.Errorf("codex-ollama requires --codex-config")
 		}
-		if strings.TrimSpace(models.CodexOllamaProfile) == "" {
+		if strings.TrimSpace(exec.Profile) == "" {
 			return fmt.Errorf("codex-ollama requires an explicit profile; use --profile")
 		}
 	}
@@ -311,9 +310,9 @@ func defaultResolutionStart(suitePath string) string {
 	return suitePath
 }
 
-func defaultBenchmarkSessionLabel(variants []benchmarks.TemplateVariant, agents []string) string {
-	if len(variants) != 1 || len(agents) != 1 {
+func defaultBenchmarkSessionLabel(variants []benchmarks.TemplateVariant, executions []agentrunner.AgentExecutionOptions) string {
+	if len(variants) != 1 || len(executions) != 1 {
 		return ""
 	}
-	return variants[0].Name + "_" + agents[0] + "_run"
+	return variants[0].Name + "_" + executions[0].Agent + "_run"
 }

@@ -37,26 +37,16 @@ type TemplateVariant struct {
 	SourceDir string `json:"sourceDir"`
 }
 
-// AgentModels contains optional per-agent model overrides.
-type AgentModels struct {
-	Claude             string `json:"claude,omitempty"`
-	Gemini             string `json:"gemini,omitempty"`
-	Codex              string `json:"codex,omitempty"`
-	CodexOllamaProfile string `json:"codexOllamaProfile,omitempty"`
-}
-
 // RunOptions configures one benchmark invocation.
 type RunOptions struct {
 	SuitePath         string
 	CaseIDs           []string
-	Agents            []string
+	Executions        []agentrunner.AgentExecutionOptions
 	Repeat            int
 	TemplateVariants  []TemplateVariant
 	OutputRoot        string
 	Timeout           time.Duration
 	CentianBinaryPath string
-	Models            AgentModels
-	CodexConfigPath   string
 	CentianConfigPath string
 	SessionLabel      string
 	OnCentianReady    func(*RunManifest)
@@ -170,7 +160,7 @@ type runSpec struct {
 	CaseRoot        string
 	Prompt          *PromptDefinition
 	TemplateVariant TemplateVariant
-	Agent           string
+	Execution       agentrunner.AgentExecutionOptions
 	Attempt         int
 }
 
@@ -314,7 +304,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if strings.TrimSpace(opts.SuitePath) == "" {
 		return nil, fmt.Errorf("suite path is required")
 	}
-	if len(opts.Agents) == 0 {
+	if len(opts.Executions) == 0 {
 		return nil, fmt.Errorf("at least one agent is required")
 	}
 	if opts.Repeat <= 0 {
@@ -357,7 +347,11 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if err != nil {
 		return nil, err
 	}
-	agents := common.NormalizeCSVList(opts.Agents)
+	executions, err := normalizeRunExecutions(opts.Executions)
+	if err != nil {
+		return nil, err
+	}
+	agents := executionAgents(executions)
 	caseIDs := make([]string, 0, len(selectedRefs))
 	for _, ref := range selectedRefs {
 		caseIDs = append(caseIDs, ref.ID)
@@ -383,7 +377,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		Runs:             []SessionRunManifestEntry{},
 	}
 
-	specs, err := buildRunSpecs(suiteRoot, selectedRefs, templateVariants, agents, opts.Repeat)
+	specs, err := buildRunSpecs(suiteRoot, selectedRefs, templateVariants, executions, opts.Repeat)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +389,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		entry := SessionRunManifestEntry{
 			CaseID:              spec.CaseRef.ID,
 			CaseName:            manifest.CaseName,
-			AgentID:             spec.Agent,
+			AgentID:             spec.Execution.Agent,
 			TemplateVariant:     spec.TemplateVariant.Name,
 			Attempt:             spec.Attempt,
 			RelativeRunDir:      relativeRunDir(sessionDir, manifest.ArtifactPaths.RunDir),
@@ -511,9 +505,9 @@ func (r *Runner) executeRun(
 			CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
 			TemplateID:      suite.Suite.TemplateID,
 			TemplateVariant: spec.TemplateVariant,
-			AgentID:         spec.Agent,
+			AgentID:         spec.Execution.Agent,
 			Attempt:         spec.Attempt,
-			SelectedModel:   selectedModel(spec.Agent, opts.Models),
+			SelectedModel:   agentrunner.SelectedModelForExecution(spec.Execution),
 			StartedAt:       r.Now(),
 			EndedAt:         r.Now(),
 			Status:          "failed",
@@ -536,9 +530,9 @@ func (r *Runner) executeRun(
 		CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
 		TemplateID:      suite.Suite.TemplateID,
 		TemplateVariant: spec.TemplateVariant,
-		AgentID:         spec.Agent,
+		AgentID:         spec.Execution.Agent,
 		Attempt:         spec.Attempt,
-		SelectedModel:   selectedModel(spec.Agent, opts.Models),
+		SelectedModel:   agentrunner.SelectedModelForExecution(spec.Execution),
 		StartedAt:       r.Now(),
 		Status:          "failed",
 		ArtifactPaths: RunArtifactPaths{
@@ -692,17 +686,12 @@ func (r *Runner) executeRun(
 		return manifest, err
 	}
 	runResult, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
-		Agent:              spec.Agent,
-		ArtifactRoot:       agentDir,
-		WorkspacePath:      projectDir,
-		MCPURL:             mcpURL,
-		Prompt:             strings.TrimSpace(spec.Prompt.Prompt),
-		Timeout:            opts.Timeout,
-		ClaudeModel:        opts.Models.Claude,
-		GeminiModel:        opts.Models.Gemini,
-		CodexModel:         opts.Models.Codex,
-		CodexOllamaProfile: opts.Models.CodexOllamaProfile,
-		CodexConfigPath:    opts.CodexConfigPath,
+		Execution:     spec.Execution,
+		ArtifactRoot:  agentDir,
+		WorkspacePath: projectDir,
+		MCPURL:        mcpURL,
+		Prompt:        strings.TrimSpace(spec.Prompt.Prompt),
+		Timeout:       opts.Timeout,
 	})
 	if runResult != nil && strings.TrimSpace(runResult.SelectedModel) != "" {
 		manifest.SelectedModel = runResult.SelectedModel
@@ -781,10 +770,10 @@ func buildRunSpecs(
 	suiteRoot string,
 	caseRefs []SuiteCaseRef,
 	templateVariants []TemplateVariant,
-	agents []string,
+	executions []agentrunner.AgentExecutionOptions,
 	repeat int,
 ) ([]runSpec, error) {
-	specs := make([]runSpec, 0, len(caseRefs)*len(templateVariants)*len(agents)*repeat)
+	specs := make([]runSpec, 0, len(caseRefs)*len(templateVariants)*len(executions)*repeat)
 	for _, ref := range caseRefs {
 		caseRoot := filepath.Join(suiteRoot, ref.Path)
 		caseDef, err := LoadCase(suiteRoot, ref)
@@ -796,7 +785,7 @@ func buildRunSpecs(
 			return nil, err
 		}
 		for _, variant := range templateVariants {
-			for _, agent := range agents {
+			for _, execution := range executions {
 				for attempt := 1; attempt <= repeat; attempt++ {
 					specs = append(specs, runSpec{
 						CaseRef:         ref,
@@ -804,7 +793,7 @@ func buildRunSpecs(
 						CaseRoot:        caseRoot,
 						Prompt:          prompt,
 						TemplateVariant: variant,
-						Agent:           agent,
+						Execution:       execution,
 						Attempt:         attempt,
 					})
 				}
@@ -950,7 +939,7 @@ func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 func benchmarkRunDirName(spec runSpec) string {
 	parts := []string{
 		common.NormalizeSlug(spec.TemplateVariant.Name),
-		common.NormalizeSlug(spec.Agent),
+		common.NormalizeSlug(spec.Execution.Agent),
 		common.NormalizeSlug(spec.CaseRef.ID),
 		fmt.Sprintf("attempt_%03d", spec.Attempt),
 	}
@@ -1094,20 +1083,24 @@ func relativeRunDir(sessionDir string, runDir string) string {
 	return rel
 }
 
-// selectedModel returns the agent-specific model override selected for the run.
-func selectedModel(agent string, models AgentModels) string {
-	switch agent {
-	case agentrunner.AgentClaude:
-		return models.Claude
-	case agentrunner.AgentGemini:
-		return models.Gemini
-	case agentrunner.AgentCodex:
-		return models.Codex
-	case agentrunner.AgentCodexOllama:
-		return models.CodexOllamaProfile
-	default:
-		return ""
+func normalizeRunExecutions(executions []agentrunner.AgentExecutionOptions) ([]agentrunner.AgentExecutionOptions, error) {
+	normalized := make([]agentrunner.AgentExecutionOptions, 0, len(executions))
+	for _, exec := range executions {
+		item, err := agentrunner.NormalizeExecutionOptions(exec)
+		if err != nil {
+			return nil, err
+		}
+		normalized = append(normalized, item)
 	}
+	return normalized, nil
+}
+
+func executionAgents(executions []agentrunner.AgentExecutionOptions) []string {
+	agents := make([]string, 0, len(executions))
+	for _, exec := range executions {
+		agents = append(agents, exec.Agent)
+	}
+	return agents
 }
 
 // taskRunIDs extracts run IDs in order from fetched task-run summaries.

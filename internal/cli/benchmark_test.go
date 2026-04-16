@@ -131,8 +131,8 @@ func TestBuildBenchmarkRunOptionsResolvesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildBenchmarkRunOptions: %v", err)
 	}
-	if len(opts.Agents) != 2 {
-		t.Fatalf("expected 2 agents, got %d", len(opts.Agents))
+	if len(opts.Executions) != 2 {
+		t.Fatalf("expected 2 executions, got %d", len(opts.Executions))
 	}
 	if opts.Timeout != 20*time.Minute {
 		t.Fatalf("expected 20m timeout, got %s", opts.Timeout)
@@ -201,59 +201,59 @@ func TestBuildBenchmarkRunOptionsUsesTemplateDirFromCentianConfig(t *testing.T) 
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsAppliesSingleModelFlag(t *testing.T) {
-	models, err := benchmarkAgentModelsFromFlags("gpt5.4-mini", "", []string{"codex"}, "", "", "")
+func TestBenchmarkExecutionsFromFlagsAppliesSingleModelFlag(t *testing.T) {
+	executions, err := benchmarkExecutionsFromFlags("gpt5.4-mini", "", []string{"codex"}, "", "", "", "")
 	if err != nil {
-		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
+		t.Fatalf("benchmarkExecutionsFromFlags: %v", err)
 	}
-	if models.Codex != "gpt-5.4-mini" {
-		t.Fatalf("expected normalized codex model, got %q", models.Codex)
+	if executions[0].Model != "gpt-5.4-mini" {
+		t.Fatalf("expected normalized codex model, got %q", executions[0].Model)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsRejectsSingleModelWithMultipleAgents(t *testing.T) {
-	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", "", []string{"codex", "claude"}, "", "", "")
+func TestBenchmarkExecutionsFromFlagsRejectsSingleModelWithMultipleAgents(t *testing.T) {
+	_, err := benchmarkExecutionsFromFlags("gpt-5.4-mini", "", []string{"codex", "claude"}, "", "", "", "")
 	if err == nil || err.Error() != "--model can only be used with exactly one non-codex-ollama agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs" {
 		t.Fatalf("expected multi-agent model error, got %v", err)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsRejectsSingleAndAgentModelConflict(t *testing.T) {
-	_, err := benchmarkAgentModelsFromFlags("gpt-5.4-mini", "", []string{"codex"}, "", "", "gpt-5.4")
+func TestBenchmarkExecutionsFromFlagsRejectsSingleAndAgentModelConflict(t *testing.T) {
+	_, err := benchmarkExecutionsFromFlags("gpt-5.4-mini", "", []string{"codex"}, "", "", "gpt-5.4", "")
 	if err == nil || err.Error() != "--model cannot be combined with --codex-model" {
 		t.Fatalf("expected model conflict error, got %v", err)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsAppliesCodexOllamaSingleProfileFlag(t *testing.T) {
-	models, err := benchmarkAgentModelsFromFlags("", "local-oss", []string{"codex-ollama"}, "", "", "")
+func TestBenchmarkExecutionsFromFlagsAppliesCodexOllamaSingleProfileFlag(t *testing.T) {
+	executions, err := benchmarkExecutionsFromFlags("", "local-oss", []string{"codex-ollama"}, "", "", "", "/tmp/codex.toml")
 	if err != nil {
-		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
+		t.Fatalf("benchmarkExecutionsFromFlags: %v", err)
 	}
-	if models.CodexOllamaProfile != "local-oss" {
-		t.Fatalf("expected codex-ollama profile, got %q", models.CodexOllamaProfile)
+	if executions[0].Profile != "local-oss" {
+		t.Fatalf("expected codex-ollama profile, got %q", executions[0].Profile)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsRejectsCodexOllamaModelFlag(t *testing.T) {
-	_, err := benchmarkAgentModelsFromFlags("gpt-oss-20b", "", []string{"codex-ollama"}, "", "", "")
+func TestBenchmarkExecutionsFromFlagsRejectsCodexOllamaModelFlag(t *testing.T) {
+	_, err := benchmarkExecutionsFromFlags("gpt-oss-20b", "", []string{"codex-ollama"}, "", "", "", "")
 	if err == nil || err.Error() != "--model is not supported for codex-ollama; use --profile" {
 		t.Fatalf("expected codex-ollama model flag error, got %v", err)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsAppliesProfileInMultiAgentRun(t *testing.T) {
-	models, err := benchmarkAgentModelsFromFlags("", "local-oss", []string{"codex", "codex-ollama"}, "", "", "")
+func TestBenchmarkExecutionsFromFlagsAppliesProfileInMultiAgentRun(t *testing.T) {
+	executions, err := benchmarkExecutionsFromFlags("", "local-oss", []string{"codex", "codex-ollama"}, "", "", "", "/tmp/codex.toml")
 	if err != nil {
-		t.Fatalf("benchmarkAgentModelsFromFlags: %v", err)
+		t.Fatalf("benchmarkExecutionsFromFlags: %v", err)
 	}
-	if models.CodexOllamaProfile != "local-oss" {
-		t.Fatalf("expected codex-ollama profile, got %q", models.CodexOllamaProfile)
+	if executions[1].Profile != "local-oss" {
+		t.Fatalf("expected codex-ollama profile, got %q", executions[1].Profile)
 	}
 }
 
-func TestBenchmarkAgentModelsFromFlagsRejectsProfileWithoutCodexOllamaAgent(t *testing.T) {
-	_, err := benchmarkAgentModelsFromFlags("", "local-oss", []string{"codex", "claude"}, "", "", "")
+func TestBenchmarkExecutionsFromFlagsRejectsProfileWithoutCodexOllamaAgent(t *testing.T) {
+	_, err := benchmarkExecutionsFromFlags("", "local-oss", []string{"codex", "claude"}, "", "", "", "")
 	if err == nil || err.Error() != "--profile can only be used when --agent codex-ollama is selected" {
 		t.Fatalf("expected profile agent error, got %v", err)
 	}

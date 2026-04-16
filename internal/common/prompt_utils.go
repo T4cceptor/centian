@@ -17,6 +17,7 @@ type PromptDefinition struct {
 // LoadPromptDefinition reads one YAML prompt file and validates that it
 // contains a non-empty prompt body.
 func LoadPromptDefinition(path string) (*PromptDefinition, error) {
+	// #nosec G304 -- prompt paths come from trusted benchmark/demo configuration and tests.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %q: %w", path, err)

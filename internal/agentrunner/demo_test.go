@@ -399,7 +399,7 @@ func TestRunDemoUnsupportedAgent(t *testing.T) {
 	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	_, err := (DemoRunner{}).RunDemo(context.Background(), &DemoOptions{
-		Agent:             "unsupported-agent",
+		Execution:         AgentExecutionOptions{Agent: "unsupported-agent"},
 		RootPath:          filepath.Join(t.TempDir(), "demo"),
 		CentianBinaryPath: "/tmp/centian",
 		Timeout:           time.Second,
@@ -681,7 +681,7 @@ func TestCodexCleanupRemovesDemoHome(t *testing.T) {
 
 func TestSelectAdapterCodex(t *testing.T) {
 	// Given: demo options with agent "codex"
-	opts := &DemoOptions{Agent: "codex", CodexModel: "o3"}
+	opts := &DemoOptions{Execution: AgentExecutionOptions{Agent: "codex", Model: "o3"}}
 
 	// When: selecting the adapter
 	adapter, err := selectAdapter(opts)
@@ -697,9 +697,11 @@ func TestSelectAdapterCodex(t *testing.T) {
 
 func TestSelectAdapterCodexOllama(t *testing.T) {
 	opts := &DemoOptions{
-		Agent:              AgentCodexOllama,
-		CodexOllamaProfile: "local-oss",
-		CodexConfigPath:    "/tmp/codex.toml",
+		Execution: AgentExecutionOptions{
+			Agent:           AgentCodexOllama,
+			Profile:         "local-oss",
+			CodexConfigPath: "/tmp/codex.toml",
+		},
 	}
 
 	adapter, err := selectAdapter(opts)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/agentrunner"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -26,7 +27,7 @@ func TestDemoCommandStructure(t *testing.T) {
 			flagNames[typed.Name] = true
 		}
 	}
-	for _, expected := range []string{"agent", "model", "path", "codex-config"} {
+	for _, expected := range []string{"agent", "model", "profile", "path", "codex-config"} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on DemoCommand", expected)
 		}
@@ -90,5 +91,56 @@ func TestShouldShutdownDemo(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tt.expected, actual)
 			}
 		})
+	}
+}
+
+func TestDemoExecutionFromFlagsAppliesModelAndConfig(t *testing.T) {
+	cmd := newTestCLICommand(DemoCommand.Flags)
+	cmd.Set("agent", "codex")
+	cmd.Set("model", "gpt5.4-mini")
+	cmd.Set("codex-config", "/tmp/codex.toml")
+
+	exec, err := demoExecutionFromFlags(cmd)
+	if err != nil {
+		t.Fatalf("demoExecutionFromFlags: %v", err)
+	}
+	if exec.Agent != agentrunner.AgentCodex {
+		t.Fatalf("expected codex agent, got %q", exec.Agent)
+	}
+	if exec.Model != "gpt-5.4-mini" {
+		t.Fatalf("expected normalized model, got %q", exec.Model)
+	}
+	if exec.CodexConfigPath == "" {
+		t.Fatal("expected codex config path to be resolved")
+	}
+}
+
+func TestDemoExecutionFromFlagsRejectsProfileWithoutCodexOllama(t *testing.T) {
+	cmd := newTestCLICommand(DemoCommand.Flags)
+	cmd.Set("agent", "codex")
+	cmd.Set("profile", "local-oss")
+
+	_, err := demoExecutionFromFlags(cmd)
+	if err == nil || err.Error() != "--profile can only be used with --agent codex-ollama" {
+		t.Fatalf("expected profile error, got %v", err)
+	}
+}
+
+func TestDemoExecutionFromFlagsRequiresCodexOllamaProfileAndConfig(t *testing.T) {
+	cmd := newTestCLICommand(DemoCommand.Flags)
+	cmd.Set("agent", "codex-ollama")
+
+	_, err := demoExecutionFromFlags(cmd)
+	if err == nil || err.Error() != "codex-ollama requires --codex-config" {
+		t.Fatalf("expected missing codex config error, got %v", err)
+	}
+
+	cmd = newTestCLICommand(DemoCommand.Flags)
+	cmd.Set("agent", "codex-ollama")
+	cmd.Set("codex-config", "/tmp/codex.toml")
+
+	_, err = demoExecutionFromFlags(cmd)
+	if err == nil || err.Error() != "codex-ollama requires --profile" {
+		t.Fatalf("expected missing profile error, got %v", err)
 	}
 }

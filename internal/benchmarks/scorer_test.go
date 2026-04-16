@@ -21,14 +21,6 @@ type syntheticSessionOptions struct {
 	codexSelectedModel        string
 }
 
-func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) string {
-	t.Helper()
-
-	sessionDir := filepath.Join(t.TempDir(), "session")
-	writeSyntheticScoringSessionAt(t, sessionDir, opts)
-	return sessionDir
-}
-
 func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts syntheticSessionOptions) {
 	t.Helper()
 

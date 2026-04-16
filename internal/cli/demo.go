@@ -70,52 +70,19 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("resolve centian executable: %w", err)
 	}
-	claudeModel := agentrunner.DefaultClaudeModel
-	geminiModel := agentrunner.DefaultGeminiModel
-	codexModel := agentrunner.DefaultCodexModel
-	codexOllamaProfile := strings.TrimSpace(cmd.String("profile"))
-	if model := strings.TrimSpace(cmd.String("model")); model != "" {
-		switch agent := strings.ToLower(strings.TrimSpace(cmd.String("agent"))); agent {
-		case agentrunner.AgentClaude:
-			claudeModel = normalizeCLIModel(agent, model)
-		case agentrunner.AgentGemini:
-			geminiModel = normalizeCLIModel(agent, model)
-		case agentrunner.AgentCodex:
-			codexModel = normalizeCLIModel(agent, model)
-		case agentrunner.AgentCodexOllama:
-			return fmt.Errorf("--model is not supported for codex-ollama; use --profile")
-		default:
-			return fmt.Errorf("unsupported agent %q; cannot apply --model", cmd.String("agent"))
-		}
-	}
-	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	execution, err := demoExecutionFromFlags(cmd)
 	if err != nil {
 		return err
-	}
-	if strings.EqualFold(strings.TrimSpace(cmd.String("agent")), agentrunner.AgentCodexOllama) {
-		if codexConfigPath == "" {
-			return fmt.Errorf("codex-ollama requires --codex-config")
-		}
-		if codexOllamaProfile == "" {
-			return fmt.Errorf("codex-ollama requires --profile")
-		}
-	} else if codexOllamaProfile != "" {
-		return fmt.Errorf("--profile can only be used with --agent codex-ollama")
 	}
 
 	runner := agentrunner.DemoRunner{}
 	result, err := runner.RunDemo(ctx, &agentrunner.DemoOptions{
-		Agent:              cmd.String("agent"),
-		RootPath:           rootPath,
-		CentianBinaryPath:  binaryPath,
-		Timeout:            5 * time.Minute,
-		ClaudeModel:        claudeModel,
-		GeminiModel:        geminiModel,
-		CodexModel:         codexModel,
-		CodexOllamaProfile: codexOllamaProfile,
-		CodexConfigPath:    codexConfigPath,
-		Stdout:             os.Stdout,
-		Stderr:             os.Stderr,
+		Execution:         execution,
+		RootPath:          rootPath,
+		CentianBinaryPath: binaryPath,
+		Timeout:           5 * time.Minute,
+		Stdout:            os.Stdout,
+		Stderr:            os.Stderr,
 	})
 	if result != nil {
 		fmt.Printf("Agent run finished. UI: %s\n", result.UIPublicURL)
@@ -129,6 +96,36 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	return nil
+}
+
+func demoExecutionFromFlags(cmd *cli.Command) (agentrunner.AgentExecutionOptions, error) {
+	agent := strings.TrimSpace(cmd.String("agent"))
+	exec := agentrunner.AgentExecutionOptions{
+		Agent:   agent,
+		Profile: strings.TrimSpace(cmd.String("profile")),
+	}
+	if model := strings.TrimSpace(cmd.String("model")); model != "" {
+		if strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
+			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("--model is not supported for codex-ollama; use --profile")
+		}
+		exec.Model = normalizeCLIModel(agent, model)
+	}
+	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	if err != nil {
+		return agentrunner.AgentExecutionOptions{}, err
+	}
+	exec.CodexConfigPath = codexConfigPath
+	if strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
+		if codexConfigPath == "" {
+			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("codex-ollama requires --codex-config")
+		}
+		if exec.Profile == "" {
+			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("codex-ollama requires --profile")
+		}
+	} else if exec.Profile != "" {
+		return agentrunner.AgentExecutionOptions{}, fmt.Errorf("--profile can only be used with --agent codex-ollama")
+	}
+	return agentrunner.NormalizeExecutionOptions(exec)
 }
 
 func promptDemoShutdown(input io.Reader, output io.Writer, result *agentrunner.DemoResult) error {

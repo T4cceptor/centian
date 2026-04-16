@@ -78,18 +78,13 @@ var allowedDemoRootEntries = map[string]struct{}{
 
 // DemoOptions configures a single demo run.
 type DemoOptions struct {
-	Agent              string
-	RootPath           string
-	CentianBinaryPath  string
-	Timeout            time.Duration
-	ClaudeModel        string
-	GeminiModel        string
-	CodexModel         string
-	CodexOllamaProfile string
-	CodexConfigPath    string
-	OpenBrowser        bool
-	Stdout             io.Writer
-	Stderr             io.Writer
+	Execution         AgentExecutionOptions
+	RootPath          string
+	CentianBinaryPath string
+	Timeout           time.Duration
+	OpenBrowser       bool
+	Stdout            io.Writer
+	Stderr            io.Writer
 }
 
 // DemoResult describes the generated demo workspace and running Centian instance.
@@ -143,7 +138,10 @@ type demoLayout struct {
 // RunDemo creates the demo workspace, starts Centian, launches the selected
 // agent, and leaves Centian running after the agent exits.
 func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
-	options := normalizeOptions(opts)
+	options, err := normalizeOptions(opts)
+	if err != nil {
+		return nil, err
+	}
 	layout, err := prepareLayout(options)
 	if err != nil {
 		return nil, err
@@ -208,16 +206,18 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 }
 
 // normalizeOptions fills omitted demo options with platform and agent defaults.
-func normalizeOptions(opts *DemoOptions) *DemoOptions {
+func normalizeOptions(opts *DemoOptions) (*DemoOptions, error) {
+	if opts == nil {
+		return nil, fmt.Errorf("demo options are required")
+	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultAgentTimeout
 	}
-	if strings.TrimSpace(opts.ClaudeModel) == "" {
-		opts.ClaudeModel = DefaultClaudeModel
+	execution, err := NormalizeExecutionOptions(opts.Execution)
+	if err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(opts.GeminiModel) == "" {
-		opts.GeminiModel = DefaultGeminiModel
-	}
+	opts.Execution = execution
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
@@ -227,7 +227,7 @@ func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	if !opts.OpenBrowser && runtime.GOOS == "darwin" {
 		opts.OpenBrowser = true
 	}
-	return opts
+	return opts, nil
 }
 
 // prepareLayout creates the demo directory layout and allocates a loopback port.
@@ -403,14 +403,7 @@ func renderAssets(layout *demoLayout) error {
 
 // selectAdapter chooses the concrete adapter for the requested demo agent.
 func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
-	return selectAdapterForAgent(
-		opts.Agent,
-		opts.ClaudeModel,
-		opts.GeminiModel,
-		opts.CodexModel,
-		opts.CodexOllamaProfile,
-		opts.CodexConfigPath,
-	)
+	return selectAdapterForExecution(opts.Execution)
 }
 
 // startCentianProcess launches the demo-local Centian child process and returns a watcher channel.

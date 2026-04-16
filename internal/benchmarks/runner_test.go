@@ -46,7 +46,7 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
 			launches++
 			return &agentrunner.RunResult{
-				Agent:         opts.Agent,
+				Agent:         opts.Execution.Agent,
 				ArtifactRoot:  opts.ArtifactRoot,
 				WorkspacePath: opts.WorkspacePath,
 				StdoutPath:    filepath.Join(opts.ArtifactRoot, "agent.stdout.log"),
@@ -66,8 +66,11 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	}
 
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
-		SuitePath:         suiteRoot,
-		Agents:            []string{"codex", "claude"},
+		SuitePath: suiteRoot,
+		Executions: []agentrunner.AgentExecutionOptions{
+			{Agent: "codex"},
+			{Agent: "claude"},
+		},
 		Repeat:            2,
 		TemplateVariants:  []TemplateVariant{{Name: "a", SourceDir: templateA}, {Name: "b", SourceDir: templateB}},
 		OutputRoot:        outputRoot,
@@ -125,7 +128,7 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 			if strings.Contains(opts.ArtifactRoot, "compile_failure_red") {
 				return nil, errors.New("agent failed")
 			}
-			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+			return &agentrunner.RunResult{Agent: opts.Execution.Agent}, nil
 		},
 		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
 			RunID:      "tr_123",
@@ -142,7 +145,7 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
 		SuitePath:         suiteRoot,
 		CaseIDs:           []string{"compile_failure_red", "assertion_failure_red"},
-		Agents:            []string{"codex"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        outputRoot,
@@ -170,7 +173,7 @@ func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 		AllocatePort: func() (string, error) { return "40123", nil },
 		StartCentian: fakeStartCentian,
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
-			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+			return &agentrunner.RunResult{Agent: opts.Execution.Agent}, nil
 		},
 		FetchTaskRuns: func(string) ([]persistence.TaskRunSummary, error) {
 			fetchCalls++
@@ -206,7 +209,7 @@ func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
 		SuitePath:         suiteRoot,
 		CaseIDs:           []string{"compile_failure_red"},
-		Agents:            []string{"codex"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        outputRoot,
@@ -235,7 +238,7 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 		StartCentian: fakeStartCentian,
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
 			return &agentrunner.RunResult{
-				Agent:         opts.Agent,
+				Agent:         opts.Execution.Agent,
 				SelectedModel: "local-oss",
 			}, nil
 		},
@@ -252,15 +255,17 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 	}
 
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
-		SuitePath:         suiteRoot,
-		CaseIDs:           []string{"compile_failure_red"},
-		Agents:            []string{agentrunner.AgentCodexOllama},
+		SuitePath: suiteRoot,
+		CaseIDs:   []string{"compile_failure_red"},
+		Executions: []agentrunner.AgentExecutionOptions{{
+			Agent:   agentrunner.AgentCodexOllama,
+			Profile: "local-oss",
+		}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        outputRoot,
 		Timeout:           time.Minute,
 		CentianBinaryPath: "/tmp/centian",
-		Models:            AgentModels{CodexOllamaProfile: "local-oss"},
 	})
 	assert.NilError(t, err)
 
@@ -280,7 +285,7 @@ func TestRunSuiteRejectsUnknownCase(t *testing.T) {
 	_, err := runner.RunSuite(context.Background(), &RunOptions{
 		SuitePath:         suiteRoot,
 		CaseIDs:           []string{"missing"},
-		Agents:            []string{"codex"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        t.TempDir(),
@@ -332,7 +337,7 @@ constraints:
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
 		SuitePath:         suiteRoot,
 		CaseIDs:           []string{"compile_failure_red"},
-		Agents:            []string{"codex"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        t.TempDir(),
@@ -354,7 +359,7 @@ func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
 		AllocatePort: func() (string, error) { return "40123", nil },
 		StartCentian: fakeStartCentian,
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
-			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+			return &agentrunner.RunResult{Agent: opts.Execution.Agent}, nil
 		},
 		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
 			RunID:      "tr_123",
@@ -375,7 +380,7 @@ func TestRunSuiteKeepsRunFileWhenBenchmarkPersistenceFails(t *testing.T) {
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
 		SuitePath:         suiteRoot,
 		CaseIDs:           []string{"compile_failure_red"},
-		Agents:            []string{"codex"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        t.TempDir(),
@@ -427,7 +432,7 @@ func TestRunSuitePersistsSessionToConfiguredEventStore(t *testing.T) {
 		AllocatePort: func() (string, error) { return "40123", nil },
 		StartCentian: fakeStartCentian,
 		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
-			return &agentrunner.RunResult{Agent: opts.Agent}, nil
+			return &agentrunner.RunResult{Agent: opts.Execution.Agent}, nil
 		},
 		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
 			RunID:      "tr_123",
@@ -444,7 +449,7 @@ func TestRunSuitePersistsSessionToConfiguredEventStore(t *testing.T) {
 	session, err := runner.RunSuite(context.Background(), &RunOptions{
 		SuitePath:         suiteRoot,
 		CaseIDs:           []string{"compile_failure_red"},
-		Agents:            []string{"codex"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
 		Repeat:            1,
 		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
 		OutputRoot:        outputRoot,
