@@ -40,29 +40,51 @@ func CopyDir(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() {
+		_ = root.Close()
+	}()
 
-	return fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	return copyRootTree(root.FS(), ".", dst)
+}
+
+func copyRootTree(srcFS fs.FS, walkPath, dst string) error {
+	targetDir := copyTargetPath(dst, walkPath)
+	if err := os.MkdirAll(targetDir, secureDirPerm); err != nil {
+		return err
+	}
+
+	entries, err := fs.ReadDir(srcFS, walkPath)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		childPath := entry.Name()
+		if walkPath != "." {
+			childPath = filepath.Join(walkPath, entry.Name())
 		}
-		target := copyTargetPath(dst, path)
 		if entry.IsDir() {
-			return os.MkdirAll(target, secureDirPerm)
+			if err := copyRootTree(srcFS, childPath, dst); err != nil {
+				return err
+			}
+			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		data, err := root.ReadFile(path)
+		data, err := fs.ReadFile(srcFS, childPath)
 		if err != nil {
 			return err
 		}
+		target := copyTargetPath(dst, childPath)
 		if err := os.MkdirAll(filepath.Dir(target), secureDirPerm); err != nil {
 			return err
 		}
-		return writeCopiedFile(target, data, info.Mode())
-	})
+		if err := writeCopiedFile(target, data, info.Mode()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CopyFile copies one file into the destination path, creating parent directories first.
