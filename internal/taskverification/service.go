@@ -2,6 +2,7 @@ package taskverification
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/identifiers"
 	tasktemplates "github.com/T4cceptor/centian/task-templates"
 )
 
@@ -303,4 +305,124 @@ func (s *Service) loadTemplatesFromDir(registry map[string]loadedTemplate) error
 		}
 	}
 	return nil
+}
+
+func newTaskRunID() string {
+	return identifiers.New(identifiers.KindTaskRun)
+}
+
+func newTaskEventID() string {
+	return identifiers.New(identifiers.KindTaskEvent)
+}
+
+func nowUnixMilli() int64 {
+	return time.Now().UTC().UnixMilli()
+}
+
+func mustMarshalPayload(payload map[string]any) json.RawMessage {
+	if len(payload) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
+func augmentTaskEventPayload(run *RunState, payload map[string]any) map[string]any {
+	if run == nil || run.Status == "" {
+		return payload
+	}
+
+	if payload == nil {
+		payload = make(map[string]any, 1)
+	} else {
+		cloned := make(map[string]any, len(payload)+1)
+		for key, value := range payload {
+			cloned[key] = value
+		}
+		payload = cloned
+	}
+	payload["status"] = string(run.Status)
+	return payload
+}
+
+// RecordTaskEvent appends one lifecycle event to the configured store.
+func (s *Service) RecordTaskEvent(
+	run *RunState,
+	sessionID,
+	principalID,
+	clientName,
+	clientVersion string,
+	sourcePhase TaskPhase,
+	sourceNodeKind WorkflowNodeKind,
+	resultingPhase TaskPhase,
+	resultingNodeKind WorkflowNodeKind,
+	eventType TaskEventType,
+	outcome TaskEventOutcome,
+	relatedActionRequestID string,
+	payload map[string]any,
+) error {
+	if s == nil || s.EventStore == nil || run == nil {
+		return nil
+	}
+	event := &TaskEvent{
+		ID:                     newTaskEventID(),
+		SchemaVersion:          1,
+		CreatedAtUnixMilli:     nowUnixMilli(),
+		TaskRunID:              run.RunID,
+		SessionID:              sessionID,
+		TemplateID:             run.TemplateID,
+		PrincipalID:            principalID,
+		ClientName:             clientName,
+		ClientVersion:          clientVersion,
+		PhasePath:              sourcePhase,
+		NodeKind:               sourceNodeKind,
+		ResultingPhasePath:     resultingPhase,
+		ResultingNodeKind:      resultingNodeKind,
+		EventType:              eventType,
+		Outcome:                outcome,
+		RelatedActionRequestID: relatedActionRequestID,
+		Payload:                mustMarshalPayload(augmentTaskEventPayload(run, payload)),
+	}
+	return s.EventStore.AppendTaskEvent(event)
+}
+
+// RecordActionEventTaskContext appends one task snapshot for an action event.
+func (s *Service) RecordActionEventTaskContext(run *RunState, requestID string, invocationPhase TaskPhase, invocationNodeKind WorkflowNodeKind) error {
+	if run == nil {
+		return nil
+	}
+	return s.RecordActionEventTaskContextForRunID(run.RunID, requestID, invocationPhase, invocationNodeKind)
+}
+
+// RecordActionEventTaskContextForRunID appends one task snapshot for an action event using an immutable run identifier.
+func (s *Service) RecordActionEventTaskContextForRunID(runID, requestID string, invocationPhase TaskPhase, invocationNodeKind WorkflowNodeKind) error {
+	if s == nil || s.EventStore == nil || runID == "" || requestID == "" {
+		return nil
+	}
+	return s.EventStore.AppendActionEventTaskContext(ActionEventTaskContext{
+		RequestID:           requestID,
+		TaskRunID:           runID,
+		InvocationPhasePath: invocationPhase,
+		InvocationNodeKind:  invocationNodeKind,
+		CreatedAtUnixMilli:  nowUnixMilli(),
+	})
+}
+
+// TaskEvents returns the currently recorded task lifecycle events.
+func (s *Service) TaskEvents() ([]TaskEvent, error) {
+	if s == nil || s.EventStore == nil {
+		return nil, nil
+	}
+	return s.EventStore.TaskEvents()
+}
+
+// ActionEventTaskContexts returns the currently recorded action-to-task links.
+func (s *Service) ActionEventTaskContexts() ([]ActionEventTaskContext, error) {
+	if s == nil || s.EventStore == nil {
+		return nil, nil
+	}
+	return s.EventStore.ActionEventTaskContexts()
 }
