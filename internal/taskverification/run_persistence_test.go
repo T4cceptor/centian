@@ -14,6 +14,8 @@ type captureRunStore struct {
 	lastCtx   context.Context
 }
 
+type testRunStoreContextKey struct{}
+
 func (s *captureRunStore) UpsertTaskRunSnapshot(ctx context.Context, snapshot *taskruns.PersistedRunSnapshot) error {
 	s.lastCtx = ctx
 	payload, err := json.Marshal(snapshot)
@@ -51,12 +53,13 @@ workflow:
 	store := &captureRunStore{}
 	service.RunStore = store
 
-	ctx := context.WithValue(context.Background(), struct{}{}, "request-scope")
+	key := testRunStoreContextKey{}
+	ctx := context.WithValue(context.Background(), key, "request-scope")
 	run, err := service.RegisterTask(ctx, "simple_tdd")
 	assert.NilError(t, err)
 	assert.Equal(t, run.TemplateID, "simple_tdd")
 	assert.Assert(t, store.lastCtx != nil)
-	assert.Equal(t, store.lastCtx.Value(struct{}{}), "request-scope")
+	assert.Equal(t, store.lastCtx.Value(key), "request-scope")
 }
 
 func TestRegisterAndPlanningPersistTaskRunSnapshots(t *testing.T) {
@@ -216,7 +219,7 @@ func TestStepFailurePersistsSnapshot(t *testing.T) {
 	result, err := service.StartStep(context.Background(), run, 1)
 	assert.NilError(t, err)
 	assert.Assert(t, !result.Passed)
-	assert.Equal(t, store.latest().Steps[0].Status, string(StepStatusFailed))
+	assert.Equal(t, store.latest().Steps[0].Status, string(StepStatusPending))
 	assert.Assert(t, store.latest().LastFailureMessage != "")
 }
 

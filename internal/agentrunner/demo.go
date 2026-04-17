@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,8 +14,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 const (
@@ -26,6 +26,8 @@ const (
 	AgentGemini = "gemini"
 	// AgentCodex is the supported public agent identifier for the Codex CLI.
 	AgentCodex = "codex"
+	// AgentCodexOllama is the supported public agent identifier for Codex OSS mode via Ollama.
+	AgentCodexOllama = "codex-ollama"
 	// DefaultClaudeModel is the default Claude model alias for demo runs.
 	DefaultClaudeModel = "sonnet"
 	// DefaultGeminiModel is the default Gemini model alias for demo runs.
@@ -38,13 +40,18 @@ const (
 	TaskTemplateFile = "guided_tdd_workflow.yaml"
 )
 
-var allocateFreePortFunc = allocateFreePort
-var processExistsFunc = processExists
+// allocateFreePortFunc is swappable in tests that need deterministic ports.
+var allocateFreePortFunc = common.AllocateFreePort
 
+// processExistsFunc is swappable in tests that simulate stale or live demo PID files.
+var processExistsFunc = common.ProcessExists
+
+// disposableDemoPaths are rebuilt on each demo run and are safe to remove when reusing a demo root.
 var disposableDemoPaths = []string{
 	"workspace",
 	"templates",
 	"config.json",
+	"prompt.yaml",
 	"prompt.md",
 	"centian.pid",
 	"claude_mcp_config.json",
@@ -52,11 +59,13 @@ var disposableDemoPaths = []string{
 	"codex_output.txt",
 }
 
+// allowedDemoRootEntries defines the expected top-level files in a reusable demo root.
 var allowedDemoRootEntries = map[string]struct{}{
 	"workspace":              {},
 	"templates":              {},
 	"logs":                   {},
 	"config.json":            {},
+	"prompt.yaml":            {},
 	"prompt.md":              {},
 	"agent.stdout.log":       {},
 	"agent.stderr.log":       {},
@@ -69,13 +78,10 @@ var allowedDemoRootEntries = map[string]struct{}{
 
 // DemoOptions configures a single demo run.
 type DemoOptions struct {
-	Agent             string
+	Execution         AgentExecutionOptions
 	RootPath          string
 	CentianBinaryPath string
 	Timeout           time.Duration
-	ClaudeModel       string
-	GeminiModel       string
-	CodexModel        string
 	OpenBrowser       bool
 	Stdout            io.Writer
 	Stderr            io.Writer
@@ -98,6 +104,7 @@ type DemoResult struct {
 // DemoRunner provisions and launches a self-contained Centian demo workspace.
 type DemoRunner struct{}
 
+// agentAdapter abstracts the per-agent config, environment, and command construction.
 type agentAdapter interface {
 	name() string
 	isAvailable() error
@@ -107,6 +114,7 @@ type agentAdapter interface {
 	env(*demoLayout) []string
 }
 
+// demoLayout contains all generated paths and URLs for one demo workspace.
 type demoLayout struct {
 	RootPath        string
 	WorkspacePath   string
@@ -130,7 +138,10 @@ type demoLayout struct {
 // RunDemo creates the demo workspace, starts Centian, launches the selected
 // agent, and leaves Centian running after the agent exits.
 func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
-	options := normalizeOptions(opts)
+	options, err := normalizeOptions(opts)
+	if err != nil {
+		return nil, err
+	}
 	layout, err := prepareLayout(options)
 	if err != nil {
 		return nil, err
@@ -179,7 +190,7 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 		UIPublicURL:   layout.BaseURL + "/ui/tasks",
 		MCPURL:        layout.MCPURL,
 		PID:           centianCmd.Process.Pid,
-		StopHint:      fmt.Sprintf("kill $(cat %s)", shellQuote(layout.PIDPath)),
+		StopHint:      fmt.Sprintf("kill $(cat %s)", common.ShellQuote(layout.PIDPath)),
 	}
 
 	if options.OpenBrowser && runtime.GOOS == "darwin" {
@@ -194,16 +205,19 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 	return result, nil
 }
 
-func normalizeOptions(opts *DemoOptions) *DemoOptions {
+// normalizeOptions fills omitted demo options with platform and agent defaults.
+func normalizeOptions(opts *DemoOptions) (*DemoOptions, error) {
+	if opts == nil {
+		return nil, fmt.Errorf("demo options are required")
+	}
 	if opts.Timeout <= 0 {
 		opts.Timeout = DefaultAgentTimeout
 	}
-	if strings.TrimSpace(opts.ClaudeModel) == "" {
-		opts.ClaudeModel = DefaultClaudeModel
+	execution, err := NormalizeExecutionOptions(opts.Execution)
+	if err != nil {
+		return nil, err
 	}
-	if strings.TrimSpace(opts.GeminiModel) == "" {
-		opts.GeminiModel = DefaultGeminiModel
-	}
+	opts.Execution = execution
 	if opts.Stdout == nil {
 		opts.Stdout = io.Discard
 	}
@@ -213,9 +227,10 @@ func normalizeOptions(opts *DemoOptions) *DemoOptions {
 	if !opts.OpenBrowser && runtime.GOOS == "darwin" {
 		opts.OpenBrowser = true
 	}
-	return opts
+	return opts, nil
 }
 
+// prepareLayout creates the demo directory layout and allocates a loopback port.
 func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	root := strings.TrimSpace(opts.RootPath)
 	if root == "" {
@@ -230,7 +245,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 		TemplatesPath:   filepath.Join(root, "templates"),
 		LogsPath:        filepath.Join(root, "logs"),
 		ConfigPath:      filepath.Join(root, "config.json"),
-		PromptPath:      filepath.Join(root, "prompt.md"),
+		PromptPath:      filepath.Join(root, "prompt.yaml"),
 		AgentStdoutPath: filepath.Join(root, "agent.stdout.log"),
 		AgentStderrPath: filepath.Join(root, "agent.stderr.log"),
 		InternalLogPath: filepath.Join(root, "logs", "internal.log"),
@@ -255,6 +270,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	return layout, nil
 }
 
+// prepareDemoRoot validates or initializes the chosen demo root before assets are rendered.
 func prepareDemoRoot(path string) error {
 	info, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -285,6 +301,7 @@ func prepareDemoRoot(path string) error {
 	return nil
 }
 
+// looksLikeDemoRoot reports whether an existing directory only contains expected demo artifacts.
 func looksLikeDemoRoot(entries []os.DirEntry) bool {
 	hasMarker := false
 	for _, entry := range entries {
@@ -299,6 +316,7 @@ func looksLikeDemoRoot(entries []os.DirEntry) bool {
 	return hasMarker
 }
 
+// ensureNoLiveDemoProcess prevents reusing a demo root that still has a live Centian child.
 func ensureNoLiveDemoProcess(pidPath string) error {
 	//nolint:gosec // pidPath is always the fixed centian.pid file inside the prepared demo root.
 	data, err := os.ReadFile(pidPath)
@@ -328,6 +346,7 @@ func ensureNoLiveDemoProcess(pidPath string) error {
 	return nil
 }
 
+// removeDisposableDemoAssets clears runtime-generated files while preserving durable logs.
 func removeDisposableDemoAssets(root string) error {
 	for _, relativePath := range disposableDemoPaths {
 		target := filepath.Join(root, relativePath)
@@ -338,6 +357,7 @@ func removeDisposableDemoAssets(root string) error {
 	return nil
 }
 
+// renderAssets writes the default config, prompt, and template assets into the demo workspace.
 func renderAssets(layout *demoLayout) error {
 	configTemplate, err := asset("centian_config.json")
 	if err != nil {
@@ -362,12 +382,12 @@ func renderAssets(layout *demoLayout) error {
 		return fmt.Errorf("write config.json: %w", err)
 	}
 
-	prompt, err := asset("prompt.md")
+	prompt, err := asset("prompt.yaml")
 	if err != nil {
 		return err
 	}
 	if err := os.WriteFile(layout.PromptPath, []byte(prompt), 0o600); err != nil {
-		return fmt.Errorf("write prompt.md: %w", err)
+		return fmt.Errorf("write prompt.yaml: %w", err)
 	}
 
 	template, err := asset(TaskTemplateFile)
@@ -381,11 +401,15 @@ func renderAssets(layout *demoLayout) error {
 	return nil
 }
 
+// selectAdapter chooses the concrete adapter for the requested demo agent.
 func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
-	return selectAdapterForAgent(opts.Agent, opts.ClaudeModel, opts.GeminiModel, opts.CodexModel)
+	return selectAdapterForExecution(opts.Execution)
 }
 
+// startCentianProcess launches the demo-local Centian child process and returns a watcher channel.
 func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {
+	// This stays package-local because the demo flow needs its own process watcher
+	// and layout-specific wiring around the shared readiness helpers.
 	binary := strings.TrimSpace(opts.CentianBinaryPath)
 	if binary == "" {
 		return nil, nil, fmt.Errorf("centian binary path is required")
@@ -412,14 +436,15 @@ func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-ch
 	return cmd, errCh, nil
 }
 
+// writePID records the child Centian process ID for reuse and shutdown flows.
 func writePID(path string, pid int) error {
-	return os.WriteFile(path, []byte(strconv.Itoa(pid)+"\n"), 0o600)
+	return common.WritePIDFile(path, pid)
 }
 
+// waitForCentian blocks until both the MCP and JSON API endpoints are serving successfully.
 func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(45 * time.Second)
-	for time.Now().Before(deadline) {
+	err := common.WaitForReadiness(client, 45*time.Second, 500*time.Millisecond, func() error {
 		select {
 		case err := <-errCh:
 			if err == nil {
@@ -427,19 +452,28 @@ func waitForCentian(layout *demoLayout, errCh <-chan error) error {
 			}
 			return fmt.Errorf("centian exited before becoming ready: %w", err)
 		default:
-		}
-		if isEndpointReachable(client, layout.MCPURL) && isJSONEndpointReady(client, layout.BaseURL+"/api/task-runs") {
 			return nil
 		}
-		time.Sleep(500 * time.Millisecond)
+	}, func(client *http.Client) bool {
+		return common.IsEndpointReachable(client, layout.MCPURL) &&
+			common.IsJSONEndpointReady(client, layout.BaseURL+"/api/task-runs")
+	})
+	if errors.Is(err, common.ErrReadinessTimeout) {
+		return fmt.Errorf("centian did not become ready in time; inspect %s", layout.InternalLogPath)
 	}
-	return fmt.Errorf("centian did not become ready in time; inspect %s", layout.InternalLogPath)
+	return err
 }
 
+// runAgent loads the saved prompt file and executes the selected agent against the demo MCP server.
 func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opts *DemoOptions) error {
-	return runAgentPrompt(ctx, adapter, layout, loadPrompt(layout.PromptPath), opts.Stdout, opts.Stderr, opts.Timeout)
+	prompt, err := common.LoadPromptDefinition(layout.PromptPath)
+	if err != nil {
+		return err
+	}
+	return runAgentPrompt(ctx, adapter, layout, prompt.Prompt, opts.Stdout, opts.Stderr, opts.Timeout)
 }
 
+// runAgentPrompt executes one agent command, mirrors logs, and returns trimmed failure output.
 func runAgentPrompt(
 	ctx context.Context,
 	adapter agentAdapter,
@@ -484,7 +518,7 @@ func runAgentPrompt(
 		if ctx.Err() != nil {
 			return fmt.Errorf("agent timed out after %s", timeout)
 		}
-		return fmt.Errorf("agent failed: %w\nstdout:\n%s\nstderr:\n%s", err, trimOutput(stdout.String()), trimOutput(stderr.String()))
+		return fmt.Errorf("agent failed: %w\nstdout:\n%s\nstderr:\n%s", err, common.TrimOutput(stdout.String()), common.TrimOutput(stderr.String()))
 	}
 	if stdoutMirror != nil && stdout.Len() > 0 {
 		_, _ = io.Copy(stdoutMirror, &stdout)
@@ -495,6 +529,7 @@ func runAgentPrompt(
 	return nil
 }
 
+// openAgentLog appends a run separator and opens the log file for one agent stream.
 func openAgentLog(path, agentName string) (*os.File, error) {
 	//nolint:gosec // path is a fixed log file path generated by the internal demo layout.
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -513,80 +548,7 @@ func openAgentLog(path, agentName string) (*os.File, error) {
 	return file, nil
 }
 
-func loadPrompt(path string) string {
-	//nolint:gosec // The prompt file path is generated inside the demo workspace layout.
-	data, _ := os.ReadFile(path)
-	return string(data)
-}
-
-func isEndpointReachable(client *http.Client, endpoint string) bool {
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	return resp.StatusCode < 500
-}
-
-func isJSONEndpointReady(client *http.Client, endpoint string) bool {
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
-	return resp.StatusCode == http.StatusOK
-}
-
-func allocateFreePort() (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("allocate port: %w", err)
-	}
-	defer func() {
-		_ = listener.Close()
-	}()
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		return "", fmt.Errorf("split host port: %w", err)
-	}
-	return port, nil
-}
-
-func trimOutput(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) > 4000 {
-		return value[:4000] + "\n...truncated..."
-	}
-	return value
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
-}
-
-func processExists(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = process.Signal(syscall.Signal(0))
-	if err == nil {
-		return true
-	}
-	if errors.Is(err, os.ErrProcessDone) {
-		return false
-	}
-	var errno syscall.Errno
-	return errors.As(err, &errno) && errno == syscall.EPERM
-}
-
+// printDemoStatus emits the key paths and URLs the user needs after the demo is ready.
 func printDemoStatus(w io.Writer, result *DemoResult) {
 	if w == nil || result == nil {
 		return

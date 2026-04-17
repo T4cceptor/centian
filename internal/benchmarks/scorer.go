@@ -1,28 +1,19 @@
 package benchmarks
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/T4cceptor/centian/internal/config"
-	"github.com/T4cceptor/centian/internal/persistence"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 const (
 	manualScoreFileName = "manual_score.json"
 	scoreVersion        = "v1"
 )
-
-// ScoreOptions configures scoring for one preserved benchmark session.
-type ScoreOptions struct {
-	SessionPath string
-}
 
 // ManualScoreInput stores optional reviewer-supplied scoring inputs.
 type ManualScoreInput struct {
@@ -181,6 +172,8 @@ type RunSummaryRow struct {
 	TimeoutOccurred           bool           `json:"timeoutOccurred"`
 	WallClockSeconds          float64        `json:"wallClockSeconds"`
 	TotalToolCalls            int            `json:"totalToolCalls"`
+	TotalTaskToolCalls        int            `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls  int            `json:"totalDownstreamToolCalls"`
 	InputTokens               *int64         `json:"inputTokens,omitempty"`
 	OutputTokens              *int64         `json:"outputTokens,omitempty"`
 	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
@@ -213,76 +206,22 @@ type AggregateSummary struct {
 	MedianFailedTaskToolCalls       float64  `json:"medianFailedTaskToolCalls"`
 	MedianFailedDownstreamToolCalls float64  `json:"medianFailedDownstreamToolCalls"`
 	MedianEditedFilesCount          float64  `json:"medianEditedFilesCount"`
+	TotalTaskToolCalls              int      `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls        int      `json:"totalDownstreamToolCalls"`
 	ManualActionabilityCount        int      `json:"manualActionabilityCount"`
 	AverageManualActionabilityScore *float64 `json:"averageManualActionabilityScore,omitempty"`
 }
 
-// Scorer computes benchmark scorecards and session summaries from preserved artifacts.
-type Scorer struct {
-	Now func() time.Time
-}
-
+// scoreRunContext holds the resolved case definition and fixture root for scoring.
 type scoreRunContext struct {
 	caseDef  *CaseDefinition
 	caseRoot string
 }
 
-// NewScorer returns a benchmark scorer with default local behavior.
-func NewScorer() *Scorer {
-	return &Scorer{Now: time.Now}
-}
-
-// ScoreSession computes derived scorecards for one preserved benchmark session.
-func (s *Scorer) ScoreSession(_ context.Context, opts *ScoreOptions) (*SessionSummary, error) {
-	s = s.withDefaults()
-	if opts == nil {
-		return nil, fmt.Errorf("score options are required")
-	}
-	sessionDir := strings.TrimSpace(opts.SessionPath)
-	if sessionDir == "" {
-		return nil, fmt.Errorf("session path is required")
-	}
-	sessionDir, err := filepath.Abs(sessionDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve session path: %w", err)
-	}
-	info, err := os.Stat(sessionDir)
-	if err != nil {
-		return nil, fmt.Errorf("stat session path: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("session path %q must be a directory", sessionDir)
-	}
-
-	session, err := loadSessionManifest(sessionDir)
-	if err != nil {
-		return nil, err
-	}
-	storePath := eventStorePathForSession(session)
-	store, err := persistence.NewSQLiteStore(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = store.Close() }()
-
-	query := NewQueryService(store)
-	query.now = s.Now
-	return query.ScoreSessionManifest(context.Background(), session)
-}
-
-func (s *Scorer) withDefaults() *Scorer {
-	if s == nil {
-		return NewScorer()
-	}
-	if s.Now == nil {
-		s.Now = time.Now
-	}
-	return s
-}
-
+// loadSessionManifest reads and minimally validates a preserved benchmark session manifest.
 func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 	var session SessionManifest
-	if err := readJSONFile(filepath.Join(sessionDir, sessionFileName), &session); err != nil {
+	if err := common.ReadJSONFile(filepath.Join(sessionDir, sessionFileName), &session); err != nil {
 		return nil, fmt.Errorf("load session manifest: %w", err)
 	}
 	if strings.TrimSpace(session.SuiteID) == "" {
@@ -294,26 +233,7 @@ func loadSessionManifest(sessionDir string) (*SessionManifest, error) {
 	return &session, nil
 }
 
-func eventStorePathForSession(session *SessionManifest) string {
-	if session != nil {
-		for idx := range session.Runs {
-			runPath := filepath.Join(session.InvocationDir, session.Runs[idx].RelativeRunDir, runFileName)
-			run, err := loadRunManifest(runPath)
-			if err != nil {
-				continue
-			}
-			if trimmed := strings.TrimSpace(run.ArtifactPaths.EventStorePath); trimmed != "" {
-				return trimmed
-			}
-		}
-	}
-	storePath, err := config.ResolveEventStorePath(nil)
-	if err != nil {
-		return ""
-	}
-	return storePath
-}
-
+// loadCaseContexts expands each suite case into the data needed for scoring helpers.
 func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scoreRunContext, error) {
 	result := make(map[string]scoreRunContext, len(suite.Cases))
 	for _, ref := range suite.Cases {
@@ -330,77 +250,7 @@ func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scor
 	return result, nil
 }
 
-func secondsBetween(start time.Time, end time.Time) float64 {
-	if start.IsZero() || end.IsZero() || end.Before(start) {
-		return 0
-	}
-	return end.Sub(start).Seconds()
-}
-
-func buildRunSummaryRow(entry SessionRunManifestEntry, run *RunManifest, scorecard *RunScorecard, errors []string, warnings []string) RunSummaryRow {
-	row := RunSummaryRow{
-		SessionPath:     scorecardSessionPath(run, scorecard),
-		CaseID:          entry.CaseID,
-		Agent:           entry.AgentID,
-		TemplateVariant: entry.TemplateVariant,
-		Attempt:         entry.Attempt,
-		Errors:          append([]string(nil), errors...),
-		Warnings:        append([]string(nil), warnings...),
-	}
-	if run != nil {
-		row.RawStatus = run.Status
-		row.SelectedModel = strings.TrimSpace(run.SelectedModel)
-		row.EventStoreMode = run.ArtifactPaths.EventStoreMode
-		row.EventStorePath = run.ArtifactPaths.EventStorePath
-		row.LatestTaskRunID = run.LatestTaskRunID
-		row.LinkedTaskRunIDs = append([]string(nil), run.LinkedTaskRunIDs...)
-	}
-	if scorecard == nil {
-		return row
-	}
-	row.Scored = true
-	row.SessionPath = scorecard.SessionPath
-	row.SelectedModel = scorecard.SelectedModel
-	row.EventStoreMode = scorecard.EventStoreMode
-	row.EventStorePath = scorecard.EventStorePath
-	row.RawStatus = scorecard.RawStatus
-	row.LatestTaskRunID = scorecard.LatestTaskRunID
-	row.LinkedTaskRunIDs = append([]string(nil), scorecard.LinkedTaskRunIDs...)
-	row.CompletedSuccessfully = scorecard.Outcome.CompletedSuccessfully
-	row.FinalVerificationPassed = scorecard.Outcome.FinalVerificationPassed
-	row.FirstPassSuccess = scorecard.Outcome.FirstPassSuccess
-	row.InvariantViolation = scorecard.Outcome.InvariantViolation
-	row.RestartOccurred = scorecard.Outcome.RestartOccurred
-	row.FailOccurred = scorecard.Outcome.FailOccurred
-	row.TimeoutOccurred = scorecard.Outcome.TimeoutOccurred
-	row.WallClockSeconds = scorecard.Efficiency.WallClockSeconds
-	row.TotalToolCalls = scorecard.Efficiency.TotalToolCalls
-	row.InputTokens = scorecard.Efficiency.InputTokens
-	row.OutputTokens = scorecard.Efficiency.OutputTokens
-	row.FailedTaskToolCalls = scorecard.Process.FailedTaskToolCalls
-	row.FailedDownstreamToolCalls = scorecard.Process.FailedDownstreamToolCalls
-	row.EditedFilesCount = scorecard.Efficiency.EditedFilesCount
-	row.ErrorActionabilityScore = scorecard.Manual.ErrorActionabilityScore
-	row.AgentMetadata = scorecard.AgentMetadata
-	row.Warnings = append(row.Warnings, scorecard.Warnings...)
-	row.Errors = append(row.Errors, scorecard.Errors...)
-	return row
-}
-
-func scorecardSessionPath(run *RunManifest, scorecard *RunScorecard) string {
-	if scorecard != nil {
-		return scorecard.SessionPath
-	}
-	if run == nil || strings.TrimSpace(run.ArtifactPaths.RunDir) == "" {
-		return ""
-	}
-	sessionPath := filepath.Clean(run.ArtifactPaths.RunDir)
-	for i := 0; i < 5; i++ {
-		sessionPath = filepath.Dir(sessionPath)
-	}
-	return sessionPath
-}
-
+// compareRunRows provides stable ordering for session and comparison run tables.
 func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {
 	if a.TemplateVariant != b.TemplateVariant {
 		return a.TemplateVariant < b.TemplateVariant
@@ -414,6 +264,7 @@ func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {
 	return a.Attempt < b.Attempt
 }
 
+// buildAggregates computes the standard aggregate groupings used across benchmark views.
 func buildAggregates(rows []RunSummaryRow) SessionSummaryAggregates {
 	return SessionSummaryAggregates{
 		ByCase:  aggregateRows(rows, func(row RunSummaryRow) aggregateKey { return aggregateKey{Key: row.CaseID, CaseID: row.CaseID} }),
@@ -430,6 +281,7 @@ func buildAggregates(rows []RunSummaryRow) SessionSummaryAggregates {
 	}
 }
 
+// aggregateKey preserves group identity plus dimensions needed in the aggregate output.
 type aggregateKey struct {
 	SessionPath     string
 	Key             string
@@ -438,6 +290,7 @@ type aggregateKey struct {
 	TemplateVariant string
 }
 
+// aggregateRows groups run rows by key and derives rollup metrics for each group.
 func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey) []AggregateSummary {
 	grouped := map[string][]RunSummaryRow{}
 	keys := map[string]aggregateKey{}
@@ -448,29 +301,52 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 	}
 	summaries := make([]AggregateSummary, 0, len(grouped))
 	for key, group := range grouped {
+		scoredGroup := filterScoredRows(group)
 		summary := AggregateSummary{
-			Key:                             key,
-			SessionPath:                     keys[key].SessionPath,
-			CaseID:                          keys[key].CaseID,
-			Agent:                           keys[key].Agent,
-			TemplateVariant:                 keys[key].TemplateVariant,
-			RunCount:                        len(group),
-			ScoredRunCount:                  len(group),
-			SuccessRate:                     rate(group, func(row RunSummaryRow) bool { return row.CompletedSuccessfully }),
-			FirstPassSuccessRate:            rate(group, func(row RunSummaryRow) bool { return row.FirstPassSuccess }),
-			FinalVerificationPassRate:       rate(group, func(row RunSummaryRow) bool { return row.FinalVerificationPassed }),
-			InvariantViolationRate:          rate(group, func(row RunSummaryRow) bool { return row.InvariantViolation }),
-			RestartFailTimeoutRate:          rate(group, func(row RunSummaryRow) bool { return row.RestartOccurred || row.FailOccurred || row.TimeoutOccurred }),
-			MedianWallClockSeconds:          medianFloat(extractFloat(group, func(row RunSummaryRow) float64 { return row.WallClockSeconds })),
-			MedianTotalToolCalls:            medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.TotalToolCalls })),
-			MedianInputTokens:               medianFloat(extractOptionalInt64(group, func(row RunSummaryRow) *int64 { return row.InputTokens })),
-			MedianOutputTokens:              medianFloat(extractOptionalInt64(group, func(row RunSummaryRow) *int64 { return row.OutputTokens })),
-			MedianFailedTaskToolCalls:       medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.FailedTaskToolCalls })),
-			MedianFailedDownstreamToolCalls: medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.FailedDownstreamToolCalls })),
-			MedianEditedFilesCount:          medianFloat(extractInt(group, func(row RunSummaryRow) int { return row.EditedFilesCount })),
-			ManualActionabilityCount:        count(group, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
+			Key:                       key,
+			SessionPath:               keys[key].SessionPath,
+			CaseID:                    keys[key].CaseID,
+			Agent:                     keys[key].Agent,
+			TemplateVariant:           keys[key].TemplateVariant,
+			RunCount:                  len(group),
+			ScoredRunCount:            len(scoredGroup),
+			SuccessRate:               rate(scoredGroup, func(row RunSummaryRow) bool { return row.CompletedSuccessfully }),
+			FirstPassSuccessRate:      rate(scoredGroup, func(row RunSummaryRow) bool { return row.FirstPassSuccess }),
+			FinalVerificationPassRate: rate(scoredGroup, func(row RunSummaryRow) bool { return row.FinalVerificationPassed }),
+			InvariantViolationRate:    rate(scoredGroup, func(row RunSummaryRow) bool { return row.InvariantViolation }),
+			RestartFailTimeoutRate:    rate(scoredGroup, func(row RunSummaryRow) bool { return row.RestartOccurred || row.FailOccurred || row.TimeoutOccurred }),
+			MedianWallClockSeconds: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				return row.WallClockSeconds, true
+			})),
+			MedianTotalToolCalls: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				return float64(row.TotalToolCalls), true
+			})),
+			MedianInputTokens: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				if row.InputTokens == nil {
+					return 0, false
+				}
+				return float64(*row.InputTokens), true
+			})),
+			MedianOutputTokens: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				if row.OutputTokens == nil {
+					return 0, false
+				}
+				return float64(*row.OutputTokens), true
+			})),
+			MedianFailedTaskToolCalls: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				return float64(row.FailedTaskToolCalls), true
+			})),
+			MedianFailedDownstreamToolCalls: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				return float64(row.FailedDownstreamToolCalls), true
+			})),
+			MedianEditedFilesCount: common.MedianFloat(collectFloat64(scoredGroup, func(row RunSummaryRow) (float64, bool) {
+				return float64(row.EditedFilesCount), true
+			})),
+			TotalTaskToolCalls:       sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalTaskToolCalls }),
+			TotalDownstreamToolCalls: sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalDownstreamToolCalls }),
+			ManualActionabilityCount: common.CountBy(scoredGroup, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
 		}
-		if avg, ok := averageManualScore(group); ok {
+		if avg, ok := averageManualScore(scoredGroup); ok {
 			summary.AverageManualActionabilityScore = &avg
 		}
 		summaries = append(summaries, summary)
@@ -479,63 +355,48 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 	return summaries
 }
 
+// filterScoredRows drops runs that never produced a usable score snapshot.
+func filterScoredRows(rows []RunSummaryRow) []RunSummaryRow {
+	scored := make([]RunSummaryRow, 0, len(rows))
+	for _, row := range rows {
+		if row.Scored {
+			scored = append(scored, row)
+		}
+	}
+	return scored
+}
+
+// rate computes the fraction of rows matching predicate.
 func rate(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) float64 {
 	if len(rows) == 0 {
 		return 0
 	}
-	return float64(count(rows, predicate)) / float64(len(rows))
+	return float64(common.CountBy(rows, predicate)) / float64(len(rows))
 }
 
-func count(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) int {
+// collectFloat64 projects rows into float64 values while allowing callers to skip entries.
+func collectFloat64[T any](rows []T, project func(T) (float64, bool)) []float64 {
+	values := make([]float64, 0, len(rows))
+	for _, row := range rows {
+		value, ok := project(row)
+		if !ok {
+			continue
+		}
+		values = append(values, value)
+	}
+	return values
+}
+
+// sumIntRows sums one integer field across rows.
+func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
 	total := 0
 	for _, row := range rows {
-		if predicate(row) {
-			total++
-		}
+		total += valueFn(row)
 	}
 	return total
 }
 
-func extractInt(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) []float64 {
-	values := make([]float64, 0, len(rows))
-	for _, row := range rows {
-		values = append(values, float64(valueFn(row)))
-	}
-	return values
-}
-
-func extractFloat(rows []RunSummaryRow, valueFn func(RunSummaryRow) float64) []float64 {
-	values := make([]float64, 0, len(rows))
-	for _, row := range rows {
-		values = append(values, valueFn(row))
-	}
-	return values
-}
-
-func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int64) []float64 {
-	values := make([]float64, 0, len(rows))
-	for _, row := range rows {
-		value := valueFn(row)
-		if value == nil {
-			continue
-		}
-		values = append(values, float64(*value))
-	}
-	return values
-}
-
-func medianFloat(values []float64) float64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sort.Float64s(values)
-	mid := len(values) / 2
-	if len(values)%2 == 1 {
-		return values[mid]
-	}
-	return (values[mid-1] + values[mid]) / 2
-}
-
+// averageManualScore computes the average reviewer actionability score when present.
 func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 	total := 0
 	count := 0
@@ -552,6 +413,7 @@ func averageManualScore(rows []RunSummaryRow) (float64, bool) {
 	return float64(total) / float64(count), true
 }
 
+// agentUsageInputTokens returns normalized input tokens from parsed agent metadata.
 func agentUsageInputTokens(metadata *AgentMetadata) *int64 {
 	if metadata == nil {
 		return nil
@@ -559,17 +421,10 @@ func agentUsageInputTokens(metadata *AgentMetadata) *int64 {
 	return metadata.Usage.InputTokens
 }
 
+// agentUsageOutputTokens returns normalized output tokens from parsed agent metadata.
 func agentUsageOutputTokens(metadata *AgentMetadata) *int64 {
 	if metadata == nil {
 		return nil
 	}
 	return metadata.Usage.OutputTokens
-}
-
-func readJSONFile(path string, target any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, target)
 }

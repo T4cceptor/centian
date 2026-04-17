@@ -8,11 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
+// loadManualScore reads optional reviewer input and validates supported fields.
 func loadManualScore(path string) (*ManualScoreInput, string, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -21,7 +24,7 @@ func loadManualScore(path string) (*ManualScoreInput, string, error) {
 		return nil, "", err
 	}
 	var manual ManualScoreInput
-	if err := readJSONFile(path, &manual); err != nil {
+	if err := common.ReadJSONFile(path, &manual); err != nil {
 		return nil, "", fmt.Errorf("load manual score input: %w", err)
 	}
 	if manual.ErrorActionabilityScore != nil {
@@ -37,6 +40,7 @@ func loadManualScore(path string) (*ManualScoreInput, string, error) {
 	return &manual, path, nil
 }
 
+// loadAgentMetadata dispatches to the agent-specific log parser for one run.
 func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -45,12 +49,13 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 		return nil, nil, err
 	}
 	switch agentID {
-	case "claude":
+	case agentrunner.AgentClaude:
 		metadata, err := loadClaudeAgentMetadata(path)
 		return metadata, nil, err
-	case "codex":
+	case agentrunner.AgentCodex, agentrunner.AgentCodexOllama:
 		metadata, err := loadCodexAgentMetadata(path)
 		return metadata, nil, err
+	// TODO: missing gemini?
 	default:
 		return &AgentMetadata{
 			Format:  agentID,
@@ -59,6 +64,7 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 	}
 }
 
+// loadClaudeAgentMetadata reads the last Claude result payload from a JSONL log.
 func loadClaudeAgentMetadata(path string) (*AgentMetadata, error) {
 	lines, err := readNonEmptyLines(path)
 	if err != nil {
@@ -70,23 +76,24 @@ func loadClaudeAgentMetadata(path string) (*AgentMetadata, error) {
 		if json.Unmarshal([]byte(line), &payload) != nil {
 			continue
 		}
-		if stringValue(payload["type"]) != "result" {
+		if common.StringValue(payload["type"]) != "result" {
 			continue
 		}
 		return &AgentMetadata{
 			Format:               "claude_result",
 			LogPath:              path,
-			SessionID:            stringValue(payload["session_id"]),
-			NumTurns:             intPtrFromAny(payload["num_turns"]),
-			DurationMilliseconds: int64PtrFromAny(payload["duration_ms"]),
-			TotalCostUSD:         float64PtrFromAny(payload["total_cost_usd"]),
-			Usage:                parseAgentUsageMap(anyMap(payload["usage"])),
-			ModelUsage:           parseClaudeModelUsage(anyMap(payload["modelUsage"])),
+			SessionID:            common.StringValue(payload["session_id"]),
+			NumTurns:             common.IntPtrFromAny(payload["num_turns"]),
+			DurationMilliseconds: common.Int64PtrFromAny(payload["duration_ms"]),
+			TotalCostUSD:         common.Float64PtrFromAny(payload["total_cost_usd"]),
+			Usage:                parseAgentUsageMap(common.AnyMap(payload["usage"])),
+			ModelUsage:           parseClaudeModelUsage(common.AnyMap(payload["modelUsage"])),
 		}, nil
 	}
 	return &AgentMetadata{Format: "claude_result", LogPath: path}, nil
 }
 
+// loadCodexAgentMetadata extracts thread and token usage data from Codex JSONL output.
 func loadCodexAgentMetadata(path string) (*AgentMetadata, error) {
 	lines, err := readNonEmptyLines(path)
 	if err != nil {
@@ -101,16 +108,17 @@ func loadCodexAgentMetadata(path string) (*AgentMetadata, error) {
 		if json.Unmarshal([]byte(line), &payload) != nil {
 			continue
 		}
-		switch stringValue(payload["type"]) {
+		switch common.StringValue(payload["type"]) {
 		case "thread.started":
-			metadata.ThreadID = stringValue(payload["thread_id"])
+			metadata.ThreadID = common.StringValue(payload["thread_id"])
 		case "turn.completed":
-			metadata.Usage = parseCodexUsageMap(anyMap(payload["usage"]))
+			metadata.Usage = parseCodexUsageMap(common.AnyMap(payload["usage"]))
 		}
 	}
 	return metadata, nil
 }
 
+// detectInvariantViolation reports whether any locked fixture path changed during the run.
 func detectInvariantViolation(seedRoot string, projectRoot string, lockedPaths []string) (bool, error) {
 	for _, lockedPath := range lockedPaths {
 		seedBytes, err := os.ReadFile(filepath.Join(seedRoot, lockedPath))
@@ -131,6 +139,7 @@ func detectInvariantViolation(seedRoot string, projectRoot string, lockedPaths [
 	return false, nil
 }
 
+// collectEditedFiles returns the relative file paths that differ from the seed fixture.
 func collectEditedFiles(seedRoot string, projectRoot string) ([]string, error) {
 	seedFiles, err := collectRelativeFiles(seedRoot)
 	if err != nil {
@@ -159,6 +168,7 @@ func collectEditedFiles(seedRoot string, projectRoot string) ([]string, error) {
 	return edited, nil
 }
 
+// collectRelativeFiles snapshots every file under root keyed by slash-normalized relative path.
 func collectRelativeFiles(root string) (map[string][]byte, error) {
 	files := map[string][]byte{}
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -182,6 +192,7 @@ func collectRelativeFiles(root string) (map[string][]byte, error) {
 	return files, err
 }
 
+// readNonEmptyLines returns trimmed log lines while skipping separators and blanks.
 func readNonEmptyLines(path string) ([]string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -204,125 +215,41 @@ func readNonEmptyLines(path string) ([]string, error) {
 	return lines, nil
 }
 
+// parseAgentUsageMap normalizes Claude-style usage payload fields.
 func parseAgentUsageMap(payload map[string]any) AgentUsageMetadata {
 	return AgentUsageMetadata{
-		InputTokens:              int64PtrFromAny(payload["input_tokens"]),
-		OutputTokens:             int64PtrFromAny(payload["output_tokens"]),
-		CachedInputTokens:        int64PtrFromAny(payload["cached_input_tokens"]),
-		CacheCreationInputTokens: int64PtrFromAny(payload["cache_creation_input_tokens"]),
-		CacheReadInputTokens:     int64PtrFromAny(payload["cache_read_input_tokens"]),
+		InputTokens:              common.Int64PtrFromAny(payload["input_tokens"]),
+		OutputTokens:             common.Int64PtrFromAny(payload["output_tokens"]),
+		CachedInputTokens:        common.Int64PtrFromAny(payload["cached_input_tokens"]),
+		CacheCreationInputTokens: common.Int64PtrFromAny(payload["cache_creation_input_tokens"]),
+		CacheReadInputTokens:     common.Int64PtrFromAny(payload["cache_read_input_tokens"]),
 	}
 }
 
+// parseCodexUsageMap normalizes Codex usage payload fields.
 func parseCodexUsageMap(payload map[string]any) AgentUsageMetadata {
 	return AgentUsageMetadata{
-		InputTokens:       int64PtrFromAny(payload["input_tokens"]),
-		OutputTokens:      int64PtrFromAny(payload["output_tokens"]),
-		CachedInputTokens: int64PtrFromAny(payload["cached_input_tokens"]),
+		InputTokens:       common.Int64PtrFromAny(payload["input_tokens"]),
+		OutputTokens:      common.Int64PtrFromAny(payload["output_tokens"]),
+		CachedInputTokens: common.Int64PtrFromAny(payload["cached_input_tokens"]),
 	}
 }
 
+// parseClaudeModelUsage normalizes Claude's per-model usage map when present.
 func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
 	if len(payload) == 0 {
 		return nil
 	}
 	result := make(map[string]AgentModelUsage, len(payload))
 	for modelName, raw := range payload {
-		fields := anyMap(raw)
+		fields := common.AnyMap(raw)
 		result[modelName] = AgentModelUsage{
-			InputTokens:              int64PtrFromAny(fields["inputTokens"]),
-			OutputTokens:             int64PtrFromAny(fields["outputTokens"]),
-			CacheReadInputTokens:     int64PtrFromAny(fields["cacheReadInputTokens"]),
-			CacheCreationInputTokens: int64PtrFromAny(fields["cacheCreationInputTokens"]),
-			CostUSD:                  float64PtrFromAny(fields["costUSD"]),
+			InputTokens:              common.Int64PtrFromAny(fields["inputTokens"]),
+			OutputTokens:             common.Int64PtrFromAny(fields["outputTokens"]),
+			CacheReadInputTokens:     common.Int64PtrFromAny(fields["cacheReadInputTokens"]),
+			CacheCreationInputTokens: common.Int64PtrFromAny(fields["cacheCreationInputTokens"]),
+			CostUSD:                  common.Float64PtrFromAny(fields["costUSD"]),
 		}
 	}
 	return result
-}
-
-func anyMap(value any) map[string]any {
-	if value == nil {
-		return nil
-	}
-	typed, ok := value.(map[string]any)
-	if ok {
-		return typed
-	}
-	return nil
-}
-
-func stringValue(value any) string {
-	typed, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return typed
-}
-
-func intPtrFromAny(value any) *int {
-	if parsed, ok := parseInt64(value); ok {
-		result := int(parsed)
-		return &result
-	}
-	return nil
-}
-
-func int64PtrFromAny(value any) *int64 {
-	if parsed, ok := parseInt64(value); ok {
-		return &parsed
-	}
-	return nil
-}
-
-func float64PtrFromAny(value any) *float64 {
-	switch typed := value.(type) {
-	case float64:
-		return &typed
-	case float32:
-		result := float64(typed)
-		return &result
-	case int:
-		result := float64(typed)
-		return &result
-	case int64:
-		result := float64(typed)
-		return &result
-	case json.Number:
-		parsed, err := typed.Float64()
-		if err == nil {
-			return &parsed
-		}
-	case string:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
-		if err == nil {
-			return &parsed
-		}
-	}
-	return nil
-}
-
-func parseInt64(value any) (int64, bool) {
-	switch typed := value.(type) {
-	case int:
-		return int64(typed), true
-	case int32:
-		return int64(typed), true
-	case int64:
-		return typed, true
-	case float64:
-		return int64(typed), true
-	case float32:
-		return int64(typed), true
-	case json.Number:
-		parsed, err := typed.Int64()
-		if err == nil {
-			return parsed, true
-		}
-	case string:
-		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
-		if err == nil {
-			return parsed, true
-		}
-	}
-	return 0, false
 }

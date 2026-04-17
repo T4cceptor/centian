@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -43,20 +43,55 @@ describe("benchmark routes", () => {
         return Promise.resolve(
           createFetchResponse([
             {
-              templateId: "simple_tdd",
-              templateName: "Simple TDD Task",
-              runCount: 15,
-              totalTaskToolCalls: 675,
-              totalDownstreamToolCalls: 225,
-              medianTaskToolCalls: 45,
-              medianDownstreamToolCalls: 15,
-              totalCentianErrors: 45,
-              totalDownstreamToolErrors: 15,
-              medianCentianErrors: 3,
-              medianDownstreamToolErrors: 1,
+              templateKey: "zeta_template",
+              templateId: "zeta_template",
+              templateName: "Zeta Template",
+              runCount: 3,
+              totalTaskToolCalls: 5,
+              totalDownstreamToolCalls: 2,
+              medianTaskToolCalls: 3,
+              medianDownstreamToolCalls: 1,
+              totalCentianErrors: 4,
+              totalDownstreamToolErrors: 0,
+              medianCentianErrors: 2,
+              medianDownstreamToolErrors: 0,
+              medianDurationMillis: 70000,
+              successRate: 0.9,
+              firstPassRate: 0.4,
+            },
+            {
+              templateKey: "alpha_template",
+              templateId: "alpha_template",
+              templateName: "Alpha Template",
+              runCount: 10,
+              totalTaskToolCalls: 6,
+              totalDownstreamToolCalls: 3,
+              medianTaskToolCalls: 2,
+              medianDownstreamToolCalls: 1,
+              totalCentianErrors: 2,
+              totalDownstreamToolErrors: 0,
+              medianCentianErrors: 1,
+              medianDownstreamToolErrors: 0,
               medianDurationMillis: 105000,
-              successRate: 0.93,
-              firstPassRate: 0.89,
+              successRate: 0.7,
+              firstPassRate: 0.6,
+            },
+            {
+              templateKey: "beta_template",
+              templateId: "beta_template",
+              templateName: "Beta Template",
+              runCount: 10,
+              totalTaskToolCalls: 7,
+              totalDownstreamToolCalls: 2,
+              medianTaskToolCalls: 4,
+              medianDownstreamToolCalls: 2,
+              totalCentianErrors: 1,
+              totalDownstreamToolErrors: 1,
+              medianCentianErrors: 2,
+              medianDownstreamToolErrors: 2,
+              medianDurationMillis: 50000,
+              successRate: 0.85,
+              firstPassRate: 0.8,
             },
           ]),
         );
@@ -82,7 +117,7 @@ describe("benchmark routes", () => {
               firstPassRate: 0.25,
             },
             {
-              agent: "codex",
+              agent: "alpha-agent",
               model: "gpt-5.4-mini",
               models: ["gpt-5.4-mini"],
               runCount: 10,
@@ -97,6 +132,23 @@ describe("benchmark routes", () => {
               medianDurationMillis: 90000,
               successRate: 0.8,
               firstPassRate: 0.7,
+            },
+            {
+              agent: "alpha-agent",
+              model: "gpt-5.4",
+              models: ["gpt-5.4"],
+              runCount: 8,
+              totalTaskToolCalls: 220,
+              totalDownstreamToolCalls: 88,
+              medianTaskToolCalls: 27,
+              medianDownstreamToolCalls: 11,
+              totalCentianErrors: 12,
+              totalDownstreamToolErrors: 4,
+              medianCentianErrors: 1,
+              medianDownstreamToolErrors: 1,
+              medianDurationMillis: 80000,
+              successRate: 0.65,
+              firstPassRate: 0.55,
             },
           ]),
         );
@@ -121,17 +173,87 @@ describe("benchmark routes", () => {
     expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
     expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
     expect(screen.getByText("Template Scorecards")).toBeInTheDocument();
-    expect(screen.getByText("Simple TDD Task")).toBeInTheDocument();
     expect(screen.getByText("Success Rate")).toBeInTheDocument();
     expect(screen.getByText("MCP Events (Centian/MCP)")).toBeInTheDocument();
     expect(screen.getAllByText("Total").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Median").length).toBeGreaterThan(0);
+
+    const templateTable = screen.getByRole("table", { name: "Template scorecards" });
+    expect(scorecardLabels(templateTable)).toEqual([
+      "Alpha Template",
+      "Beta Template",
+      "Zeta Template",
+    ]);
+
+    await user.click(within(templateTable).getByRole("button", { name: /Sort by Runs/ }));
+    expect(scorecardLabels(templateTable)).toEqual([
+      "Zeta Template",
+      "Alpha Template",
+      "Beta Template",
+    ]);
+
+    await user.click(within(templateTable).getByRole("button", { name: /Sort by Runs/ }));
+    expect(scorecardLabels(templateTable)).toEqual([
+      "Alpha Template",
+      "Beta Template",
+      "Zeta Template",
+    ]);
+
+    await user.click(within(templateTable).getByRole("button", { name: /Sort by Success Rate/ }));
+    expect(scorecardLabels(templateTable)).toEqual([
+      "Alpha Template",
+      "Beta Template",
+      "Zeta Template",
+    ]);
+
+    await user.click(within(templateTable).getByRole("button", { name: /Sort by MCP Events/ }));
+    expect(scorecardLabels(templateTable)).toEqual([
+      "Zeta Template",
+      "Alpha Template",
+      "Beta Template",
+    ]);
+
+    await user.click(within(templateTable).getByRole("button", { name: /Sort by Errors/ }));
+    expect(scorecardLabels(templateTable)).toEqual([
+      "Alpha Template",
+      "Beta Template",
+      "Zeta Template",
+    ]);
+
     await user.click(screen.getByRole("button", { name: "Agent" }));
     expect(screen.getByText("Agent Scorecards")).toBeInTheDocument();
-    expect(screen.getAllByText("codex")).toHaveLength(2);
-    expect(screen.getByText("gpt-5.4")).toBeInTheDocument();
-    expect(screen.getByText("gpt-5.4-mini")).toBeInTheDocument();
+    const agentTable = screen.getByRole("table", { name: "Agent scorecards" });
+    expect(scorecardLabels(agentTable)).toEqual([
+      "alpha-agent gpt-5.4",
+      "alpha-agent gpt-5.4-mini",
+      "codex gpt-5.4",
+    ]);
+
+    await user.click(within(agentTable).getByRole("button", { name: /Sort by Success Rate/ }));
+    expect(scorecardLabels(agentTable)).toEqual([
+      "codex gpt-5.4",
+      "alpha-agent gpt-5.4",
+      "alpha-agent gpt-5.4-mini",
+    ]);
+
+    expect(screen.getAllByText("gpt-5.4").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("gpt-5.4-mini").length).toBeGreaterThan(0);
     expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+  });
+
+  it("renders scorecard empty state when no persisted metrics exist", async () => {
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.includes("/template-scorecards") || url.includes("/agent-scorecards")) {
+        return Promise.resolve(createFetchResponse([]));
+      }
+      return Promise.resolve(createFetchResponse([]));
+    }) as typeof fetch;
+
+    renderApp(["/benchmarks"]);
+
+    expect(await screen.findByText("No persisted benchmark metrics are available yet.")).toBeInTheDocument();
+    expect(screen.getByText("No benchmark suites yet")).toBeInTheDocument();
   });
 
   it("renders the suite overview", async () => {
@@ -369,3 +491,25 @@ describe("benchmark routes", () => {
     expect(screen.getByRole("heading", { name: "Assertion-failure red baseline" })).toBeInTheDocument();
   });
 });
+
+function scorecardRowTexts(table: HTMLElement): string[] {
+  return within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) => row.textContent ?? "");
+}
+
+function scorecardLabels(table: HTMLElement): string[] {
+  return scorecardRowTexts(table).map((_, index) => {
+    const row = within(table).getAllByRole("row").slice(1)[index];
+    const label = row.querySelector(".benchmark-analysis-row__label");
+    if (!label) {
+      return "";
+    }
+    return Array.from(label.children)
+      .map((child) => child.textContent ?? "")
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  });
+}

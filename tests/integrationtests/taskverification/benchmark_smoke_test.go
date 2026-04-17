@@ -31,8 +31,12 @@ func TestTaskVerificationBenchmarkSmoke(t *testing.T) {
 		caseID = "assertion_failure_red"
 	}
 
-	if _, err := exec.LookPath(agent); err != nil {
-		t.Fatalf("%s is not available: %v", agent, err)
+	agentBinary := agent
+	if agent == "codex-ollama" {
+		agentBinary = "codex"
+	}
+	if _, err := exec.LookPath(agentBinary); err != nil {
+		t.Fatalf("%s is not available: %v", agentBinary, err)
 	}
 	if _, err := exec.LookPath("npx"); err != nil {
 		t.Fatalf("npx is not available: %v", err)
@@ -49,7 +53,7 @@ func TestTaskVerificationBenchmarkSmoke(t *testing.T) {
 
 	outputRoot := filepath.Join(root, "benchmark-output")
 	suitePath := filepath.Join(repoRoot(t), "tests", "integrationtests", "taskverification", "benchmarks", "simple_tdd_v1")
-	cmd := exec.Command(
+	args := []string{
 		binary,
 		"benchmark",
 		"run",
@@ -58,7 +62,23 @@ func TestTaskVerificationBenchmarkSmoke(t *testing.T) {
 		"--case", caseID,
 		"--repeat", "1",
 		"--output-root", outputRoot,
-	)
+	}
+	if agent == "codex-ollama" {
+		codexConfigPath := filepath.Join(root, "codex.toml")
+		if err := os.WriteFile(codexConfigPath, []byte(`
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "read-only"
+
+[profiles.local-oss]
+model_provider = "ollama"
+model = "gpt-oss-20b"
+`), 0o600); err != nil {
+			t.Fatalf("write codex config: %v", err)
+		}
+		args = append(args, "--codex-config", codexConfigPath, "--profile", "local-oss")
+	}
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Dir = repoRoot(t)
 	cmd.Env = os.Environ()
 	if output, err := cmd.CombinedOutput(); err != nil {

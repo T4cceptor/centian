@@ -560,6 +560,7 @@ type GatewayConfig struct {
 	AllowDynamic         bool                        `json:"allowDynamic,omitempty"`       // Allow dynamic proxy endpoints
 	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"`       // Setup gateway endpoint with namespacing
 	ForceReadOnlyHints   *bool                       `json:"forceReadOnlyHints,omitempty"` // Override all tool annotations to readOnlyHint=true
+	ForceSafeToolHints   *bool                       `json:"forceSafeToolHints,omitempty"` // Override all tool annotations to conservative safe defaults for MCP clients
 	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`                   // HTTP MCP servers in this gateway
 	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
 }
@@ -600,6 +601,12 @@ func (g *GatewayConfig) HasServer(name string) bool {
 // overridden to readOnlyHint=true for this gateway. Defaults to false.
 func (g *GatewayConfig) ForceReadOnlyHintsEnabled() bool {
 	return g != nil && g.ForceReadOnlyHints != nil && *g.ForceReadOnlyHints
+}
+
+// ForceSafeToolHintsEnabled reports whether all tool annotations should be
+// overridden to conservative safe defaults for this gateway. Defaults to false.
+func (g *GatewayConfig) ForceSafeToolHintsEnabled() bool {
+	return g != nil && g.ForceSafeToolHints != nil && *g.ForceSafeToolHints
 }
 
 //////// PROCESSOR CONFIG STRUCTS ///////.

@@ -80,7 +80,7 @@ That target:
 
 - builds `./build/centian`
 - runs `centian benchmark run`
-- prints a live `centian benchmark score` view for the newest preserved session
+- prints the newest preserved session path for follow-up UI/API inspection
 - prints the live Centian UI URL for each run as soon as the server is ready
 
 ### Direct CLI commands
@@ -92,6 +92,13 @@ Run a benchmark session:
   --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
   --agent codex \
   --model gpt-5.4-mini \
+  --case assertion_failure_red
+
+./build/centian benchmark run \
+  --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
+  --agent codex-ollama \
+  --codex-config ~/.codex/config.toml \
+  --profile local-oss \
   --case assertion_failure_red
 ```
 
@@ -114,25 +121,20 @@ Keep the Centian server alive after the agent finishes and prompt for shutdown:
   --keep-centian-running
 ```
 
-Score an existing session:
+Inspect an existing session:
 
-```bash
-./build/centian benchmark score \
-  --session tests/integrationtests/taskverification/.tmp/benchmarks/simple_tdd_v1/<timestamp>_run
-```
+- UI: `/ui/benchmarks/simple_tdd_v1/sessions/<session-id>`
+- API: `GET /api/benchmarks/suites/simple_tdd_v1/sessions/<session-id>`
 
 Compare multiple sessions for one suite:
 
-```bash
-./build/centian benchmark compare \
-  --root tests/integrationtests/taskverification/.tmp/benchmarks \
-  --suite simple_tdd_v1
-```
+- API: `GET /api/benchmarks/suites/simple_tdd_v1/comparison`
 
 ## How To Use Different Agents
 
 The benchmark runner accepts one or more `--agent` flags. The runner executes the same benchmark case(s) once per agent, per template variant, per attempt.
-For a single-agent run, use `--model` / `-m` to select that agent's model. For multi-agent runs, use `--codex-model`, `--claude-model`, and `--gemini-model`.
+For a single-agent run, use `--model` / `-m` to select that agent's model. `codex-ollama` is the exception: it requires `--profile` plus `--codex-config`, because the model is selected by the named profile in the supplied Codex config. For multi-agent runs, keep using `--profile` for `codex-ollama`, plus `--codex-model`, `--claude-model`, and `--gemini-model` for the other agents.
+`codex-ollama` requires a user-managed base Codex config; Centian copies that config per run and patches only the run-local MCP URL and trusted project path.
 
 Examples:
 
@@ -153,6 +155,7 @@ make benchmark-simple-tdd BENCH_AGENT=claude
 The current runner supports:
 
 - `codex`
+- `codex-ollama`
 - `claude`
 - `gemini`
 
@@ -171,16 +174,16 @@ The checked-in files under this directory are inputs. They define what should be
 
 ## Preserved Local Outputs
 
-The benchmark runner preserves local outputs under the existing taskverification `.tmp` tree. One benchmark CLI invocation creates an invocation directory:
+The benchmark runner preserves local outputs under a local Centian workspace. One benchmark CLI invocation creates an invocation directory:
 
 ```text
-tests/integrationtests/taskverification/.tmp/benchmarks/<suite-id>/<timestamp>_<label>/
+.centian/benchmarks/<suite-id>/<timestamp>_<label>/
 ```
 
 That directory contains:
 
 - `session.json`
-- `runs/<template-variant>/<agent>/<case-id>/attempt-001/`
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/`
 
 Each preserved run contains:
 
@@ -214,7 +217,7 @@ The most useful files after a run are:
 - `run.json -> artifactPaths.eventStorePath`
   The shared SQLite event store used by the run, normally `~/.centian/logs/events.sqlite`.
 
-`centian benchmark score` and `centian benchmark compare` now derive their JSON output live from:
+Benchmark UI and API views derive their output live from:
 
 - persisted benchmark `session` / `run` artifacts
 - persisted `task_runs`
@@ -301,14 +304,14 @@ In practice:
 - if time goes down but invariant violations go up, that is not an improvement
 - if one agent regresses while another improves, compare by agent rather than averaging too early
 
-`centian benchmark score` is the easiest way to compare runs inside one benchmark invocation because it already groups results by:
+Session detail views already group runs inside one benchmark invocation by:
 
 - case
 - agent
 - template variant
 - case + agent + template variant
 
-For comparisons across multiple sessions of the same suite, use `centian benchmark compare`. That command reads persisted benchmark `session` / `run` artifacts plus default task-run persistence and prints cross-session aggregates grouped by:
+For comparisons across multiple sessions of the same suite, use `GET /api/benchmarks/suites/{suiteID}/comparison`. That read model groups cross-session aggregates by:
 
 - session
 - case
@@ -327,43 +330,36 @@ For comparisons across multiple sessions of the same suite, use `centian benchma
 - `--agent`
   Required and repeatable. One or more agent ids to execute.
 - `--model`, `-m`
-  Optional. Model for a single selected agent. Shorthand values: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro` (`gemini-3.1-pro-preview`), `flash` (`gemini-3-flash-preview`), `2.5-flash` (`gemini-2.5-flash`).
+  Optional. Model for a single selected agent. Shorthand values: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro` (`gemini-3.1-pro-preview`), `flash` (`gemini-3-flash-preview`), `2.5-flash` (`gemini-2.5-flash`). `codex-ollama` does not support `--model`; use `--profile`.
+- `--profile`
+  Optional for single-agent runs and only valid with `--agent codex-ollama`. Selects the Codex profile name from the supplied `--codex-config`.
 - `--repeat`
   Optional. Number of attempts per matrix cell. Default: `1`.
 - `--template-dir`
-  Optional and repeatable. Template variant in `name=path` form. If omitted, the implicit default is `current=<repo-root>/task-templates/integrated`.
+  Optional and repeatable. Template variant in `name=path` form. If omitted, the runner first tries `current=<working-dir>/task-templates/integrated`, then falls back to the repo-root path for backwards compatibility.
 - `--timeout`
   Optional. Per-run timeout. Default: `15m`.
 - `--output-root`
-  Optional. Root directory for preserved benchmark artifacts. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
+  Optional. Root directory for preserved benchmark artifacts. Default: `.centian/benchmarks` under the current working directory.
+- `--centian-config`
+  Optional. Base Centian config to copy and patch for benchmark runs. Placeholders such as `__EVENT_STORE_PATH__` and `__TEMPLATES_DIR__` are only resolved if present; otherwise hardcoded paths are preserved.
 - `--claude-model`
   Optional. Claude model override for multi-agent runs.
 - `--gemini-model`
   Optional. Gemini model override for multi-agent runs.
 - `--codex-model`
   Optional. Codex model override for multi-agent runs.
+- `--codex-config`
+  Optional for `codex`, required for `codex-ollama`. Base Codex config to copy and patch for run-local MCP settings.
 - `--keep-centian-running`
   Optional. Print the live UI URL and prompt whether to shut down the run-local Centian server after the agent finishes. This is useful for interactive inspection, but not recommended for unattended matrix runs.
 
-### `centian benchmark score`
+### Session and comparison reads
 
-- `--session`
-  Required. Path to one preserved benchmark session directory containing `session.json`.
-  The command prints a live session score summary as JSON to stdout. It does not write `scorecard.json` or `summary.json`.
-
-### `centian benchmark compare`
-
-- `--root`
-  Required. Root directory containing benchmark suite session directories, usually `tests/integrationtests/taskverification/.tmp/benchmarks`.
-- `--suite`
-  Required. Suite id to compare, for example `simple_tdd_v1`.
-- `--agent`
-  Optional and repeatable. Limit comparison to one or more agents.
-- `--case`
-  Optional and repeatable. Limit comparison to one or more benchmark cases.
-- `--template-variant`
-  Optional and repeatable. Limit comparison to one or more template variants.
-  The command prints a live comparison summary as JSON to stdout. It does not write `comparison.json`.
+- Session UI: `/ui/benchmarks/{suiteID}/sessions/{sessionID}`
+- Session API: `GET /api/benchmarks/suites/{suiteID}/sessions/{sessionID}`
+- Comparison API: `GET /api/benchmarks/suites/{suiteID}/comparison`
+- Comparison filters use query params from the benchmark read API, such as `sessionId`, `caseId`, `agent`, `templateVariant`, and `templateId`.
 
 ### `make benchmark-simple-tdd`
 
@@ -378,7 +374,7 @@ These variables can be overridden:
 - `BENCH_REPEAT`
   Repeat count per matrix cell. Default: `1`.
 - `BENCH_OUTPUT_ROOT`
-  Preserved benchmark output root. Default: `tests/integrationtests/taskverification/.tmp/benchmarks`.
+  Preserved benchmark output root. Default: `.centian/benchmarks`.
 - `BENCH_TIMEOUT`
   Per-run timeout. Default: `15m`.
 

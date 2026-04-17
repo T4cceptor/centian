@@ -125,6 +125,10 @@ Each gateway is keyed by its gateway name. Gateway names must be URL-safe: lette
 
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
+| `allowDynamic` | boolean | No | `false` | Reserved gateway field. Present in the config model, but current server startup does not branch on it. |
+| `setupGateway` | boolean | No | `false` | Reserved gateway field. Present in the config model, but current server startup does not branch on it. |
+| `forceReadOnlyHints` | boolean | No | `false` | Overrides all registered tool annotations in this gateway to `readOnlyHint=true`. |
+| `forceSafeToolHints` | boolean | No | `false` | Overrides all registered tool annotations in this gateway to conservative safe defaults for upstream MCP clients. Sets `readOnlyHint=true`, `idempotentHint=true`, `destructiveHint=false`, and `openWorldHint=false`. |
 | `mcpServers` | object | Yes in strict mode | none | Map of server name to MCP server config. |
 | `processors` | array | No | `[]` | Gateway-level processor chain appended after global processors. |
 
@@ -133,6 +137,9 @@ Runtime notes:
 - Centian always registers an aggregated gateway route at `/mcp/{gateway}`.
 - For every active downstream server, Centian also registers `/mcp/{gateway}/{server}`.
 - A gateway must have at least one active server in strict validation.
+- `allowDynamic` and `setupGateway` are currently best treated as reserved fields rather than active runtime controls.
+- `forceSafeToolHints` changes tool metadata only. It does not add enforcement by itself; it makes tools appear maximally safe to upstream clients.
+- If both `forceSafeToolHints` and `forceReadOnlyHints` are set, `forceSafeToolHints` takes precedence.
 
 ## `mcpServers`
 

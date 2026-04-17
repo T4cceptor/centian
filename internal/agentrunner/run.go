@@ -11,15 +11,12 @@ import (
 
 // RunOptions configures one headless agent invocation against a Centian MCP URL.
 type RunOptions struct {
-	Agent         string
+	Execution     AgentExecutionOptions
 	ArtifactRoot  string
 	WorkspacePath string
 	MCPURL        string
 	Prompt        string
 	Timeout       time.Duration
-	ClaudeModel   string
-	GeminiModel   string
-	CodexModel    string
 	Stdout        io.Writer
 	Stderr        io.Writer
 }
@@ -39,7 +36,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 	if opts == nil {
 		return nil, fmt.Errorf("run options are required")
 	}
-	if strings.TrimSpace(opts.Agent) == "" {
+	if strings.TrimSpace(opts.Execution.Agent) == "" {
 		return nil, fmt.Errorf("agent is required")
 	}
 	if strings.TrimSpace(opts.ArtifactRoot) == "" {
@@ -54,6 +51,10 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
+	execution, err := NormalizeExecutionOptions(opts.Execution)
+	if err != nil {
+		return nil, err
+	}
 
 	layout := &demoLayout{
 		RootPath:        opts.ArtifactRoot,
@@ -66,7 +67,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 		MCPURL:          opts.MCPURL,
 	}
 
-	adapter, err := selectAdapterForAgent(opts.Agent, opts.ClaudeModel, opts.GeminiModel, opts.CodexModel)
+	adapter, err := selectAdapterForExecution(execution)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +89,7 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 		WorkspacePath: opts.WorkspacePath,
 		StdoutPath:    layout.AgentStdoutPath,
 		StderrPath:    layout.AgentStderrPath,
-		SelectedModel: selectedModelForAgent(adapter.name(), opts),
+		SelectedModel: SelectedModelForExecution(execution),
 	}
 
 	if err := runAgentPrompt(ctx, adapter, layout, opts.Prompt, opts.Stdout, opts.Stderr, opts.Timeout); err != nil {
@@ -97,28 +98,18 @@ func Run(ctx context.Context, opts *RunOptions) (*RunResult, error) {
 	return result, nil
 }
 
-func selectAdapterForAgent(agent, claudeModel, geminiModel, codexModel string) (agentAdapter, error) {
-	switch strings.ToLower(strings.TrimSpace(agent)) {
+// selectAdapterForExecution maps one execution config to its concrete adapter implementation.
+func selectAdapterForExecution(exec AgentExecutionOptions) (agentAdapter, error) {
+	switch exec.Agent {
 	case AgentClaude:
-		return claudeAdapter{model: claudeModel}, nil
+		return claudeAdapter{model: exec.Model}, nil
 	case AgentGemini:
-		return geminiAdapter{model: geminiModel}, nil
+		return geminiAdapter{model: exec.Model}, nil
 	case AgentCodex:
-		return codexAdapter{model: codexModel}, nil
+		return codexAdapter{model: exec.Model, baseConfigPath: exec.CodexConfigPath}, nil
+	case AgentCodexOllama:
+		return codexOllamaAdapter{profile: exec.Profile, baseConfigPath: exec.CodexConfigPath}, nil
 	default:
-		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, and %q", agent, AgentClaude, AgentGemini, AgentCodex)
-	}
-}
-
-func selectedModelForAgent(agent string, opts *RunOptions) string {
-	switch agent {
-	case AgentClaude:
-		return strings.TrimSpace(opts.ClaudeModel)
-	case AgentGemini:
-		return strings.TrimSpace(opts.GeminiModel)
-	case AgentCodex:
-		return strings.TrimSpace(opts.CodexModel)
-	default:
-		return ""
+		return nil, fmt.Errorf("unsupported agent %q; v1 supports %q, %q, %q, and %q", exec.Agent, AgentClaude, AgentGemini, AgentCodex, AgentCodexOllama)
 	}
 }

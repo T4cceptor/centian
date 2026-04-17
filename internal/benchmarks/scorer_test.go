@@ -5,130 +5,43 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"gotest.tools/assert"
 )
 
-func TestScoreSessionBuildsLiveSummary(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{
-		includeInvariantViolation: true,
-	})
+func TestCollectFloat64(t *testing.T) {
+	rows := []int{1, 2, 3}
+	if got := collectFloat64(rows, func(row int) (float64, bool) { return float64(row) * 1.5, true }); !reflect.DeepEqual(got, []float64{1.5, 3, 4.5}) {
+		t.Fatalf("unexpected collected float values: %#v", got)
+	}
 
-	scorer := &Scorer{Now: func() time.Time { return time.Date(2026, 4, 4, 15, 0, 0, 0, time.UTC) }}
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-
-	assert.Equal(t, summary.RunCount, 2)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Equal(t, summary.FailedToScoreCount, 0)
-	assert.Equal(t, len(summary.Aggregates.ByCase), 2)
-	assert.Equal(t, len(summary.Aggregates.ByAgent), 2)
-	assert.Equal(t, len(summary.Aggregates.ByTemplateVariant), 1)
-	assert.Equal(t, len(summary.Aggregates.ByCaseAgentVariant), 2)
-	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
-	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
-	assert.Assert(t, summary.Runs[0].SelectedModel != "")
-	assert.Assert(t, summary.Runs[0].AgentMetadata.SelectedModel != "")
-	assert.Equal(t, summary.Runs[0].SessionPath, sessionDir)
-	assert.Equal(t, summary.Runs[0].EventStoreMode, "configured_shared")
-	assert.Equal(t, summary.Runs[0].Agent, "claude")
-	assert.Assert(t, summary.Runs[0].InputTokens != nil)
-	assert.Equal(t, *summary.Runs[0].InputTokens, int64(123))
-	assert.Assert(t, summary.Runs[0].OutputTokens != nil)
-	assert.Equal(t, *summary.Runs[0].OutputTokens, int64(222))
-	assert.Equal(t, summary.Runs[1].Agent, "codex")
-	assert.Assert(t, summary.Runs[1].InputTokens != nil)
-	assert.Equal(t, *summary.Runs[1].InputTokens, int64(111))
-	assert.Assert(t, summary.Runs[1].OutputTokens != nil)
-	assert.Equal(t, *summary.Runs[1].OutputTokens, int64(666))
-	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianInputTokens, float64(123))
-	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianInputTokens, float64(111))
-	assert.Equal(t, summary.Aggregates.ByAgent[0].MedianOutputTokens, float64(222))
-	assert.Equal(t, summary.Aggregates.ByAgent[1].MedianOutputTokens, float64(666))
-}
-
-func TestScoreSessionUsesPersistedAgentMetadata(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "codex", "compile_failure_red", "attempt-001", "agent", "agent.stdout.log")))
-	assert.NilError(t, os.Remove(filepath.Join(sessionDir, "runs", "current", "claude", "assertion_failure_red", "attempt-001", "agent", "agent.stdout.log")))
-
-	scorer := NewScorer()
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Assert(t, summary.Runs[0].AgentMetadata != nil)
-	assert.Assert(t, summary.Runs[1].AgentMetadata != nil)
-	assert.Equal(t, summary.Runs[0].AgentMetadata.SelectedModel, summary.Runs[0].SelectedModel)
-	assert.Assert(t, summary.Runs[0].InputTokens != nil)
-	assert.Assert(t, summary.Runs[1].InputTokens != nil)
-}
-
-func TestScoreSessionUsesSharedTaskRunPersistence(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-
-	scorer := NewScorer()
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-}
-
-func TestScoreSessionIgnoresUnrelatedTaskRunsInSharedSQLiteStore(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{})
-	storePath := filepath.Join(sessionDir, "shared-events.sqlite")
-	assert.NilError(t, writeSyntheticEventStore(storePath, "tr_unrelated", []persistence.TaskRunEvent{
-		{
-			Source:             persistence.TaskRunEventSourceTask,
-			ID:                 "unrelated-restart",
-			CreatedAtUnixMilli: 9_999,
-			EventType:          "task_restarted",
-		},
-	}))
-
-	scorer := NewScorer()
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.NilError(t, err)
-	assert.Equal(t, summary.ScoredRunCount, 2)
-	assert.Equal(t, summary.Runs[1].RestartOccurred, false)
-	assert.Equal(t, summary.Runs[1].FirstPassSuccess, true)
-}
-
-func TestScoreSessionRejectsInvalidManualScore(t *testing.T) {
-	sessionDir := writeSyntheticScoringSession(t, syntheticSessionOptions{
-		invalidManualScoreForCase: "assertion_failure_red",
-	})
-
-	scorer := &Scorer{Now: func() time.Time { return time.Date(2026, 4, 4, 16, 0, 0, 0, time.UTC) }}
-	summary, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: sessionDir})
-	assert.ErrorContains(t, err, "failed to score 1 benchmark run(s)")
-
-	assert.Equal(t, summary.RunCount, 2)
-	assert.Equal(t, summary.ScoredRunCount, 1)
-	assert.Equal(t, summary.FailedToScoreCount, 1)
-}
-
-func TestScoreSessionRequiresSessionManifest(t *testing.T) {
-	scorer := NewScorer()
-	_, err := scorer.ScoreSession(context.Background(), &ScoreOptions{SessionPath: t.TempDir()})
-	assert.ErrorContains(t, err, "load session manifest")
+	type optionalRow struct {
+		Value *int64
+	}
+	valueOne := int64(10)
+	valueTwo := int64(30)
+	optionalRows := []optionalRow{{Value: &valueOne}, {}, {Value: &valueTwo}}
+	if got := collectFloat64(optionalRows, func(row optionalRow) (float64, bool) {
+		if row.Value == nil {
+			return 0, false
+		}
+		return float64(*row.Value), true
+	}); !reflect.DeepEqual(got, []float64{10, 30}) {
+		t.Fatalf("unexpected collected optional float values: %#v", got)
+	}
 }
 
 type syntheticSessionOptions struct {
 	includeInvariantViolation bool
 	invalidManualScoreForCase string
 	codexSelectedModel        string
-}
-
-func writeSyntheticScoringSession(t *testing.T, opts syntheticSessionOptions) string {
-	t.Helper()
-
-	sessionDir := filepath.Join(t.TempDir(), "session")
-	writeSyntheticScoringSessionAt(t, sessionDir, opts)
-	return sessionDir
 }
 
 func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts syntheticSessionOptions) {
@@ -141,31 +54,36 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 	runs := []SessionRunManifestEntry{
 		{
 			CaseID:          "compile_failure_red",
+			CaseName:        "Compile Failure Red",
 			AgentID:         "codex",
 			TemplateVariant: "current",
 			Attempt:         1,
-			RelativeRunDir:  filepath.Join("runs", "current", "codex", "compile_failure_red", "attempt-001"),
+			RelativeRunDir:  filepath.Join("runs", "current_codex_compile_failure_red_attempt_001"),
 			Status:          "completed",
 			LatestTaskRunID: "tr_compile",
 		},
 		{
 			CaseID:          "assertion_failure_red",
+			CaseName:        "Assertion Failure Red",
 			AgentID:         "claude",
 			TemplateVariant: "current",
 			Attempt:         1,
-			RelativeRunDir:  filepath.Join("runs", "current", "claude", "assertion_failure_red", "attempt-001"),
+			RelativeRunDir:  filepath.Join("runs", "current_claude_assertion_failure_red_attempt_001"),
 			Status:          "completed",
 			LatestTaskRunID: "tr_assert",
 		},
 	}
 
+	runManifests := make([]*RunManifest, 0, len(runs))
 	for _, entry := range runs {
-		writeSyntheticRun(t, sessionDir, suiteRoot, sharedEventStorePath, entry, opts)
+		runManifests = append(runManifests, writeSyntheticRun(t, sessionDir, suiteRoot, sharedEventStorePath, entry, opts))
 	}
 
 	session := &SessionManifest{
 		SuiteID:       "simple_tdd_v1",
+		SuiteName:     "Simple TDD Benchmark Suite v1",
 		TemplateID:    "simple_tdd",
+		TemplateName:  "Simple TDD Current",
 		SuitePath:     suiteRoot,
 		InvocationDir: sessionDir,
 		OutputRoot:    filepath.Dir(sessionDir),
@@ -180,23 +98,45 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		}},
 		Runs: runs,
 	}
-	assert.NilError(t, writeJSONFile(filepath.Join(sessionDir, sessionFileName), session))
+	assert.NilError(t, common.WriteJSONFile(filepath.Join(sessionDir, sessionFileName), session))
 	store, err := persistence.NewSQLiteStore(sharedEventStorePath)
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	sessionRecord, err := buildSessionRecord(session)
 	assert.NilError(t, err)
 	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
-	for idx := range runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionDir, runs[idx].RelativeRunDir, runFileName))
-		assert.NilError(t, loadErr)
-		runRecord, recordErr := buildRunRecord(run)
+	for idx := range runManifests {
+		runRecord, recordErr := buildRunRecord(runManifests[idx])
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, common.NowUTC)
+		assert.NilError(t, scoreErr)
+		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}
 }
 
-func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, sharedEventStorePath string, entry SessionRunManifestEntry, opts syntheticSessionOptions) {
+func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, sessionDir string) {
+	t.Helper()
+
+	session, err := loadSessionManifest(sessionDir)
+	assert.NilError(t, err)
+	sessionRecord, err := buildSessionRecord(session)
+	assert.NilError(t, err)
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionRecord))
+	for idx := range session.Runs {
+		var run RunManifest
+		loadErr := common.ReadJSONFile(filepath.Join(sessionDir, session.Runs[idx].RelativeRunDir, runFileName), &run)
+		assert.NilError(t, loadErr)
+		runRecord, recordErr := buildRunRecord(&run)
+		assert.NilError(t, recordErr)
+		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, common.NowUTC)
+		assert.NilError(t, scoreErr)
+		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
+	}
+}
+
+func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, sharedEventStorePath string, entry SessionRunManifestEntry, opts syntheticSessionOptions) *RunManifest {
 	t.Helper()
 
 	caseDef, err := LoadCase(suiteRoot, SuiteCaseRef{ID: entry.CaseID, Path: filepath.Join("cases", entry.CaseID)})
@@ -210,7 +150,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 	agentDir := filepath.Join(runDir, "agent")
 	assert.NilError(t, os.MkdirAll(logsDir, 0o755))
 	assert.NilError(t, os.MkdirAll(agentDir, 0o755))
-	assert.NilError(t, copyDir(fixtureRoot, projectDir))
+	assert.NilError(t, common.CopyDir(fixtureRoot, projectDir))
 	selectedTemplatePath := filepath.Join(runDir, "selected-template.yaml")
 	assert.NilError(t, os.WriteFile(selectedTemplatePath, []byte("version: \"0.1\"\ntask:\n  id: simple_tdd\n  name: Simple TDD Current\nworkflow:\n  onboarding: {}\n  planning: {}\n  execution: []\n"), 0o644))
 
@@ -254,8 +194,11 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 
 	run := &RunManifest{
 		SuiteID:             "simple_tdd_v1",
+		SuiteName:           "Simple TDD Benchmark Suite v1",
 		CaseID:              entry.CaseID,
+		CaseName:            entry.CaseName,
 		TemplateID:          "simple_tdd",
+		TemplateName:        "Simple TDD Current",
 		TemplateVariant:     TemplateVariant{Name: "current"},
 		AgentID:             entry.AgentID,
 		SelectedModel:       syntheticSelectedModel(entry.AgentID, opts),
@@ -277,7 +220,8 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 			SelectedTemplatePath: selectedTemplatePath,
 		},
 	}
-	assert.NilError(t, writeJSONFile(filepath.Join(runDir, runFileName), run))
+	assert.NilError(t, common.WriteJSONFile(filepath.Join(runDir, runFileName), run))
+	return run
 }
 
 func syntheticEventsForCase(caseID string) []persistence.TaskRunEvent {

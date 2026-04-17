@@ -76,6 +76,7 @@ Examples:
 	},
 }
 
+// printServerInfo logs the configured projects, endpoints, and task verification context.
 func printServerInfo(globalConfig *config.GlobalConfig, taskWorkingDir string) error {
 	// Ensure the config is in project-based layout.
 	globalConfig.ResolveProjects()
@@ -117,6 +118,7 @@ func printServerInfo(globalConfig *config.GlobalConfig, taskWorkingDir string) e
 	return nil
 }
 
+// countGatewaysAndServers totals the configured gateways and MCP servers across projects.
 func countGatewaysAndServers(projects map[string]*config.ProjectConfig) (int, int) {
 	totalGateways := 0
 	totalServers := 0
@@ -135,6 +137,7 @@ func countGatewaysAndServers(projects map[string]*config.ProjectConfig) (int, in
 	return totalGateways, totalServers
 }
 
+// printProjectEndpoints logs the externally reachable endpoints for one configured project.
 func printProjectEndpoints(slug string, project *config.ProjectConfig, host, port, taskWorkingDir string) {
 	routePrefix := ""
 	if slug != config.DefaultProjectSlug {

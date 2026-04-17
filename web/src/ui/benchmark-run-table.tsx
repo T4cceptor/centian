@@ -39,12 +39,10 @@ export function BenchmarkRunTable({ suiteId, runs }: BenchmarkRunTableProps) {
             </span>
             <span>{run.templateVariant}</span>
             <span title={run.templateId}>{run.templateName || formatTemplateLabel(run.templateId)}</span>
-            <span>{formatBenchmarkRate(run.completedSuccessfully ? 1 : 0)}</span>
-            <span>{formatBenchmarkRate(run.firstPassSuccess ? 1 : 0)}</span>
-            <span>{formatDuration(0, Math.round(run.wallClockSeconds * 1000))}</span>
-            <span>
-              {(run.inputTokens ?? 0) + (run.outputTokens ?? 0)}
-            </span>
+            <span>{run.scored ? formatBenchmarkRate(run.completedSuccessfully ? 1 : 0) : "Unscored"}</span>
+            <span>{run.scored ? formatBenchmarkRate(run.firstPassSuccess ? 1 : 0) : "—"}</span>
+            <span>{run.scored ? formatDuration(0, Math.round(run.wallClockSeconds * 1000)) : "—"}</span>
+            <span>{run.scored ? (run.inputTokens ?? 0) + (run.outputTokens ?? 0) : "—"}</span>
           </Link>
         ))}
       </div>

@@ -4,6 +4,12 @@ Centian benchmarking makes taskverification changes measurable.
 
 Instead of judging one transcript or one demo run, benchmarking runs the same case repeatedly across agents, models, template variants, and attempts, then derives scorecards from persisted benchmark artifacts plus normal Centian task/action persistence.
 
+The benchmark CLI is designed to be portable. It does not require running inside this repository as long as you provide:
+
+- a `centian` binary on `PATH` or an explicit binary path
+- a benchmark suite directory via `--suite`
+- a template source via `--template-dir`, `--centian-config`, or a local `task-templates/integrated`
+
 ## What Benchmarking Adds
 
 Benchmarking adds four practical things:
@@ -52,6 +58,7 @@ Notes:
 - `eventStorage.enabled` needed because benchmark scoring reads persisted task/action history.
 - `ui.enabled` needed only if you want embedded benchmark pages.
 - default SQLite path is `~/.centian/logs/events.sqlite` when `eventStorage.path` not set.
+- benchmark runs can use a custom base config via `--centian-config`; placeholders such as `__EVENT_STORE_PATH__` and `__TEMPLATES_DIR__` are only resolved if present
 
 ## Suite Layout
 
@@ -75,13 +82,15 @@ Checked-in suites today include:
 
 `centian_demo_v1` turns `centian demo` into a benchmark scenario using `guided_tdd_workflow`.
 
+The suite itself can live anywhere. The checked-in directory above is only where this repository stores its own examples.
+
 ## Running Benchmarks
 
 Run one suite/case:
 
 ```bash
-./build/centian benchmark run \
-  --suite tests/integrationtests/taskverification/benchmarks/simple_tdd_v1 \
+centian benchmark run \
+  --suite /path/to/simple_tdd_v1 \
   --agent codex \
   --model gpt-5.4-mini \
   --case assertion_failure_red
@@ -90,32 +99,48 @@ Run one suite/case:
 Run demo-derived case:
 
 ```bash
-./build/centian benchmark run \
-  --suite tests/integrationtests/taskverification/benchmarks/centian_demo_v1 \
+centian benchmark run \
+  --suite /path/to/centian_demo_v1 \
   --agent codex \
   --case score_parentheses_js
 ```
 
-Score one preserved session:
+Run with an explicit Centian benchmark config:
 
 ```bash
-./build/centian benchmark score \
-  --session tests/integrationtests/taskverification/.tmp/benchmarks/<suite-id>/<timestamp>_run
+centian benchmark run \
+  --suite /path/to/centian_demo_v1 \
+  --agent gemini \
+  --model pro \
+  --centian-config /path/to/benchmark.centian.json
 ```
 
-Compare persisted sessions:
+Run with an explicit template variant and output root:
 
 ```bash
-./build/centian benchmark compare \
-  --root tests/integrationtests/taskverification/.tmp/benchmarks \
-  --suite simple_tdd_v1
+centian benchmark run \
+  --suite /path/to/centian_demo_v1 \
+  --agent claude \
+  --model sonnet \
+  --template-dir current=/path/to/task-templates/integrated \
+  --output-root /path/to/benchmark-artifacts
 ```
+
+Inspect one preserved session in the embedded UI or API:
+
+- UI: `/ui/benchmarks/<suite-id>/sessions/<session-id>`
+- API: `GET /api/benchmarks/suites/<suite-id>/sessions/<session-id>`
+
+Compare persisted sessions through the API:
+
+- `GET /api/benchmarks/suites/simple_tdd_v1/comparison`
 
 Agent/model selection:
 
 - use one or more `--agent`
 - for single-agent runs use `--model` / `-m`
-- for multi-agent runs use `--codex-model`, `--claude-model`, `--gemini-model`
+- `codex-ollama` is the exception: it requires `--codex-config` plus `--profile`, because the model comes from the named Codex profile
+- for multi-agent runs use `--profile` for `codex-ollama`, plus `--codex-model`, `--claude-model`, `--gemini-model` as needed
 
 Supported model shorthands:
 
@@ -123,22 +148,43 @@ Supported model shorthands:
 - Claude: `haiku`, `sonnet`, `opus`
 - Gemini: `pro`, `flash`, `2.5-flash`
 
+`codex-ollama` does not have built-in defaults. Supply a Codex config that already defines the local OSS profile you want to run.
+
+Template and config resolution:
+
+- `--template-dir name=path` is the most explicit way to select templates
+- `--centian-config` can supply the effective `taskVerification.templatesPath` and `eventStorage.path`
+- if `--template-dir` is omitted, benchmark run first tries `<working-dir>/task-templates/integrated`
+- if that is missing, it falls back to `<repo-root>/task-templates/integrated` for backwards compatibility
+
+Artifact root resolution:
+
+- `--output-root` overrides artifact placement directly
+- if omitted, benchmark artifacts go under `<working-dir>/.centian/benchmarks`
+- this keeps benchmark runs self-contained and independent from repository-specific test fixture trees
+
 ## Preserved Artifacts
 
 One `benchmark run` invocation writes preserved outputs under:
 
 ```text
-tests/integrationtests/taskverification/.tmp/benchmarks/<suite-id>/<timestamp>_<label>/
+<output-root>/<suite-id>/<timestamp>_<label>/
 ```
 
 Important files:
 
 - `session.json`: whole benchmark invocation manifest
-- `runs/.../run.json`: one concrete run manifest
-- `runs/.../project/`: post-run project tree
-- `runs/.../logs/requests_*.jsonl`: Centian request log
-- `runs/.../agent/agent.stdout.log`: agent log used for metadata extraction
-- `runs/.../manual_score.json`: optional reviewer score input
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/run.json`: one concrete run manifest
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/project/`: post-run project tree
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/logs/requests_*.jsonl`: Centian request log
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/agent/agent.stdout.log`: agent log used for metadata extraction
+- `runs/<template-variant>_<agent>_<case-id>_attempt_001/manual_score.json`: optional reviewer score input
+
+For single-agent single-variant runs, the default session directory label is `<variant>_<agent>_run`, for example:
+
+```text
+.centian/benchmarks/centian_demo_v1/20260411103000_current_codex_run/
+```
 
 Each `run.json` also records resolved shared event-store path in `artifactPaths.eventStorePath`.
 
@@ -153,11 +199,16 @@ SQLite stores:
 
 - benchmark sessions
 - benchmark runs
+- benchmark run score snapshots
 - task run snapshots
 - task/action events
 - derived task-run stats
 
-Benchmark run metadata includes selected model plus persisted agent metadata JSON. That lets benchmark UI keep showing model info even when raw logs are gone.
+Benchmark run metadata includes selected model plus persisted agent metadata JSON. Benchmark reads are DB-first:
+
+- normal UI and API reads do not rescore from filesystem artifacts
+- per-run score snapshots are persisted in SQLite at run time
+- runs that fail to score inline remain visible as unscored instead of contributing synthetic zero metrics
 
 ## Benchmark API
 

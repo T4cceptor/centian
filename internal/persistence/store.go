@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -21,7 +20,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 10
+const schemaVersion = 5
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -338,6 +337,9 @@ func (s *Store) createTables(ctx context.Context) error {
 	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
+	if err := createBenchmarkRunScoreTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run score schema: %w", err)
+	}
 	if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
 	}
@@ -351,87 +353,16 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 	if fromVersion == schemaVersion {
 		return nil
 	}
-	nextVersion, err := s.migrateSchemaThroughKnownVersions(ctx, fromVersion)
-	if err != nil {
-		return err
-	}
-	fromVersion = nextVersion
-	if fromVersion == schemaVersion {
-		return nil
-	}
-	return &SchemaMigrationRequiredError{
-		StoredVersion:   fromVersion,
-		ExpectedVersion: schemaVersion,
-	}
-}
 
-func (s *Store) migrateSchemaThroughKnownVersions(ctx context.Context, fromVersion int) (int, error) {
-	version := fromVersion
-	for {
-		nextVersion, handled, err := s.migrateSchemaOneStep(ctx, version)
-		if err != nil {
-			return version, err
-		}
-		if !handled {
-			return version, nil
-		}
-		version = nextVersion
-		if version == schemaVersion {
-			return version, nil
-		}
-	}
-}
-
-func (s *Store) migrateSchemaOneStep(ctx context.Context, version int) (int, bool, error) {
-	switch version {
-	case 3:
-		return 4, true, s.migrateV3ToV4(ctx)
+	switch fromVersion {
 	case 4:
-		return 5, true, nil
-	case 5:
-		return 6, true, migrateSchemaStep(ctx, s.db, "v5 to v6", createTaskRunSnapshotTables)
-	case 6:
-		return 7, true, migrateSchemaStep(ctx, s.db, "v6 to v7", createTaskRunStatsTables)
-	case 7:
-		return 8, true, migrateSchemaStep(ctx, s.db, "v7 to v8", recreateTaskRunStatsTables)
-	case 8:
-		return 9, true, migrateSchemaStep(ctx, s.db, "v8 to v9", createBenchmarkRunTables)
-	case 9:
-		return 10, true, s.migrateV9ToV10(ctx)
+		return s.migrateV4ToV5(ctx)
 	default:
-		return version, false, nil
-	}
-}
-
-func (s *Store) migrateV3ToV4(ctx context.Context) error {
-	stmts := []string{
-		`ALTER TABLE task_events ADD COLUMN client_name TEXT`,
-		`ALTER TABLE task_events ADD COLUMN client_version TEXT`,
-	}
-	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("failed to migrate event store schema from v3 to v4: %w", err)
+		return &SchemaMigrationRequiredError{
+			StoredVersion:   fromVersion,
+			ExpectedVersion: schemaVersion,
 		}
 	}
-	return nil
-}
-
-func (s *Store) migrateV9ToV10(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx,
-		`ALTER TABLE benchmark_runs ADD COLUMN agent_metadata_json BLOB`); err != nil {
-		if strings.Contains(err.Error(), "duplicate column name") {
-			return nil
-		}
-		return fmt.Errorf("failed to migrate event store schema from v9 to v10: %w", err)
-	}
-	return nil
-}
-
-func migrateSchemaStep(ctx context.Context, db bun.IDB, label string, step func(context.Context, bun.IDB) error) error {
-	if err := step(ctx, db); err != nil {
-		return fmt.Errorf("failed to migrate event store schema from %s: %w", label, err)
-	}
-	return nil
 }
 
 // AppendTaskEvent persists one task lifecycle event.

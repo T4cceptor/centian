@@ -27,30 +27,8 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.NilError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	sessionOneManifest, err := loadSessionManifest(sessionOne)
-	assert.NilError(t, err)
-	sessionOneRecord, err := buildSessionRecord(sessionOneManifest)
-	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionOneRecord))
-	for idx := range sessionOneManifest.Runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionOne, sessionOneManifest.Runs[idx].RelativeRunDir, runFileName))
-		assert.NilError(t, loadErr)
-		record, recordErr := buildRunRecord(run)
-		assert.NilError(t, recordErr)
-		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
-	}
-	sessionTwoManifest, err := loadSessionManifest(sessionTwo)
-	assert.NilError(t, err)
-	sessionTwoRecord, err := buildSessionRecord(sessionTwoManifest)
-	assert.NilError(t, err)
-	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), sessionTwoRecord))
-	for idx := range sessionTwoManifest.Runs {
-		run, loadErr := loadRunManifest(filepath.Join(sessionTwo, sessionTwoManifest.Runs[idx].RelativeRunDir, runFileName))
-		assert.NilError(t, loadErr)
-		record, recordErr := buildRunRecord(run)
-		assert.NilError(t, recordErr)
-		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), record))
-	}
+	persistSyntheticBenchmarkArtifacts(t, store, sessionOne)
+	persistSyntheticBenchmarkArtifacts(t, store, sessionTwo)
 	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
 		RunID:        "tr_compile",
 		TemplateID:   "simple_tdd",
@@ -132,7 +110,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	assert.Equal(t, len(scorecards), 1)
 	assert.Equal(t, scorecards[0].TemplateID, "simple_tdd")
 	assert.Equal(t, scorecards[0].TemplateName, "Simple TDD Current")
-	assert.Equal(t, scorecards[0].RunCount, 2)
+	assert.Equal(t, scorecards[0].RunCount, 4) // 2 sessions × 2 runs each
 	assert.Assert(t, scorecards[0].TotalTaskToolCalls >= scorecards[0].MedianTaskToolCalls)
 	assert.Assert(t, scorecards[0].TotalDownstreamToolCalls >= scorecards[0].MedianDownstreamToolCalls)
 	assert.Equal(t, scorecards[0].SuccessRate, 1.0)

@@ -88,7 +88,6 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 	if p.taskVerificationToolsEnabled() {
 		p.registerTaskVerificationTools(session, server)
 	}
-	forceRO := p.config.ForceReadOnlyHintsEnabled()
 	if p.hasOAuthDownstreams() {
 		if _, exists := session.registeredStaticTools[authStatusToolName]; !exists {
 			authTool := &mcp.Tool{
@@ -99,9 +98,7 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 					"properties": map[string]any{},
 				},
 			}
-			if forceRO {
-				applyForceReadOnlyHints(authTool)
-			}
+			applyConfiguredToolHintOverrides(authTool, p.config)
 			server.AddTool(authTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return p.handleAuthStatusTool(ctx, session, req)
 			})
@@ -131,9 +128,7 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 			},
 		},
 	}
-	if forceRO {
-		applyForceReadOnlyHints(notifTool)
-	}
+	applyConfiguredToolHintOverrides(notifTool, p.config)
 	server.AddTool(notifTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return p.handleTestNotificationsTool(ctx, session, req)
 	})
@@ -366,9 +361,7 @@ func (p *CentianEndpoint) registerLoginTool(session *UpstreamSession, serverName
 			"properties": map[string]any{},
 		},
 	}
-	if p.config.ForceReadOnlyHintsEnabled() {
-		applyForceReadOnlyHints(loginTool)
-	}
+	applyConfiguredToolHintOverrides(loginTool, p.config)
 	session.upstreamServer.AddTool(loginTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return p.handleLoginTool(ctx, session, serverName, req)
 	})

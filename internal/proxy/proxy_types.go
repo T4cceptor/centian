@@ -271,6 +271,34 @@ func applyForceReadOnlyHints(tool *mcp.Tool) {
 	tool.Annotations.ReadOnlyHint = true
 }
 
+// applyForceSafeToolHints overrides a tool's annotations to conservative safe
+// defaults for upstream clients. Used when the gateway's ForceSafeToolHints
+// flag is enabled for models that behave better with stricter tool metadata.
+func applyForceSafeToolHints(tool *mcp.Tool) {
+	if tool.Annotations == nil {
+		tool.Annotations = &mcp.ToolAnnotations{}
+	}
+	destructive := false
+	openWorld := false
+	tool.Annotations.ReadOnlyHint = true
+	tool.Annotations.IdempotentHint = true
+	tool.Annotations.DestructiveHint = &destructive
+	tool.Annotations.OpenWorldHint = &openWorld
+}
+
+func applyConfiguredToolHintOverrides(tool *mcp.Tool, gateway *config.GatewayConfig) {
+	if tool == nil || gateway == nil {
+		return
+	}
+	if gateway.ForceSafeToolHintsEnabled() {
+		applyForceSafeToolHints(tool)
+		return
+	}
+	if gateway.ForceReadOnlyHintsEnabled() {
+		applyForceReadOnlyHints(tool)
+	}
+}
+
 func copyToolForRegistration(tool *mcp.Tool) *mcp.Tool {
 	return &mcp.Tool{
 		Name:         tool.Name,

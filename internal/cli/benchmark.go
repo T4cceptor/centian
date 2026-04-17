@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/benchmarks"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/urfave/cli/v3"
 )
 
@@ -20,8 +20,6 @@ var BenchmarkCommand = &cli.Command{
 	Usage: "Run local taskverification benchmarks",
 	Commands: []*cli.Command{
 		BenchmarkRunCommand,
-		BenchmarkScoreCommand,
-		BenchmarkCompareCommand,
 	},
 }
 
@@ -68,6 +66,10 @@ var BenchmarkRunCommand = &cli.Command{
 			Usage:   singleModelFlagUsage(),
 		},
 		&cli.StringFlag{
+			Name:  "profile",
+			Usage: "Codex Ollama profile for single-agent codex-ollama runs (" + codexOllamaProfileHelp + ")",
+		},
+		&cli.StringFlag{
 			Name:  "claude-model",
 			Usage: "Override Claude model (" + claudeModelHelp + ")",
 		},
@@ -79,6 +81,14 @@ var BenchmarkRunCommand = &cli.Command{
 			Name:  "codex-model",
 			Usage: "Override Codex model (" + codexModelHelp + ")",
 		},
+		&cli.StringFlag{
+			Name:  "codex-config",
+			Usage: "Base Codex config to copy and patch for codex or codex-ollama runs",
+		},
+		&cli.StringFlag{
+			Name:  "centian-config",
+			Usage: "Base Centian config to copy and patch for benchmark runs",
+		},
 		&cli.BoolFlag{
 			Name:  "keep-centian-running",
 			Usage: "Print the benchmark UI URL and prompt whether to shut down the Centian server after the agent finishes",
@@ -87,51 +97,7 @@ var BenchmarkRunCommand = &cli.Command{
 	Action: handleBenchmarkRunCommand,
 }
 
-// BenchmarkScoreCommand scores one preserved benchmark session from disk.
-var BenchmarkScoreCommand = &cli.Command{
-	Name:  "score",
-	Usage: "Score a preserved benchmark session",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "session",
-			Usage:    "Path to the preserved benchmark session directory",
-			Required: true,
-		},
-	},
-	Action: handleBenchmarkScoreCommand,
-}
-
-// BenchmarkCompareCommand compares scored benchmark sessions for one suite.
-var BenchmarkCompareCommand = &cli.Command{
-	Name:  "compare",
-	Usage: "Compare scored benchmark sessions for one suite",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "root",
-			Usage:    "Root directory containing benchmark suite session folders",
-			Required: true,
-		},
-		&cli.StringFlag{
-			Name:     "suite",
-			Usage:    "Benchmark suite id to compare",
-			Required: true,
-		},
-		&cli.StringSliceFlag{
-			Name:  "agent",
-			Usage: "Limit comparison to specific agents (repeat or comma-separate)",
-		},
-		&cli.StringSliceFlag{
-			Name:  "case",
-			Usage: "Limit comparison to specific benchmark cases (repeat or comma-separate)",
-		},
-		&cli.StringSliceFlag{
-			Name:  "template-variant",
-			Usage: "Limit comparison to specific template variants (repeat or comma-separate)",
-		},
-	},
-	Action: handleBenchmarkCompareCommand,
-}
-
+// handleBenchmarkRunCommand resolves runtime options and launches one benchmark session.
 func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -177,168 +143,153 @@ func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	return err
 }
 
-func handleBenchmarkScoreCommand(ctx context.Context, cmd *cli.Command) error {
-	options, err := buildBenchmarkScoreOptions(cmd)
-	if err != nil {
-		return err
-	}
-
-	scorer := benchmarks.NewScorer()
-	summary, err := scorer.ScoreSession(ctx, options)
-	if summary != nil {
-		encoded, marshalErr := json.MarshalIndent(summary, "", "  ")
-		if marshalErr != nil {
-			return marshalErr
-		}
-		fmt.Println(string(encoded))
-	}
-	return err
-}
-
-func handleBenchmarkCompareCommand(ctx context.Context, cmd *cli.Command) error {
-	options, err := buildBenchmarkCompareOptions(cmd)
-	if err != nil {
-		return err
-	}
-
-	comparer := benchmarks.NewComparer()
-	comparison, _, err := comparer.CompareSuite(ctx, options)
-	if comparison != nil {
-		encoded, marshalErr := json.MarshalIndent(comparison, "", "  ")
-		if marshalErr != nil {
-			return marshalErr
-		}
-		fmt.Println(string(encoded))
-	}
-	return err
-}
-
+// buildBenchmarkRunOptions translates CLI flags into one benchmark runner configuration.
 func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.RunOptions, error) {
-	suiteFlag := strings.TrimSpace(cmd.String("suite"))
-	if suiteFlag == "" {
-		return nil, fmt.Errorf("suite path is required")
-	}
-	suitePath, err := filepath.Abs(suiteFlag)
-	if err != nil {
-		return nil, fmt.Errorf("resolve suite path: %w", err)
-	}
-	repeat := cmd.Int("repeat")
-	if !cmd.IsSet("repeat") && repeat == 0 {
-		repeat = 1
-	}
-	if repeat <= 0 {
-		return nil, fmt.Errorf("repeat must be greater than zero")
-	}
-
-	agents := splitCSVValues(cmd.StringSlice("agent"))
-	if len(agents) == 0 {
-		return nil, fmt.Errorf("at least one agent is required")
-	}
-	caseIDs := splitCSVValues(cmd.StringSlice("case"))
-	templateVariants, err := parseTemplateVariants(cmd.StringSlice("template-dir"))
+	suitePath, err := resolveBenchmarkSuitePath(cmd)
 	if err != nil {
 		return nil, err
 	}
-
-	startPath := defaultResolutionStart(suitePath)
-	if len(templateVariants) == 0 {
-		templateVariants, err = benchmarks.ResolveDefaultTemplateVariants(startPath)
-		if err != nil {
-			return nil, err
-		}
-	}
-	outputRoot := strings.TrimSpace(cmd.String("output-root"))
-	if outputRoot == "" {
-		outputRoot, err = benchmarks.ResolveDefaultOutputRoot(startPath)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		outputRoot, err = filepath.Abs(outputRoot)
-		if err != nil {
-			return nil, fmt.Errorf("resolve output root: %w", err)
-		}
-	}
-	models, err := benchmarkAgentModelsFromFlags(
-		cmd.String("model"),
-		agents,
-		cmd.String("claude-model"),
-		cmd.String("gemini-model"),
-		cmd.String("codex-model"),
-	)
+	repeat, err := resolveBenchmarkRepeat(cmd)
 	if err != nil {
+		return nil, err
+	}
+	agents := common.NormalizeCSVList(cmd.StringSlice("agent"))
+	if len(agents) == 0 {
+		return nil, fmt.Errorf("at least one agent is required")
+	}
+	caseIDs := common.NormalizeCSVList(cmd.StringSlice("case"))
+	startPath := defaultResolutionStart(suitePath)
+	outputRoot, err := resolveBenchmarkOutputRoot(cmd, startPath)
+	if err != nil {
+		return nil, err
+	}
+	executions, _, centianConfigPath, err := resolveBenchmarkModelConfigOptions(cmd, agents)
+	if err != nil {
+		return nil, err
+	}
+	templateVariants, err := resolveBenchmarkTemplateVariants(cmd, startPath, centianConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCodexOllamaOptions(executions); err != nil {
 		return nil, err
 	}
 
 	return &benchmarks.RunOptions{
 		SuitePath:         suitePath,
 		CaseIDs:           caseIDs,
-		Agents:            agents,
+		Executions:        executions,
 		Repeat:            repeat,
 		TemplateVariants:  templateVariants,
 		OutputRoot:        outputRoot,
 		Timeout:           cmd.Duration("timeout"),
 		CentianBinaryPath: binaryPath,
-		Models:            models,
+		CentianConfigPath: centianConfigPath,
+		SessionLabel:      defaultBenchmarkSessionLabel(templateVariants, executions),
 	}, nil
 }
 
-func buildBenchmarkScoreOptions(cmd *cli.Command) (*benchmarks.ScoreOptions, error) {
-	sessionFlag := strings.TrimSpace(cmd.String("session"))
-	if sessionFlag == "" {
-		return nil, fmt.Errorf("session path is required")
+// resolveBenchmarkSuitePath validates and absolutizes the benchmark suite flag.
+func resolveBenchmarkSuitePath(cmd *cli.Command) (string, error) {
+	suiteFlag := strings.TrimSpace(cmd.String("suite"))
+	if suiteFlag == "" {
+		return "", fmt.Errorf("suite path is required")
 	}
-	sessionPath, err := filepath.Abs(sessionFlag)
+	suitePath, err := filepath.Abs(suiteFlag)
 	if err != nil {
-		return nil, fmt.Errorf("resolve session path: %w", err)
+		return "", fmt.Errorf("resolve suite path: %w", err)
 	}
-	return &benchmarks.ScoreOptions{SessionPath: sessionPath}, nil
+	return suitePath, nil
 }
 
-func buildBenchmarkCompareOptions(cmd *cli.Command) (*benchmarks.CompareOptions, error) {
-	rootFlag := strings.TrimSpace(cmd.String("root"))
-	if rootFlag == "" {
-		return nil, fmt.Errorf("root path is required")
+// resolveBenchmarkRepeat normalizes the repeat count and enforces a positive value.
+func resolveBenchmarkRepeat(cmd *cli.Command) (int, error) {
+	repeat := cmd.Int("repeat")
+	if !cmd.IsSet("repeat") && repeat == 0 {
+		repeat = 1
 	}
-	rootPath, err := filepath.Abs(rootFlag)
-	if err != nil {
-		return nil, fmt.Errorf("resolve root path: %w", err)
+	if repeat <= 0 {
+		return 0, fmt.Errorf("repeat must be greater than zero")
 	}
-	suiteID := strings.TrimSpace(cmd.String("suite"))
-	if suiteID == "" {
-		return nil, fmt.Errorf("suite id is required")
-	}
-	return &benchmarks.CompareOptions{
-		RootPath:         rootPath,
-		SuiteID:          suiteID,
-		Agents:           splitCSVValues(cmd.StringSlice("agent")),
-		CaseIDs:          splitCSVValues(cmd.StringSlice("case")),
-		TemplateVariants: splitCSVValues(cmd.StringSlice("template-variant")),
-	}, nil
+	return repeat, nil
 }
 
-func splitCSVValues(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, raw := range values {
-		for _, part := range strings.Split(raw, ",") {
-			value := strings.TrimSpace(part)
-			if value == "" {
-				continue
-			}
-			if _, exists := seen[value]; exists {
-				continue
-			}
-			result = append(result, value)
-			seen[value] = struct{}{}
+// resolveBenchmarkOutputRoot returns the explicit or default artifact output root.
+func resolveBenchmarkOutputRoot(cmd *cli.Command, startPath string) (string, error) {
+	outputRoot := strings.TrimSpace(cmd.String("output-root"))
+	if outputRoot == "" {
+		return benchmarks.ResolveDefaultOutputRoot(startPath)
+	}
+	resolved, err := filepath.Abs(outputRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve output root: %w", err)
+	}
+	return resolved, nil
+}
+
+// resolveBenchmarkModelConfigOptions resolves agent execution settings and config paths.
+func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) ([]agentrunner.AgentExecutionOptions, string, string, error) {
+	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
+	if err != nil {
+		return nil, "", "", err
+	}
+	executions, err := benchmarkExecutionsFromFlags(
+		cmd.String("model"),
+		cmd.String("profile"),
+		agents,
+		cmd.String("claude-model"),
+		cmd.String("gemini-model"),
+		cmd.String("codex-model"),
+		codexConfigPath,
+	)
+	if err != nil {
+		return nil, "", "", err
+	}
+	centianConfigPath, err := resolveOptionalPath(cmd.String("centian-config"))
+	if err != nil {
+		return nil, "", "", err
+	}
+	return executions, codexConfigPath, centianConfigPath, nil
+}
+
+// resolveBenchmarkTemplateVariants chooses explicit, config-derived, or default template variants.
+func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfigPath string) ([]benchmarks.TemplateVariant, error) {
+	templateVariants, err := parseTemplateVariants(cmd.StringSlice("template-dir"))
+	if err != nil {
+		return nil, err
+	}
+	if len(templateVariants) == 0 && centianConfigPath != "" {
+		templateVariants, err = benchmarks.ResolveTemplateVariantsFromCentianConfig(centianConfigPath)
+		if err != nil {
+			return nil, err
 		}
 	}
-	return result
+	if len(templateVariants) == 0 {
+		return benchmarks.ResolveDefaultTemplateVariants(startPath)
+	}
+	return templateVariants, nil
 }
 
+// validateCodexOllamaOptions enforces the extra config requirements for codex-ollama runs.
+func validateCodexOllamaOptions(executions []agentrunner.AgentExecutionOptions) error {
+	for _, exec := range executions {
+		if !strings.EqualFold(exec.Agent, agentrunner.AgentCodexOllama) {
+			continue
+		}
+		if strings.TrimSpace(exec.CodexConfigPath) == "" {
+			return fmt.Errorf("codex-ollama requires --codex-config")
+		}
+		if strings.TrimSpace(exec.Profile) == "" {
+			return fmt.Errorf("codex-ollama requires an explicit profile; use --profile")
+		}
+	}
+	return nil
+}
+
+// parseTemplateVariants parses repeatable name=path template variant flags.
 func parseTemplateVariants(values []string) ([]benchmarks.TemplateVariant, error) {
 	variants := make([]benchmarks.TemplateVariant, 0, len(values))
-	for _, raw := range splitCSVValues(values) {
+	for _, raw := range common.NormalizeCSVList(values) {
 		name, path, ok := strings.Cut(raw, "=")
 		if !ok {
 			return nil, fmt.Errorf("template-dir %q must use name=path format", raw)
@@ -360,12 +311,19 @@ func parseTemplateVariants(values []string) ([]benchmarks.TemplateVariant, error
 	return variants, nil
 }
 
+// defaultResolutionStart prefers the current working directory for implicit path resolution.
 func defaultResolutionStart(suitePath string) string {
 	cwd, err := os.Getwd()
 	if err == nil {
-		if _, rootErr := benchmarks.FindRepoRoot(cwd); rootErr == nil {
-			return cwd
-		}
+		return cwd
 	}
 	return suitePath
+}
+
+// defaultBenchmarkSessionLabel derives a compact session label for single-cell runs.
+func defaultBenchmarkSessionLabel(variants []benchmarks.TemplateVariant, executions []agentrunner.AgentExecutionOptions) string {
+	if len(variants) != 1 || len(executions) != 1 {
+		return ""
+	}
+	return variants[0].Name + "_" + executions[0].Agent + "_run"
 }

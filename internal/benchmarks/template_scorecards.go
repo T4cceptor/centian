@@ -2,11 +2,11 @@ package benchmarks
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
@@ -48,26 +48,25 @@ type AgentScorecard struct {
 	FirstPassRate              float64  `json:"firstPassRate"`
 }
 
-// ListTemplateScorecards returns template-level scorecards for all persisted task runs.
+// ListTemplateScorecards returns template-level scorecards for all persisted benchmark runs.
 func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateScorecard, error) {
 	s = s.withDefaults()
 	if s.store == nil {
 		return nil, fmt.Errorf("benchmark query service is not initialized")
 	}
 
-	statsRows, err := s.store.ListTaskRunStats(ctx)
+	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{})
 	if err != nil {
 		return nil, err
 	}
-	statsByRunID := make(map[string]*persistence.TaskRunStatsRecord, len(statsRows))
-	for idx := range statsRows {
-		stats := statsRows[idx]
-		statsByRunID[stats.RunID] = &stats
-	}
-
-	snapshots, err := s.store.ListTaskRunSnapshots(ctx)
+	scoreRows, err := s.store.ListBenchmarkRunScores(ctx)
 	if err != nil {
 		return nil, err
+	}
+	scoreByRunID := make(map[string]*persistence.BenchmarkRunScoreRecord, len(scoreRows))
+	for idx := range scoreRows {
+		score := scoreRows[idx]
+		scoreByRunID[score.BenchmarkRunID] = &score
 	}
 
 	type aggregate struct {
@@ -85,18 +84,19 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 	}
 
 	grouped := map[string]*aggregate{}
-	for idx := range snapshots {
-		snapshot := snapshots[idx]
-		templateID := strings.TrimSpace(snapshot.TemplateID)
+	for idx := range runs {
+		run := runs[idx]
+		templateID := strings.TrimSpace(run.TemplateID)
 		if templateID == "" {
 			continue
 		}
-		templateName := strings.TrimSpace(snapshot.TemplateName)
-		templateKey := templateIdentityKey(templateID, templateName)
-		stats := statsByRunID[snapshot.RunID]
-		if stats == nil {
+		score := scoreByRunID[run.BenchmarkRunID]
+		scorecard, err := scorecardFromSnapshot(score)
+		if err != nil || scorecard == nil {
 			continue
 		}
+		templateName := strings.TrimSpace(run.TemplateName)
+		templateKey := templateIdentityKey(templateID, templateName)
 		group := grouped[templateKey]
 		if group == nil {
 			group = &aggregate{
@@ -110,19 +110,17 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			}
 			grouped[templateKey] = group
 		}
-		group.templateName = firstNonEmpty(group.templateName, templateName)
+		group.templateName = common.FirstNonEmpty(group.templateName, templateName)
 		group.runCount++
-		group.taskToolCalls = append(group.taskToolCalls, stats.TaskToolCallCount)
-		group.downstreamCalls = append(group.downstreamCalls, stats.DownstreamToolCallCount)
-		group.centianErrors = append(group.centianErrors, stats.TaskToolErrorCount+stats.RestartCount+stats.FailCount+stats.TimeoutCount)
-		group.downstreamErrors = append(group.downstreamErrors, stats.DownstreamToolErrorCount)
-		if stats.DurationMillis != nil {
-			group.durationsMillis = append(group.durationsMillis, *stats.DurationMillis)
-		}
-		if isSuccessful(snapshot.Status) {
+		group.taskToolCalls = append(group.taskToolCalls, scorecard.Process.TotalTaskToolCalls)
+		group.downstreamCalls = append(group.downstreamCalls, scorecard.Process.TotalDownstreamToolCalls)
+		group.centianErrors = append(group.centianErrors, scorecardCentianErrorCount(scorecard))
+		group.downstreamErrors = append(group.downstreamErrors, scorecard.Process.FailedDownstreamToolCalls)
+		group.durationsMillis = append(group.durationsMillis, int64(scorecard.Efficiency.WallClockSeconds*1000))
+		if score.CompletedSuccessfully {
 			group.successCount++
 		}
-		if isFirstPass(snapshot.Status, stats) {
+		if score.FirstPassSuccess {
 			group.firstPassCount++
 		}
 	}
@@ -134,17 +132,17 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			TemplateID:                 group.templateID,
 			TemplateName:               group.templateName,
 			RunCount:                   group.runCount,
-			TotalTaskToolCalls:         sumInt(group.taskToolCalls),
-			TotalDownstreamToolCalls:   sumInt(group.downstreamCalls),
-			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
-			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
-			TotalCentianErrors:         sumInt(group.centianErrors),
-			TotalDownstreamToolErrors:  sumInt(group.downstreamErrors),
-			MedianCentianErrors:        medianInt(group.centianErrors),
-			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
-			MedianDurationMillis:       medianInt64(group.durationsMillis),
-			SuccessRate:                scorecardRate(group.successCount, group.runCount),
-			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
+			TotalTaskToolCalls:         common.SumInts(group.taskToolCalls),
+			TotalDownstreamToolCalls:   common.SumInts(group.downstreamCalls),
+			MedianTaskToolCalls:        common.MedianInt(group.taskToolCalls),
+			MedianDownstreamToolCalls:  common.MedianInt(group.downstreamCalls),
+			TotalCentianErrors:         common.SumInts(group.centianErrors),
+			TotalDownstreamToolErrors:  common.SumInts(group.downstreamErrors),
+			MedianCentianErrors:        common.MedianInt(group.centianErrors),
+			MedianDownstreamToolErrors: common.MedianInt(group.downstreamErrors),
+			MedianDurationMillis:       common.MedianInt64(group.durationsMillis),
+			SuccessRate:                common.Ratio(group.successCount, group.runCount),
+			FirstPassRate:              common.Ratio(group.firstPassCount, group.runCount),
 		})
 	}
 
@@ -152,8 +150,8 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 		if result[i].RunCount != result[j].RunCount {
 			return result[i].RunCount > result[j].RunCount
 		}
-		left := firstNonEmpty(result[i].TemplateName, result[i].TemplateID)
-		right := firstNonEmpty(result[j].TemplateName, result[j].TemplateID)
+		left := common.FirstNonEmpty(result[i].TemplateName, result[i].TemplateID)
+		right := common.FirstNonEmpty(result[j].TemplateName, result[j].TemplateID)
 		return left < right
 	})
 	return result, nil
@@ -166,19 +164,18 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		return nil, fmt.Errorf("benchmark query service is not initialized")
 	}
 
-	statsRows, err := s.store.ListTaskRunStats(ctx)
-	if err != nil {
-		return nil, err
-	}
-	statsByRunID := make(map[string]*persistence.TaskRunStatsRecord, len(statsRows))
-	for idx := range statsRows {
-		stats := statsRows[idx]
-		statsByRunID[stats.RunID] = &stats
-	}
-
 	runs, err := s.store.ListBenchmarkRuns(ctx, &persistence.BenchmarkRunFilter{})
 	if err != nil {
 		return nil, err
+	}
+	scoreRows, err := s.store.ListBenchmarkRunScores(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scoreByRunID := make(map[string]*persistence.BenchmarkRunScoreRecord, len(scoreRows))
+	for idx := range scoreRows {
+		score := scoreRows[idx]
+		scoreByRunID[score.BenchmarkRunID] = &score
 	}
 
 	type aggregate struct {
@@ -201,19 +198,13 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		if agent == "" {
 			continue
 		}
-		taskRunID := strings.TrimSpace(run.LatestTaskRunID)
-		if taskRunID == "" {
-			taskRunID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
-		}
-		stats := statsByRunID[taskRunID]
-		if stats == nil {
+		score := scoreByRunID[run.BenchmarkRunID]
+		scorecard, err := scorecardFromSnapshot(score)
+		if err != nil || scorecard == nil {
 			continue
 		}
-		model, err := selectedModelForAgentScorecardRun(run)
-		if err != nil {
-			return nil, err
-		}
-		groupKey := agentModelScorecardKey(agent, model)
+		model := common.FirstNonEmpty(strings.TrimSpace(score.SelectedModel), scorecard.SelectedModel, run.SelectedModel)
+		groupKey := common.JoinTrimmed(agent, model, "\x00")
 		group := grouped[groupKey]
 		if group == nil {
 			group = &aggregate{
@@ -228,17 +219,15 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 			grouped[groupKey] = group
 		}
 		group.runCount++
-		group.taskToolCalls = append(group.taskToolCalls, stats.TaskToolCallCount)
-		group.downstreamCalls = append(group.downstreamCalls, stats.DownstreamToolCallCount)
-		group.centianErrors = append(group.centianErrors, stats.TaskToolErrorCount+stats.RestartCount+stats.FailCount+stats.TimeoutCount)
-		group.downstreamErrors = append(group.downstreamErrors, stats.DownstreamToolErrorCount)
-		if stats.DurationMillis != nil {
-			group.durationsMillis = append(group.durationsMillis, *stats.DurationMillis)
-		}
-		if isSuccessful(run.Status) {
+		group.taskToolCalls = append(group.taskToolCalls, score.TotalTaskToolCalls)
+		group.downstreamCalls = append(group.downstreamCalls, score.TotalDownstreamToolCalls)
+		group.centianErrors = append(group.centianErrors, scorecardCentianErrorCount(scorecard))
+		group.downstreamErrors = append(group.downstreamErrors, score.FailedDownstreamToolCalls)
+		group.durationsMillis = append(group.durationsMillis, int64(score.WallClockSeconds*1000))
+		if score.CompletedSuccessfully {
 			group.successCount++
 		}
-		if isFirstPass(run.Status, stats) {
+		if score.FirstPassSuccess {
 			group.firstPassCount++
 		}
 	}
@@ -248,19 +237,19 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		result = append(result, AgentScorecard{
 			Agent:                      group.agent,
 			Model:                      group.model,
-			Models:                     agentScorecardModels(group.model),
+			Models:                     common.NonEmptyStrings(group.model),
 			RunCount:                   group.runCount,
-			TotalTaskToolCalls:         sumInt(group.taskToolCalls),
-			TotalDownstreamToolCalls:   sumInt(group.downstreamCalls),
-			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
-			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
-			TotalCentianErrors:         sumInt(group.centianErrors),
-			TotalDownstreamToolErrors:  sumInt(group.downstreamErrors),
-			MedianCentianErrors:        medianInt(group.centianErrors),
-			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
-			MedianDurationMillis:       medianInt64(group.durationsMillis),
-			SuccessRate:                scorecardRate(group.successCount, group.runCount),
-			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
+			TotalTaskToolCalls:         common.SumInts(group.taskToolCalls),
+			TotalDownstreamToolCalls:   common.SumInts(group.downstreamCalls),
+			MedianTaskToolCalls:        common.MedianInt(group.taskToolCalls),
+			MedianDownstreamToolCalls:  common.MedianInt(group.downstreamCalls),
+			TotalCentianErrors:         common.SumInts(group.centianErrors),
+			TotalDownstreamToolErrors:  common.SumInts(group.downstreamErrors),
+			MedianCentianErrors:        common.MedianInt(group.centianErrors),
+			MedianDownstreamToolErrors: common.MedianInt(group.downstreamErrors),
+			MedianDurationMillis:       common.MedianInt64(group.durationsMillis),
+			SuccessRate:                common.Ratio(group.successCount, group.runCount),
+			FirstPassRate:              common.Ratio(group.firstPassCount, group.runCount),
 		})
 	}
 
@@ -276,105 +265,15 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 	return result, nil
 }
 
-func selectedModelForAgentScorecardRun(run persistence.BenchmarkRunRecord) (string, error) {
-	model := strings.TrimSpace(run.SelectedModel)
-	if len(run.AgentMetadataJSON) == 0 {
-		return model, nil
-	}
-
-	var metadata AgentMetadata
-	if err := json.Unmarshal(run.AgentMetadataJSON, &metadata); err != nil {
-		return "", fmt.Errorf("unmarshal benchmark agent metadata for %q: %w", run.BenchmarkRunID, err)
-	}
-	return firstNonEmpty(strings.TrimSpace(metadata.SelectedModel), agentMetadataModelUsageLabel(metadata.ModelUsage), model), nil
-}
-
-func agentModelScorecardKey(agent, model string) string {
-	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(model)
-}
-
-func agentScorecardModels(model string) []string {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return nil
-	}
-	return []string{model}
-}
-
-func agentMetadataModelUsageLabel(modelUsage map[string]AgentModelUsage) string {
-	if len(modelUsage) == 0 {
-		return ""
-	}
-	models := make([]string, 0, len(modelUsage))
-	for model := range modelUsage {
-		if model = strings.TrimSpace(model); model != "" {
-			models = append(models, model)
-		}
-	}
-	sort.Strings(models)
-	return strings.Join(models, ", ")
-}
-
+// templateIdentityKey groups scorecards by logical template identity.
 func templateIdentityKey(templateID, templateName string) string {
-	templateID = strings.TrimSpace(templateID)
-	templateName = strings.TrimSpace(templateName)
-	if templateName == "" {
-		return templateID
-	}
-	return templateID + "::" + templateName
+	return common.JoinTrimmedIfRight(templateID, templateName, "::")
 }
 
-func isFirstPass(status string, stats *persistence.TaskRunStatsRecord) bool {
-	if stats == nil {
-		return false
-	}
-	return isSuccessful(status) &&
-		stats.RestartCount == 0 &&
-		stats.FailCount == 0 &&
-		stats.TimeoutCount == 0
-}
-
-func isSuccessful(status string) bool {
-	return strings.TrimSpace(status) == runStatusCompleted
-}
-
-func scorecardRate(successes, total int) float64 {
-	if total <= 0 {
+// scorecardCentianErrorCount returns task-tool failures plus restart/fail/timeout events.
+func scorecardCentianErrorCount(sc *RunScorecard) int {
+	if sc == nil {
 		return 0
 	}
-	return float64(successes) / float64(total)
-}
-
-func sumInt(values []int) int {
-	total := 0
-	for _, value := range values {
-		total += value
-	}
-	return total
-}
-
-func medianInt(values []int) int {
-	if len(values) == 0 {
-		return 0
-	}
-	sorted := append([]int(nil), values...)
-	sort.Ints(sorted)
-	middle := len(sorted) / 2
-	if len(sorted)%2 == 0 {
-		return (sorted[middle-1] + sorted[middle]) / 2
-	}
-	return sorted[middle]
-}
-
-func medianInt64(values []int64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sorted := append([]int64(nil), values...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	middle := len(sorted) / 2
-	if len(sorted)%2 == 0 {
-		return (sorted[middle-1] + sorted[middle]) / 2
-	}
-	return sorted[middle]
+	return sc.Process.FailedTaskToolCalls + sc.Process.RestartCount + sc.Process.FailCount + sc.Process.TimeoutCount
 }

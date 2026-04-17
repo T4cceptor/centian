@@ -48,7 +48,7 @@ export function BenchmarkRunDetailPage() {
       <div className="state-card" data-testid="benchmark-run-loading">
         <p className="state-card__eyebrow">Syncing</p>
         <h2>Loading benchmark run…</h2>
-        <p>Building the live benchmark scorecard.</p>
+        <p>Loading the persisted benchmark score snapshot.</p>
       </div>
     );
   }
@@ -76,6 +76,32 @@ export function BenchmarkRunDetailPage() {
   }
 
   const { scorecard } = detail;
+  if (!detail.scored || !scorecard) {
+    return (
+      <div className="benchmark-page">
+        <div className="benchmark-toolbar">
+          <div>
+            <p className="state-card__eyebrow">Run Detail</p>
+            <h2>{detail.caseName || "Benchmark run"}</h2>
+            <p className="benchmark-toolbar__meta">{detail.templateName || detail.suiteName || suiteID}</p>
+          </div>
+        </div>
+        <div className="state-card" role="status">
+          <p className="state-card__eyebrow">Score Unavailable</p>
+          <h2>This run has no persisted score snapshot.</h2>
+          <p>{detail.scoreErrors?.[0] ?? "Legacy run or failed score generation."}</p>
+          {detail.scoreErrors && detail.scoreErrors.length > 1 ? (
+            <ul>
+              {detail.scoreErrors.map((error) => (
+                <li key={error}>{error}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   const selectedModel =
     scorecard.selectedModel ||
     scorecard.agentMetadata?.selectedModel ||

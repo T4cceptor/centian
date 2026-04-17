@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"gotest.tools/assert"
 )
 
@@ -21,7 +22,7 @@ func TestSimpleTDDSuiteFixturesStartRed(t *testing.T) {
 			projectDir := filepath.Join(t.TempDir(), "project")
 			fixtureRoot := filepath.Join(caseRoot, caseDef.Fixture.SeedPath)
 
-			assert.NilError(t, copyDir(fixtureRoot, projectDir))
+			assert.NilError(t, common.CopyDir(fixtureRoot, projectDir))
 			lockedPath := filepath.Join(projectDir, caseDef.Constraints.LockedPaths[0])
 			_, err := os.Stat(lockedPath)
 			assert.NilError(t, err)
@@ -69,7 +70,7 @@ func TestCentianDemoSuiteScaffoldedBaselineFails(t *testing.T) {
 		Path: "cases/score_parentheses_js",
 	})
 	projectDir := filepath.Join(t.TempDir(), "project")
-	assert.NilError(t, copyDir(filepath.Join(caseRoot, caseDef.Fixture.SeedPath), projectDir))
+	assert.NilError(t, common.CopyDir(filepath.Join(caseRoot, caseDef.Fixture.SeedPath), projectDir))
 	assert.NilError(t, os.WriteFile(filepath.Join(projectDir, "package.json"), []byte(`{"type":"module"}`), 0o644))
 	assert.NilError(t, os.WriteFile(filepath.Join(projectDir, "scoreParentheses.js"), []byte("export default function scoreParentheses() {\n  return 0;\n}\n"), 0o644))
 	assert.NilError(t, os.WriteFile(filepath.Join(projectDir, "scoreParentheses.test.js"), []byte(`import test from "node:test";

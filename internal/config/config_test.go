@@ -119,3 +119,35 @@ func TestGatewayConfigForceReadOnlyHintsEnabled(t *testing.T) {
 		t.Fatal("expected true for ForceReadOnlyHints=true")
 	}
 }
+
+func TestGatewayConfigForceSafeToolHintsEnabled(t *testing.T) {
+	// Given: nil gateway config
+	// Then: returns false
+	var nilGateway *GatewayConfig
+	if nilGateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected false for nil gateway")
+	}
+
+	// Given: gateway with nil ForceSafeToolHints
+	// Then: returns false
+	gateway := &GatewayConfig{}
+	if gateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected false for nil ForceSafeToolHints")
+	}
+
+	// Given: gateway with ForceSafeToolHints=false
+	// Then: returns false
+	f := false
+	gateway.ForceSafeToolHints = &f
+	if gateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected false for ForceSafeToolHints=false")
+	}
+
+	// Given: gateway with ForceSafeToolHints=true
+	// Then: returns true
+	tr := true
+	gateway.ForceSafeToolHints = &tr
+	if !gateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected true for ForceSafeToolHints=true")
+	}
+}

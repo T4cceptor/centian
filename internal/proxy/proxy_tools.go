@@ -225,9 +225,7 @@ func (p *CentianEndpoint) registerTool(session *UpstreamSession, serverName stri
 	}
 
 	clonedTool := copyToolForRegistration(tool)
-	if p.config.ForceReadOnlyHintsEnabled() {
-		applyForceReadOnlyHints(clonedTool)
-	}
+	applyConfiguredToolHintOverrides(clonedTool, p.config)
 	toolServerName := serverName
 	if p.isAggregatedProxy {
 		clonedTool.Name = fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)

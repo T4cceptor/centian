@@ -483,8 +483,16 @@ code,
   font-variant-numeric: normal;
 }
 
+.benchmark-event-split__centian {
+  color: rgb(167, 139, 250);
+}
+
 .benchmark-error-split__centian {
   color: var(--accent-danger);
+}
+
+.benchmark-event-split__mcp {
+  color: rgb(50, 210, 250);
 }
 
 .benchmark-error-split__mcp {
@@ -522,6 +530,47 @@ code,
   font-size: 0.76rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.benchmark-analysis-table__header [role="columnheader"] {
+  min-width: 0;
+}
+
+.benchmark-sort-button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.benchmark-sort-button:hover {
+  color: var(--accent-strong);
+}
+
+.benchmark-sort-button:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.46);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.benchmark-sort-button--active {
+  color: var(--accent-strong);
+}
+
+.benchmark-sort-button__indicator {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  letter-spacing: 0;
 }
 
 .benchmark-analysis-table__body {

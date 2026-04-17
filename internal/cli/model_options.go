@@ -5,86 +5,139 @@ import (
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
-	"github.com/T4cceptor/centian/internal/benchmarks"
 )
 
 const (
-	codexModelStable = "gpt-5.4"
-	codexModelMini   = "gpt-5.4-mini"
-	codexModelHelp   = codexModelStable + ", " + codexModelMini
-	claudeModelHelp  = "haiku, sonnet, opus"
-	geminiModelHelp  = "pro (gemini-3.1-pro-preview), flash (gemini-3-flash-preview), 2.5-flash (gemini-2.5-flash)"
+	codexModelStable       = "gpt-5.4"
+	codexModelMini         = "gpt-5.4-mini"
+	codexModelHelp         = codexModelStable + ", " + codexModelMini
+	codexOllamaProfileHelp = "profile name from the supplied Codex config"
+	claudeModelHelp        = "haiku, sonnet, opus"
+	geminiModelHelp        = "pro (gemini-3.1-pro-preview), flash (gemini-3-flash-preview), 2.5-flash (gemini-2.5-flash)"
 )
 
 func singleModelFlagUsage() string {
 	return fmt.Sprintf("Model for selected agent. Codex: %s; Claude: %s; Gemini: %s", codexModelHelp, claudeModelHelp, geminiModelHelp)
 }
 
+// normalizeCLIModel applies the shared model alias rules to one CLI-provided model value.
 func normalizeCLIModel(agent, model string) string {
-	trimmed := strings.TrimSpace(model)
-	if trimmed == "" {
-		return ""
-	}
-	normalized := strings.ToLower(trimmed)
-	switch strings.ToLower(strings.TrimSpace(agent)) {
-	case agentrunner.AgentCodex:
-		switch normalized {
-		case "gpt5.4", "gpt-5.4":
-			return codexModelStable
-		case "gpt5.4-mini", codexModelMini:
-			return codexModelMini
-		}
-	case agentrunner.AgentClaude:
-		switch normalized {
-		case "haiku", "sonnet", "opus":
-			return normalized
-		}
-	case agentrunner.AgentGemini:
-		switch normalized {
-		case "pro", "gemini-3.1-pro", "gemini-3.1-pro-preview":
-			return "gemini-3.1-pro-preview"
-		case "flash", "gemini-3-flash", "gemini-3-flash-preview":
-			return "gemini-3-flash-preview"
-		case "2.5-flash", "gemini-2.5-flash":
-			return "gemini-2.5-flash"
-		}
-	}
-	return trimmed
+	return agentrunner.NormalizeModelForAgent(agent, model)
 }
 
-func benchmarkAgentModelsFromFlags(cmdModel string, agents []string, claudeModel, geminiModel, codexModel string) (benchmarks.AgentModels, error) {
-	models := benchmarks.AgentModels{
-		Claude: normalizeCLIModel(agentrunner.AgentClaude, claudeModel),
-		Gemini: normalizeCLIModel(agentrunner.AgentGemini, geminiModel),
-		Codex:  normalizeCLIModel(agentrunner.AgentCodex, codexModel),
+// benchmarkExecutionsFromFlags translates benchmark agent/model flags into execution configs.
+func benchmarkExecutionsFromFlags(cmdModel, cmdProfile string, agents []string, claudeModel, geminiModel, codexModel, codexConfigPath string) ([]agentrunner.AgentExecutionOptions, error) {
+	inputs := &benchmarkExecutionFlagInputs{
+		profile:         cmdProfile,
+		claudeModel:     claudeModel,
+		geminiModel:     geminiModel,
+		codexModel:      codexModel,
+		codexConfigPath: codexConfigPath,
 	}
+	executions := buildBenchmarkExecutions(agents, inputs)
+	profile := strings.TrimSpace(cmdProfile)
 	model := strings.TrimSpace(cmdModel)
+	if profile == "" && model == "" {
+		return normalizeExecutions(executions)
+	}
+	if err := validateBenchmarkProfileOverride(profile, executions); err != nil {
+		return nil, err
+	}
 	if model == "" {
-		return models, nil
+		return normalizeExecutions(executions)
 	}
+	if err := applyBenchmarkSingleModelOverride(model, agents, executions); err != nil {
+		return nil, err
+	}
+	return normalizeExecutions(executions)
+}
+
+type benchmarkExecutionFlagInputs struct {
+	profile         string
+	claudeModel     string
+	geminiModel     string
+	codexModel      string
+	codexConfigPath string
+}
+
+// buildBenchmarkExecutions expands the selected agent list into concrete execution configs.
+func buildBenchmarkExecutions(agents []string, inputs *benchmarkExecutionFlagInputs) []agentrunner.AgentExecutionOptions {
+	executions := make([]agentrunner.AgentExecutionOptions, 0, len(agents))
+	for _, agent := range agents {
+		executions = append(executions, buildBenchmarkExecution(strings.ToLower(strings.TrimSpace(agent)), inputs))
+	}
+	return executions
+}
+
+// buildBenchmarkExecution builds one execution config from the per-agent CLI flag set.
+func buildBenchmarkExecution(agent string, inputs *benchmarkExecutionFlagInputs) agentrunner.AgentExecutionOptions {
+	exec := agentrunner.AgentExecutionOptions{Agent: agent}
+	switch agent {
+	case agentrunner.AgentClaude:
+		exec.Model = normalizeCLIModel(agent, inputs.claudeModel)
+	case agentrunner.AgentGemini:
+		exec.Model = normalizeCLIModel(agent, inputs.geminiModel)
+	case agentrunner.AgentCodex:
+		exec.Model = normalizeCLIModel(agent, inputs.codexModel)
+		exec.CodexConfigPath = strings.TrimSpace(inputs.codexConfigPath)
+	case agentrunner.AgentCodexOllama:
+		exec.Profile = strings.TrimSpace(inputs.profile)
+		exec.CodexConfigPath = strings.TrimSpace(inputs.codexConfigPath)
+	}
+	return exec
+}
+
+// validateBenchmarkProfileOverride rejects profile usage when codex-ollama is not selected.
+func validateBenchmarkProfileOverride(profile string, executions []agentrunner.AgentExecutionOptions) error {
+	if profile == "" {
+		return nil
+	}
+	for _, exec := range executions {
+		if exec.Agent == agentrunner.AgentCodexOllama {
+			return nil
+		}
+	}
+	return fmt.Errorf("--profile can only be used when --agent codex-ollama is selected")
+}
+
+// applyBenchmarkSingleModelOverride applies the shared --model flag to a single selected agent.
+func applyBenchmarkSingleModelOverride(model string, agents []string, executions []agentrunner.AgentExecutionOptions) error {
 	if len(agents) != 1 {
-		return benchmarks.AgentModels{}, fmt.Errorf("--model can only be used with exactly one agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs")
+		return fmt.Errorf("--model can only be used with exactly one non-codex-ollama agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs")
 	}
-	agent := strings.ToLower(strings.TrimSpace(agents[0]))
+	agent := executions[0].Agent
 	normalized := normalizeCLIModel(agent, model)
 	switch agent {
 	case agentrunner.AgentClaude:
-		if models.Claude != "" {
-			return benchmarks.AgentModels{}, fmt.Errorf("--model cannot be combined with --claude-model")
+		if executions[0].Model != "" {
+			return fmt.Errorf("--model cannot be combined with --claude-model")
 		}
-		models.Claude = normalized
 	case agentrunner.AgentGemini:
-		if models.Gemini != "" {
-			return benchmarks.AgentModels{}, fmt.Errorf("--model cannot be combined with --gemini-model")
+		if executions[0].Model != "" {
+			return fmt.Errorf("--model cannot be combined with --gemini-model")
 		}
-		models.Gemini = normalized
 	case agentrunner.AgentCodex:
-		if models.Codex != "" {
-			return benchmarks.AgentModels{}, fmt.Errorf("--model cannot be combined with --codex-model")
+		if executions[0].Model != "" {
+			return fmt.Errorf("--model cannot be combined with --codex-model")
 		}
-		models.Codex = normalized
+	case agentrunner.AgentCodexOllama:
+		return fmt.Errorf("--model is not supported for codex-ollama; use --profile")
 	default:
-		return benchmarks.AgentModels{}, fmt.Errorf("unsupported agent %q; cannot apply --model", agents[0])
+		return fmt.Errorf("unsupported agent %q; cannot apply --model/--profile", agents[0])
 	}
-	return models, nil
+	executions[0].Model = normalized
+	return nil
+}
+
+// normalizeExecutions validates and fills defaults for the built execution list.
+func normalizeExecutions(executions []agentrunner.AgentExecutionOptions) ([]agentrunner.AgentExecutionOptions, error) {
+	normalized := make([]agentrunner.AgentExecutionOptions, 0, len(executions))
+	for _, exec := range executions {
+		item, err := agentrunner.NormalizeExecutionOptions(exec)
+		if err != nil {
+			return nil, err
+		}
+		normalized = append(normalized, item)
+	}
+	return normalized, nil
 }

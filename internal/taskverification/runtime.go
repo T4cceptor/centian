@@ -16,6 +16,10 @@ type commandResult struct {
 }
 
 const outputSnippetLimit = 240
+const (
+	startStepRecoveryTool    = "centian.task_start_step"
+	completeStepRecoveryTool = "centian.task_complete_step"
+)
 
 type stepFailureDetails struct {
 	kind            StepFailureKind
@@ -47,6 +51,7 @@ func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) 
 	}
 
 	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepNumber, StepFailurePhasePrecondition, preConditionsForCheck); failed {
+		attachRetryRecovery(result, startStepRecoveryTool)
 		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
@@ -54,6 +59,7 @@ func (s *Service) StartStep(ctx context.Context, run *RunState, stepNumber int) 
 	}
 	baselines, result, failed := s.captureInvariantBaselines(ctx, run, step, stepIndex, stepNumber)
 	if failed {
+		attachRetryRecovery(result, startStepRecoveryTool)
 		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
@@ -86,12 +92,14 @@ func (s *Service) completeWorkflowStep(ctx context.Context, run *RunState, stepI
 	}
 
 	if result, failed := s.runStepChecks(ctx, run, step, stepIndex, stepIndex+1, StepFailurePhasePostcondition, postConditionsForCheck); failed {
+		attachRetryRecovery(result, completeStepRecoveryTool)
 		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
 		return result, nil
 	}
 	if result, failed := s.verifyInvariants(ctx, run, step, stepIndex); failed {
+		attachRetryRecovery(result, completeStepRecoveryTool)
 		if persistErr := s.persistRunSnapshot(ctx, run); persistErr != nil {
 			return result, persistErr
 		}
@@ -145,6 +153,23 @@ func completeWorkflowStep(run *RunState, stepIndex int, step *Step) *StepResult 
 		Phase:      run.Phase,
 		StepStatus: run.Steps[stepIndex].Status,
 	}
+}
+
+func attachRetryRecovery(result *StepResult, tool string) {
+	if result == nil || result.Passed {
+		return
+	}
+	summary := fmt.Sprintf("Fix the failed check in workspaceRoot, then retry %s for step %d.", tool, result.Step)
+	result.Retryable = true
+	result.RestartRequired = false
+	result.RecoveryActions = []RecoveryAction{{
+		Kind:    "retry_tool",
+		Summary: summary,
+		Tool:    tool,
+		Arguments: map[string]any{
+			"step": result.Step,
+		},
+	}}
 }
 
 func workflowStepRequest(run *RunState, stepNumber int) (int, *Step, error) {
@@ -265,7 +290,6 @@ func (s *Service) captureInvariantBaselines(ctx context.Context, run *RunState, 
 			return nil, s.invariantExecutionFailure(run, step, stepIndex, stepNumber, invariant.ID, StepFailurePhaseInvariantCapture, result, err), true
 		}
 		if result.ExitCode != 0 {
-			run.Steps[stepIndex].Status = StepStatusFailed
 			details := failureDetailsFromCommand(
 				StepFailureKindInvariant,
 				StepFailurePhaseInvariantCapture,
@@ -298,7 +322,6 @@ func (s *Service) verifyInvariants(ctx context.Context, run *RunState, step *Ste
 }
 
 func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNumber int, checkID string, result *commandResult, err error) *StepResult {
-	run.Steps[stepIndex].Status = StepStatusFailed
 	details := failureDetailsFromCommand(
 		StepFailureKindCommandExecution,
 		StepFailurePhaseCommandExecution,
@@ -319,7 +342,6 @@ func (s *Service) invariantExecutionFailure(
 	result *commandResult,
 	err error,
 ) *StepResult {
-	run.Steps[stepIndex].Status = StepStatusFailed
 	details := failureDetailsFromCommand(
 		StepFailureKindCommandExecution,
 		StepFailurePhaseCommandExecution,
@@ -377,9 +399,6 @@ func verifyInvariantResult(run *RunState, step *Step, stepIndex int, result *com
 func failureResult(run *RunState, stepIndex, stepNumber int, stepID string, details *stepFailureDetails) *StepResult {
 	if details == nil {
 		details = &stepFailureDetails{}
-	}
-	if stepIndex >= 0 && stepIndex < len(run.Steps) {
-		run.Steps[stepIndex].Status = StepStatusFailed
 	}
 	message := details.summary
 	run.LastFailureMessage = message

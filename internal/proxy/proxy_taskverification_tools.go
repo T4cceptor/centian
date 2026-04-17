@@ -56,12 +56,8 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		return
 	}
 
-	forceRO := p.config.ForceReadOnlyHintsEnabled()
-
 	addTaskTool := func(tool *mcp.Tool, name string, handler taskToolHandler) {
-		if forceRO {
-			applyForceReadOnlyHints(tool)
-		}
+		applyConfiguredToolHintOverrides(tool, p.config)
 		server.AddTool(tool, p.wrapTaskToolHandler(session, name, handler))
 		session.registeredStaticTools[name] = struct{}{}
 	}
@@ -426,13 +422,10 @@ func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *Upst
 	for _, template := range templates {
 		lines = append(lines, fmt.Sprintf("%s (%d steps)", template.ID, template.StepCount))
 		structured = append(structured, map[string]any{
-			"id":           template.ID,
-			"name":         template.Name,
-			"description":  template.Description,
-			"instructions": template.Instructions,
-			"parameters":   template.Parameters,
-			"stepCount":    template.StepCount,
-			"steps":        template.Steps,
+			"id":          template.ID,
+			"name":        template.Name,
+			"description": template.Description,
+			"stepCount":   template.StepCount,
 		})
 	}
 	if len(lines) == 0 {
@@ -478,9 +471,8 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(run)
 	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 
-	structured := runStructuredContent(run, p.server.TaskVerification.WorkingDir)
+	structured := lifecycleStructuredContent(run, p.server.TaskVerification.WorkingDir)
 	stepCount := len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps)
-	structured["stepCount"] = stepCount
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, stepCount), structured), nil
 }
 
@@ -504,10 +496,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
 		"taskSummary": args.Onboarding.TaskSummary,
 	})
-	structured := runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
-	if session.taskRun.Onboarding != nil {
-		structured["onboarding"] = session.taskRun.Onboarding
-	}
+	structured := onboardingStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
 	return toolResult("Task onboarding completed; task moved to planning.", structured), nil
 }
 
@@ -539,10 +528,7 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 	}
-	structured := runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
-	if session.taskRun.Planning != nil {
-		structured["planning"] = session.taskRun.Planning
-	}
+	structured := planningCompletionStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
 	return toolResult(fmt.Sprintf("Task planning completed; task moved to %s.", session.taskRun.Phase), structured), nil
 }
 
@@ -618,7 +604,7 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepStarted, outcome, taskActionRequestIDFromContext(ctx), stepEventPayload(result))
-	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir, taskStartStepTool), nil
+	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir), nil
 }
 
 func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -650,7 +636,7 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 			p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
 		}
 	}
-	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir, taskCompleteStepTool), nil
+	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir), nil
 }
 
 func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -666,7 +652,7 @@ func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *Ups
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
-	return toolResult("Task resumed.", runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult("Task resumed.", lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -682,7 +668,7 @@ func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *Up
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
-	return toolResult("Task restarted.", runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult("Task restarted.", lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -710,7 +696,7 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 	if strings.TrimSpace(args.Reason) != "" {
 		message = fmt.Sprintf("Task failed: %s", strings.TrimSpace(args.Reason))
 	}
-	return toolResult(message, runStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult(message, lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
 }
 
 func decodeToolArguments(req *mcp.CallToolRequest, target any) error {
@@ -733,8 +719,8 @@ func toolResult(message string, structured map[string]any) *mcp.CallToolResult {
 	}
 }
 
-func stepToolResult(result *taskverification.StepResult, run *taskverification.RunState, workingDir, actionTool string) *mcp.CallToolResult {
-	structured := runStructuredContent(run, workingDir)
+func stepToolResult(result *taskverification.StepResult, run *taskverification.RunState, workingDir string) *mcp.CallToolResult {
+	structured := stepStructuredContent(run, workingDir)
 	structured["passed"] = result.Passed
 	structured["message"] = result.Message
 	structured["step"] = result.Step
@@ -757,6 +743,15 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	if result.FailedInvariantID != "" {
 		structured["failedInvariantId"] = result.FailedInvariantID
 	}
+	if result.Retryable {
+		structured["retryable"] = result.Retryable
+	}
+	if result.RestartRequired {
+		structured["restartRequired"] = result.RestartRequired
+	}
+	if len(result.RecoveryActions) > 0 {
+		structured["recoveryActions"] = recoveryActionsStructuredContent(result.RecoveryActions)
+	}
 	if result.ExitCode != nil {
 		structured["exitCode"] = *result.ExitCode
 	}
@@ -766,11 +761,11 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	if result.StderrSnippet != "" {
 		structured["stderrSnippet"] = result.StderrSnippet
 	}
-	structured["nextAction"] = nextActionForStepResult(result, run, actionTool)
+	structured["nextAction"] = nextActionForStepResult(result, run)
 	return toolResult(result.Message, structured)
 }
 
-func runStructuredContent(run *taskverification.RunState, workingDir string) map[string]any {
+func lifecycleStructuredContent(run *taskverification.RunState, workingDir string) map[string]any {
 	if run == nil {
 		structured := map[string]any{}
 		addWorkspaceContext(structured, workingDir)
@@ -778,38 +773,22 @@ func runStructuredContent(run *taskverification.RunState, workingDir string) map
 	}
 
 	structured := map[string]any{
-		"taskRunId":                  run.RunID,
-		"templateId":                 run.TemplateID,
-		"templateName":               run.SelectedTemplate.Task.Name,
-		"description":                run.SelectedTemplate.Task.Description,
-		"instructions":               run.SelectedTemplate.Task.Instructions,
-		"status":                     string(run.Status),
-		"phase":                      string(run.Phase),
-		"hasOnboarding":              run.Onboarding != nil,
-		"hasPlanning":                run.Planning != nil,
-		"executionReady":             run.WorkflowReady,
-		"stepCount":                  len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps),
-		"lastFailureMessage":         run.LastFailureMessage,
-		"explicitFailReason":         run.ExplicitFailReason,
-		"parameterDefinitions":       run.SelectedTemplate.ParameterDefinitions(),
-		"requiredInputs":             run.SelectedTemplate.ParameterDefinitions(),
-		"requiredInputNames":         run.SelectedTemplate.RequiredParameterNames(),
-		"requiredPlanningParameters": requiredPlanningParameters(run.SelectedTemplate.ParameterDefinitions()),
+		"taskRunId":      run.RunID,
+		"templateId":     run.TemplateID,
+		"templateName":   run.SelectedTemplate.Task.Name,
+		"status":         string(run.Status),
+		"phase":          string(run.Phase),
+		"hasOnboarding":  run.Onboarding != nil,
+		"hasPlanning":    run.Planning != nil,
+		"executionReady": run.WorkflowReady,
+	}
+	if strings.TrimSpace(run.ExplicitFailReason) != "" {
+		structured["explicitFailReason"] = run.ExplicitFailReason
 	}
 	addTaskTimingFields(structured, run)
 	addWorkspaceContext(structured, workingDir)
-	addTaskContracts(structured)
 	addCurrentNodeContext(structured, run)
-	addPlanningNodeContext(structured, run)
-	addArtifactSummaries(structured, run)
 	structured["nextAction"] = nextActionForRun(run)
-
-	if !run.WorkflowReady || run.RunnableTemplate == nil {
-		return structured
-	}
-
-	structured["steps"] = workflowStepsSummary(run)
-	addStepContract(structured, run)
 	return structured
 }
 
@@ -822,10 +801,85 @@ func addWorkspaceContext(structured map[string]any, workingDir string) {
 	structured["commandWorkingDirectory"] = workingDir
 }
 
-func addTaskContracts(structured map[string]any) {
-	structured["onboardingContract"] = onboardingContract()
-	structured["planningContract"] = planningContract()
-	structured["shellCommandHint"] = "For compound shell commands or directory changes, use bash -lc '...'."
+func onboardingStructuredContent(run *taskverification.RunState, workingDir string) map[string]any {
+	structured := lifecycleStructuredContent(run, workingDir)
+	if run == nil {
+		return structured
+	}
+	structured["requiredInputNames"] = run.SelectedTemplate.RequiredParameterNames()
+	structured["requiredPlanningParameters"] = requiredPlanningParameters(run.SelectedTemplate.ParameterDefinitions())
+	addPlanningNodeContext(structured, run)
+	return structured
+}
+
+func planningCompletionStructuredContent(run *taskverification.RunState, workingDir string) map[string]any {
+	structured := lifecycleStructuredContent(run, workingDir)
+	if run == nil {
+		return structured
+	}
+	structured["planningSummary"] = planningSummary(run)
+	structured["frozenContractSummary"] = frozenContractSummary(run)
+	if run.WorkflowReady && run.RunnableTemplate != nil {
+		structured["steps"] = workflowStepsSummary(run)
+		addStepContract(structured, run)
+	}
+	return structured
+}
+
+func stepStructuredContent(run *taskverification.RunState, workingDir string) map[string]any {
+	if run == nil {
+		structured := map[string]any{}
+		addWorkspaceContext(structured, workingDir)
+		return structured
+	}
+	structured := map[string]any{
+		"taskRunId":    run.RunID,
+		"templateId":   run.TemplateID,
+		"templateName": run.SelectedTemplate.Task.Name,
+		"status":       string(run.Status),
+		"phase":        string(run.Phase),
+	}
+	addTaskTimingFields(structured, run)
+	addWorkspaceContext(structured, workingDir)
+	addCurrentNodeContext(structured, run)
+	addStepContract(structured, run)
+	return structured
+}
+
+func recoveryActionsStructuredContent(actions []taskverification.RecoveryAction) []map[string]any {
+	if len(actions) == 0 {
+		return []map[string]any{}
+	}
+	structured := make([]map[string]any, 0, len(actions))
+	for _, action := range actions {
+		entry := map[string]any{
+			"kind":    action.Kind,
+			"summary": action.Summary,
+		}
+		if action.Tool != "" {
+			entry["tool"] = action.Tool
+		}
+		if len(action.Arguments) > 0 {
+			entry["arguments"] = action.Arguments
+		}
+		structured = append(structured, entry)
+	}
+	return structured
+}
+
+func planningSummary(run *taskverification.RunState) map[string]any {
+	summary := map[string]any{
+		"planSummary":   "",
+		"selectedFiles": []string{},
+		"parameters":    map[string]string{},
+	}
+	if run == nil || run.Planning == nil {
+		return summary
+	}
+	summary["planSummary"] = run.Planning.PlanSummary
+	summary["selectedFiles"] = append([]string{}, run.Planning.SelectedFiles...)
+	summary["parameters"] = cloneStringMap(run.Planning.Parameters)
+	return summary
 }
 
 func nextActionForRun(run *taskverification.RunState) string {
@@ -870,18 +924,17 @@ func nextActionForRun(run *taskverification.RunState) string {
 	}
 }
 
-func nextActionForStepResult(result *taskverification.StepResult, run *taskverification.RunState, actionTool string) string {
+func nextActionForStepResult(result *taskverification.StepResult, run *taskverification.RunState) string {
 	if result == nil {
 		return nextActionForRun(run)
 	}
 	if result.Passed {
 		return nextActionForRun(run)
 	}
-	retryTool := actionTool
-	if retryTool == "" {
-		retryTool = taskCompleteStepTool
+	if len(result.RecoveryActions) > 0 && strings.TrimSpace(result.RecoveryActions[0].Summary) != "" {
+		return result.RecoveryActions[0].Summary
 	}
-	return fmt.Sprintf("Fix the failed check in workspaceRoot, then retry %s for step %d.", retryTool, result.Step)
+	return "Inspect the step failure and recover before retrying."
 }
 
 func activeOrCurrentStep(run *taskverification.RunState) (int, bool) {
@@ -909,19 +962,10 @@ func addCurrentNodeContext(structured map[string]any, run *taskverification.RunS
 	structured["currentNodeKind"] = string(node.Kind)
 	structured["approvalBlocked"] = node.Kind == taskverification.WorkflowNodeKindWaitingForApproval
 	structured["allowedTools"] = append([]string{}, node.AllowedTools...)
-	if len(node.EditableFields) > 0 {
-		structured["planningEditableFields"] = append([]string{}, node.EditableFields...)
-	}
-	if len(node.RequiredPlanningInputs) > 0 {
-		structured["planningRequiredInputs"] = append([]string{}, node.RequiredPlanningInputs...)
-	}
-	if node.NextPath != "" {
-		structured["nextNodePath"] = string(node.NextPath)
-	}
 }
 
 func addPlanningNodeContext(structured map[string]any, run *taskverification.RunState) {
-	if run.SelectedTemplate.CompiledWorkflow == nil {
+	if run == nil || run.SelectedTemplate.CompiledWorkflow == nil {
 		return
 	}
 	planningNode, exists := run.SelectedTemplate.CompiledWorkflow.Nodes[run.SelectedTemplate.CompiledWorkflow.PlanningPath]
@@ -936,23 +980,11 @@ func addPlanningNodeContext(structured map[string]any, run *taskverification.Run
 	}
 }
 
-func addArtifactSummaries(structured map[string]any, run *taskverification.RunState) {
-	if run.Onboarding != nil {
-		structured["taskSummary"] = run.Onboarding.TaskSummary
-	}
-	if run.Planning == nil {
-		return
-	}
-	structured["planningSummary"] = map[string]any{
-		"planSummary":   run.Planning.PlanSummary,
-		"selectedFiles": append([]string{}, run.Planning.SelectedFiles...),
-		"parameters":    cloneStringMap(run.Planning.Parameters),
-	}
-	structured["frozenContractSummary"] = frozenContractSummary(run)
-}
-
 func addStepContract(structured map[string]any, run *taskverification.RunState) {
 	if structured == nil || run == nil || run.RunnableTemplate == nil || run.RunnableTemplate.CompiledWorkflow == nil {
+		return
+	}
+	if run.Status != taskverification.TaskStatusActive {
 		return
 	}
 	stepNumber, _ := activeOrCurrentStep(run)
@@ -983,20 +1015,6 @@ func workflowStepsSummary(run *taskverification.RunState) []map[string]any {
 	return steps
 }
 
-func onboardingContract() map[string]any {
-	return map[string]any{
-		"requiredFields": []string{"taskSummary"},
-		"artifactMapItem": map[string]any{
-			"requiredFields": []string{"path", "kind"},
-			"optionalFields": []string{"notes"},
-		},
-		"commonCommandsItem": map[string]any{
-			"requiredFields": []string{"command", "purpose"},
-		},
-		"optionalFields": []string{"artifactMap", "commonCommands", "constraints", "openQuestions"},
-	}
-}
-
 func addTaskTimingFields(structured map[string]any, run *taskverification.RunState) {
 	if structured == nil || run == nil {
 		return
@@ -1020,15 +1038,6 @@ func addTaskTimingToToolResult(result *mcp.CallToolResult, run *taskverification
 	addTaskTimingFields(structured, run)
 }
 
-func planningContract() map[string]any {
-	return map[string]any{
-		"topLevelFields":  []string{"selectedFiles", "parameters", "invariants"},
-		"inputField":      "parameters",
-		"parametersField": "planning.parameters",
-		"instructions":    "Fill every entry in planning.parameters before execution can begin. Centian enforces the planning contract.",
-	}
-}
-
 func requiredPlanningParameters(definitions []taskverification.TemplateParameter) map[string]any {
 	if len(definitions) == 0 {
 		return map[string]any{}
@@ -1045,7 +1054,7 @@ func requiredPlanningParameters(definitions []taskverification.TemplateParameter
 }
 
 func planningValidationToolResult(validationErr *taskverification.PlanningValidationError, run *taskverification.RunState, workingDir string) *mcp.CallToolResult {
-	structured := runStructuredContent(run, workingDir)
+	structured := onboardingStructuredContent(run, workingDir)
 	structured["error"] = validationErr.Error()
 	structured["planningParametersField"] = "planning.parameters"
 	structured["requiredPlanningParameterNames"] = append([]string(nil), validationErr.RequiredParameterNames...)

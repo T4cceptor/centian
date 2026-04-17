@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"gopkg.in/yaml.v3"
@@ -29,6 +29,7 @@ const (
 	runFileName                    = "run.json"
 	configuredSharedEventStoreMode = "configured_shared"
 	runStatusCompleted             = "completed"
+	runStatusFailed                = "failed"
 )
 
 // TemplateVariant identifies one template tree used for a benchmark run variant.
@@ -37,24 +38,17 @@ type TemplateVariant struct {
 	SourceDir string `json:"sourceDir"`
 }
 
-// AgentModels contains optional per-agent model overrides.
-type AgentModels struct {
-	Claude string `json:"claude,omitempty"`
-	Gemini string `json:"gemini,omitempty"`
-	Codex  string `json:"codex,omitempty"`
-}
-
 // RunOptions configures one benchmark invocation.
 type RunOptions struct {
 	SuitePath         string
 	CaseIDs           []string
-	Agents            []string
+	Executions        []agentrunner.AgentExecutionOptions
 	Repeat            int
 	TemplateVariants  []TemplateVariant
 	OutputRoot        string
 	Timeout           time.Duration
 	CentianBinaryPath string
-	Models            AgentModels
+	CentianConfigPath string
 	SessionLabel      string
 	OnCentianReady    func(*RunManifest)
 	AfterRun          func(*RunManifest) error
@@ -63,7 +57,9 @@ type RunOptions struct {
 // SessionManifest describes one benchmark invocation and all concrete runs.
 type SessionManifest struct {
 	SuiteID          string                    `json:"suiteId"`
+	SuiteName        string                    `json:"suiteName,omitempty"`
 	TemplateID       string                    `json:"templateId"`
+	TemplateName     string                    `json:"templateName,omitempty"`
 	SuitePath        string                    `json:"suitePath"`
 	InvocationDir    string                    `json:"invocationDir"`
 	OutputRoot       string                    `json:"outputRoot"`
@@ -80,6 +76,7 @@ type SessionManifest struct {
 // SessionRunManifestEntry summarizes one concrete run under a session.
 type SessionRunManifestEntry struct {
 	CaseID              string `json:"caseId"`
+	CaseName            string `json:"caseName,omitempty"`
 	AgentID             string `json:"agentId"`
 	TemplateVariant     string `json:"templateVariant"`
 	Attempt             int    `json:"attempt"`
@@ -93,8 +90,11 @@ type SessionRunManifestEntry struct {
 // RunManifest describes one concrete benchmark run.
 type RunManifest struct {
 	SuiteID             string           `json:"suiteId"`
+	SuiteName           string           `json:"suiteName,omitempty"`
 	CaseID              string           `json:"caseId"`
+	CaseName            string           `json:"caseName,omitempty"`
 	TemplateID          string           `json:"templateId"`
+	TemplateName        string           `json:"templateName,omitempty"`
 	TemplateVariant     TemplateVariant  `json:"templateVariant"`
 	AgentID             string           `json:"agentId"`
 	Attempt             int              `json:"attempt"`
@@ -135,6 +135,7 @@ type Runner struct {
 	FindLatestRequestLog func(string) (string, error)
 	PersistSession       func(context.Context, string, *persistence.BenchmarkSessionRecord) error
 	PersistRun           func(context.Context, string, *persistence.BenchmarkRunRecord) error
+	PersistRunScore      func(context.Context, string, *persistence.BenchmarkRunScoreRecord) error
 }
 
 // StartCentianOptions configures one benchmark-local Centian child process.
@@ -153,21 +154,51 @@ type StartedCentian struct {
 	Stop func() error
 }
 
+// runSpec is one expanded benchmark matrix cell ready for execution.
 type runSpec struct {
 	CaseRef         SuiteCaseRef
 	CaseDef         *CaseDefinition
 	CaseRoot        string
 	Prompt          *PromptDefinition
 	TemplateVariant TemplateVariant
-	Agent           string
+	TemplateName    string
+	TemplatePath    string
+	Execution       agentrunner.AgentExecutionOptions
 	Attempt         int
+}
+
+type runWorkspace struct {
+	RunDir               string
+	ProjectDir           string
+	LogsDir              string
+	AgentDir             string
+	ConfigPath           string
+	SelectedTemplatePath string
+	RuntimeDir           string
+	RuntimeTemplatesDir  string
+	InternalLogPath      string
+	BaseURL              string
+	MCPURL               string
+}
+
+type runPersister struct {
+	ctx      context.Context
+	runner   *Runner
+	session  *SessionManifest
+	manifest *RunManifest
+	runPath  string
+}
+
+type templateSelection struct {
+	SourcePath string
+	Name       string
 }
 
 // NewRunner returns a benchmark runner with the default local execution hooks.
 func NewRunner() *Runner {
 	return &Runner{
 		Now:                  time.Now,
-		AllocatePort:         allocateFreePort,
+		AllocatePort:         common.AllocateFreePort,
 		StartCentian:         startCentianProcess,
 		LaunchAgent:          agentrunner.Run,
 		FetchTaskRuns:        fetchTaskRuns,
@@ -175,18 +206,42 @@ func NewRunner() *Runner {
 		FindLatestRequestLog: findLatestRequestLog,
 		PersistSession:       persistBenchmarkSession,
 		PersistRun:           persistBenchmarkRun,
+		PersistRunScore:      persistBenchmarkRunScore,
 	}
 }
 
-// ResolveDefaultTemplateVariants uses the repo's integrated templates as the implicit current variant.
+// ResolveDefaultTemplateVariants uses task-templates/integrated under the working
+// directory as the implicit current variant, with a repo-root fallback for
+// backwards compatibility.
 func ResolveDefaultTemplateVariants(start string) ([]TemplateVariant, error) {
-	repoRoot, err := FindRepoRoot(start)
+	searchRoot, err := filepath.Abs(start)
+	if err != nil {
+		return nil, fmt.Errorf("resolve template search root %q: %w", start, err)
+	}
+	info, err := os.Stat(searchRoot)
 	if err != nil {
 		return nil, err
 	}
-	sourceDir := filepath.Join(repoRoot, "task-templates", "integrated")
-	if _, err := os.Stat(sourceDir); err != nil {
-		return nil, fmt.Errorf("default template dir %q is not available: %w", sourceDir, err)
+	if !info.IsDir() {
+		searchRoot = filepath.Dir(searchRoot)
+	}
+	candidates := []string{
+		filepath.Join(searchRoot, "task-templates", "integrated"),
+	}
+	if repoRoot, rootErr := FindRepoRoot(searchRoot); rootErr == nil {
+		candidates = append(candidates, filepath.Join(repoRoot, "task-templates", "integrated"))
+	}
+	var sourceDir string
+	for _, candidate := range candidates {
+		candidateInfo, candidateErr := os.Stat(candidate)
+		if candidateErr != nil || !candidateInfo.IsDir() {
+			continue
+		}
+		sourceDir = candidate
+		break
+	}
+	if sourceDir == "" {
+		return nil, fmt.Errorf("default template dir was not found; use --template-dir, --centian-config, or create task-templates/integrated under %q", searchRoot)
 	}
 	return []TemplateVariant{{
 		Name:      "current",
@@ -194,13 +249,54 @@ func ResolveDefaultTemplateVariants(start string) ([]TemplateVariant, error) {
 	}}, nil
 }
 
-// ResolveDefaultOutputRoot uses the taskverification tmp benchmark area under the repo root.
-func ResolveDefaultOutputRoot(start string) (string, error) {
-	repoRoot, err := FindRepoRoot(start)
-	if err != nil {
-		return "", err
+// ResolveTemplateVariantsFromCentianConfig uses a custom Centian config as the
+// implicit current template variant when it declares a concrete templates path.
+func ResolveTemplateVariantsFromCentianConfig(configPath string) ([]TemplateVariant, error) {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return nil, nil
 	}
-	return filepath.Join(repoRoot, "tests", "integrationtests", "taskverification", ".tmp", "benchmarks"), nil
+	cfg, err := config.LoadConfigFromPath(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("load centian config %q: %w", configPath, err)
+	}
+	cfg.ResolveProjects()
+	project := benchmarkDefaultProject(cfg)
+	if project == nil {
+		return nil, nil
+	}
+	templatesPath := project.TaskVerificationCapability().GetTemplatesPath()
+	if templatesPath == "" || strings.Contains(templatesPath, "__TEMPLATES_DIR__") {
+		return nil, nil
+	}
+	if !filepath.IsAbs(templatesPath) {
+		templatesPath = filepath.Join(filepath.Dir(configPath), templatesPath)
+	}
+	info, err := os.Stat(templatesPath)
+	if err != nil {
+		return nil, fmt.Errorf("template dir from centian config %q is not available: %w", templatesPath, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("template dir from centian config %q must be a directory", templatesPath)
+	}
+	return []TemplateVariant{{
+		Name:      "current",
+		SourceDir: templatesPath,
+	}}, nil
+}
+
+// ResolveDefaultOutputRoot uses a local .centian benchmark workspace under the
+// working directory instead of the repo test fixture tree.
+func ResolveDefaultOutputRoot(start string) (string, error) {
+	root, err := filepath.Abs(start)
+	if err != nil {
+		return "", fmt.Errorf("resolve benchmark output root base %q: %w", start, err)
+	}
+	info, err := os.Stat(root)
+	if err == nil && !info.IsDir() {
+		root = filepath.Dir(root)
+	}
+	return filepath.Join(root, ".centian", "benchmarks"), nil
 }
 
 // FindRepoRoot walks upward from start until it finds a repo root containing go.mod.
@@ -238,7 +334,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if strings.TrimSpace(opts.SuitePath) == "" {
 		return nil, fmt.Errorf("suite path is required")
 	}
-	if len(opts.Agents) == 0 {
+	if len(opts.Executions) == 0 {
 		return nil, fmt.Errorf("at least one agent is required")
 	}
 	if opts.Repeat <= 0 {
@@ -281,7 +377,10 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	if err != nil {
 		return nil, err
 	}
-	agents := normalizeList(opts.Agents)
+	executions, err := normalizeRunExecutions(opts.Executions)
+	if err != nil {
+		return nil, err
+	}
 	caseIDs := make([]string, 0, len(selectedRefs))
 	for _, ref := range selectedRefs {
 		caseIDs = append(caseIDs, ref.ID)
@@ -293,6 +392,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	}
 	session := &SessionManifest{
 		SuiteID:          suite.Suite.ID,
+		SuiteName:        strings.TrimSpace(suite.Suite.Name),
 		TemplateID:       suite.Suite.TemplateID,
 		SuitePath:        suiteRoot,
 		InvocationDir:    sessionDir,
@@ -300,23 +400,25 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		StartedAt:        r.Now(),
 		Status:           runStatusCompleted,
 		Repeat:           opts.Repeat,
-		Agents:           agents,
+		Agents:           executionAgents(executions),
 		CaseIDs:          caseIDs,
 		TemplateVariants: templateVariants,
 		Runs:             []SessionRunManifestEntry{},
 	}
 
-	specs, err := buildRunSpecs(suiteRoot, selectedRefs, templateVariants, agents, opts.Repeat)
+	specs, err := buildRunSpecs(suiteRoot, selectedRefs, templateVariants, executions, opts.Repeat, suite.Suite.TemplateID)
 	if err != nil {
 		return nil, err
 	}
 
 	anyFailure := false
+	sessionStorePath := ""
 	for _, spec := range specs {
-		manifest, runErr := r.executeRun(ctx, sessionDir, suite, spec, opts)
+		manifest, runErr := r.executeRun(ctx, session, suite, spec, opts)
 		entry := SessionRunManifestEntry{
 			CaseID:              spec.CaseRef.ID,
-			AgentID:             spec.Agent,
+			CaseName:            manifest.CaseName,
+			AgentID:             spec.Execution.Agent,
 			TemplateVariant:     spec.TemplateVariant.Name,
 			Attempt:             spec.Attempt,
 			RelativeRunDir:      relativeRunDir(sessionDir, manifest.ArtifactPaths.RunDir),
@@ -326,23 +428,29 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 			ErrorSummary:        manifest.ErrorSummary,
 		}
 		session.Runs = append(session.Runs, entry)
+		session.TemplateName = common.FirstNonEmpty(session.TemplateName, manifest.TemplateName)
+		sessionStorePath = common.FirstNonEmpty(sessionStorePath, manifest.ArtifactPaths.EventStorePath)
 		if runErr != nil {
 			anyFailure = true
 		}
 	}
 	session.EndedAt = r.Now()
 	if anyFailure {
-		session.Status = "failed"
+		session.Status = runStatusFailed
 	}
-	if err := writeJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
+	if err := common.WriteJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
 		return nil, err
 	}
 	if record, err := buildSessionRecord(session); err != nil {
 		return session, err
 	} else {
-		storePath, pathErr := config.ResolveEventStorePath(nil)
-		if pathErr != nil {
-			return session, pathErr
+		storePath := strings.TrimSpace(sessionStorePath)
+		if storePath == "" {
+			var pathErr error
+			storePath, pathErr = config.ResolveEventStorePath(nil)
+			if pathErr != nil {
+				return session, pathErr
+			}
 		}
 		if err := r.PersistSession(ctx, storePath, record); err != nil {
 			return session, err
@@ -354,6 +462,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	return session, nil
 }
 
+// withDefaults fills nil runner hooks with the default local implementations.
 func (r *Runner) withDefaults() *Runner {
 	if r == nil {
 		return NewRunner()
@@ -362,7 +471,7 @@ func (r *Runner) withDefaults() *Runner {
 		r.Now = time.Now
 	}
 	if r.AllocatePort == nil {
-		r.AllocatePort = allocateFreePort
+		r.AllocatePort = common.AllocateFreePort
 	}
 	if r.StartCentian == nil {
 		r.StartCentian = startCentianProcess
@@ -385,172 +494,44 @@ func (r *Runner) withDefaults() *Runner {
 	if r.PersistRun == nil {
 		r.PersistRun = persistBenchmarkRun
 	}
+	if r.PersistRunScore == nil {
+		r.PersistRunScore = persistBenchmarkRunScore
+	}
 	return r
 }
 
+// executeRun executes one benchmark matrix cell and persists its raw artifacts and score snapshot.
 func (r *Runner) executeRun(
 	ctx context.Context,
-	sessionDir string,
+	session *SessionManifest,
 	suite *SuiteDefinition,
 	spec runSpec,
 	opts *RunOptions,
 ) (*RunManifest, error) {
-	runDir := filepath.Join(
-		sessionDir,
-		"runs",
-		sanitizeName(spec.TemplateVariant.Name),
-		sanitizeName(spec.Agent),
-		sanitizeName(spec.CaseRef.ID),
-		fmt.Sprintf("attempt-%03d", spec.Attempt),
-	)
-	projectDir := filepath.Join(runDir, "project")
-	logsDir := filepath.Join(runDir, "logs")
-	agentDir := filepath.Join(runDir, "agent")
-	configPath := filepath.Join(runDir, "centian.config.json")
-	selectedTemplatePath := filepath.Join(runDir, "selected-template.yaml")
-	runtimeDir := filepath.Join(runDir, ".runtime")
-	runtimeTemplatesDir := filepath.Join(runtimeDir, "templates")
-	eventStorePath, err := config.ResolveEventStorePath(nil)
-	if err != nil {
-		manifest := &RunManifest{
-			SuiteID:         suite.Suite.ID,
-			CaseID:          spec.CaseRef.ID,
-			TemplateID:      suite.Suite.TemplateID,
-			TemplateVariant: spec.TemplateVariant,
-			AgentID:         spec.Agent,
-			Attempt:         spec.Attempt,
-			SelectedModel:   selectedModel(spec.Agent, opts.Models),
-			StartedAt:       r.Now(),
-			EndedAt:         r.Now(),
-			Status:          "failed",
-			ErrorSummary:    err.Error(),
-			ArtifactPaths: RunArtifactPaths{
-				RunDir:               runDir,
-				ProjectDir:           projectDir,
-				LogsDir:              logsDir,
-				AgentDir:             agentDir,
-				ConfigPath:           configPath,
-				SelectedTemplatePath: selectedTemplatePath,
-			},
-		}
-		return manifest, err
+	if session == nil {
+		return nil, fmt.Errorf("session manifest is required")
 	}
-	manifest := &RunManifest{
-		SuiteID:         suite.Suite.ID,
-		CaseID:          spec.CaseRef.ID,
-		TemplateID:      suite.Suite.TemplateID,
-		TemplateVariant: spec.TemplateVariant,
-		AgentID:         spec.Agent,
-		Attempt:         spec.Attempt,
-		SelectedModel:   selectedModel(spec.Agent, opts.Models),
-		StartedAt:       r.Now(),
-		Status:          "failed",
-		ArtifactPaths: RunArtifactPaths{
-			RunDir:               runDir,
-			ProjectDir:           projectDir,
-			LogsDir:              logsDir,
-			AgentDir:             agentDir,
-			ConfigPath:           configPath,
-			EventStoreMode:       configuredSharedEventStoreMode,
-			EventStorePath:       eventStorePath,
-			SelectedTemplatePath: selectedTemplatePath,
-		},
-	}
-	flushManifest := func() error {
-		runPath := filepath.Join(runDir, runFileName)
-		if err := writeJSONFile(runPath, manifest); err != nil {
-			return err
-		}
-		if strings.TrimSpace(manifest.ArtifactPaths.EventStorePath) == "" {
-			return nil
-		}
-		record, err := buildRunRecord(manifest)
-		if err != nil {
-			return err
-		}
-		return r.PersistRun(ctx, manifest.ArtifactPaths.EventStorePath, record)
-	}
+	workspace := newRunWorkspace(strings.TrimSpace(session.InvocationDir), spec)
+	manifest := newRunManifest(r.Now(), suite, spec, workspace)
+	persister := r.newRunPersister(ctx, session, manifest, workspace)
 
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		return manifest, err
-	}
-	for _, dir := range []string{logsDir, agentDir, runtimeTemplatesDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			manifest.ErrorSummary = err.Error()
-			manifest.EndedAt = r.Now()
-			_ = flushManifest()
-			return manifest, err
-		}
-	}
-
-	fixtureRoot := filepath.Join(spec.CaseRoot, spec.CaseDef.Fixture.SeedPath)
-	if spec.CaseDef.Fixture.ResetMode != copySeedResetMode {
-		err := fmt.Errorf("unsupported fixture reset mode %q", spec.CaseDef.Fixture.ResetMode)
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	if err := copyDir(fixtureRoot, projectDir); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	selectedTemplateSourcePath, err := resolveSelectedTemplateFile(spec.TemplateVariant.SourceDir, suite.Suite.TemplateID)
+	defaultEventStorePath, err := config.ResolveEventStorePath(nil)
 	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
+		return r.failRun(manifest, persister, err)
 	}
-	if err := copyFile(selectedTemplateSourcePath, selectedTemplatePath); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	if err := copyFile(selectedTemplateSourcePath, filepath.Join(runtimeTemplatesDir, filepath.Base(selectedTemplateSourcePath))); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
+	manifest.ArtifactPaths.EventStoreMode = configuredSharedEventStoreMode
+	manifest.ArtifactPaths.EventStorePath = defaultEventStorePath
 
-	port, err := r.AllocatePort()
+	if err := prepareRunWorkspace(workspace); err != nil {
+		return r.failRun(manifest, persister, err)
+	}
+	if err := materializeRunInputs(spec, opts, &workspace, manifest, defaultEventStorePath, r.AllocatePort); err != nil {
+		return r.failRun(manifest, persister, err)
+	}
+	started, err := r.startRunCentian(ctx, workspace, manifest, opts)
 	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
+		return r.failRun(manifest, persister, err)
 	}
-	baseURL := "http://127.0.0.1:" + port
-	mcpURL := baseURL + "/mcp/taskverification"
-	if err := writeCentianConfig(configPath, runtimeTemplatesDir, projectDir, filepath.Join(logsDir, "internal.log"), eventStorePath, port); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-
-	started, err := r.StartCentian(ctx, StartCentianOptions{
-		BinaryPath: opts.CentianBinaryPath,
-		ConfigPath: configPath,
-		ProjectDir: projectDir,
-		LogsDir:    logsDir,
-		BaseURL:    baseURL,
-		MCPURL:     mcpURL,
-	})
-	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	manifest.UIPublicURL = baseURL + "/ui/tasks"
-	manifest.CentianPID = started.PID
 	if opts.OnCentianReady != nil {
 		opts.OnCentianReady(manifest)
 	}
@@ -559,71 +540,13 @@ func (r *Runner) executeRun(
 		if autoStop && started != nil && started.Stop != nil {
 			_ = started.Stop()
 		}
-		_ = os.RemoveAll(runtimeDir)
+		_ = os.RemoveAll(workspace.RuntimeDir)
 	}()
-
-	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-	defer cancel()
-	baselineRuns, err := r.FetchTaskRuns(baseURL)
-	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	_, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
-		Agent:         spec.Agent,
-		ArtifactRoot:  agentDir,
-		WorkspacePath: projectDir,
-		MCPURL:        mcpURL,
-		Prompt:        strings.TrimSpace(spec.Prompt.Prompt),
-		Timeout:       opts.Timeout,
-		ClaudeModel:   opts.Models.Claude,
-		GeminiModel:   opts.Models.Gemini,
-		CodexModel:    opts.Models.Codex,
-	})
-
-	var captureErrs []string
-	if agentErr != nil {
-		captureErrs = append(captureErrs, agentErr.Error())
-	}
-	if err := r.captureRunArtifacts(manifest, logsDir, baseURL, taskRunIDSet(baselineRuns)); err != nil {
-		captureErrs = append(captureErrs, err.Error())
-	}
-	if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == runStatusCompleted {
-		manifest.Status = runStatusCompleted
-	} else if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == "" {
-		captureErrs = append(captureErrs, "no task runs were observed")
-	}
-	if len(captureErrs) > 0 {
-		manifest.ErrorSummary = strings.Join(captureErrs, "; ")
-	}
-	if opts.AfterRun != nil {
-		if err := opts.AfterRun(manifest); err != nil {
-			if manifest.ErrorSummary == "" {
-				manifest.ErrorSummary = err.Error()
-			} else {
-				manifest.ErrorSummary += "; " + err.Error()
-			}
-		}
-	}
-
-	manifest.EndedAt = r.Now()
-	writeErr := flushManifest()
-	if writeErr != nil {
-		if manifest.ErrorSummary == "" {
-			manifest.ErrorSummary = writeErr.Error()
-		} else {
-			manifest.ErrorSummary += "; " + writeErr.Error()
-		}
-		return manifest, writeErr
-	}
-	if manifest.Status != "completed" {
-		return manifest, errors.New(manifest.ErrorSummary)
-	}
-	return manifest, nil
+	agentErr := r.executeAgentRun(ctx, spec, opts, workspace, manifest)
+	return r.finalizeRun(manifest, persister, opts, agentErr)
 }
 
+// captureRunArtifacts records the request log and newly created task runs for one benchmark run.
 func (r *Runner) captureRunArtifacts(
 	manifest *RunManifest,
 	logsDir string,
@@ -650,14 +573,20 @@ func (r *Runner) captureRunArtifacts(
 	return nil
 }
 
+// buildRunSpecs expands cases, template variants, agents, and attempts into executable runs.
 func buildRunSpecs(
 	suiteRoot string,
 	caseRefs []SuiteCaseRef,
 	templateVariants []TemplateVariant,
-	agents []string,
+	executions []agentrunner.AgentExecutionOptions,
 	repeat int,
+	templateID string,
 ) ([]runSpec, error) {
-	specs := make([]runSpec, 0, len(caseRefs)*len(templateVariants)*len(agents)*repeat)
+	selections, err := resolveTemplateSelections(templateVariants, templateID)
+	if err != nil {
+		return nil, err
+	}
+	specs := make([]runSpec, 0, len(caseRefs)*len(templateVariants)*len(executions)*repeat)
 	for _, ref := range caseRefs {
 		caseRoot := filepath.Join(suiteRoot, ref.Path)
 		caseDef, err := LoadCase(suiteRoot, ref)
@@ -669,7 +598,11 @@ func buildRunSpecs(
 			return nil, err
 		}
 		for _, variant := range templateVariants {
-			for _, agent := range agents {
+			selection, ok := selections[variant.Name]
+			if !ok {
+				return nil, fmt.Errorf("missing selected template for variant %q", variant.Name)
+			}
+			for _, execution := range executions {
 				for attempt := 1; attempt <= repeat; attempt++ {
 					specs = append(specs, runSpec{
 						CaseRef:         ref,
@@ -677,7 +610,9 @@ func buildRunSpecs(
 						CaseRoot:        caseRoot,
 						Prompt:          prompt,
 						TemplateVariant: variant,
-						Agent:           agent,
+						TemplateName:    selection.Name,
+						TemplatePath:    selection.SourcePath,
+						Execution:       execution,
 						Attempt:         attempt,
 					})
 				}
@@ -687,6 +622,7 @@ func buildRunSpecs(
 	return specs, nil
 }
 
+// selectCaseRefs keeps suite order while validating the requested case IDs.
 func selectCaseRefs(suite *SuiteDefinition, caseIDs []string) ([]SuiteCaseRef, error) {
 	if suite == nil {
 		return nil, fmt.Errorf("suite definition is required")
@@ -694,7 +630,7 @@ func selectCaseRefs(suite *SuiteDefinition, caseIDs []string) ([]SuiteCaseRef, e
 	if len(caseIDs) == 0 {
 		return append([]SuiteCaseRef(nil), suite.Cases...), nil
 	}
-	selected := normalizeList(caseIDs)
+	selected := common.NormalizeCSVList(caseIDs)
 	available := make(map[string]SuiteCaseRef, len(suite.Cases))
 	for _, ref := range suite.Cases {
 		available[ref.ID] = ref
@@ -710,6 +646,7 @@ func selectCaseRefs(suite *SuiteDefinition, caseIDs []string) ([]SuiteCaseRef, e
 	return refs, nil
 }
 
+// normalizeTemplateVariants validates names, deduplicates variants, and resolves source dirs.
 func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, error) {
 	if len(variants) == 0 {
 		return nil, fmt.Errorf("at least one template variant is required")
@@ -717,7 +654,7 @@ func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, e
 	seen := map[string]struct{}{}
 	normalized := make([]TemplateVariant, 0, len(variants))
 	for _, variant := range variants {
-		name := sanitizeName(variant.Name)
+		name := common.NormalizeSlug(variant.Name)
 		if name == "" {
 			return nil, fmt.Errorf("template variant name is required")
 		}
@@ -744,6 +681,28 @@ func normalizeTemplateVariants(variants []TemplateVariant) ([]TemplateVariant, e
 	return normalized, nil
 }
 
+// readTemplateName extracts task.name from a template file when available.
+func readTemplateName(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	var payload struct {
+		Task struct {
+			Name string `yaml:"name"`
+		} `yaml:"task"`
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	if err := yaml.Unmarshal(data, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.Task.Name)
+}
+
+// resolveSelectedTemplateFile finds the one template file whose task.id matches templateID.
 func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 	if strings.TrimSpace(sourceDir) == "" {
 		return "", fmt.Errorf("template source dir is required")
@@ -794,64 +753,126 @@ func resolveSelectedTemplateFile(sourceDir, templateID string) (string, error) {
 	return selectedPath, nil
 }
 
-func normalizeList(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, raw := range values {
-		for _, part := range strings.Split(raw, ",") {
-			value := strings.TrimSpace(part)
-			if value == "" {
-				continue
-			}
-			if _, exists := seen[value]; exists {
-				continue
-			}
-			result = append(result, value)
-			seen[value] = struct{}{}
-		}
+// normalizeList splits comma-separated values, trims blanks, and preserves first-seen order.
+// benchmarkRunDirName builds the stable on-disk directory name for one run.
+func benchmarkRunDirName(spec runSpec) string {
+	parts := []string{
+		common.NormalizeSlug(spec.TemplateVariant.Name),
+		common.NormalizeSlug(spec.Execution.Agent),
+		common.NormalizeSlug(spec.CaseRef.ID),
+		fmt.Sprintf("attempt_%03d", spec.Attempt),
 	}
-	return result
+	return strings.Join(parts, "_")
 }
 
-func writeCentianConfig(configPath string, templatesDir string, projectDir string, internalLog string, eventStorePath string, port string) error {
-	content, err := asset("centian_config.json")
+// renderedCentianConfig contains the final per-run Centian config and resolved store path.
+type renderedCentianConfig struct {
+	Content                 []byte
+	EffectiveEventStorePath string
+}
+
+// renderCentianConfig materializes the run-local Centian config and resolves effective paths.
+func renderCentianConfig(baseConfigPath string, templatesDir string, projectDir string, internalLog string, defaultEventStorePath string, port string) (*renderedCentianConfig, error) {
+	content, err := loadBenchmarkCentianConfigTemplate(baseConfigPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resolved := strings.NewReplacer(
 		"__PORT__", port,
 		"__TEMPLATES_DIR__", templatesDir,
 		"__PROJECT_DIR__", projectDir,
 		"__INTERNAL_LOG__", internalLog,
-		"__EVENT_STORE_PATH__", eventStorePath,
-	).Replace(content)
-	var payload any
+		"__EVENT_STORE_PATH__", defaultEventStorePath,
+	).Replace(string(content))
+	var payload config.GlobalConfig
 	if err := json.Unmarshal([]byte(resolved), &payload); err != nil {
-		return fmt.Errorf("parse rendered benchmark config: %w", err)
+		return nil, fmt.Errorf("parse rendered benchmark config: %w", err)
 	}
+	payload.ResolveProjects()
+	if payload.Proxy != nil && strings.TrimSpace(payload.Proxy.LogFile) != "" {
+		payload.Proxy.LogFile = resolveBenchmarkBaseConfigPath(baseConfigPath, payload.Proxy.LogFile)
+	}
+	effectiveEventStorePath := defaultEventStorePath
+	if project := benchmarkDefaultProject(&payload); project != nil {
+		if taskVerification := project.TaskVerificationCapability(); taskVerification != nil && strings.TrimSpace(taskVerification.TemplatesPath) != "" {
+			taskVerification.TemplatesPath = resolveBenchmarkBaseConfigPath(baseConfigPath, taskVerification.TemplatesPath)
+		}
+		if settings := project.EventStorageCapability(); settings != nil && strings.TrimSpace(settings.Path) != "" {
+			settings.Path = resolveBenchmarkBaseConfigPath(baseConfigPath, settings.Path)
+			effectiveEventStorePath = settings.Path
+		}
+	}
+	effectiveEventStorePath = common.FirstNonEmpty(effectiveEventStorePath, defaultEventStorePath)
+	effectiveEventStorePath = resolveBenchmarkConfigPath(projectDir, effectiveEventStorePath)
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode rendered benchmark config: %w", err)
+		return nil, fmt.Errorf("encode rendered benchmark config: %w", err)
 	}
-	if err := os.WriteFile(configPath, encoded, 0o644); err != nil {
-		return fmt.Errorf("write benchmark config: %w", err)
+	return &renderedCentianConfig{
+		Content:                 encoded,
+		EffectiveEventStorePath: effectiveEventStorePath,
+	}, nil
+}
+
+// loadBenchmarkCentianConfigTemplate loads either the embedded default config or a caller-supplied base file.
+func loadBenchmarkCentianConfigTemplate(baseConfigPath string) ([]byte, error) {
+	baseConfigPath = strings.TrimSpace(baseConfigPath)
+	if baseConfigPath == "" {
+		content, err := asset("centian_config.json")
+		if err != nil {
+			return nil, err
+		}
+		return []byte(content), nil
+	}
+	content, err := os.ReadFile(baseConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("read centian config %q: %w", baseConfigPath, err)
+	}
+	return content, nil
+}
+
+// resolveBenchmarkBaseConfigPath resolves configured paths relative to the chosen base config file.
+func resolveBenchmarkBaseConfigPath(baseConfigPath string, configuredPath string) string {
+	configuredPath = strings.TrimSpace(configuredPath)
+	if configuredPath == "" || filepath.IsAbs(configuredPath) {
+		return configuredPath
+	}
+	baseConfigPath = strings.TrimSpace(baseConfigPath)
+	if baseConfigPath == "" {
+		return configuredPath
+	}
+	return filepath.Join(filepath.Dir(baseConfigPath), configuredPath)
+}
+
+// benchmarkDefaultProject returns the effective project config used for a benchmark run.
+func benchmarkDefaultProject(cfg *config.GlobalConfig) *config.ProjectConfig {
+	if cfg == nil {
+		return nil
+	}
+	if project := cfg.GetDefaultProject(); project != nil {
+		return project
+	}
+	if len(cfg.Projects) != 1 {
+		return nil
+	}
+	for _, project := range cfg.Projects {
+		return project
 	}
 	return nil
 }
 
-func writeJSONFile(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+// resolveBenchmarkConfigPath resolves non-absolute configured paths relative to the run workspace.
+func resolveBenchmarkConfigPath(workingDir string, configuredPath string) string {
+	configuredPath = strings.TrimSpace(configuredPath)
+	if configuredPath == "" || filepath.IsAbs(configuredPath) {
+		return configuredPath
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
+	return filepath.Join(workingDir, configuredPath)
 }
 
+// createSessionDir creates a unique timestamped session directory under the suite output root.
 func createSessionDir(outputRoot string, suiteID string, label string, now time.Time) (string, error) {
-	if label = sanitizeName(label); label == "" {
+	if label = common.NormalizeSlug(label); label == "" {
 		label = defaultSessionLabel
 	}
 	root := filepath.Join(outputRoot, suiteID)
@@ -872,6 +893,7 @@ func createSessionDir(outputRoot string, suiteID string, label string, now time.
 	}
 }
 
+// relativeRunDir returns the run path relative to the enclosing session directory when possible.
 func relativeRunDir(sessionDir string, runDir string) string {
 	rel, err := filepath.Rel(sessionDir, runDir)
 	if err != nil {
@@ -880,19 +902,27 @@ func relativeRunDir(sessionDir string, runDir string) string {
 	return rel
 }
 
-func selectedModel(agent string, models AgentModels) string {
-	switch agent {
-	case agentrunner.AgentClaude:
-		return models.Claude
-	case agentrunner.AgentGemini:
-		return models.Gemini
-	case agentrunner.AgentCodex:
-		return models.Codex
-	default:
-		return ""
+func normalizeRunExecutions(executions []agentrunner.AgentExecutionOptions) ([]agentrunner.AgentExecutionOptions, error) {
+	normalized := make([]agentrunner.AgentExecutionOptions, 0, len(executions))
+	for _, exec := range executions {
+		item, err := agentrunner.NormalizeExecutionOptions(exec)
+		if err != nil {
+			return nil, err
+		}
+		normalized = append(normalized, item)
 	}
+	return normalized, nil
 }
 
+func executionAgents(executions []agentrunner.AgentExecutionOptions) []string {
+	agents := make([]string, 0, len(executions))
+	for _, exec := range executions {
+		agents = append(agents, exec.Agent)
+	}
+	return agents
+}
+
+// taskRunIDs extracts run IDs in order from fetched task-run summaries.
 func taskRunIDs(runs []persistence.TaskRunSummary) []string {
 	result := make([]string, 0, len(runs))
 	for _, run := range runs {
@@ -901,6 +931,7 @@ func taskRunIDs(runs []persistence.TaskRunSummary) []string {
 	return result
 }
 
+// taskRunIDSet builds a membership set for fetched task runs.
 func taskRunIDSet(runs []persistence.TaskRunSummary) map[string]struct{} {
 	if len(runs) == 0 {
 		return nil
@@ -918,6 +949,7 @@ func taskRunIDSet(runs []persistence.TaskRunSummary) map[string]struct{} {
 	return result
 }
 
+// filterNewTaskRuns removes runs that already existed before the benchmark agent started.
 func filterNewTaskRuns(runs []persistence.TaskRunSummary, baseline map[string]struct{}) []persistence.TaskRunSummary {
 	if len(baseline) == 0 {
 		return runs
@@ -932,74 +964,304 @@ func filterNewTaskRuns(runs []persistence.TaskRunSummary, baseline map[string]st
 	return filtered
 }
 
+// latestTaskRun returns the most recently started task run from the observed set.
 func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummary {
 	if len(runs) == 0 {
 		return nil
 	}
-	sorted := append([]persistence.TaskRunSummary(nil), runs...)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].StartedAt > sorted[j].StartedAt
-	})
-	return &sorted[0]
-}
-
-func sanitizeName(value string) string {
-	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "" {
-		return ""
-	}
-	var b strings.Builder
-	lastUnderscore := false
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
+	latest := runs[0]
+	for _, run := range runs[1:] {
+		if run.StartedAt > latest.StartedAt {
+			latest = run
 		}
 	}
-	return strings.Trim(b.String(), "_")
+	return &latest
 }
 
-func copyDir(src string, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, info.Mode())
-	})
+func newRunWorkspace(sessionDir string, spec runSpec) runWorkspace {
+	runDir := filepath.Join(sessionDir, "runs", benchmarkRunDirName(spec))
+	runtimeDir := filepath.Join(runDir, ".runtime")
+	return runWorkspace{
+		RunDir:               runDir,
+		ProjectDir:           filepath.Join(runDir, "project"),
+		LogsDir:              filepath.Join(runDir, "logs"),
+		AgentDir:             filepath.Join(runDir, "agent"),
+		ConfigPath:           filepath.Join(runDir, "centian.config.json"),
+		SelectedTemplatePath: filepath.Join(runDir, "selected-template.yaml"),
+		RuntimeDir:           runtimeDir,
+		RuntimeTemplatesDir:  filepath.Join(runtimeDir, "templates"),
+		InternalLogPath:      filepath.Join(runDir, "logs", "internal.log"),
+	}
 }
 
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
+func newRunManifest(now time.Time, suite *SuiteDefinition, spec runSpec, workspace runWorkspace) *RunManifest {
+	return &RunManifest{
+		SuiteID:         suite.Suite.ID,
+		SuiteName:       strings.TrimSpace(suite.Suite.Name),
+		CaseID:          spec.CaseRef.ID,
+		CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
+		TemplateID:      suite.Suite.TemplateID,
+		TemplateName:    strings.TrimSpace(spec.TemplateName),
+		TemplateVariant: spec.TemplateVariant,
+		AgentID:         spec.Execution.Agent,
+		Attempt:         spec.Attempt,
+		SelectedModel:   agentrunner.SelectedModelForExecution(spec.Execution),
+		StartedAt:       now,
+		Status:          runStatusFailed,
+		ArtifactPaths: RunArtifactPaths{
+			RunDir:               workspace.RunDir,
+			ProjectDir:           workspace.ProjectDir,
+			LogsDir:              workspace.LogsDir,
+			AgentDir:             workspace.AgentDir,
+			ConfigPath:           workspace.ConfigPath,
+			SelectedTemplatePath: workspace.SelectedTemplatePath,
+		},
+	}
+}
+
+func (r *Runner) newRunPersister(ctx context.Context, session *SessionManifest, manifest *RunManifest, workspace runWorkspace) *runPersister {
+	return &runPersister{
+		ctx:      ctx,
+		runner:   r,
+		session:  session,
+		manifest: manifest,
+		runPath:  filepath.Join(workspace.RunDir, runFileName),
+	}
+}
+
+func (p *runPersister) flush() error {
+	if err := common.WriteJSONFile(p.runPath, p.manifest); err != nil {
+		return err
+	}
+	storePath := strings.TrimSpace(p.manifest.ArtifactPaths.EventStorePath)
+	if storePath == "" {
+		return nil
+	}
+	record, err := buildRunRecord(p.manifest)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := p.runner.PersistRun(p.ctx, storePath, record); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0o644)
+	if p.manifest.EndedAt.IsZero() || p.runner.PersistRunScore == nil {
+		return nil
+	}
+	sessionRecord, err := buildSessionRecord(p.session)
+	if err != nil {
+		return err
+	}
+	scoreRecord, err := buildPersistedRunScoreRecord(p.ctx, storePath, sessionRecord, record, p.runner.Now)
+	if err != nil {
+		return err
+	}
+	return p.runner.PersistRunScore(p.ctx, storePath, scoreRecord)
 }
 
+func (r *Runner) failRun(manifest *RunManifest, persister *runPersister, err error) (*RunManifest, error) {
+	if err == nil {
+		return manifest, nil
+	}
+	appendRunError(manifest, err.Error())
+	manifest.Status = runStatusFailed
+	manifest.EndedAt = r.Now()
+	if persister != nil {
+		_ = persister.flush()
+	}
+	return manifest, err
+}
+
+func prepareRunWorkspace(workspace runWorkspace) error {
+	for _, dir := range []string{workspace.ProjectDir, workspace.LogsDir, workspace.AgentDir, workspace.RuntimeTemplatesDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func materializeRunInputs(
+	spec runSpec,
+	opts *RunOptions,
+	workspace *runWorkspace,
+	manifest *RunManifest,
+	defaultEventStorePath string,
+	allocatePort func() (string, error),
+) error {
+	fixtureRoot := filepath.Join(spec.CaseRoot, spec.CaseDef.Fixture.SeedPath)
+	if spec.CaseDef.Fixture.ResetMode != copySeedResetMode {
+		return fmt.Errorf("unsupported fixture reset mode %q", spec.CaseDef.Fixture.ResetMode)
+	}
+	if err := common.CopyDir(fixtureRoot, workspace.ProjectDir); err != nil {
+		return err
+	}
+	if err := common.CopyFile(spec.TemplatePath, workspace.SelectedTemplatePath); err != nil {
+		return err
+	}
+	if err := common.CopyFile(spec.TemplatePath, filepath.Join(workspace.RuntimeTemplatesDir, filepath.Base(spec.TemplatePath))); err != nil {
+		return err
+	}
+	manifest.TemplateName = common.FirstNonEmpty(strings.TrimSpace(spec.TemplateName), manifest.TemplateName)
+
+	port, err := allocatePort()
+	if err != nil {
+		return err
+	}
+	workspace.BaseURL = "http://127.0.0.1:" + port
+	workspace.MCPURL = workspace.BaseURL + "/mcp/taskverification"
+	renderedConfig, err := renderCentianConfig(
+		opts.CentianConfigPath,
+		workspace.RuntimeTemplatesDir,
+		workspace.ProjectDir,
+		workspace.InternalLogPath,
+		defaultEventStorePath,
+		port,
+	)
+	if err != nil {
+		return err
+	}
+	manifest.ArtifactPaths.EventStorePath = renderedConfig.EffectiveEventStorePath
+	if err := os.WriteFile(workspace.ConfigPath, renderedConfig.Content, 0o644); err != nil {
+		return fmt.Errorf("write benchmark config: %w", err)
+	}
+	return nil
+}
+
+func (r *Runner) startRunCentian(
+	ctx context.Context,
+	workspace runWorkspace,
+	manifest *RunManifest,
+	opts *RunOptions,
+) (*StartedCentian, error) {
+	started, err := r.StartCentian(ctx, StartCentianOptions{
+		BinaryPath: opts.CentianBinaryPath,
+		ConfigPath: workspace.ConfigPath,
+		ProjectDir: workspace.ProjectDir,
+		LogsDir:    workspace.LogsDir,
+		BaseURL:    workspace.BaseURL,
+		MCPURL:     workspace.MCPURL,
+	})
+	if err != nil {
+		return nil, err
+	}
+	manifest.UIPublicURL = workspace.BaseURL + "/ui/tasks"
+	manifest.CentianPID = started.PID
+	return started, nil
+}
+
+func (r *Runner) executeAgentRun(
+	ctx context.Context,
+	spec runSpec,
+	opts *RunOptions,
+	workspace runWorkspace,
+	manifest *RunManifest,
+) error {
+	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+
+	baselineRuns, err := r.FetchTaskRuns(workspace.BaseURL)
+	if err != nil {
+		return err
+	}
+	runResult, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
+		Execution:     spec.Execution,
+		ArtifactRoot:  workspace.AgentDir,
+		WorkspacePath: workspace.ProjectDir,
+		MCPURL:        workspace.MCPURL,
+		Prompt:        strings.TrimSpace(spec.Prompt.Prompt),
+		Timeout:       opts.Timeout,
+	})
+	if runResult != nil && strings.TrimSpace(runResult.SelectedModel) != "" {
+		manifest.SelectedModel = runResult.SelectedModel
+	}
+
+	var errs []string
+	if agentErr != nil {
+		errs = append(errs, agentErr.Error())
+	}
+	if err := r.captureRunArtifacts(manifest, workspace.LogsDir, workspace.BaseURL, taskRunIDSet(baselineRuns)); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if len(errs) == 0 && manifest.LatestTaskRunStatus == runStatusCompleted {
+		manifest.Status = runStatusCompleted
+		return nil
+	}
+	if len(errs) == 0 && manifest.LatestTaskRunStatus == "" {
+		errs = append(errs, "no task runs were observed")
+	}
+	for _, errMsg := range errs {
+		appendRunError(manifest, errMsg)
+	}
+	return errors.New(manifest.ErrorSummary)
+}
+
+func (r *Runner) finalizeRun(
+	manifest *RunManifest,
+	persister *runPersister,
+	opts *RunOptions,
+	runErr error,
+) (*RunManifest, error) {
+	if runErr != nil {
+		manifest.Status = runStatusFailed
+	}
+	if opts.AfterRun != nil {
+		if err := opts.AfterRun(manifest); err != nil {
+			appendRunError(manifest, err.Error())
+			manifest.Status = runStatusFailed
+			if runErr == nil {
+				runErr = err
+			}
+		}
+	}
+	manifest.EndedAt = r.Now()
+	if err := persister.flush(); err != nil {
+		appendRunError(manifest, err.Error())
+		return manifest, err
+	}
+	if manifest.Status != runStatusCompleted {
+		if runErr != nil {
+			return manifest, runErr
+		}
+		return manifest, errors.New(manifest.ErrorSummary)
+	}
+	return manifest, nil
+}
+
+func appendRunError(manifest *RunManifest, msg string) {
+	msg = strings.TrimSpace(msg)
+	if manifest == nil || msg == "" {
+		return
+	}
+	if manifest.ErrorSummary == "" {
+		manifest.ErrorSummary = msg
+		return
+	}
+	manifest.ErrorSummary += "; " + msg
+}
+
+func resolveTemplateSelections(templateVariants []TemplateVariant, templateID string) (map[string]templateSelection, error) {
+	templateID = strings.TrimSpace(templateID)
+	if templateID == "" {
+		return map[string]templateSelection{}, nil
+	}
+	selections := make(map[string]templateSelection, len(templateVariants))
+	for _, variant := range templateVariants {
+		sourcePath, err := resolveSelectedTemplateFile(variant.SourceDir, templateID)
+		if err != nil {
+			return nil, err
+		}
+		selections[variant.Name] = templateSelection{
+			SourcePath: sourcePath,
+			Name:       readTemplateName(sourcePath),
+		}
+	}
+	return selections, nil
+}
+
+// startCentianProcess launches a run-local Centian child process and waits for its API/MCP endpoints.
 func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*StartedCentian, error) {
+	// This stays package-local because the benchmark runner needs custom lifecycle,
+	// readiness, and shutdown behavior that differs from the demo flow.
 	stdoutPath := filepath.Join(opts.LogsDir, "centian.stdout.log")
 	stderrPath := filepath.Join(opts.LogsDir, "centian.stderr.log")
 	stdoutFile, err := os.Create(stdoutPath)
@@ -1047,37 +1309,21 @@ func startCentianProcess(ctx context.Context, opts StartCentianOptions) (*Starte
 	}, nil
 }
 
+// waitForCentian polls API and MCP endpoints until the child server is ready.
 func waitForCentian(baseURL string, mcpURL string) error {
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(45 * time.Second)
 	apiURL := baseURL + "/api/task-runs"
-	for time.Now().Before(deadline) {
-		if isEndpointReachable(client, mcpURL) && isJSONEndpointReady(client, apiURL) {
-			return nil
-		}
-		time.Sleep(500 * time.Millisecond)
+	err := common.WaitForReadiness(client, 45*time.Second, 500*time.Millisecond, nil, func(client *http.Client) bool {
+		return common.IsEndpointReachable(client, mcpURL) &&
+			common.IsJSONEndpointReady(client, apiURL)
+	})
+	if errors.Is(err, common.ErrReadinessTimeout) {
+		return fmt.Errorf("centian did not become ready in time")
 	}
-	return fmt.Errorf("centian did not become ready in time")
+	return err
 }
 
-func isEndpointReachable(client *http.Client, endpoint string) bool {
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode < 500
-}
-
-func isJSONEndpointReady(client *http.Client, endpoint string) bool {
-	resp, err := client.Get(endpoint)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode == http.StatusOK
-}
-
+// fetchTaskRuns reads the current task-run list from the run-local Centian API.
 func fetchTaskRuns(baseURL string) ([]persistence.TaskRunSummary, error) {
 	resp, err := http.Get(baseURL + "/api/task-runs")
 	if err != nil {
@@ -1095,6 +1341,7 @@ func fetchTaskRuns(baseURL string) ([]persistence.TaskRunSummary, error) {
 	return runs, nil
 }
 
+// fetchTaskRunEvents reads raw task-run events from the run-local Centian API.
 func fetchTaskRunEvents(baseURL string, runID string) ([]persistence.TaskRunEvent, error) {
 	resp, err := http.Get(baseURL + "/api/task-runs/" + runID + "/events")
 	if err != nil {
@@ -1112,6 +1359,7 @@ func fetchTaskRunEvents(baseURL string, runID string) ([]persistence.TaskRunEven
 	return events, nil
 }
 
+// findLatestRequestLog returns the most recent request log created for the run.
 func findLatestRequestLog(logDir string) (string, error) {
 	matches, err := filepath.Glob(filepath.Join(logDir, "requests_*.jsonl"))
 	if err != nil {
@@ -1122,17 +1370,4 @@ func findLatestRequestLog(logDir string) (string, error) {
 	}
 	sort.Strings(matches)
 	return matches[len(matches)-1], nil
-}
-
-func allocateFreePort() (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", fmt.Errorf("allocate port: %w", err)
-	}
-	defer func() { _ = listener.Close() }()
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		return "", fmt.Errorf("split host port: %w", err)
-	}
-	return port, nil
 }

@@ -188,12 +188,10 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, registerResult != nil)
 	registerStructured := registerResult.StructuredContent.(map[string]any)
-	assert.Equal(t, registerStructured["instructions"], "Use Centian validation instead of rebuilding checks manually.")
 	assert.Assert(t, registerStructured["taskRunId"] != "")
 	assert.Equal(t, registerStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, registerStructured["phase"], string(taskverification.TaskPhaseOnboarding))
 	assert.Equal(t, registerStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
-	assert.Equal(t, registerStructured["nextNodePath"], string(taskverification.TaskPhasePlanning))
 	assert.Equal(t, registerStructured["approvalBlocked"], false)
 	assert.DeepEqual(t, registerStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, registerStructured["executionReady"], false)
@@ -233,16 +231,10 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, completeOnboardingStructured["status"], string(taskverification.TaskStatusActive))
 	assert.Equal(t, completeOnboardingStructured["phase"], string(taskverification.TaskPhasePlanning))
 	assert.Equal(t, completeOnboardingStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindPlanning))
-	assert.Equal(t, completeOnboardingStructured["nextNodePath"], "execution.step_one")
-	assert.Assert(t, completeOnboardingStructured["onboardingContract"] != nil)
-	assert.Assert(t, completeOnboardingStructured["planningContract"] != nil)
 	_, hasPlanningRequiredInputs := completeOnboardingStructured["planningRequiredInputs"]
 	assert.Assert(t, !hasPlanningRequiredInputs)
-	assert.Equal(t, completeOnboardingStructured["shellCommandHint"], "For compound shell commands or directory changes, use bash -lc '...'.")
 	assert.Equal(t, completeOnboardingStructured["hasOnboarding"], true)
-	assert.Equal(t, completeOnboardingStructured["taskSummary"], "Small test task context with one shell validation path.")
 	assert.DeepEqual(t, completeOnboardingStructured["allowedTools"], []any{"shell__*", "filesystem__*"})
-	assert.Assert(t, completeOnboardingStructured["onboarding"] != nil)
 	assert.Equal(t, completeOnboardingStructured["hasPlanning"], false)
 	assert.Equal(t, completeOnboardingStructured["nextAction"], "Call centian.task_complete_planning with planning.parameters containing every required planning parameter. Execution cannot begin until the full planning contract is provided, and Centian enforces it.")
 	assert.DeepEqual(t, completeOnboardingStructured["requiredPlanningParameters"], map[string]any{})
@@ -301,6 +293,12 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, startStepStructured["nextAction"], "Do the step work in workspaceRoot, then call centian.task_complete_step for step 1.")
 	_, hasFailureKind := startStepStructured["failureKind"]
 	assert.Assert(t, !hasFailureKind)
+	_, hasPlanningSummary := startStepStructured["planningSummary"]
+	assert.Assert(t, !hasPlanningSummary)
+	_, hasFrozenContractSummary := startStepStructured["frozenContractSummary"]
+	assert.Assert(t, !hasFrozenContractSummary)
+	_, hasSteps = startStepStructured["steps"]
+	assert.Assert(t, !hasSteps)
 
 	restartResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskRestartTool,
@@ -313,7 +311,6 @@ func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	assert.Equal(t, restartStructured["currentNodeKind"], string(taskverification.WorkflowNodeKindOnboarding))
 	assert.Equal(t, restartStructured["hasOnboarding"], true)
 	assert.Equal(t, restartStructured["hasPlanning"], false)
-	assert.Equal(t, restartStructured["taskSummary"], "Small test task context with one shell validation path.")
 	assert.Equal(t, restartStructured["nextAction"], "Call centian.task_complete_onboarding to freeze the onboarding context.")
 
 	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
@@ -482,7 +479,20 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	})
 	assert.NilError(t, err)
 	registerStructured := registerResult.StructuredContent.(map[string]any)
-	assert.DeepEqual(t, registerStructured["requiredPlanningParameters"], map[string]any{
+	_, hasRequiredPlanningParameters := registerStructured["requiredPlanningParameters"]
+	assert.Assert(t, !hasRequiredPlanningParameters)
+
+	onboardingResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompleteOnboardingTool,
+		Arguments: map[string]any{
+			"onboarding": map[string]any{
+				"taskSummary": "Small task context with parameterized planning fields.",
+			},
+		},
+	})
+	assert.NilError(t, err)
+	onboardingStructured := onboardingResult.StructuredContent.(map[string]any)
+	assert.DeepEqual(t, onboardingStructured["requiredPlanningParameters"], map[string]any{
 		"expectedError": map[string]any{
 			"name":        "expectedError",
 			"description": "Expected error",
@@ -494,16 +504,6 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 			"required":    true,
 		},
 	})
-
-	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: taskCompleteOnboardingTool,
-		Arguments: map[string]any{
-			"onboarding": map[string]any{
-				"taskSummary": "Small task context with parameterized planning fields.",
-			},
-		},
-	})
-	assert.NilError(t, err)
 
 	completePlanningResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskCompletePlanningTool,
@@ -541,6 +541,8 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	assert.NilError(t, err)
 	startStepStructured := startStepResult.StructuredContent.(map[string]any)
 	assert.Equal(t, startStepStructured["stepStatus"], string(taskverification.StepStatusActive))
+	_, hasPlanningSummary := startStepStructured["planningSummary"]
+	assert.Assert(t, !hasPlanningSummary)
 
 	completeStepResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      taskCompleteStepTool,
@@ -550,6 +552,8 @@ func TestTaskToolFullLifecycleSupportsParameterizedPlanningEditableFields(t *tes
 	completeStepStructured := completeStepResult.StructuredContent.(map[string]any)
 	assert.Equal(t, completeStepStructured["stepStatus"], string(taskverification.StepStatusPassed))
 	assert.Equal(t, completeStepStructured["status"], string(taskverification.TaskStatusCompleted))
+	_, hasStepContract := completeStepStructured["stepContract"]
+	assert.Assert(t, !hasStepContract)
 }
 
 func TestTaskCompletePlanningReturnsStructuredPlanningValidationFailure(t *testing.T) {
@@ -1034,7 +1038,6 @@ workflow:
 	assert.Equal(t, structured["currentNodeKind"], string(taskverification.WorkflowNodeKindWaitingForApproval))
 	assert.Equal(t, structured["approvalBlocked"], true)
 	assert.DeepEqual(t, structured["allowedTools"], []any{"shell__*"})
-	assert.Equal(t, structured["nextNodePath"], "execution.step_one")
 
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskStartStepTool,
@@ -1154,8 +1157,121 @@ workflow:
 	assert.Equal(t, structured["failedCheckId"], "check_one")
 	assert.Assert(t, structured["stdoutSnippet"] != nil)
 	assert.Assert(t, structured["summary"] != nil)
-	assert.Assert(t, structured["frozenContractSummary"] != nil)
+	assert.Equal(t, structured["retryable"], true)
+	assert.Assert(t, structured["recoveryActions"] != nil)
+	assert.Assert(t, structured["stepContract"] != nil)
+	_, hasFrozenContractSummary := structured["frozenContractSummary"]
+	assert.Assert(t, !hasFrozenContractSummary)
 	assert.Equal(t, structured["nextAction"], "Fix the failed check in workspaceRoot, then retry centian.task_complete_step for step 1.")
+}
+
+func TestTaskStartStepCanRetryAfterScaffoldingFileFix(t *testing.T) {
+	endpoint, session := newTaskToolTestProxy(t, `
+version: "0.1"
+task:
+  id: "guided_retry"
+  name: "Guided Retry"
+  description: "Reproduces retryable scaffolding precondition failures."
+workflow:
+  onboarding:
+    tools_allowed: ["shell__*", "filesystem__*"]
+  planning:
+    tools_allowed: ["shell__*", "filesystem__*"]
+    required_inputs: []
+  scaffolding:
+    - id: "setup_test_file"
+      tools_allowed: ["shell__*", "filesystem__*"]
+      checks:
+        - id: "file_created"
+          command: "printf scaffold"
+          pre_conditions:
+            - type: file_not_exists
+              path: "test_score_parentheses.py"
+          post_conditions:
+            - type: file_exists
+              path: "test_score_parentheses.py"
+    - id: "setup_test_scaffolding"
+      tools_allowed: ["shell__*", "filesystem__*"]
+      checks:
+        - id: "scaffold_ready"
+          command: "printf ok"
+          pre_conditions:
+            - type: file_exists
+              path: "test_score_parentheses.py"
+            - type: file_not_contains
+              path: "test_score_parentheses.py"
+              value: "test_score_parentheses"
+          post_conditions:
+            - type: stdout_contains
+              value: "ok"
+            - type: file_exists
+              path: "score_parentheses.py"
+  execution:
+    - id: "implement_solution"
+      tools_allowed: ["shell__*", "filesystem__*"]
+`)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "guided_retry"},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteOnboardingTool,
+		Arguments: map[string]any{"onboarding": map[string]any{"taskSummary": "Stored summary"}},
+	})
+	assert.NilError(t, err)
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskCompletePlanningTool,
+		Arguments: map[string]any{
+			"planning": map[string]any{
+				"planSummary": "Stored plan",
+				"parameters":  map[string]any{},
+			},
+		},
+	})
+	assert.NilError(t, err)
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+
+	testFile := filepath.Join(endpoint.server.TaskVerification.WorkingDir, "test_score_parentheses.py")
+	err = os.WriteFile(testFile, []byte("# test_score_parentheses.py\n"), 0o644)
+	assert.NilError(t, err)
+
+	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+
+	failedStart, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 2},
+	})
+	assert.NilError(t, err)
+	failedStructured := failedStart.StructuredContent.(map[string]any)
+	assert.Equal(t, failedStructured["passed"], false)
+	assert.Equal(t, failedStructured["retryable"], true)
+	assert.Equal(t, failedStructured["stepStatus"], string(taskverification.StepStatusPending))
+
+	err = os.WriteFile(testFile, []byte("# placeholder\n"), 0o644)
+	assert.NilError(t, err)
+
+	retryStart, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 2},
+	})
+	assert.NilError(t, err)
+	retryStructured := retryStart.StructuredContent.(map[string]any)
+	assert.Equal(t, retryStructured["passed"], true)
+	assert.Equal(t, retryStructured["stepStatus"], string(taskverification.StepStatusActive))
 }
 
 func TestWorkflowNodeToolGovernanceAllowsMatchingTool(t *testing.T) {
@@ -1965,5 +2081,46 @@ func TestForceReadOnlyHintsOverridesAllTaskToolAnnotations(t *testing.T) {
 		assert.Assert(t, tool != nil, "missing tool: %s", toolName)
 		assert.Assert(t, tool.Annotations != nil, "nil annotations on %s", toolName)
 		assert.Equal(t, tool.Annotations.ReadOnlyHint, true, "expected ReadOnlyHint=true on %s", toolName)
+	}
+}
+
+func TestForceSafeToolHintsOverridesAllTaskToolAnnotations(t *testing.T) {
+	// Given: a proxy endpoint with ForceSafeToolHints enabled
+	forceSafe := true
+	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
+	endpoint.config.ForceSafeToolHints = &forceSafe
+
+	// When: re-registering tools with the flag (clear previous registrations first)
+	session.registeredStaticTools = make(map[string]struct{})
+	session.upstreamServer = endpoint.newUpstreamServer(session)
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	result, err := clientSession.ListTools(context.Background(), nil)
+	assert.NilError(t, err)
+
+	// Then: all task verification tools expose conservative safe hints
+	byName := make(map[string]*mcp.Tool, len(result.Tools))
+	for _, tool := range result.Tools {
+		if tool == nil {
+			continue
+		}
+		byName[tool.Name] = tool
+	}
+
+	allTaskTools := []string{
+		taskListTemplatesTool,
+		taskRegisterTool,
+		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
+		taskStartStepTool,
+		taskCompleteStepTool,
+		taskResumeTool,
+		taskRestartTool,
+		taskFailTool,
+	}
+	for _, toolName := range allTaskTools {
+		assertSafeToolHints(t, byName[toolName], toolName)
 	}
 }

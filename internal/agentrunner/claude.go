@@ -8,17 +8,21 @@ import (
 	"strings"
 )
 
+// claudeAdapter runs the Claude CLI against the demo-local MCP server.
 type claudeAdapter struct {
 	model string
 }
 
+// name returns the public agent identifier for the Claude CLI.
 func (claudeAdapter) name() string { return AgentClaude }
 
+// isAvailable checks whether the Claude CLI is installed on PATH.
 func (claudeAdapter) isAvailable() error {
 	_, err := exec.LookPath("claude")
 	return err
 }
 
+// writeConfig renders the Claude MCP config that points at the demo-local Centian endpoint.
 func (c claudeAdapter) writeConfig(layout *demoLayout) error {
 	content, err := asset("claude_mcp_config.json")
 	if err != nil {
@@ -39,10 +43,13 @@ func (c claudeAdapter) writeConfig(layout *demoLayout) error {
 	return nil
 }
 
+// env returns extra environment variables required by the Claude CLI.
 func (claudeAdapter) env(*demoLayout) []string { return nil }
 
+// cleanup removes any adapter-specific runtime artifacts after the run.
 func (claudeAdapter) cleanup(*demoLayout) error { return nil }
 
+// command builds the non-interactive Claude CLI invocation for one run.
 func (c claudeAdapter) command(layout *demoLayout, _ string) ([]string, error) {
 	command := []string{
 		"claude",

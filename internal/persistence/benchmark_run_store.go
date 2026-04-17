@@ -34,10 +34,12 @@ func (s *Store) UpsertBenchmarkSession(ctx context.Context, record *BenchmarkSes
 		On("CONFLICT (session_id) DO UPDATE").
 		Set("schema_version = EXCLUDED.schema_version").
 		Set("suite_id = EXCLUDED.suite_id").
+		Set("suite_name = EXCLUDED.suite_name").
 		Set("suite_path = EXCLUDED.suite_path").
 		Set("session_path = EXCLUDED.session_path").
 		Set("output_root = EXCLUDED.output_root").
 		Set("template_id = EXCLUDED.template_id").
+		Set("template_name = EXCLUDED.template_name").
 		Set("started_at_unix_milli = EXCLUDED.started_at_unix_milli").
 		Set("ended_at_unix_milli = EXCLUDED.ended_at_unix_milli").
 		Set("status = EXCLUDED.status").
@@ -73,10 +75,12 @@ func (s *Store) UpsertBenchmarkRun(ctx context.Context, record *BenchmarkRunReco
 		Set("schema_version = EXCLUDED.schema_version").
 		Set("session_id = EXCLUDED.session_id").
 		Set("case_id = EXCLUDED.case_id").
+		Set("case_name = EXCLUDED.case_name").
 		Set("agent = EXCLUDED.agent").
 		Set("template_variant = EXCLUDED.template_variant").
 		Set("attempt = EXCLUDED.attempt").
 		Set("template_id = EXCLUDED.template_id").
+		Set("template_name = EXCLUDED.template_name").
 		Set("selected_model = EXCLUDED.selected_model").
 		Set("started_at_unix_milli = EXCLUDED.started_at_unix_milli").
 		Set("ended_at_unix_milli = EXCLUDED.ended_at_unix_milli").
@@ -95,6 +99,52 @@ func (s *Store) UpsertBenchmarkRun(ctx context.Context, record *BenchmarkRunReco
 		Set("selected_template_path = EXCLUDED.selected_template_path").
 		Set("error_summary = EXCLUDED.error_summary").
 		Set("agent_metadata_json = EXCLUDED.agent_metadata_json").
+		Exec(ctx)
+	return err
+}
+
+// UpsertBenchmarkRunScore persists or replaces one benchmark run score snapshot row.
+func (s *Store) UpsertBenchmarkRunScore(ctx context.Context, record *BenchmarkRunScoreRecord) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("benchmark run score store is not initialized")
+	}
+	if record == nil {
+		return fmt.Errorf("benchmark run score record is required")
+	}
+	if strings.TrimSpace(record.BenchmarkRunID) == "" {
+		return fmt.Errorf("benchmark run id is required")
+	}
+	row, err := benchmarkRunScoreRowFromRecord(record)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.NewInsert().
+		Model(row).
+		On("CONFLICT (benchmark_run_id) DO UPDATE").
+		Set("schema_version = EXCLUDED.schema_version").
+		Set("score_status = EXCLUDED.score_status").
+		Set("score_version = EXCLUDED.score_version").
+		Set("generated_at_unix_milli = EXCLUDED.generated_at_unix_milli").
+		Set("scorecard_json = EXCLUDED.scorecard_json").
+		Set("score_errors_json = EXCLUDED.score_errors_json").
+		Set("selected_model = EXCLUDED.selected_model").
+		Set("completed_successfully = EXCLUDED.completed_successfully").
+		Set("final_verification_passed = EXCLUDED.final_verification_passed").
+		Set("first_pass_success = EXCLUDED.first_pass_success").
+		Set("restart_occurred = EXCLUDED.restart_occurred").
+		Set("fail_occurred = EXCLUDED.fail_occurred").
+		Set("timeout_occurred = EXCLUDED.timeout_occurred").
+		Set("invariant_violation = EXCLUDED.invariant_violation").
+		Set("wall_clock_seconds = EXCLUDED.wall_clock_seconds").
+		Set("total_tool_calls = EXCLUDED.total_tool_calls").
+		Set("total_task_tool_calls = EXCLUDED.total_task_tool_calls").
+		Set("total_downstream_tool_calls = EXCLUDED.total_downstream_tool_calls").
+		Set("failed_task_tool_calls = EXCLUDED.failed_task_tool_calls").
+		Set("failed_downstream_tool_calls = EXCLUDED.failed_downstream_tool_calls").
+		Set("input_tokens = EXCLUDED.input_tokens").
+		Set("output_tokens = EXCLUDED.output_tokens").
+		Set("edited_files_count = EXCLUDED.edited_files_count").
+		Set("error_actionability_score = EXCLUDED.error_actionability_score").
 		Exec(ctx)
 	return err
 }
@@ -194,6 +244,41 @@ func (s *Store) GetBenchmarkRun(ctx context.Context, benchmarkRunID string) (*Be
 		return nil, fmt.Errorf("benchmark run id is required")
 	}
 	row := &benchmarkRunRow{}
+	if err := s.db.NewSelect().Model(row).Where("benchmark_run_id = ?", benchmarkRunID).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return row.toRecord()
+}
+
+// ListBenchmarkRunScores returns all persisted benchmark run score snapshots.
+func (s *Store) ListBenchmarkRunScores(ctx context.Context) ([]BenchmarkRunScoreRecord, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("benchmark run score store is not initialized")
+	}
+	rows := make([]benchmarkRunScoreRow, 0)
+	if err := s.db.NewSelect().Model(&rows).Scan(ctx); err != nil {
+		return nil, err
+	}
+	records := make([]BenchmarkRunScoreRecord, 0, len(rows))
+	for idx := range rows {
+		record, err := rows[idx].toRecord()
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, *record)
+	}
+	return records, nil
+}
+
+// GetBenchmarkRunScore returns one benchmark run score snapshot by run id.
+func (s *Store) GetBenchmarkRunScore(ctx context.Context, benchmarkRunID string) (*BenchmarkRunScoreRecord, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("benchmark run score store is not initialized")
+	}
+	if strings.TrimSpace(benchmarkRunID) == "" {
+		return nil, fmt.Errorf("benchmark run id is required")
+	}
+	row := &benchmarkRunScoreRow{}
 	if err := s.db.NewSelect().Model(row).Where("benchmark_run_id = ?", benchmarkRunID).Scan(ctx); err != nil {
 		return nil, err
 	}
