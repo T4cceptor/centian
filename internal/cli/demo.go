@@ -58,6 +58,7 @@ Examples:
 	},
 }
 
+// handleDemoCommand resolves demo inputs and runs one local demo session.
 func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	if cmd.String("agent") == "" {
 		return fmt.Errorf("--agent is required")
@@ -98,6 +99,7 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// demoExecutionFromFlags converts demo agent flags into one normalized execution config.
 func demoExecutionFromFlags(cmd *cli.Command) (agentrunner.AgentExecutionOptions, error) {
 	agent := strings.TrimSpace(cmd.String("agent"))
 	exec := agentrunner.AgentExecutionOptions{
@@ -128,6 +130,7 @@ func demoExecutionFromFlags(cmd *cli.Command) (agentrunner.AgentExecutionOptions
 	return agentrunner.NormalizeExecutionOptions(exec)
 }
 
+// promptDemoShutdown optionally stops the demo Centian process after the agent run ends.
 func promptDemoShutdown(input io.Reader, output io.Writer, result *agentrunner.DemoResult) error {
 	if result == nil || result.PID <= 0 {
 		return nil
@@ -146,6 +149,7 @@ func promptDemoShutdown(input io.Reader, output io.Writer, result *agentrunner.D
 	return nil
 }
 
+// shouldShutdownDemo interprets an interactive shutdown prompt response.
 func shouldShutdownDemo(input io.Reader) bool {
 	if input == nil {
 		return true
@@ -162,10 +166,12 @@ func shouldShutdownDemo(input io.Reader) bool {
 	}
 }
 
+// normalizePromptAnswer trims and lowercases a yes/no prompt response.
 func normalizePromptAnswer(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
+// resolveDemoRoot returns the explicit demo path or the default workspace location.
 func resolveDemoRoot(flagValue string) (string, error) {
 	if flagValue != "" {
 		return filepath.Abs(flagValue)
@@ -177,6 +183,7 @@ func resolveDemoRoot(flagValue string) (string, error) {
 	return filepath.Abs(filepath.Join(cwd, ".centian", "demo"))
 }
 
+// resolveOptionalPath absolutizes a non-empty path flag and leaves empty values unset.
 func resolveOptionalPath(flagValue string) (string, error) {
 	value := strings.TrimSpace(flagValue)
 	if value == "" {

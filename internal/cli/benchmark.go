@@ -97,6 +97,7 @@ var BenchmarkRunCommand = &cli.Command{
 	Action: handleBenchmarkRunCommand,
 }
 
+// handleBenchmarkRunCommand resolves runtime options and launches one benchmark session.
 func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
@@ -142,6 +143,7 @@ func handleBenchmarkRunCommand(ctx context.Context, cmd *cli.Command) error {
 	return err
 }
 
+// buildBenchmarkRunOptions translates CLI flags into one benchmark runner configuration.
 func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.RunOptions, error) {
 	suitePath, err := resolveBenchmarkSuitePath(cmd)
 	if err != nil {
@@ -187,6 +189,7 @@ func buildBenchmarkRunOptions(cmd *cli.Command, binaryPath string) (*benchmarks.
 	}, nil
 }
 
+// resolveBenchmarkSuitePath validates and absolutizes the benchmark suite flag.
 func resolveBenchmarkSuitePath(cmd *cli.Command) (string, error) {
 	suiteFlag := strings.TrimSpace(cmd.String("suite"))
 	if suiteFlag == "" {
@@ -199,6 +202,7 @@ func resolveBenchmarkSuitePath(cmd *cli.Command) (string, error) {
 	return suitePath, nil
 }
 
+// resolveBenchmarkRepeat normalizes the repeat count and enforces a positive value.
 func resolveBenchmarkRepeat(cmd *cli.Command) (int, error) {
 	repeat := cmd.Int("repeat")
 	if !cmd.IsSet("repeat") && repeat == 0 {
@@ -210,6 +214,7 @@ func resolveBenchmarkRepeat(cmd *cli.Command) (int, error) {
 	return repeat, nil
 }
 
+// resolveBenchmarkOutputRoot returns the explicit or default artifact output root.
 func resolveBenchmarkOutputRoot(cmd *cli.Command, startPath string) (string, error) {
 	outputRoot := strings.TrimSpace(cmd.String("output-root"))
 	if outputRoot == "" {
@@ -222,6 +227,7 @@ func resolveBenchmarkOutputRoot(cmd *cli.Command, startPath string) (string, err
 	return resolved, nil
 }
 
+// resolveBenchmarkModelConfigOptions resolves agent execution settings and config paths.
 func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) ([]agentrunner.AgentExecutionOptions, string, string, error) {
 	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
 	if err != nil {
@@ -246,6 +252,7 @@ func resolveBenchmarkModelConfigOptions(cmd *cli.Command, agents []string) ([]ag
 	return executions, codexConfigPath, centianConfigPath, nil
 }
 
+// resolveBenchmarkTemplateVariants chooses explicit, config-derived, or default template variants.
 func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfigPath string) ([]benchmarks.TemplateVariant, error) {
 	templateVariants, err := parseTemplateVariants(cmd.StringSlice("template-dir"))
 	if err != nil {
@@ -263,6 +270,7 @@ func resolveBenchmarkTemplateVariants(cmd *cli.Command, startPath, centianConfig
 	return templateVariants, nil
 }
 
+// validateCodexOllamaOptions enforces the extra config requirements for codex-ollama runs.
 func validateCodexOllamaOptions(executions []agentrunner.AgentExecutionOptions) error {
 	for _, exec := range executions {
 		if !strings.EqualFold(exec.Agent, agentrunner.AgentCodexOllama) {
@@ -278,6 +286,7 @@ func validateCodexOllamaOptions(executions []agentrunner.AgentExecutionOptions) 
 	return nil
 }
 
+// parseTemplateVariants parses repeatable name=path template variant flags.
 func parseTemplateVariants(values []string) ([]benchmarks.TemplateVariant, error) {
 	variants := make([]benchmarks.TemplateVariant, 0, len(values))
 	for _, raw := range common.NormalizeCSVList(values) {
@@ -302,6 +311,7 @@ func parseTemplateVariants(values []string) ([]benchmarks.TemplateVariant, error
 	return variants, nil
 }
 
+// defaultResolutionStart prefers the current working directory for implicit path resolution.
 func defaultResolutionStart(suitePath string) string {
 	cwd, err := os.Getwd()
 	if err == nil {
@@ -310,6 +320,7 @@ func defaultResolutionStart(suitePath string) string {
 	return suitePath
 }
 
+// defaultBenchmarkSessionLabel derives a compact session label for single-cell runs.
 func defaultBenchmarkSessionLabel(variants []benchmarks.TemplateVariant, executions []agentrunner.AgentExecutionOptions) string {
 	if len(variants) != 1 || len(executions) != 1 {
 		return ""

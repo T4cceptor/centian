@@ -72,10 +72,12 @@ var ProcessorAddCommand = &cli.Command{
 	Action: handleProcessorAdd,
 }
 
+// handleProcessorInit starts the interactive processor scaffolding flow.
 func handleProcessorInit(_ context.Context, _ *cli.Command) error {
 	return processor.RunScaffoldInteractive(os.Stdin, os.Stdout)
 }
 
+// handleProcessorAdd validates flags and persists a processor entry into the config.
 func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -125,6 +127,7 @@ func handleProcessorAdd(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// inferProcessorAddName chooses the processor name from flags or the target path/URL.
 func inferProcessorAddName(explicitName, processorType, path, urlValue string) string {
 	if explicitName != "" {
 		return explicitName
@@ -140,6 +143,7 @@ func inferProcessorAddName(explicitName, processorType, path, urlValue string) s
 	}
 }
 
+// buildProcessorAddConfig builds one processor config plus a user-facing summary line.
 func buildProcessorAddConfig(
 	name string,
 	processorType string,
@@ -164,6 +168,7 @@ func buildProcessorAddConfig(
 	}
 }
 
+// buildCLIProcessorAddConfig validates and fills the config for a CLI processor.
 func buildCLIProcessorAddConfig(
 	processorConfig *config.ProcessorConfig,
 	path string,
@@ -196,6 +201,7 @@ func buildCLIProcessorAddConfig(
 	return processorConfig, fmt.Sprintf("command: %s %s", command, strings.Join(args, " ")), nil
 }
 
+// buildWebhookProcessorAddConfig validates and fills the config for a webhook processor.
 func buildWebhookProcessorAddConfig(
 	processorConfig *config.ProcessorConfig,
 	path string,
@@ -227,6 +233,7 @@ func buildWebhookProcessorAddConfig(
 	return processorConfig, fmt.Sprintf("webhook: %s", urlValue), nil
 }
 
+// parseProcessorHeaderFlags parses repeatable Key=Value webhook header flags.
 func parseProcessorHeaderFlags(values []string) (map[string]string, error) {
 	headers := make(map[string]string, len(values))
 	for _, value := range values {

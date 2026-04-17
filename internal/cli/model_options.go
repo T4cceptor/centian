@@ -20,10 +20,12 @@ func singleModelFlagUsage() string {
 	return fmt.Sprintf("Model for selected agent. Codex: %s; Claude: %s; Gemini: %s", codexModelHelp, claudeModelHelp, geminiModelHelp)
 }
 
+// normalizeCLIModel applies the shared model alias rules to one CLI-provided model value.
 func normalizeCLIModel(agent, model string) string {
 	return agentrunner.NormalizeModelForAgent(agent, model)
 }
 
+// benchmarkExecutionsFromFlags translates benchmark agent/model flags into execution configs.
 func benchmarkExecutionsFromFlags(cmdModel, cmdProfile string, agents []string, claudeModel, geminiModel, codexModel, codexConfigPath string) ([]agentrunner.AgentExecutionOptions, error) {
 	inputs := &benchmarkExecutionFlagInputs{
 		profile:         cmdProfile,
@@ -58,6 +60,7 @@ type benchmarkExecutionFlagInputs struct {
 	codexConfigPath string
 }
 
+// buildBenchmarkExecutions expands the selected agent list into concrete execution configs.
 func buildBenchmarkExecutions(agents []string, inputs *benchmarkExecutionFlagInputs) []agentrunner.AgentExecutionOptions {
 	executions := make([]agentrunner.AgentExecutionOptions, 0, len(agents))
 	for _, agent := range agents {
@@ -66,6 +69,7 @@ func buildBenchmarkExecutions(agents []string, inputs *benchmarkExecutionFlagInp
 	return executions
 }
 
+// buildBenchmarkExecution builds one execution config from the per-agent CLI flag set.
 func buildBenchmarkExecution(agent string, inputs *benchmarkExecutionFlagInputs) agentrunner.AgentExecutionOptions {
 	exec := agentrunner.AgentExecutionOptions{Agent: agent}
 	switch agent {
@@ -83,6 +87,7 @@ func buildBenchmarkExecution(agent string, inputs *benchmarkExecutionFlagInputs)
 	return exec
 }
 
+// validateBenchmarkProfileOverride rejects profile usage when codex-ollama is not selected.
 func validateBenchmarkProfileOverride(profile string, executions []agentrunner.AgentExecutionOptions) error {
 	if profile == "" {
 		return nil
@@ -95,6 +100,7 @@ func validateBenchmarkProfileOverride(profile string, executions []agentrunner.A
 	return fmt.Errorf("--profile can only be used when --agent codex-ollama is selected")
 }
 
+// applyBenchmarkSingleModelOverride applies the shared --model flag to a single selected agent.
 func applyBenchmarkSingleModelOverride(model string, agents []string, executions []agentrunner.AgentExecutionOptions) error {
 	if len(agents) != 1 {
 		return fmt.Errorf("--model can only be used with exactly one non-codex-ollama agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs")
@@ -123,6 +129,7 @@ func applyBenchmarkSingleModelOverride(model string, agents []string, executions
 	return nil
 }
 
+// normalizeExecutions validates and fills defaults for the built execution list.
 func normalizeExecutions(executions []agentrunner.AgentExecutionOptions) ([]agentrunner.AgentExecutionOptions, error) {
 	normalized := make([]agentrunner.AgentExecutionOptions, 0, len(executions))
 	for _, exec := range executions {

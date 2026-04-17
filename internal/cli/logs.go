@@ -45,6 +45,7 @@ Examples:
 	Action: handleLogsCommand,
 }
 
+// handleLogsCommand loads recent log entries and writes them in display format.
 func handleLogsCommand(_ context.Context, cmd *cli.Command) error {
 	out := cmd.Writer
 	if out == nil {
