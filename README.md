@@ -132,7 +132,7 @@ What you'll see:
 
 - `node` (tested with `v24.2.0`) and `npx` (tested with `11.3.0`) available on your `PATH` - required to launch filesystem and shell MCP servers, and run tests
 - Claude Code, Gemini CLI, or OpenAI Codex installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or it's not signed in.
-- For `codex-ollama`, make sure local Ollama is running at `http://localhost:11434/v1` and pass `--codex-config` pointing to a valid Codex config that already defines the local OSS profile you want to use. Centian only patches the run-local MCP URL and trusted project path; it does not create Ollama profiles for you. The current local setup has been tested on a MacBook Pro M4 with 48 GB RAM using a `gpt-oss-20b` profile, but actual model viability depends on the host machine and Ollama setup.
+- For `codex-ollama`, make sure local Ollama is running at `http://localhost:11434/v1` and pass `--codex-config` pointing to a valid Codex config that already defines the local OSS profile you want to use. Centian only patches the run-local MCP URL and trusted project path; it does not create Ollama profiles for you. The current local setup has been tested on a MacBook Pro M4 with 48 GB RAM using `gemma4:26b` and `wqen3.5` profile, but actual model viability depends on the host machine and Ollama setup.
 
 **Claude Code** (sonnet)
 ```bash

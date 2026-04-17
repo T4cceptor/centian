@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -14,6 +15,28 @@ import (
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"gotest.tools/assert"
 )
+
+func TestCollectFloat64(t *testing.T) {
+	rows := []int{1, 2, 3}
+	if got := collectFloat64(rows, func(row int) (float64, bool) { return float64(row) * 1.5, true }); !reflect.DeepEqual(got, []float64{1.5, 3, 4.5}) {
+		t.Fatalf("unexpected collected float values: %#v", got)
+	}
+
+	type optionalRow struct {
+		Value *int64
+	}
+	valueOne := int64(10)
+	valueTwo := int64(30)
+	optionalRows := []optionalRow{{Value: &valueOne}, {}, {Value: &valueTwo}}
+	if got := collectFloat64(optionalRows, func(row optionalRow) (float64, bool) {
+		if row.Value == nil {
+			return 0, false
+		}
+		return float64(*row.Value), true
+	}); !reflect.DeepEqual(got, []float64{10, 30}) {
+		t.Fatalf("unexpected collected optional float values: %#v", got)
+	}
+}
 
 type syntheticSessionOptions struct {
 	includeInvariantViolation bool
