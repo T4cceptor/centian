@@ -96,7 +96,7 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			continue
 		}
 		templateName := strings.TrimSpace(run.TemplateName)
-		templateKey := templateIdentityKey(templateID, templateName)
+		templateKey := common.JoinTrimmedIfRight(templateID, templateName, "::")
 		group := grouped[templateKey]
 		if group == nil {
 			group = &aggregate{
@@ -263,11 +263,6 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		return result[i].Model < result[j].Model
 	})
 	return result, nil
-}
-
-// templateIdentityKey groups scorecards by logical template identity.
-func templateIdentityKey(templateID, templateName string) string {
-	return common.JoinTrimmedIfRight(templateID, templateName, "::")
 }
 
 // scorecardCentianErrorCount returns task-tool failures plus restart/fail/timeout events.
