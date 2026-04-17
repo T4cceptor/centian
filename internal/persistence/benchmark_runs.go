@@ -130,6 +130,7 @@ type BenchmarkRunFilter struct {
 }
 
 func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
+	// TODO: move to migration?
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS benchmark_sessions (
 			session_id TEXT PRIMARY KEY,

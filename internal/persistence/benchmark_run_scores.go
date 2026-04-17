@@ -69,6 +69,7 @@ type BenchmarkRunScoreRecord struct {
 }
 
 func createBenchmarkRunScoreTables(ctx context.Context, db bun.IDB) error {
+	// TODO: move to migration?
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS benchmark_run_scores (
 			benchmark_run_id TEXT PRIMARY KEY,

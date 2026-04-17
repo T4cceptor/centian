@@ -36,6 +36,7 @@ type TaskRunSnapshotRecord struct {
 }
 
 func createTaskRunSnapshotTables(ctx context.Context, db bun.IDB) error {
+	// TODO: move to migration
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS task_runs (
 			run_id TEXT PRIMARY KEY,
