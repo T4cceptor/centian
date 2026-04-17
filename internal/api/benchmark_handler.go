@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/benchmarks"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // BenchmarkStore provides the benchmark read methods required by the API.
@@ -173,19 +174,10 @@ func benchmarkFiltersFromQuery(r *http.Request) benchmarks.BenchmarkRunFilters {
 	query := r.URL.Query()
 	return benchmarks.BenchmarkRunFilters{
 		SuiteID:         strings.TrimSpace(query.Get("suite")),
-		TemplateID:      strings.TrimSpace(firstQueryValue(query.Get("template"), query.Get("templateId"))),
+		TemplateID:      strings.TrimSpace(common.FirstNonEmpty(query.Get("template"), query.Get("templateId"))),
 		SessionID:       strings.TrimSpace(query.Get("sessionID")),
-		CaseID:          strings.TrimSpace(firstQueryValue(query.Get("case"), query.Get("caseId"))),
+		CaseID:          strings.TrimSpace(common.FirstNonEmpty(query.Get("case"), query.Get("caseId"))),
 		Agent:           strings.TrimSpace(query.Get("agent")),
-		TemplateVariant: strings.TrimSpace(firstQueryValue(query.Get("templateVariant"), query.Get("variant"))),
+		TemplateVariant: strings.TrimSpace(common.FirstNonEmpty(query.Get("templateVariant"), query.Get("variant"))),
 	}
-}
-
-func firstQueryValue(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
