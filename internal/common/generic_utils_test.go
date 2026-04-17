@@ -202,6 +202,21 @@ func TestSortedStringsCopy(t *testing.T) {
 	}
 }
 
+func TestEarliestAndLatestNonZeroInt64(t *testing.T) {
+	if got := EarliestNonZeroInt64(0, 50, 20, 0, 30); got != 20 {
+		t.Fatalf("expected earliest non-zero 20, got %d", got)
+	}
+	if got := EarliestNonZeroInt64(0, 0); got != 0 {
+		t.Fatalf("expected zero earliest non-zero, got %d", got)
+	}
+	if got := LatestNonZeroInt64(0, 50, 20, 0, 30); got != 50 {
+		t.Fatalf("expected latest non-zero 50, got %d", got)
+	}
+	if got := LatestNonZeroInt64(0, 0); got != 0 {
+		t.Fatalf("expected zero latest non-zero, got %d", got)
+	}
+}
+
 func ptrInt64(value int64) *int64 {
 	return &value
 }

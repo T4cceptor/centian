@@ -223,3 +223,28 @@ func SortedStringsCopy(values []string) []string {
 	sort.Strings(cloned)
 	return cloned
 }
+
+// EarliestNonZeroInt64 returns the smallest non-zero value, or zero when all inputs are zero.
+func EarliestNonZeroInt64(values ...int64) int64 {
+	result := int64(0)
+	for _, value := range values {
+		if value == 0 {
+			continue
+		}
+		if result == 0 || value < result {
+			result = value
+		}
+	}
+	return result
+}
+
+// LatestNonZeroInt64 returns the largest non-zero value, or zero when all inputs are zero.
+func LatestNonZeroInt64(values ...int64) int64 {
+	result := int64(0)
+	for _, value := range values {
+		if value > result {
+			result = value
+		}
+	}
+	return result
+}

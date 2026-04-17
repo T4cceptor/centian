@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
@@ -133,7 +134,7 @@ func (s *Store) recomputeTaskRunStats(ctx context.Context, runID string) error {
 		snapshotStatus = meta.Status
 	}
 
-	startedAt := earliestNonZero(snapshotCreatedAt, inputs.TaskStart.Int64)
+	startedAt := common.EarliestNonZeroInt64(snapshotCreatedAt, inputs.TaskStart.Int64)
 	if startedAt == 0 {
 		return nil
 	}
@@ -141,7 +142,7 @@ func (s *Store) recomputeTaskRunStats(ctx context.Context, runID string) error {
 	terminal := isTerminalTaskStatus(snapshotStatus) || inputs.FailCount > 0 || inputs.TimeoutCount > 0
 	endedAt := int64(0)
 	if terminal {
-		endedAt = latestNonZero(snapshotUpdatedAt, inputs.TaskEnd.Int64)
+		endedAt = common.LatestNonZeroInt64(snapshotUpdatedAt, inputs.TaskEnd.Int64)
 	}
 
 	now := time.Now().UTC().UnixMilli()
@@ -269,29 +270,4 @@ SELECT
 		return nil, err
 	}
 	return row, nil
-}
-
-func earliestNonZero(values ...int64) int64 {
-	result := int64(0)
-	for idx := range values {
-		value := values[idx]
-		if value == 0 {
-			continue
-		}
-		if result == 0 || value < result {
-			result = value
-		}
-	}
-	return result
-}
-
-func latestNonZero(values ...int64) int64 {
-	result := int64(0)
-	for idx := range values {
-		value := values[idx]
-		if value > result {
-			result = value
-		}
-	}
-	return result
 }
