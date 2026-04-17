@@ -278,6 +278,7 @@ func sessionPathFromRun(run *RunManifest) string {
 
 // bestTime prefers primary when set and otherwise falls back to the alternate timestamp.
 func bestTime(primary, fallback time.Time) time.Time {
+	// TODO: move to global utils
 	if !primary.IsZero() {
 		return primary
 	}
@@ -286,6 +287,7 @@ func bestTime(primary, fallback time.Time) time.Time {
 
 // timePointerMillis converts a non-zero timestamp into a nullable unix-millis pointer.
 func timePointerMillis(value time.Time) *int64 {
+	// TODO: move to global utils
 	if value.IsZero() {
 		return nil
 	}

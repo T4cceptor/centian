@@ -203,6 +203,7 @@ var errBenchmarkScoreUnavailable = errors.New("benchmark score unavailable")
 
 // sortedSetValues returns deterministic, sorted values from a string set.
 func sortedSetValues(set map[string]struct{}) []string {
+	// TODO: move to global utils
 	if len(set) == 0 {
 		return nil
 	}
@@ -216,6 +217,7 @@ func sortedSetValues(set map[string]struct{}) []string {
 
 // firstNonEmpty returns the first non-blank string in values.
 func firstNonEmpty(values ...string) string {
+	// TODO: move to global utils
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
 			return trimmed

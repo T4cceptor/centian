@@ -406,6 +406,7 @@ func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int
 
 // sumIntRows sums one integer field across rows.
 func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
+	// TODO: move to global utils ? could be made generic
 	total := 0
 	for _, row := range rows {
 		total += valueFn(row)
@@ -415,6 +416,7 @@ func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
 
 // medianFloat returns the median of values, or zero when the slice is empty.
 func medianFloat(values []float64) float64 {
+	// TODO: move to global utils
 	if len(values) == 0 {
 		return 0
 	}
