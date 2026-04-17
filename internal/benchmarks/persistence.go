@@ -169,7 +169,6 @@ func buildRunScoreRecord(
 	record.InputTokens = scorecard.Efficiency.InputTokens
 	record.OutputTokens = scorecard.Efficiency.OutputTokens
 	record.EditedFilesCount = scorecard.Efficiency.EditedFilesCount
-	record.ErrorActionabilityScore = scorecard.Manual.ErrorActionabilityScore
 	return record, nil
 }
 

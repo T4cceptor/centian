@@ -18,7 +18,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	sessionOne := filepath.Join(suiteRoot, "20260404210000_run")
 	sessionTwo := filepath.Join(suiteRoot, "20260404220000_run")
 
-	writeSyntheticScoringSessionAt(t, sessionOne, syntheticSessionOptions{})
+	writeSyntheticScoringSessionAt(t, sessionOne, syntheticSessionOptions{includeLegacyManualScore: true})
 	writeSyntheticScoringSessionAt(t, sessionTwo, syntheticSessionOptions{
 		includeInvariantViolation: true,
 		codexSelectedModel:        common.ModelCodexGPT54,

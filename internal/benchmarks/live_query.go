@@ -424,10 +424,6 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if err != nil {
 		return nil, err
 	}
-	manual, manualPath, err := loadManualScore(filepath.Join(run.RunDir, manualScoreFileName))
-	if err != nil {
-		return nil, err
-	}
 	agentStdoutPath := filepath.Join(run.AgentDir, "agent.stdout.log")
 	agentStderrPath := filepath.Join(run.AgentDir, "agent.stderr.log")
 	agentMetadata, warnings, err := runAgentMetadata(run, agentStdoutPath)
@@ -501,19 +497,14 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		RequestLogPath:  run.RequestLogPath,
 		AgentStdoutPath: agentStdoutPath,
 		AgentStderrPath: agentStderrPath,
-		ManualScorePath: manualPath,
 		RawStatus:       run.Status,
 		LatestTaskRunID: latestTaskRunID,
 		LinkedTaskRunIDs: append([]string(nil),
 			run.LinkedTaskRunIDs...,
 		),
-		Outcome:    outcome,
-		Process:    process,
-		Efficiency: efficiency,
-		Manual: ScorecardManual{
-			ErrorActionabilityScore: manual.ErrorActionabilityScore,
-			ErrorActionabilityNotes: manual.Notes,
-		},
+		Outcome:       outcome,
+		Process:       process,
+		Efficiency:    efficiency,
 		AgentMetadata: agentMetadata,
 		ScoreVersion:  scoreVersion,
 		GeneratedAt:   s.now(),

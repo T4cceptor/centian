@@ -62,7 +62,6 @@ type BenchmarkRunSummary struct {
 	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
 	FailedDownstreamToolCalls int            `json:"failedDownstreamToolCalls"`
 	EditedFilesCount          int            `json:"editedFilesCount"`
-	ErrorActionabilityScore   *int           `json:"errorActionabilityScore,omitempty"`
 	AgentMetadata             *AgentMetadata `json:"agentMetadata,omitempty"`
 	Warnings                  []string       `json:"warnings,omitempty"`
 	Errors                    []string       `json:"errors,omitempty"`

@@ -293,7 +293,7 @@ describe("benchmark routes", () => {
             aggregates: {
               bySession: [],
               byCase: [],
-              byAgent: [{ key: "codex", agent: "codex", runCount: 1, scoredRunCount: 1, successRate: 1, firstPassSuccessRate: 1, finalVerificationPassRate: 1, invariantViolationRate: 0, restartFailTimeoutRate: 0, medianWallClockSeconds: 10, medianTotalToolCalls: 4, medianInputTokens: 100, medianOutputTokens: 50, medianFailedTaskToolCalls: 0, medianFailedDownstreamToolCalls: 0, medianEditedFilesCount: 1, manualActionabilityCount: 0 }],
+              byAgent: [{ key: "codex", agent: "codex", runCount: 1, scoredRunCount: 1, successRate: 1, firstPassSuccessRate: 1, finalVerificationPassRate: 1, invariantViolationRate: 0, restartFailTimeoutRate: 0, medianWallClockSeconds: 10, medianTotalToolCalls: 4, medianInputTokens: 100, medianOutputTokens: 50, medianFailedTaskToolCalls: 0, medianFailedDownstreamToolCalls: 0, medianEditedFilesCount: 1 }],
               byTemplateVariant: [],
               byCaseAgentVariant: [],
             },
@@ -317,6 +317,7 @@ describe("benchmark routes", () => {
             templateVariant: "current",
             attempt: 1,
             rawStatus: "completed",
+            scored: true,
             completedSuccessfully: true,
             finalVerificationPassed: true,
             firstPassSuccess: false,
@@ -346,7 +347,7 @@ describe("benchmark routes", () => {
     expect(screen.getByText("1 Runs")).toBeInTheDocument();
     expect(screen.getByText("1 Sessions")).toBeInTheDocument();
     expect(
-      screen.getAllByText((_, element) => (element?.textContent ?? "").replace(/\s+/g, "") === "1/0").length,
+      screen.getAllByText((_, element) => (element?.textContent ?? "").replace(/\s+/g, "") === "1/1").length,
     ).toBeGreaterThan(0);
     expect(screen.getByText("Run History")).toBeInTheDocument();
     expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
@@ -370,7 +371,7 @@ describe("benchmark routes", () => {
           agents: ["codex"],
           templateVariants: ["current"],
           aggregates: {
-            byCase: [{ key: "assertion_failure_red", caseId: "assertion_failure_red", runCount: 1, scoredRunCount: 1, successRate: 1, firstPassSuccessRate: 1, finalVerificationPassRate: 1, invariantViolationRate: 0, restartFailTimeoutRate: 0, medianWallClockSeconds: 10, medianTotalToolCalls: 4, medianInputTokens: 100, medianOutputTokens: 50, medianFailedTaskToolCalls: 0, medianFailedDownstreamToolCalls: 0, medianEditedFilesCount: 1, manualActionabilityCount: 0 }],
+            byCase: [{ key: "assertion_failure_red", caseId: "assertion_failure_red", runCount: 1, scoredRunCount: 1, successRate: 1, firstPassSuccessRate: 1, finalVerificationPassRate: 1, invariantViolationRate: 0, restartFailTimeoutRate: 0, medianWallClockSeconds: 10, medianTotalToolCalls: 4, medianInputTokens: 100, medianOutputTokens: 50, medianFailedTaskToolCalls: 0, medianFailedDownstreamToolCalls: 0, medianEditedFilesCount: 1 }],
             byAgent: [],
             byTemplateVariant: [],
             byCaseAgentVariant: [],
@@ -391,6 +392,7 @@ describe("benchmark routes", () => {
               templateVariant: "current",
               attempt: 1,
               rawStatus: "completed",
+              scored: true,
               completedSuccessfully: true,
               finalVerificationPassed: true,
               firstPassSuccess: true,
@@ -434,6 +436,7 @@ describe("benchmark routes", () => {
           suiteName: "Simple TDD Benchmark Suite v1",
           templateName: "Simple TDD Current",
           caseName: "Assertion-failure red baseline",
+          scored: true,
           scorecard: {
             suiteId: "simple_tdd_v1",
             suiteName: "Simple TDD Benchmark Suite v1",
@@ -471,7 +474,6 @@ describe("benchmark routes", () => {
               outputTokens: 50,
               editedFilesCount: 1,
             },
-            manual: {},
             agentMetadata: { selectedModel: "gpt-5.4-mini" },
             generatedAt: "2026-04-05T12:00:00Z",
           },

@@ -40,7 +40,7 @@ func TestCollectFloat64(t *testing.T) {
 
 type syntheticSessionOptions struct {
 	includeInvariantViolation bool
-	invalidManualScoreForCase string
+	includeLegacyManualScore  bool
 	codexSelectedModel        string
 }
 
@@ -111,6 +111,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
 		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, common.NowUTC)
 		assert.NilError(t, scoreErr)
+		assert.Assert(t, scoreRecord.ErrorActionabilityScore == nil)
 		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}
 }
@@ -132,6 +133,7 @@ func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, 
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
 		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, common.NowUTC)
 		assert.NilError(t, scoreErr)
+		assert.Assert(t, scoreRecord.ErrorActionabilityScore == nil)
 		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}
 }
@@ -186,10 +188,8 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		},
 	}))
 
-	if entry.CaseID == opts.invalidManualScoreForCase {
-		assert.NilError(t, os.WriteFile(filepath.Join(runDir, manualScoreFileName), []byte(`{"errorActionabilityScore":9}`), 0o644))
-	} else {
-		assert.NilError(t, os.WriteFile(filepath.Join(runDir, manualScoreFileName), []byte(`{"errorActionabilityScore":3,"notes":"Actionable"}`), 0o644))
+	if opts.includeLegacyManualScore {
+		assert.NilError(t, os.WriteFile(filepath.Join(runDir, "manual_score.json"), []byte(`{"errorActionabilityScore":3,"notes":"Actionable"}`), 0o644))
 	}
 
 	run := &RunManifest{

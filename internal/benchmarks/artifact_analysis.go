@@ -9,36 +9,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/common"
 )
-
-// loadManualScore reads optional reviewer input and validates supported fields.
-func loadManualScore(path string) (*ManualScoreInput, string, error) {
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return &ManualScoreInput{}, "", nil
-		}
-		return nil, "", err
-	}
-	var manual ManualScoreInput
-	if err := common.ReadJSONFile(path, &manual); err != nil {
-		return nil, "", fmt.Errorf("load manual score input: %w", err)
-	}
-	if manual.ErrorActionabilityScore != nil {
-		if *manual.ErrorActionabilityScore < 0 || *manual.ErrorActionabilityScore > 3 {
-			return nil, "", fmt.Errorf("manual score errorActionabilityScore must be between 0 and 3")
-		}
-	}
-	if strings.TrimSpace(manual.ReviewedAt) != "" {
-		if _, err := time.Parse(time.RFC3339, manual.ReviewedAt); err != nil {
-			return nil, "", fmt.Errorf("manual score reviewedAt must be RFC3339: %w", err)
-		}
-	}
-	return &manual, path, nil
-}
 
 // loadAgentMetadata dispatches to the agent-specific log parser for one run.
 func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, error) {

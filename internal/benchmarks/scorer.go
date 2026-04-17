@@ -10,18 +10,7 @@ import (
 	"github.com/T4cceptor/centian/internal/common"
 )
 
-const (
-	manualScoreFileName = "manual_score.json"
-	scoreVersion        = "v1"
-)
-
-// ManualScoreInput stores optional reviewer-supplied scoring inputs.
-type ManualScoreInput struct {
-	ErrorActionabilityScore *int   `json:"errorActionabilityScore,omitempty"`
-	Notes                   string `json:"notes,omitempty"`
-	ReviewedBy              string `json:"reviewedBy,omitempty"`
-	ReviewedAt              string `json:"reviewedAt,omitempty"`
-}
+const scoreVersion = "v1"
 
 // AgentMetadata captures parsed usage/session data from one agent run log.
 type AgentMetadata struct {
@@ -74,14 +63,12 @@ type RunScorecard struct {
 	RequestLogPath   string              `json:"requestLogPath,omitempty"`
 	AgentStdoutPath  string              `json:"agentStdoutPath,omitempty"`
 	AgentStderrPath  string              `json:"agentStderrPath,omitempty"`
-	ManualScorePath  string              `json:"manualScorePath,omitempty"`
 	RawStatus        string              `json:"rawStatus"`
 	LatestTaskRunID  string              `json:"latestTaskRunId,omitempty"`
 	LinkedTaskRunIDs []string            `json:"linkedTaskRunIds,omitempty"`
 	Outcome          ScorecardOutcome    `json:"outcome"`
 	Process          ScorecardProcess    `json:"process"`
 	Efficiency       ScorecardEfficiency `json:"efficiency"`
-	Manual           ScorecardManual     `json:"manual"`
 	AgentMetadata    *AgentMetadata      `json:"agentMetadata,omitempty"`
 	ScoreVersion     string              `json:"scoreVersion"`
 	GeneratedAt      time.Time           `json:"generatedAt"`
@@ -120,12 +107,6 @@ type ScorecardEfficiency struct {
 	EditedFilesCount     int      `json:"editedFilesCount"`
 	EditedFiles          []string `json:"editedFiles,omitempty"`
 	ObservedCommandCalls int      `json:"observedCommandCalls"`
-}
-
-// ScorecardManual contains optional reviewer-supplied metrics.
-type ScorecardManual struct {
-	ErrorActionabilityScore *int   `json:"errorActionabilityScore,omitempty"`
-	ErrorActionabilityNotes string `json:"errorActionabilityNotes,omitempty"`
 }
 
 // SessionSummary stores comparison-friendly derived metrics for one scored session.
@@ -179,7 +160,6 @@ type RunSummaryRow struct {
 	FailedTaskToolCalls       int            `json:"failedTaskToolCalls"`
 	FailedDownstreamToolCalls int            `json:"failedDownstreamToolCalls"`
 	EditedFilesCount          int            `json:"editedFilesCount"`
-	ErrorActionabilityScore   *int           `json:"errorActionabilityScore,omitempty"`
 	AgentMetadata             *AgentMetadata `json:"agentMetadata,omitempty"`
 	Warnings                  []string       `json:"warnings,omitempty"`
 	Errors                    []string       `json:"errors,omitempty"`
@@ -187,29 +167,27 @@ type RunSummaryRow struct {
 
 // AggregateSummary stores aggregate comparison metrics for one grouping key.
 type AggregateSummary struct {
-	Key                             string   `json:"key"`
-	SessionPath                     string   `json:"sessionPath,omitempty"`
-	CaseID                          string   `json:"caseId,omitempty"`
-	Agent                           string   `json:"agent,omitempty"`
-	TemplateVariant                 string   `json:"templateVariant,omitempty"`
-	RunCount                        int      `json:"runCount"`
-	ScoredRunCount                  int      `json:"scoredRunCount"`
-	SuccessRate                     float64  `json:"successRate"`
-	FirstPassSuccessRate            float64  `json:"firstPassSuccessRate"`
-	FinalVerificationPassRate       float64  `json:"finalVerificationPassRate"`
-	InvariantViolationRate          float64  `json:"invariantViolationRate"`
-	RestartFailTimeoutRate          float64  `json:"restartFailTimeoutRate"`
-	MedianWallClockSeconds          float64  `json:"medianWallClockSeconds"`
-	MedianTotalToolCalls            float64  `json:"medianTotalToolCalls"`
-	MedianInputTokens               float64  `json:"medianInputTokens"`
-	MedianOutputTokens              float64  `json:"medianOutputTokens"`
-	MedianFailedTaskToolCalls       float64  `json:"medianFailedTaskToolCalls"`
-	MedianFailedDownstreamToolCalls float64  `json:"medianFailedDownstreamToolCalls"`
-	MedianEditedFilesCount          float64  `json:"medianEditedFilesCount"`
-	TotalTaskToolCalls              int      `json:"totalTaskToolCalls"`
-	TotalDownstreamToolCalls        int      `json:"totalDownstreamToolCalls"`
-	ManualActionabilityCount        int      `json:"manualActionabilityCount"`
-	AverageManualActionabilityScore *float64 `json:"averageManualActionabilityScore,omitempty"`
+	Key                             string  `json:"key"`
+	SessionPath                     string  `json:"sessionPath,omitempty"`
+	CaseID                          string  `json:"caseId,omitempty"`
+	Agent                           string  `json:"agent,omitempty"`
+	TemplateVariant                 string  `json:"templateVariant,omitempty"`
+	RunCount                        int     `json:"runCount"`
+	ScoredRunCount                  int     `json:"scoredRunCount"`
+	SuccessRate                     float64 `json:"successRate"`
+	FirstPassSuccessRate            float64 `json:"firstPassSuccessRate"`
+	FinalVerificationPassRate       float64 `json:"finalVerificationPassRate"`
+	InvariantViolationRate          float64 `json:"invariantViolationRate"`
+	RestartFailTimeoutRate          float64 `json:"restartFailTimeoutRate"`
+	MedianWallClockSeconds          float64 `json:"medianWallClockSeconds"`
+	MedianTotalToolCalls            float64 `json:"medianTotalToolCalls"`
+	MedianInputTokens               float64 `json:"medianInputTokens"`
+	MedianOutputTokens              float64 `json:"medianOutputTokens"`
+	MedianFailedTaskToolCalls       float64 `json:"medianFailedTaskToolCalls"`
+	MedianFailedDownstreamToolCalls float64 `json:"medianFailedDownstreamToolCalls"`
+	MedianEditedFilesCount          float64 `json:"medianEditedFilesCount"`
+	TotalTaskToolCalls              int     `json:"totalTaskToolCalls"`
+	TotalDownstreamToolCalls        int     `json:"totalDownstreamToolCalls"`
 }
 
 // scoreRunContext holds the resolved case definition and fixture root for scoring.
@@ -344,10 +322,6 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 			})),
 			TotalTaskToolCalls:       sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalTaskToolCalls }),
 			TotalDownstreamToolCalls: sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalDownstreamToolCalls }),
-			ManualActionabilityCount: common.CountBy(scoredGroup, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
-		}
-		if avg, ok := averageManualScore(scoredGroup); ok {
-			summary.AverageManualActionabilityScore = &avg
 		}
 		summaries = append(summaries, summary)
 	}
@@ -394,23 +368,6 @@ func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
 		total += valueFn(row)
 	}
 	return total
-}
-
-// averageManualScore computes the average reviewer actionability score when present.
-func averageManualScore(rows []RunSummaryRow) (float64, bool) {
-	total := 0
-	count := 0
-	for _, row := range rows {
-		if row.ErrorActionabilityScore == nil {
-			continue
-		}
-		total += *row.ErrorActionabilityScore
-		count++
-	}
-	if count == 0 {
-		return 0, false
-	}
-	return float64(total) / float64(count), true
 }
 
 // agentUsageInputTokens returns normalized input tokens from parsed agent metadata.

@@ -99,7 +99,6 @@ export type BenchmarkRunSummary = {
   failedTaskToolCalls: number;
   failedDownstreamToolCalls: number;
   editedFilesCount: number;
-  errorActionabilityScore?: number;
   agentMetadata?: AgentMetadata;
   warnings?: string[];
   errors?: string[];
@@ -127,8 +126,6 @@ export type AggregateSummary = {
   medianEditedFilesCount: number;
   totalTaskToolCalls: number;
   totalDownstreamToolCalls: number;
-  manualActionabilityCount: number;
-  averageManualActionabilityScore?: number;
 };
 
 export type BenchmarkSessionDetail = {
@@ -204,10 +201,6 @@ export type BenchmarkRunDetail = {
       editedFilesCount: number;
       editedFiles?: string[];
       observedCommandCalls: number;
-    };
-    manual: {
-      errorActionabilityScore?: number;
-      errorActionabilityNotes?: string;
     };
     warnings?: string[];
     errors?: string[];

@@ -200,7 +200,6 @@ Important files:
 - `runs/<template-variant>_<agent>_<case-id>_attempt_001/project/`: post-run project tree
 - `runs/<template-variant>_<agent>_<case-id>_attempt_001/logs/requests_*.jsonl`: Centian request log
 - `runs/<template-variant>_<agent>_<case-id>_attempt_001/agent/agent.stdout.log`: agent log used for metadata extraction
-- `runs/<template-variant>_<agent>_<case-id>_attempt_001/manual_score.json`: optional reviewer score input
 
 For single-agent single-variant runs, the default session directory label is `<variant>_<agent>_run`, for example:
 

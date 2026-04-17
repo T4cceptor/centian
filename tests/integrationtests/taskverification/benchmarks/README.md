@@ -52,7 +52,6 @@ Today that means each preserved run is evaluated from:
 - Centian task runs and task-run events
 - request logs and action/tool activity
 - the shared SQLite event store Centian normally uses for durable observability
-- optional reviewer-supplied `manual_score.json`
 
 For the current `simple_tdd_v1` suite, the benchmark is trying to answer:
 
@@ -192,7 +191,6 @@ Each preserved run contains:
 - `logs/`
 - `agent/`
 - `run.json`
-- `manual_score.json` optionally, for reviewer-supplied error-actionability input
 
 `logs/` stores Centian-side runtime artifacts such as request logs and internal logs. The live durable event stream is written to Centian's configured shared event store, which by default resolves to `~/.centian/logs/events.sqlite`. The resolved shared path is recorded in `run.json`. `agent/` stores agent logs and agent-specific artifacts for the run.
 
@@ -269,12 +267,6 @@ Benchmark UI and API views derive their output live from:
   Number of added, modified, or deleted files relative to the case seed fixture.
 - `editedFiles`
   The concrete paths that changed relative to the case seed fixture.
-### Manual metrics
-
-- `errorActionabilityScore`
-  Optional reviewer-supplied `0..3` rubric score for how actionable failures were.
-- `errorActionabilityNotes`
-  Optional reviewer notes stored in `manual_score.json`.
 
 ## How To Know If You Are Improving
 
