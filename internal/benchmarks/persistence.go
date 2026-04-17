@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
@@ -72,8 +73,8 @@ func buildSessionRecord(session *SessionManifest) (*persistence.BenchmarkSession
 		OutputRoot:         session.OutputRoot,
 		TemplateID:         session.TemplateID,
 		TemplateName:       session.TemplateName,
-		StartedAtUnixMilli: bestTime(session.StartedAt, session.EndedAt).UnixMilli(),
-		EndedAtUnixMilli:   timePointerMillis(session.EndedAt),
+		StartedAtUnixMilli: common.BestTime(session.StartedAt, session.EndedAt).UnixMilli(),
+		EndedAtUnixMilli:   common.TimePointerMillis(session.EndedAt),
 		Status:             session.Status,
 		RepeatCount:        session.Repeat,
 	}, nil
@@ -96,8 +97,8 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 		TemplateID:           run.TemplateID,
 		TemplateName:         run.TemplateName,
 		SelectedModel:        run.SelectedModel,
-		StartedAtUnixMilli:   bestTime(run.StartedAt, run.EndedAt).UnixMilli(),
-		EndedAtUnixMilli:     timePointerMillis(run.EndedAt),
+		StartedAtUnixMilli:   common.BestTime(run.StartedAt, run.EndedAt).UnixMilli(),
+		EndedAtUnixMilli:     common.TimePointerMillis(run.EndedAt),
 		Status:               run.Status,
 		LatestTaskRunID:      run.LatestTaskRunID,
 		LatestTaskRunStatus:  run.LatestTaskRunStatus,
@@ -151,10 +152,10 @@ func buildRunScoreRecord(
 		return nil, fmt.Errorf("marshal benchmark run scorecard: %w", err)
 	}
 	record.ScoreStatus = benchmarkRunScoreStatusReady
-	record.ScoreVersion = firstNonEmpty(strings.TrimSpace(scorecard.ScoreVersion), scoreVersion)
+	record.ScoreVersion = common.FirstNonEmpty(strings.TrimSpace(scorecard.ScoreVersion), scoreVersion)
 	record.ScorecardJSON = payload
 	record.ScoreErrors = append(record.ScoreErrors, scorecard.Errors...)
-	record.SelectedModel = firstNonEmpty(scorecard.SelectedModel, run.SelectedModel)
+	record.SelectedModel = common.FirstNonEmpty(scorecard.SelectedModel, run.SelectedModel)
 	record.CompletedSuccessfully = scorecard.Outcome.CompletedSuccessfully
 	record.FinalVerificationPassed = scorecard.Outcome.FinalVerificationPassed
 	record.FirstPassSuccess = scorecard.Outcome.FirstPassSuccess
@@ -274,23 +275,4 @@ func sessionPathFromRun(run *RunManifest) string {
 		}
 		current = parent
 	}
-}
-
-// bestTime prefers primary when set and otherwise falls back to the alternate timestamp.
-func bestTime(primary, fallback time.Time) time.Time {
-	// TODO: move to global utils
-	if !primary.IsZero() {
-		return primary
-	}
-	return fallback
-}
-
-// timePointerMillis converts a non-zero timestamp into a nullable unix-millis pointer.
-func timePointerMillis(value time.Time) *int64 {
-	// TODO: move to global utils
-	if value.IsZero() {
-		return nil
-	}
-	millis := value.UnixMilli()
-	return &millis
 }

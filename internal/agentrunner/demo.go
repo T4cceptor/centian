@@ -438,8 +438,7 @@ func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-ch
 
 // writePID records the child Centian process ID for reuse and shutdown flows.
 func writePID(path string, pid int) error {
-	// TODO: move into global utils
-	return os.WriteFile(path, []byte(strconv.Itoa(pid)+"\n"), 0o600)
+	return common.WritePIDFile(path, pid)
 }
 
 // waitForCentian blocks until both the MCP and JSON API endpoints are serving successfully.

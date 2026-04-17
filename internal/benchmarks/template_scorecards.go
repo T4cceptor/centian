@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
@@ -109,7 +110,7 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			}
 			grouped[templateKey] = group
 		}
-		group.templateName = firstNonEmpty(group.templateName, templateName)
+		group.templateName = common.FirstNonEmpty(group.templateName, templateName)
 		group.runCount++
 		group.taskToolCalls = append(group.taskToolCalls, scorecard.Process.TotalTaskToolCalls)
 		group.downstreamCalls = append(group.downstreamCalls, scorecard.Process.TotalDownstreamToolCalls)
@@ -149,8 +150,8 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 		if result[i].RunCount != result[j].RunCount {
 			return result[i].RunCount > result[j].RunCount
 		}
-		left := firstNonEmpty(result[i].TemplateName, result[i].TemplateID)
-		right := firstNonEmpty(result[j].TemplateName, result[j].TemplateID)
+		left := common.FirstNonEmpty(result[i].TemplateName, result[i].TemplateID)
+		right := common.FirstNonEmpty(result[j].TemplateName, result[j].TemplateID)
 		return left < right
 	})
 	return result, nil
@@ -202,7 +203,7 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		if err != nil || scorecard == nil {
 			continue
 		}
-		model := firstNonEmpty(strings.TrimSpace(score.SelectedModel), scorecard.SelectedModel, run.SelectedModel)
+		model := common.FirstNonEmpty(strings.TrimSpace(score.SelectedModel), scorecard.SelectedModel, run.SelectedModel)
 		groupKey := agentModelScorecardKey(agent, model)
 		group := grouped[groupKey]
 		if group == nil {

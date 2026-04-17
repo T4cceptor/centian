@@ -406,7 +406,6 @@ func extractOptionalInt64(rows []RunSummaryRow, valueFn func(RunSummaryRow) *int
 
 // sumIntRows sums one integer field across rows.
 func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
-	// TODO: move to global utils ? could be made generic
 	total := 0
 	for _, row := range rows {
 		total += valueFn(row)
@@ -416,16 +415,7 @@ func sumIntRows(rows []RunSummaryRow, valueFn func(RunSummaryRow) int) int {
 
 // medianFloat returns the median of values, or zero when the slice is empty.
 func medianFloat(values []float64) float64 {
-	// TODO: move to global utils
-	if len(values) == 0 {
-		return 0
-	}
-	sort.Float64s(values)
-	mid := len(values) / 2
-	if len(values)%2 == 1 {
-		return values[mid]
-	}
-	return (values[mid-1] + values[mid]) / 2
+	return common.MedianFloat(values)
 }
 
 // averageManualScore computes the average reviewer actionability score when present.

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/persistence"
@@ -200,31 +199,6 @@ func scorecardFromSnapshot(score *persistence.BenchmarkRunScoreRecord) (*RunScor
 
 // errBenchmarkScoreUnavailable marks runs that are visible but do not yet have a usable score snapshot.
 var errBenchmarkScoreUnavailable = errors.New("benchmark score unavailable")
-
-// sortedSetValues returns deterministic, sorted values from a string set.
-func sortedSetValues(set map[string]struct{}) []string {
-	// TODO: move to global utils
-	if len(set) == 0 {
-		return nil
-	}
-	values := make([]string, 0, len(set))
-	for value := range set {
-		values = append(values, value)
-	}
-	sort.Strings(values)
-	return values
-}
-
-// firstNonEmpty returns the first non-blank string in values.
-func firstNonEmpty(values ...string) string {
-	// TODO: move to global utils
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
 
 // hasRunScopedFilter reports whether the filter narrows the run set inside a suite.
 func hasRunScopedFilter(filters BenchmarkRunFilters) bool {

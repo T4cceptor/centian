@@ -428,8 +428,8 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 			ErrorSummary:        manifest.ErrorSummary,
 		}
 		session.Runs = append(session.Runs, entry)
-		session.TemplateName = firstNonEmpty(session.TemplateName, manifest.TemplateName)
-		sessionStorePath = firstNonEmpty(sessionStorePath, manifest.ArtifactPaths.EventStorePath)
+		session.TemplateName = common.FirstNonEmpty(session.TemplateName, manifest.TemplateName)
+		sessionStorePath = common.FirstNonEmpty(sessionStorePath, manifest.ArtifactPaths.EventStorePath)
 		if runErr != nil {
 			anyFailure = true
 		}
@@ -802,7 +802,7 @@ func renderCentianConfig(baseConfigPath string, templatesDir string, projectDir 
 			effectiveEventStorePath = settings.Path
 		}
 	}
-	effectiveEventStorePath = firstNonEmpty(effectiveEventStorePath, defaultEventStorePath)
+	effectiveEventStorePath = common.FirstNonEmpty(effectiveEventStorePath, defaultEventStorePath)
 	effectiveEventStorePath = resolveBenchmarkConfigPath(projectDir, effectiveEventStorePath)
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -1101,7 +1101,7 @@ func materializeRunInputs(
 	if err := common.CopyFile(spec.TemplatePath, filepath.Join(workspace.RuntimeTemplatesDir, filepath.Base(spec.TemplatePath))); err != nil {
 		return err
 	}
-	manifest.TemplateName = firstNonEmpty(strings.TrimSpace(spec.TemplateName), manifest.TemplateName)
+	manifest.TemplateName = common.FirstNonEmpty(strings.TrimSpace(spec.TemplateName), manifest.TemplateName)
 
 	port, err := allocatePort()
 	if err != nil {

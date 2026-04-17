@@ -379,8 +379,8 @@ func TestRunAgentAppendsLogs(t *testing.T) {
 
 func TestWritePIDAndStopHint(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "centian.pid")
-	if err := writePID(path, 12345); err != nil {
-		t.Fatalf("writePID: %v", err)
+	if err := common.WritePIDFile(path, 12345); err != nil {
+		t.Fatalf("WritePIDFile: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

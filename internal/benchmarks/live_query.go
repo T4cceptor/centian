@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
@@ -97,9 +98,9 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 			}
 			grouped[session.SuiteID] = group
 		}
-		group.item.TemplateID = firstNonEmpty(group.item.TemplateID, session.TemplateID)
-		group.item.TemplateName = firstNonEmpty(group.item.TemplateName, session.TemplateName)
-		group.item.SuiteName = firstNonEmpty(group.item.SuiteName, session.SuiteName)
+		group.item.TemplateID = common.FirstNonEmpty(group.item.TemplateID, session.TemplateID)
+		group.item.TemplateName = common.FirstNonEmpty(group.item.TemplateName, session.TemplateName)
+		group.item.SuiteName = common.FirstNonEmpty(group.item.SuiteName, session.SuiteName)
 		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli))
 		group.sessionIDs[session.SessionID] = struct{}{}
 	}
@@ -117,7 +118,7 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 			continue
 		}
 		group.item.RunCount++
-		group.item.TemplateName = firstNonEmpty(group.item.TemplateName, run.TemplateName, session.TemplateName)
+		group.item.TemplateName = common.FirstNonEmpty(group.item.TemplateName, run.TemplateName, session.TemplateName)
 		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli))
 		group.agents[run.Agent] = struct{}{}
 		group.caseIDs[run.CaseID] = struct{}{}
@@ -133,10 +134,10 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 			continue
 		}
 		group.item.SessionCount = len(group.sessionIDs)
-		group.item.Agents = sortedSetValues(group.agents)
-		group.item.CaseIDs = sortedSetValues(group.caseIDs)
-		group.item.CaseNames = sortedSetValues(group.caseNames)
-		group.item.TemplateVariants = sortedSetValues(group.variants)
+		group.item.Agents = common.SortedSetValues(group.agents)
+		group.item.CaseIDs = common.SortedSetValues(group.caseIDs)
+		group.item.CaseNames = common.SortedSetValues(group.caseNames)
+		group.item.TemplateVariants = common.SortedSetValues(group.variants)
 		result = append(result, group.item)
 	}
 	sort.Slice(result, func(i, j int) bool {
@@ -187,23 +188,23 @@ func (s *QueryService) ListSessions(ctx context.Context, suiteID string, filters
 				caseNames[sessionRuns[runIdx].CaseName] = struct{}{}
 			}
 			variants[sessionRuns[runIdx].TemplateVariant] = struct{}{}
-			templateName = firstNonEmpty(templateName, sessionRuns[runIdx].TemplateName)
+			templateName = common.FirstNonEmpty(templateName, sessionRuns[runIdx].TemplateName)
 		}
 		detail := BenchmarkSessionDetail{
 			SessionID:          session.SessionID,
 			SuiteID:            session.SuiteID,
 			SuiteName:          session.SuiteName,
 			TemplateID:         session.TemplateID,
-			TemplateName:       firstNonEmpty(templateName, session.TemplateName),
+			TemplateName:       common.FirstNonEmpty(templateName, session.TemplateName),
 			SessionPath:        session.SessionPath,
 			GeneratedAt:        timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli),
 			RunCount:           len(sessionRuns),
 			ScoredRunCount:     count(rows, func(row RunSummaryRow) bool { return row.Scored }),
 			FailedToScoreCount: count(rows, func(row RunSummaryRow) bool { return !row.Scored }),
-			Agents:             sortedSetValues(agents),
-			CaseIDs:            sortedSetValues(caseIDs),
-			CaseNames:          sortedSetValues(caseNames),
-			TemplateVariants:   sortedSetValues(variants),
+			Agents:             common.SortedSetValues(agents),
+			CaseIDs:            common.SortedSetValues(caseIDs),
+			CaseNames:          common.SortedSetValues(caseNames),
+			TemplateVariants:   common.SortedSetValues(variants),
 			Aggregates:         buildAggregates(rows),
 		}
 		if includeRuns {
@@ -326,8 +327,8 @@ func (s *QueryService) GetRun(ctx context.Context, suiteID, scorecardID string) 
 		ScorecardID:  run.BenchmarkRunID,
 		SessionID:    run.SessionID,
 		SessionPath:  sessions[0].SessionPath,
-		SuiteName:    firstNonEmpty(sessions[0].SuiteName),
-		TemplateName: firstNonEmpty(run.TemplateName, sessions[0].TemplateName),
+		SuiteName:    common.FirstNonEmpty(sessions[0].SuiteName),
+		TemplateName: common.FirstNonEmpty(run.TemplateName, sessions[0].TemplateName),
 		CaseName:     run.CaseName,
 		Scored:       scorecard != nil,
 		ScoreErrors:  scoreErrorsIfUnscored(scorecard, scoreErrors),
@@ -353,9 +354,9 @@ func (s *QueryService) GetComparison(ctx context.Context, suiteID string, filter
 	templateName := ""
 	suiteName := ""
 	for idx := range runs {
-		templateID = firstNonEmpty(templateID, runs[idx].TemplateID)
-		templateName = firstNonEmpty(templateName, runs[idx].TemplateName)
-		suiteName = firstNonEmpty(suiteName, runs[idx].SuiteName)
+		templateID = common.FirstNonEmpty(templateID, runs[idx].TemplateID)
+		templateName = common.FirstNonEmpty(templateName, runs[idx].TemplateName)
+		suiteName = common.FirstNonEmpty(suiteName, runs[idx].SuiteName)
 		rows = append(rows, toRunSummaryRow(runs[idx]))
 	}
 	aggregates := buildAggregates(rows)
@@ -433,7 +434,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if err != nil {
 		return nil, err
 	}
-	selectedModel := strings.TrimSpace(firstNonEmpty(run.SelectedModel, agentMetadataSelectedModel(agentMetadata)))
+	selectedModel := strings.TrimSpace(common.FirstNonEmpty(run.SelectedModel, agentMetadataSelectedModel(agentMetadata)))
 	invariantViolation, err := detectInvariantViolation(
 		filepath.Join(caseCtx.caseRoot, caseCtx.caseDef.Fixture.SeedPath),
 		run.ProjectDir,
@@ -446,7 +447,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if err != nil {
 		return nil, err
 	}
-	templateID := firstNonEmpty(run.TemplateID, snapshot.TemplateID)
+	templateID := common.FirstNonEmpty(run.TemplateID, snapshot.TemplateID)
 	templateName := templateNameFromSnapshot(snapshot)
 	if templateName == "" {
 		templateName = templateID
@@ -636,7 +637,7 @@ func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) strin
 	if snapshot.Payload.RunnableTemplate != nil {
 		runnableTemplateName = snapshot.Payload.RunnableTemplate.Task.Name
 	}
-	return firstNonEmpty(
+	return common.FirstNonEmpty(
 		snapshot.TemplateName,
 		runnableTemplateName,
 		snapshot.Payload.SelectedTemplate.Task.Name,
