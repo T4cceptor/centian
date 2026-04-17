@@ -5,11 +5,12 @@ import (
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 const (
-	codexModelStable       = "gpt-5.4"
-	codexModelMini         = "gpt-5.4-mini"
+	codexModelStable       = common.ModelCodexGPT54
+	codexModelMini         = common.ModelCodexGPT54Mini
 	codexModelHelp         = codexModelStable + ", " + codexModelMini
 	codexOllamaProfileHelp = "profile name from the supplied Codex config"
 	claudeModelHelp        = "haiku, sonnet, opus"

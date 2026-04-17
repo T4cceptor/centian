@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"github.com/T4cceptor/centian/internal/taskruns"
 	"gotest.tools/assert"
@@ -20,7 +21,7 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	writeSyntheticScoringSessionAt(t, sessionOne, syntheticSessionOptions{})
 	writeSyntheticScoringSessionAt(t, sessionTwo, syntheticSessionOptions{
 		includeInvariantViolation: true,
-		codexSelectedModel:        "gpt-5.4",
+		codexSelectedModel:        common.ModelCodexGPT54,
 	})
 
 	store, err := persistence.NewSQLiteStore(filepath.Join(root, "events.sqlite"))
@@ -84,8 +85,8 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 	for _, run := range runs {
 		codexRunModels[run.SelectedModel] = true
 	}
-	assert.Assert(t, codexRunModels["gpt-5.4-mini"])
-	assert.Assert(t, codexRunModels["gpt-5.4"])
+	assert.Assert(t, codexRunModels[common.ModelCodexGPT54Mini])
+	assert.Assert(t, codexRunModels[common.ModelCodexGPT54])
 	assert.Equal(t, runs[0].TemplateName, "Simple TDD Current")
 
 	runDetail, err := service.GetRun(context.Background(), "simple_tdd_v1", runs[0].ScorecardID)
@@ -129,9 +130,9 @@ func TestReadServiceListsSuitesSessionsRunsAndComparison(t *testing.T) {
 			assert.Equal(t, scorecard.Models[0], scorecard.Model)
 		}
 	}
-	assert.Assert(t, agentScorecardKeys["codex::gpt-5.4-mini"])
-	assert.Assert(t, agentScorecardKeys["codex::gpt-5.4"])
-	assert.Assert(t, agentScorecardKeys["claude::sonnet"])
+	assert.Assert(t, agentScorecardKeys["codex::"+common.ModelCodexGPT54Mini])
+	assert.Assert(t, agentScorecardKeys["codex::"+common.ModelCodexGPT54])
+	assert.Assert(t, agentScorecardKeys["claude::"+common.ModelClaudeSonnet])
 }
 
 func TestReadServiceReturnsNilForMissingResources(t *testing.T) {

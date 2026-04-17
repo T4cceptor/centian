@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/benchmarks"
+	"github.com/T4cceptor/centian/internal/common"
 	"gotest.tools/assert"
 )
 
@@ -246,8 +247,8 @@ func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
 		listAgentScorecardsFn: func(context.Context) ([]benchmarks.AgentScorecard, error) {
 			return []benchmarks.AgentScorecard{{
 				Agent:                      "codex",
-				Model:                      "gpt-5.4-mini",
-				Models:                     []string{"gpt-5.4-mini"},
+				Model:                      common.ModelCodexGPT54Mini,
+				Models:                     []string{common.ModelCodexGPT54Mini},
 				RunCount:                   8,
 				TotalTaskToolCalls:         160,
 				TotalDownstreamToolCalls:   80,
@@ -290,7 +291,7 @@ func TestBenchmarkHandler_ListAgentScorecards(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &items))
 	assert.Equal(t, len(items), 1)
 	assert.Equal(t, items[0].Agent, "codex")
-	assert.Equal(t, items[0].Model, "gpt-5.4-mini")
+	assert.Equal(t, items[0].Model, common.ModelCodexGPT54Mini)
 	assert.Equal(t, items[0].TotalTaskToolCalls, 160)
 	assert.Equal(t, items[0].SuccessRate, 0.88)
 }

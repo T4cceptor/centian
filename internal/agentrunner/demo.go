@@ -21,17 +21,17 @@ import (
 
 const (
 	// AgentClaude is the supported public agent identifier for the Claude CLI.
-	AgentClaude = "claude"
+	AgentClaude = common.AgentClaude
 	// AgentGemini is the supported public agent identifier for the Gemini CLI.
-	AgentGemini = "gemini"
+	AgentGemini = common.AgentGemini
 	// AgentCodex is the supported public agent identifier for the Codex CLI.
-	AgentCodex = "codex"
+	AgentCodex = common.AgentCodex
 	// AgentCodexOllama is the supported public agent identifier for Codex OSS mode via Ollama.
-	AgentCodexOllama = "codex-ollama"
+	AgentCodexOllama = common.AgentCodexOllama
 	// DefaultClaudeModel is the default Claude model alias for demo runs.
-	DefaultClaudeModel = "sonnet"
+	DefaultClaudeModel = common.ModelClaudeSonnet
 	// DefaultGeminiModel is the default Gemini model alias for demo runs.
-	DefaultGeminiModel = "gemini-2.5-flash"
+	DefaultGeminiModel = common.ModelGemini25Flash
 	// DefaultCodexModel is the default Codex model alias for demo runs (empty uses Codex default).
 	DefaultCodexModel = ""
 	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.

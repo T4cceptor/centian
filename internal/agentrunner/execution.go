@@ -3,6 +3,8 @@ package agentrunner
 import (
 	"fmt"
 	"strings"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // AgentExecutionOptions configures one concrete agent invocation.
@@ -23,24 +25,24 @@ func NormalizeModelForAgent(agent, model string) string {
 	switch strings.ToLower(strings.TrimSpace(agent)) {
 	case AgentCodex:
 		switch normalized {
-		case "gpt5.4", "gpt-5.4":
-			return "gpt-5.4"
-		case "gpt5.4-mini", "gpt-5.4-mini":
-			return "gpt-5.4-mini"
+		case "gpt5.4", common.ModelCodexGPT54:
+			return common.ModelCodexGPT54
+		case "gpt5.4-mini", common.ModelCodexGPT54Mini:
+			return common.ModelCodexGPT54Mini
 		}
 	case AgentClaude:
 		switch normalized {
-		case "haiku", "sonnet", "opus":
+		case common.ModelClaudeHaiku, common.ModelClaudeSonnet, common.ModelClaudeOpus:
 			return normalized
 		}
 	case AgentGemini:
 		switch normalized {
-		case "pro", "gemini-3.1-pro", "gemini-3.1-pro-preview":
-			return "gemini-3.1-pro-preview"
-		case "flash", "gemini-3-flash", "gemini-3-flash-preview":
-			return "gemini-3-flash-preview"
-		case "2.5-flash", "gemini-2.5-flash":
-			return "gemini-2.5-flash"
+		case "pro", "gemini-3.1-pro", common.ModelGemini31ProPreview:
+			return common.ModelGemini31ProPreview
+		case "flash", "gemini-3-flash", common.ModelGemini3FlashPreview:
+			return common.ModelGemini3FlashPreview
+		case "2.5-flash", common.ModelGemini25Flash:
+			return common.ModelGemini25Flash
 		}
 	}
 	return trimmed

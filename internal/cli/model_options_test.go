@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/T4cceptor/centian/internal/common"
+)
 
 func TestNormalizeCLIModel(t *testing.T) {
 	tests := []struct {
@@ -9,13 +13,13 @@ func TestNormalizeCLIModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{name: "codex mini typo", agent: "codex", input: "gpt5.4-mini", expected: "gpt-5.4-mini"},
-		{name: "codex full", agent: "codex", input: "gpt5.4", expected: "gpt-5.4"},
+		{name: "codex mini typo", agent: "codex", input: "gpt5.4-mini", expected: common.ModelCodexGPT54Mini},
+		{name: "codex full", agent: "codex", input: "gpt5.4", expected: common.ModelCodexGPT54},
 		{name: "codex ollama custom passthrough", agent: "codex-ollama", input: "my-profile", expected: "my-profile"},
-		{name: "claude alias", agent: "claude", input: "Sonnet", expected: "sonnet"},
-		{name: "gemini pro latest", agent: "gemini", input: "pro", expected: "gemini-3.1-pro-preview"},
-		{name: "gemini flash latest", agent: "gemini", input: "flash", expected: "gemini-3-flash-preview"},
-		{name: "gemini flash 2.5", agent: "gemini", input: "2.5-flash", expected: "gemini-2.5-flash"},
+		{name: "claude alias", agent: "claude", input: "Sonnet", expected: common.ModelClaudeSonnet},
+		{name: "gemini pro latest", agent: "gemini", input: "pro", expected: common.ModelGemini31ProPreview},
+		{name: "gemini flash latest", agent: "gemini", input: "flash", expected: common.ModelGemini3FlashPreview},
+		{name: "gemini flash 2.5", agent: "gemini", input: "2.5-flash", expected: common.ModelGemini25Flash},
 		{name: "unknown passthrough", agent: "codex", input: "custom-model", expected: "custom-model"},
 	}
 

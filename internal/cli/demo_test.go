@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/common"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -107,7 +108,7 @@ func TestDemoExecutionFromFlagsAppliesModelAndConfig(t *testing.T) {
 	if exec.Agent != agentrunner.AgentCodex {
 		t.Fatalf("expected codex agent, got %q", exec.Agent)
 	}
-	if exec.Model != "gpt-5.4-mini" {
+	if exec.Model != common.ModelCodexGPT54Mini {
 		t.Fatalf("expected normalized model, got %q", exec.Model)
 	}
 	if exec.CodexConfigPath == "" {

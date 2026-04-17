@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -206,20 +207,20 @@ func TestBenchmarkExecutionsFromFlagsAppliesSingleModelFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("benchmarkExecutionsFromFlags: %v", err)
 	}
-	if executions[0].Model != "gpt-5.4-mini" {
+	if executions[0].Model != common.ModelCodexGPT54Mini {
 		t.Fatalf("expected normalized codex model, got %q", executions[0].Model)
 	}
 }
 
 func TestBenchmarkExecutionsFromFlagsRejectsSingleModelWithMultipleAgents(t *testing.T) {
-	_, err := benchmarkExecutionsFromFlags("gpt-5.4-mini", "", []string{"codex", "claude"}, "", "", "", "")
+	_, err := benchmarkExecutionsFromFlags(common.ModelCodexGPT54Mini, "", []string{"codex", "claude"}, "", "", "", "")
 	if err == nil || err.Error() != "--model can only be used with exactly one non-codex-ollama agent; use --claude-model, --gemini-model, or --codex-model for multi-agent runs" {
 		t.Fatalf("expected multi-agent model error, got %v", err)
 	}
 }
 
 func TestBenchmarkExecutionsFromFlagsRejectsSingleAndAgentModelConflict(t *testing.T) {
-	_, err := benchmarkExecutionsFromFlags("gpt-5.4-mini", "", []string{"codex"}, "", "", "gpt-5.4", "")
+	_, err := benchmarkExecutionsFromFlags(common.ModelCodexGPT54Mini, "", []string{"codex"}, "", "", common.ModelCodexGPT54, "")
 	if err == nil || err.Error() != "--model cannot be combined with --codex-model" {
 		t.Fatalf("expected model conflict error, got %v", err)
 	}

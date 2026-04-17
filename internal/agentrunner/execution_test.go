@@ -1,6 +1,10 @@
 package agentrunner
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/T4cceptor/centian/internal/common"
+)
 
 func TestNormalizeModelForAgent(t *testing.T) {
 	tests := []struct {
@@ -9,10 +13,10 @@ func TestNormalizeModelForAgent(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{name: "codex alias", agent: AgentCodex, input: "gpt5.4", expected: "gpt-5.4"},
-		{name: "codex mini alias", agent: AgentCodex, input: "gpt5.4-mini", expected: "gpt-5.4-mini"},
-		{name: "claude alias", agent: AgentClaude, input: "Sonnet", expected: "sonnet"},
-		{name: "gemini alias", agent: AgentGemini, input: "flash", expected: "gemini-3-flash-preview"},
+		{name: "codex alias", agent: AgentCodex, input: "gpt5.4", expected: common.ModelCodexGPT54},
+		{name: "codex mini alias", agent: AgentCodex, input: "gpt5.4-mini", expected: common.ModelCodexGPT54Mini},
+		{name: "claude alias", agent: AgentClaude, input: "Sonnet", expected: common.ModelClaudeSonnet},
+		{name: "gemini alias", agent: AgentGemini, input: "flash", expected: common.ModelGemini3FlashPreview},
 		{name: "custom passthrough", agent: AgentCodex, input: "custom-model", expected: "custom-model"},
 	}
 
@@ -33,7 +37,7 @@ func TestNormalizeExecutionOptionsAppliesDefaultsAndAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeExecutionOptions: %v", err)
 	}
-	if exec.Model != "sonnet" {
+	if exec.Model != common.ModelClaudeSonnet {
 		t.Fatalf("expected normalized model, got %q", exec.Model)
 	}
 
@@ -72,7 +76,7 @@ func TestNormalizeExecutionOptionsRejectsCodexOllamaModelAndRequiresProfile(t *t
 }
 
 func TestSelectedModelForExecution(t *testing.T) {
-	if actual := SelectedModelForExecution(AgentExecutionOptions{Agent: AgentCodex, Model: "gpt-5.4-mini"}); actual != "gpt-5.4-mini" {
+	if actual := SelectedModelForExecution(AgentExecutionOptions{Agent: AgentCodex, Model: common.ModelCodexGPT54Mini}); actual != common.ModelCodexGPT54Mini {
 		t.Fatalf("expected codex model, got %q", actual)
 	}
 	if actual := SelectedModelForExecution(AgentExecutionOptions{Agent: AgentCodexOllama, Profile: "local-oss"}); actual != "local-oss" {

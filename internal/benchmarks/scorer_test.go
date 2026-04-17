@@ -399,12 +399,12 @@ func syntheticAgentStdout(agent string) string {
 func syntheticSelectedModel(agent string, opts syntheticSessionOptions) string {
 	switch agent {
 	case "claude":
-		return "sonnet"
+		return common.ModelClaudeSonnet
 	default:
 		if opts.codexSelectedModel != "" {
 			return opts.codexSelectedModel
 		}
-		return "gpt-5.4-mini"
+		return common.ModelCodexGPT54Mini
 	}
 }
 
