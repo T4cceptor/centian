@@ -2,12 +2,10 @@ package benchmarks
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -89,7 +87,7 @@ type PromptDefinition = common.PromptDefinition
 func LoadSuite(root string) (*SuiteDefinition, error) {
 	suitePath := filepath.Join(root, suiteFileName)
 	var suite SuiteDefinition
-	if err := loadYAMLFile(suitePath, &suite); err != nil {
+	if err := common.ReadYAMLFile(suitePath, &suite); err != nil {
 		return nil, err
 	}
 	if err := ValidateSuite(root, &suite); err != nil {
@@ -100,14 +98,14 @@ func LoadSuite(root string) (*SuiteDefinition, error) {
 
 // LoadCase loads and validates one benchmark case referenced by the suite.
 func LoadCase(suiteRoot string, ref SuiteCaseRef) (*CaseDefinition, error) {
-	caseRoot, err := resolveExistingDir(suiteRoot, ref.Path, "case path")
+	caseRoot, err := common.ResolveExistingDirUnderRoot(suiteRoot, ref.Path, "case path", "suite root")
 	if err != nil {
 		return nil, err
 	}
 
 	casePath := filepath.Join(caseRoot, caseFileName)
 	var def CaseDefinition
-	if err := loadYAMLFile(casePath, &def); err != nil {
+	if err := common.ReadYAMLFile(casePath, &def); err != nil {
 		return nil, err
 	}
 	if err := validateCase(caseRoot, ref, &def); err != nil {
@@ -118,7 +116,7 @@ func LoadCase(suiteRoot string, ref SuiteCaseRef) (*CaseDefinition, error) {
 
 // LoadPrompt loads and validates the prompt file for one benchmark case.
 func LoadPrompt(caseRoot, promptFile string) (*PromptDefinition, error) {
-	promptPath, err := resolveExistingFile(caseRoot, promptFile, "prompt file")
+	promptPath, err := common.ResolveExistingFileUnderRoot(caseRoot, promptFile, "prompt file", "suite root")
 	if err != nil {
 		return nil, err
 	}
@@ -222,105 +220,20 @@ func validateCase(caseRoot string, ref SuiteCaseRef, def *CaseDefinition) error 
 	if _, err := LoadPrompt(caseRoot, def.PromptFile); err != nil {
 		return err
 	}
-	fixtureRoot, err := resolveExistingDir(caseRoot, def.Fixture.SeedPath, "fixture seedPath")
+	fixtureRoot, err := common.ResolveExistingDirUnderRoot(caseRoot, def.Fixture.SeedPath, "fixture seedPath", "suite root")
 	if err != nil {
 		return err
 	}
 	for _, lockedPath := range def.Constraints.LockedPaths {
-		if err := ensureExistingPath(fixtureRoot, lockedPath, "locked path"); err != nil {
+		if err := common.EnsureExistingPathUnderRoot(fixtureRoot, lockedPath, "locked path", "suite root"); err != nil {
 			return err
 		}
 	}
 	for _, allowedPath := range def.Constraints.AllowedAdditionalPaths {
-		if err := ensureExistingPath(fixtureRoot, allowedPath, "allowedAdditionalPaths entry"); err != nil {
+		if err := common.EnsureExistingPathUnderRoot(fixtureRoot, allowedPath, "allowedAdditionalPaths entry", "suite root"); err != nil {
 			return err
 		}
 	}
 
 	return nil
-}
-
-// loadYAMLFile reads one YAML file into target.
-func loadYAMLFile(path string, target any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read %q: %w", path, err)
-	}
-	if err := yaml.Unmarshal(data, target); err != nil {
-		return fmt.Errorf("failed to parse %q: %w", path, err)
-	}
-	return nil
-}
-
-// resolveExistingFile validates that relativePath exists under root and is a file.
-func resolveExistingFile(root, relativePath, fieldName string) (string, error) {
-	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", fmt.Errorf("%s %q does not exist: %w", fieldName, relativePath, err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("%s %q must be a file", fieldName, relativePath)
-	}
-	return resolved, nil
-}
-
-// resolveExistingDir validates that relativePath exists under root and is a directory.
-func resolveExistingDir(root, relativePath, fieldName string) (string, error) {
-	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", fmt.Errorf("%s %q does not exist: %w", fieldName, relativePath, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("%s %q must be a directory", fieldName, relativePath)
-	}
-	return resolved, nil
-}
-
-// ensureExistingPath validates that relativePath exists under root.
-func ensureExistingPath(root, relativePath, fieldName string) error {
-	resolved, err := resolvePathUnderRoot(root, relativePath, fieldName)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(resolved); err != nil {
-		return fmt.Errorf("%s %q does not exist: %w", fieldName, relativePath, err)
-	}
-	return nil
-}
-
-// resolvePathUnderRoot resolves a relative path and rejects paths escaping the suite root.
-func resolvePathUnderRoot(root, relativePath, fieldName string) (string, error) {
-	trimmed := strings.TrimSpace(relativePath)
-	if trimmed == "" {
-		return "", fmt.Errorf("%s is required", fieldName)
-	}
-	cleaned := filepath.Clean(trimmed)
-	if filepath.IsAbs(cleaned) {
-		return "", fmt.Errorf("%s %q must be relative", fieldName, relativePath)
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s %q must stay within the suite root", fieldName, relativePath)
-	}
-
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve suite root %q: %w", root, err)
-	}
-	resolved := filepath.Join(rootAbs, cleaned)
-	rel, err := filepath.Rel(rootAbs, resolved)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve %s %q: %w", fieldName, relativePath, err)
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%s %q must stay within the suite root", fieldName, relativePath)
-	}
-	return resolved, nil
 }

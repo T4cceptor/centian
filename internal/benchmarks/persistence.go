@@ -15,10 +15,7 @@ import (
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
-const (
-	benchmarkRunScoreStatusReady    = "ready"
-	benchmarkRunScoreStatusUnscored = "unscored"
-)
+const benchmarkRunScoreStatusReady = "ready"
 
 // persistBenchmarkSession upserts one benchmark session record into the event store.
 func persistBenchmarkSession(ctx context.Context, storePath string, record *persistence.BenchmarkSessionRecord) error {
@@ -134,7 +131,7 @@ func buildRunScoreRecord(
 	}
 	record := &persistence.BenchmarkRunScoreRecord{
 		BenchmarkRunID:       run.BenchmarkRunID,
-		ScoreStatus:          benchmarkRunScoreStatusUnscored,
+		ScoreStatus:          "unscored",
 		ScoreVersion:         scoreVersion,
 		GeneratedAtUnixMilli: now.UnixMilli(),
 		ScoreErrors:          append([]string(nil), scoreErrors...),
