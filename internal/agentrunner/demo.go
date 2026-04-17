@@ -170,7 +170,7 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 	if err != nil {
 		return nil, err
 	}
-	if err := writePID(layout.PIDPath, centianCmd.Process.Pid); err != nil {
+	if err := common.WritePIDFile(layout.PIDPath, centianCmd.Process.Pid); err != nil {
 		_ = centianCmd.Process.Kill()
 		return nil, err
 	}
@@ -434,11 +434,6 @@ func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-ch
 		errCh <- nil
 	}()
 	return cmd, errCh, nil
-}
-
-// writePID records the child Centian process ID for reuse and shutdown flows.
-func writePID(path string, pid int) error {
-	return common.WritePIDFile(path, pid)
 }
 
 // waitForCentian blocks until both the MCP and JSON API endpoints are serving successfully.
