@@ -126,6 +126,18 @@ centian benchmark run \
   --output-root /path/to/benchmark-artifacts
 ```
 
+Run multiple agents with per-agent model overrides and two attempts per matrix cell:
+
+```bash
+centian benchmark run \
+  --suite /path/to/simple_tdd_v1 \
+  --agent codex \
+  --agent claude \
+  --repeat 2 \
+  --codex-model gpt-5.4-mini \
+  --claude-model sonnet
+```
+
 Inspect one preserved session in the embedded UI or API:
 
 - UI: `/ui/benchmarks/<suite-id>/sessions/<session-id>`
@@ -141,6 +153,8 @@ Agent/model selection:
 - for single-agent runs use `--model` / `-m`
 - `codex-ollama` is the exception: it requires `--codex-config` plus `--profile`, because the model comes from the named Codex profile
 - for multi-agent runs use `--profile` for `codex-ollama`, plus `--codex-model`, `--claude-model`, `--gemini-model` as needed
+- `--model` cannot be combined with per-agent override flags for the same selected agent
+- `--model` cannot be used for multi-agent runs; use the per-agent override flags instead
 
 Supported model shorthands:
 
@@ -150,17 +164,25 @@ Supported model shorthands:
 
 `codex-ollama` does not have built-in defaults. Supply a Codex config that already defines the local OSS profile you want to run.
 
+Important execution flags:
+
+- `--repeat` controls attempts per matrix cell; default is `1`
+- `--timeout` sets the per-run timeout; default is `15m`
+- `--template-dir name=path` is repeatable, so one invocation can benchmark multiple template variants
+- `--keep-centian-running` prints the benchmark UI URL after each run and prompts whether to shut down the temporary Centian process
+
 Template and config resolution:
 
-- `--template-dir name=path` is the most explicit way to select templates
-- `--centian-config` can supply the effective `taskVerification.templatesPath` and `eventStorage.path`
-- if `--template-dir` is omitted, benchmark run first tries `<working-dir>/task-templates/integrated`
-- if that is missing, it falls back to `<repo-root>/task-templates/integrated` for backwards compatibility
+- precedence is: explicit `--template-dir`, then concrete `taskVerification.templatesPath` from `--centian-config`, then `<cwd>/task-templates/integrated`, then `<repo-root>/task-templates/integrated`
+- a `taskVerification.templatesPath` containing the placeholder `__TEMPLATES_DIR__` is treated as unresolved and does not count as an implicit template source
+- relative `taskVerification.templatesPath` values from `--centian-config` are resolved relative to the config file directory
+- `eventStorage.path` from `--centian-config` can also be used as the shared benchmark event-store path
+- runtime placeholder patching still applies when present: `__TEMPLATES_DIR__` and `__EVENT_STORE_PATH__` are replaced in the copied run-local Centian config
 
 Artifact root resolution:
 
 - `--output-root` overrides artifact placement directly
-- if omitted, benchmark artifacts go under `<working-dir>/.centian/benchmarks`
+- if omitted, benchmark artifacts go under `<cwd>/.centian/benchmarks`
 - this keeps benchmark runs self-contained and independent from repository-specific test fixture trees
 
 ## Preserved Artifacts
@@ -239,7 +261,7 @@ Main benchmark pages:
 Current overview scorecards include:
 
 - runs
-- total and median MCP event counts split as `Centian / MCP`
+- total and median tool-call counts split as `Centian / MCP`
 - total and median error counts split as `Centian / MCP`
 - median time
 - success rate
@@ -249,14 +271,23 @@ Current overview scorecards include:
 
 Important scorecard meanings:
 
-- Success Rate: completed runs / total runs
-- First Pass: completed runs with no restart, fail, or timeout
-- MCP Events: total and median tool-call counts split into Centian lifecycle tools vs downstream MCP tools
+- Success Rate: runs that completed and also passed final verification / total runs
+- First Pass: runs that passed final verification with no restart, fail, or timeout / total runs
+- Final Verification Pass: runs whose final task run finished with completed status, regardless of whether the outer benchmark run itself failed
+- Tool Calls: total and median tool-call counts split into Centian lifecycle tools vs downstream MCP tools
 - Errors: total and median error counts split into Centian lifecycle tool errors vs downstream MCP tool errors
 
 Benchmarking is process-aware. It measures more than final pass/fail.
 
 ## Troubleshooting
+
+Common benchmark-specific failures:
+
+- `codex-ollama requires --codex-config`: pass a Codex config file for any `codex-ollama` run
+- `codex-ollama requires an explicit profile; use --profile`: `codex-ollama` has no implicit default profile
+- `default template dir was not found`: add `--template-dir`, provide a concrete templates path in `--centian-config`, or create `task-templates/integrated` under the current working directory
+- `repeat must be greater than zero`: benchmark attempts must be a positive integer
+- unscored runs in UI/API usually mean the run artifact was preserved but inline score derivation failed; the run remains visible, but it does not contribute synthetic zero metrics
 
 If a run still appears in benchmark UI after manual cleanup, check `benchmark_runs` first. Benchmark overview pages are driven from benchmark run rows, not only from `task_runs`.
 
