@@ -154,6 +154,17 @@ func Ratio(numerator, denominator int) float64 {
 	return float64(numerator) / float64(denominator)
 }
 
+// CountBy returns the number of values matching predicate.
+func CountBy[T any](values []T, predicate func(T) bool) int {
+	total := 0
+	for _, value := range values {
+		if predicate(value) {
+			total++
+		}
+	}
+	return total
+}
+
 // SumInts returns the total of values.
 func SumInts(values []int) int {
 	total := 0

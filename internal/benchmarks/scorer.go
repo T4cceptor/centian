@@ -324,7 +324,7 @@ func aggregateRows(rows []RunSummaryRow, keyFn func(RunSummaryRow) aggregateKey)
 			MedianEditedFilesCount:          medianFloat(extractInt(scoredGroup, func(row RunSummaryRow) int { return row.EditedFilesCount })),
 			TotalTaskToolCalls:              sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalTaskToolCalls }),
 			TotalDownstreamToolCalls:        sumIntRows(scoredGroup, func(row RunSummaryRow) int { return row.TotalDownstreamToolCalls }),
-			ManualActionabilityCount:        count(scoredGroup, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
+			ManualActionabilityCount:        common.CountBy(scoredGroup, func(row RunSummaryRow) bool { return row.ErrorActionabilityScore != nil }),
 		}
 		if avg, ok := averageManualScore(scoredGroup); ok {
 			summary.AverageManualActionabilityScore = &avg
@@ -351,18 +351,7 @@ func rate(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) float64 {
 	if len(rows) == 0 {
 		return 0
 	}
-	return float64(count(rows, predicate)) / float64(len(rows))
-}
-
-// count returns the number of rows matching predicate.
-func count(rows []RunSummaryRow, predicate func(RunSummaryRow) bool) int {
-	total := 0
-	for _, row := range rows {
-		if predicate(row) {
-			total++
-		}
-	}
-	return total
+	return float64(common.CountBy(rows, predicate)) / float64(len(rows))
 }
 
 // extractInt projects integer row values into float64 slices for median math.

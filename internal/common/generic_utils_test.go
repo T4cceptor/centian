@@ -110,6 +110,13 @@ func TestRatio(t *testing.T) {
 	}
 }
 
+func TestCountBy(t *testing.T) {
+	values := []int{1, 2, 3, 4, 5}
+	if got := CountBy(values, func(value int) bool { return value%2 == 0 }); got != 2 {
+		t.Fatalf("expected even count 2, got %d", got)
+	}
+}
+
 func TestSumIntsAndMedians(t *testing.T) {
 	if got := SumInts([]int{1, 2, 3}); got != 6 {
 		t.Fatalf("expected sum 6, got %d", got)
