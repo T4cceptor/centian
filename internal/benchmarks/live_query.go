@@ -47,16 +47,16 @@ type QueryService struct {
 
 // NewQueryService builds a live benchmark query service.
 func NewQueryService(store benchmarkQueryStore) *QueryService {
-	return &QueryService{now: timeNowUTC, store: store}
+	return &QueryService{now: common.NowUTC, store: store}
 }
 
 // withDefaults ensures the query service always has a clock configured.
 func (s *QueryService) withDefaults() *QueryService {
 	if s == nil {
-		return &QueryService{now: timeNowUTC}
+		return &QueryService{now: common.NowUTC}
 	}
 	if s.now == nil {
-		s.now = timeNowUTC
+		s.now = common.NowUTC
 	}
 	return s
 }
@@ -101,7 +101,7 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 		group.item.TemplateID = common.FirstNonEmpty(group.item.TemplateID, session.TemplateID)
 		group.item.TemplateName = common.FirstNonEmpty(group.item.TemplateName, session.TemplateName)
 		group.item.SuiteName = common.FirstNonEmpty(group.item.SuiteName, session.SuiteName)
-		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli))
+		group.item.LatestGeneratedAt = common.LaterTime(group.item.LatestGeneratedAt, common.TimeFromUnixMillisOrFallback(session.EndedAtUnixMilli, session.StartedAtUnixMilli))
 		group.sessionIDs[session.SessionID] = struct{}{}
 	}
 	for idx := range runs {
@@ -119,7 +119,7 @@ func (s *QueryService) ListSuites(ctx context.Context, filters BenchmarkRunFilte
 		}
 		group.item.RunCount++
 		group.item.TemplateName = common.FirstNonEmpty(group.item.TemplateName, run.TemplateName, session.TemplateName)
-		group.item.LatestGeneratedAt = latestTime(group.item.LatestGeneratedAt, timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli))
+		group.item.LatestGeneratedAt = common.LaterTime(group.item.LatestGeneratedAt, common.TimeFromUnixMillisOrFallback(run.EndedAtUnixMilli, run.StartedAtUnixMilli))
 		group.agents[run.Agent] = struct{}{}
 		group.caseIDs[run.CaseID] = struct{}{}
 		if caseName := strings.TrimSpace(run.CaseName); caseName != "" {
@@ -197,7 +197,7 @@ func (s *QueryService) ListSessions(ctx context.Context, suiteID string, filters
 			TemplateID:         session.TemplateID,
 			TemplateName:       common.FirstNonEmpty(templateName, session.TemplateName),
 			SessionPath:        session.SessionPath,
-			GeneratedAt:        timeFromMillis(session.EndedAtUnixMilli, session.StartedAtUnixMilli),
+			GeneratedAt:        common.TimeFromUnixMillisOrFallback(session.EndedAtUnixMilli, session.StartedAtUnixMilli),
 			RunCount:           len(sessionRuns),
 			ScoredRunCount:     count(rows, func(row RunSummaryRow) bool { return row.Scored }),
 			FailedToScoreCount: count(rows, func(row RunSummaryRow) bool { return !row.Scored }),
@@ -407,7 +407,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	}
 	latestTaskRunID := strings.TrimSpace(run.LatestTaskRunID)
 	if latestTaskRunID == "" {
-		latestTaskRunID = latestLinkedTaskRunID(run.LinkedTaskRunIDs)
+		latestTaskRunID = common.LastNonEmpty(run.LinkedTaskRunIDs)
 	}
 	if latestTaskRunID == "" {
 		return nil, fmt.Errorf("benchmark run %q is missing linked task runs", run.RunDir)
@@ -475,7 +475,7 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		TimeoutCount:              timeoutCount,
 	}
 	efficiency := ScorecardEfficiency{
-		WallClockSeconds:     durationSeconds(stats.DurationMillis, timeFromUnixMillis(run.StartedAtUnixMilli), timeFromMillis(run.EndedAtUnixMilli, run.StartedAtUnixMilli)),
+		WallClockSeconds:     common.DurationSeconds(stats.DurationMillis, common.TimeFromUnixMillis(run.StartedAtUnixMilli), common.TimeFromUnixMillisOrFallback(run.EndedAtUnixMilli, run.StartedAtUnixMilli)),
 		TotalToolCalls:       stats.TaskToolCallCount + stats.DownstreamToolCallCount,
 		InputTokens:          agentUsageInputTokens(agentMetadata),
 		OutputTokens:         agentUsageOutputTokens(agentMetadata),
@@ -642,54 +642,4 @@ func templateNameFromSnapshot(snapshot *persistence.TaskRunSnapshotRecord) strin
 		runnableTemplateName,
 		snapshot.Payload.SelectedTemplate.Task.Name,
 	)
-}
-
-// latestLinkedTaskRunID returns the last non-empty linked task run id.
-func latestLinkedTaskRunID(runIDs []string) string {
-	for idx := len(runIDs) - 1; idx >= 0; idx-- {
-		if trimmed := strings.TrimSpace(runIDs[idx]); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-// durationSeconds prefers persisted duration millis and falls back to wall-clock timestamps.
-func durationSeconds(durationMillis *int64, start, end time.Time) float64 {
-	if durationMillis != nil && *durationMillis > 0 {
-		return float64(*durationMillis) / 1000.0
-	}
-	return secondsBetween(start, end)
-}
-
-// timeNowUTC centralizes UTC timestamp generation for persisted score snapshots.
-func timeNowUTC() time.Time {
-	return time.Now().UTC()
-}
-
-// timeFromMillis resolves a nullable unix-millis field with a required fallback timestamp.
-func timeFromMillis(primary *int64, fallback int64) time.Time {
-	if primary != nil && *primary > 0 {
-		return time.UnixMilli(*primary).UTC()
-	}
-	return time.UnixMilli(fallback).UTC()
-}
-
-// timeFromUnixMillis converts persisted unix milliseconds into UTC time.
-func timeFromUnixMillis(value int64) time.Time {
-	if value <= 0 {
-		return time.Time{}
-	}
-	return time.UnixMilli(value).UTC()
-}
-
-// latestTime keeps the later of two timestamps while tolerating zero current values.
-func latestTime(current, candidate time.Time) time.Time {
-	if current.IsZero() {
-		return candidate
-	}
-	if candidate.After(current) {
-		return candidate
-	}
-	return current
 }

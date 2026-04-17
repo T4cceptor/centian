@@ -250,14 +250,6 @@ func loadCaseContexts(suiteRoot string, suite *SuiteDefinition) (map[string]scor
 	return result, nil
 }
 
-// secondsBetween returns elapsed seconds when both timestamps are valid and ordered.
-func secondsBetween(start time.Time, end time.Time) float64 {
-	if start.IsZero() || end.IsZero() || end.Before(start) {
-		return 0
-	}
-	return end.Sub(start).Seconds()
-}
-
 // compareRunRows provides stable ordering for session and comparison run tables.
 func compareRunRows(a RunSummaryRow, b RunSummaryRow) bool {
 	if a.TemplateVariant != b.TemplateVariant {

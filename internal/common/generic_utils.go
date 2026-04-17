@@ -23,6 +23,16 @@ func FirstNonEmpty(values ...string) string {
 	return ""
 }
 
+// LastNonEmpty returns the last non-blank string in values.
+func LastNonEmpty(values []string) string {
+	for idx := len(values) - 1; idx >= 0; idx-- {
+		if trimmed := strings.TrimSpace(values[idx]); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
 // NonEmptyStrings returns trimmed values and drops blank entries.
 func NonEmptyStrings(values ...string) []string {
 	result := make([]string, 0, len(values))
@@ -58,6 +68,17 @@ func BestTime(primary, fallback time.Time) time.Time {
 	return fallback
 }
 
+// LaterTime keeps the later of two timestamps while tolerating zero current values.
+func LaterTime(current, candidate time.Time) time.Time {
+	if current.IsZero() {
+		return candidate
+	}
+	if candidate.After(current) {
+		return candidate
+	}
+	return current
+}
+
 // JoinTrimmed concatenates two trimmed values with separator.
 func JoinTrimmed(left, right, separator string) string {
 	return strings.TrimSpace(left) + separator + strings.TrimSpace(right)
@@ -80,6 +101,35 @@ func TimePointerMillis(value time.Time) *int64 {
 	}
 	millis := value.UnixMilli()
 	return &millis
+}
+
+// NowUTC returns the current time in UTC.
+func NowUTC() time.Time {
+	return time.Now().UTC()
+}
+
+// TimeFromUnixMillis converts persisted unix milliseconds into UTC time.
+func TimeFromUnixMillis(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(value).UTC()
+}
+
+// TimeFromUnixMillisOrFallback resolves a nullable unix-millis field with a required fallback timestamp.
+func TimeFromUnixMillisOrFallback(primary *int64, fallback int64) time.Time {
+	if primary != nil && *primary > 0 {
+		return time.UnixMilli(*primary).UTC()
+	}
+	return time.UnixMilli(fallback).UTC()
+}
+
+// DurationSeconds prefers persisted duration millis and falls back to wall-clock timestamps.
+func DurationSeconds(durationMillis *int64, start, end time.Time) float64 {
+	if durationMillis != nil && *durationMillis > 0 {
+		return float64(*durationMillis) / 1000.0
+	}
+	return end.Sub(start).Seconds()
 }
 
 // MedianFloat returns the median of values, or zero when the slice is empty.

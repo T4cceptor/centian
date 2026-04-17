@@ -86,7 +86,7 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 		runRecord, recordErr := buildRunRecord(runManifests[idx])
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
-		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, timeNowUTC)
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), sharedEventStorePath, sessionRecord, runRecord, common.NowUTC)
 		assert.NilError(t, scoreErr)
 		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}
@@ -107,7 +107,7 @@ func persistSyntheticBenchmarkArtifacts(t *testing.T, store *persistence.Store, 
 		runRecord, recordErr := buildRunRecord(&run)
 		assert.NilError(t, recordErr)
 		assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), runRecord))
-		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, timeNowUTC)
+		scoreRecord, scoreErr := buildPersistedRunScoreRecord(context.Background(), run.ArtifactPaths.EventStorePath, sessionRecord, runRecord, common.NowUTC)
 		assert.NilError(t, scoreErr)
 		assert.NilError(t, store.UpsertBenchmarkRunScore(context.Background(), scoreRecord))
 	}

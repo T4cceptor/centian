@@ -29,6 +29,15 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestLastNonEmpty(t *testing.T) {
+	if got := LastNonEmpty([]string{"", " a ", " ", "b"}); got != "b" {
+		t.Fatalf("unexpected last non-empty value: %q", got)
+	}
+	if got := LastNonEmpty([]string{"", " "}); got != "" {
+		t.Fatalf("expected empty last non-empty value, got %q", got)
+	}
+}
+
 func TestNonEmptyStrings(t *testing.T) {
 	if got := NonEmptyStrings("", " a ", " ", "b"); !reflect.DeepEqual(got, []string{"a", "b"}) {
 		t.Fatalf("unexpected non-empty strings: %#v", got)
@@ -71,6 +80,12 @@ func TestBestTimeAndTimePointerMillis(t *testing.T) {
 	}
 	if got := TimePointerMillis(primary); got == nil || *got != primary.UnixMilli() {
 		t.Fatalf("unexpected millis pointer: %#v", got)
+	}
+	if got := LaterTime(time.Time{}, fallback); !got.Equal(fallback) {
+		t.Fatalf("expected fallback as later time, got %v", got)
+	}
+	if got := LaterTime(fallback, primary); !got.Equal(primary) {
+		t.Fatalf("expected primary as later time, got %v", got)
 	}
 }
 
@@ -117,4 +132,37 @@ func TestSumIntsAndMedians(t *testing.T) {
 	if got := MedianInt64([]int64{1, 2, 3, 4}); got != 2 {
 		t.Fatalf("expected even int64 median 2, got %d", got)
 	}
+}
+
+func TestNowUTCAndUnixMillisHelpers(t *testing.T) {
+	if got := NowUTC(); got.Location() != time.UTC {
+		t.Fatalf("expected UTC time, got %v", got.Location())
+	}
+
+	fallback := time.Date(2026, 4, 17, 10, 0, 0, 0, time.UTC)
+	primary := fallback.Add(2 * time.Minute)
+	primaryMillis := primary.UnixMilli()
+
+	if got := TimeFromUnixMillis(0); !got.IsZero() {
+		t.Fatalf("expected zero time for empty unix millis, got %v", got)
+	}
+	if got := TimeFromUnixMillis(primaryMillis); !got.Equal(primary) {
+		t.Fatalf("unexpected unix millis conversion: %v", got)
+	}
+	if got := TimeFromUnixMillisOrFallback(&primaryMillis, fallback.UnixMilli()); !got.Equal(primary) {
+		t.Fatalf("unexpected primary unix millis conversion: %v", got)
+	}
+	if got := TimeFromUnixMillisOrFallback(nil, fallback.UnixMilli()); !got.Equal(fallback) {
+		t.Fatalf("unexpected fallback unix millis conversion: %v", got)
+	}
+	if got := DurationSeconds(ptrInt64(2500), time.Time{}, time.Time{}); got != 2.5 {
+		t.Fatalf("expected persisted duration 2.5, got %f", got)
+	}
+	if got := DurationSeconds(nil, fallback, primary); got != 120 {
+		t.Fatalf("expected derived duration 120, got %f", got)
+	}
+}
+
+func ptrInt64(value int64) *int64 {
+	return &value
 }
