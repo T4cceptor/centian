@@ -132,17 +132,17 @@ func (s *QueryService) ListTemplateScorecards(ctx context.Context) ([]TemplateSc
 			TemplateID:                 group.templateID,
 			TemplateName:               group.templateName,
 			RunCount:                   group.runCount,
-			TotalTaskToolCalls:         sumInt(group.taskToolCalls),
-			TotalDownstreamToolCalls:   sumInt(group.downstreamCalls),
-			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
-			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
-			TotalCentianErrors:         sumInt(group.centianErrors),
-			TotalDownstreamToolErrors:  sumInt(group.downstreamErrors),
-			MedianCentianErrors:        medianInt(group.centianErrors),
-			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
-			MedianDurationMillis:       medianInt64(group.durationsMillis),
-			SuccessRate:                scorecardRate(group.successCount, group.runCount),
-			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
+			TotalTaskToolCalls:         common.SumInts(group.taskToolCalls),
+			TotalDownstreamToolCalls:   common.SumInts(group.downstreamCalls),
+			MedianTaskToolCalls:        common.MedianInt(group.taskToolCalls),
+			MedianDownstreamToolCalls:  common.MedianInt(group.downstreamCalls),
+			TotalCentianErrors:         common.SumInts(group.centianErrors),
+			TotalDownstreamToolErrors:  common.SumInts(group.downstreamErrors),
+			MedianCentianErrors:        common.MedianInt(group.centianErrors),
+			MedianDownstreamToolErrors: common.MedianInt(group.downstreamErrors),
+			MedianDurationMillis:       common.MedianInt64(group.durationsMillis),
+			SuccessRate:                common.Ratio(group.successCount, group.runCount),
+			FirstPassRate:              common.Ratio(group.firstPassCount, group.runCount),
 		})
 	}
 
@@ -204,7 +204,7 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 			continue
 		}
 		model := common.FirstNonEmpty(strings.TrimSpace(score.SelectedModel), scorecard.SelectedModel, run.SelectedModel)
-		groupKey := agentModelScorecardKey(agent, model)
+		groupKey := common.JoinTrimmed(agent, model, "\x00")
 		group := grouped[groupKey]
 		if group == nil {
 			group = &aggregate{
@@ -237,19 +237,19 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 		result = append(result, AgentScorecard{
 			Agent:                      group.agent,
 			Model:                      group.model,
-			Models:                     agentScorecardModels(group.model),
+			Models:                     common.NonEmptyStrings(group.model),
 			RunCount:                   group.runCount,
-			TotalTaskToolCalls:         sumInt(group.taskToolCalls),
-			TotalDownstreamToolCalls:   sumInt(group.downstreamCalls),
-			MedianTaskToolCalls:        medianInt(group.taskToolCalls),
-			MedianDownstreamToolCalls:  medianInt(group.downstreamCalls),
-			TotalCentianErrors:         sumInt(group.centianErrors),
-			TotalDownstreamToolErrors:  sumInt(group.downstreamErrors),
-			MedianCentianErrors:        medianInt(group.centianErrors),
-			MedianDownstreamToolErrors: medianInt(group.downstreamErrors),
-			MedianDurationMillis:       medianInt64(group.durationsMillis),
-			SuccessRate:                scorecardRate(group.successCount, group.runCount),
-			FirstPassRate:              scorecardRate(group.firstPassCount, group.runCount),
+			TotalTaskToolCalls:         common.SumInts(group.taskToolCalls),
+			TotalDownstreamToolCalls:   common.SumInts(group.downstreamCalls),
+			MedianTaskToolCalls:        common.MedianInt(group.taskToolCalls),
+			MedianDownstreamToolCalls:  common.MedianInt(group.downstreamCalls),
+			TotalCentianErrors:         common.SumInts(group.centianErrors),
+			TotalDownstreamToolErrors:  common.SumInts(group.downstreamErrors),
+			MedianCentianErrors:        common.MedianInt(group.centianErrors),
+			MedianDownstreamToolErrors: common.MedianInt(group.downstreamErrors),
+			MedianDurationMillis:       common.MedianInt64(group.durationsMillis),
+			SuccessRate:                common.Ratio(group.successCount, group.runCount),
+			FirstPassRate:              common.Ratio(group.firstPassCount, group.runCount),
 		})
 	}
 
@@ -265,34 +265,9 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 	return result, nil
 }
 
-// agentModelScorecardKey groups one agent/model pair into a stable map key.
-func agentModelScorecardKey(agent, model string) string {
-	// TODO: move to global utils, and rename to match generic functionality
-	// what is done here? looks like a "<string>".join([string1, string2]) equivalent
-	// could potentially be merged with templateIdentityKey somehow
-	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(model)
-}
-
-// agentScorecardModels expands one run into the models credited for agent scorecards.
-func agentScorecardModels(model string) []string {
-	// TODO: move to global utils, and rename to match generic functionality
-	model = strings.TrimSpace(model)
-	if model == "" {
-		return nil
-	}
-	return []string{model}
-}
-
 // templateIdentityKey groups scorecards by logical template identity.
 func templateIdentityKey(templateID, templateName string) string {
-	// TODO: move to global utils, and rename to match generic functionality
-	// what is done here? looks like a "::".join([string1, string2]) equivalent
-	templateID = strings.TrimSpace(templateID)
-	templateName = strings.TrimSpace(templateName)
-	if templateName == "" {
-		return templateID
-	}
-	return templateID + "::" + templateName
+	return common.JoinTrimmedIfRight(templateID, templateName, "::")
 }
 
 // scorecardCentianErrorCount returns task-tool failures plus restart/fail/timeout events.
@@ -301,53 +276,4 @@ func scorecardCentianErrorCount(sc *RunScorecard) int {
 		return 0
 	}
 	return sc.Process.FailedTaskToolCalls + sc.Process.RestartCount + sc.Process.FailCount + sc.Process.TimeoutCount
-}
-
-// scorecardRate computes a success fraction while tolerating empty groups.
-func scorecardRate(successes, total int) float64 {
-	// TODO: move to global utils, and rename - what is calculated here?
-	if total <= 0 {
-		return 0
-	}
-	return float64(successes) / float64(total)
-}
-
-// sumInt returns the total of values.
-func sumInt(values []int) int {
-	// TODO: move to global utils
-	total := 0
-	for _, value := range values {
-		total += value
-	}
-	return total
-}
-
-// medianInt returns the median integer value, or zero for empty slices.
-func medianInt(values []int) int {
-	// TODO: move to global utils
-	if len(values) == 0 {
-		return 0
-	}
-	sorted := append([]int(nil), values...)
-	sort.Ints(sorted)
-	middle := len(sorted) / 2
-	if len(sorted)%2 == 0 {
-		return (sorted[middle-1] + sorted[middle]) / 2
-	}
-	return sorted[middle]
-}
-
-// medianInt64 returns the median int64 value, or zero for empty slices.
-func medianInt64(values []int64) int64 {
-	// TODO: move to global utils
-	if len(values) == 0 {
-		return 0
-	}
-	sorted := append([]int64(nil), values...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-	middle := len(sorted) / 2
-	if len(sorted)%2 == 0 {
-		return (sorted[middle-1] + sorted[middle]) / 2
-	}
-	return sorted[middle]
 }

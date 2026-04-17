@@ -29,10 +29,31 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestNonEmptyStrings(t *testing.T) {
+	if got := NonEmptyStrings("", " a ", " ", "b"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("unexpected non-empty strings: %#v", got)
+	}
+	if got := NonEmptyStrings("", " "); got != nil {
+		t.Fatalf("expected nil for empty inputs, got %#v", got)
+	}
+}
+
 func TestSortedSetValues(t *testing.T) {
 	set := map[string]struct{}{"b": {}, "a": {}, "c": {}}
 	if got := SortedSetValues(set); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
 		t.Fatalf("unexpected sorted set values: %#v", got)
+	}
+}
+
+func TestJoinTrimmed(t *testing.T) {
+	if got := JoinTrimmed(" agent ", " model ", "::"); got != "agent::model" {
+		t.Fatalf("unexpected joined value: %q", got)
+	}
+	if got := JoinTrimmedIfRight(" left ", " ", "::"); got != "left" {
+		t.Fatalf("unexpected conditional join without right value: %q", got)
+	}
+	if got := JoinTrimmedIfRight(" left ", " right ", "::"); got != "left::right" {
+		t.Fatalf("unexpected conditional join with right value: %q", got)
 	}
 }
 
@@ -62,5 +83,38 @@ func TestMedianFloat(t *testing.T) {
 	}
 	if got := MedianFloat([]float64{4, 1, 2, 3}); got != 2.5 {
 		t.Fatalf("expected even median 2.5, got %f", got)
+	}
+}
+
+func TestRatio(t *testing.T) {
+	if got := Ratio(1, 0); got != 0 {
+		t.Fatalf("expected zero ratio for empty denominator, got %f", got)
+	}
+	if got := Ratio(1, 4); got != 0.25 {
+		t.Fatalf("expected ratio 0.25, got %f", got)
+	}
+}
+
+func TestSumIntsAndMedians(t *testing.T) {
+	if got := SumInts([]int{1, 2, 3}); got != 6 {
+		t.Fatalf("expected sum 6, got %d", got)
+	}
+	if got := MedianInt(nil); got != 0 {
+		t.Fatalf("expected zero median for empty ints, got %d", got)
+	}
+	if got := MedianInt([]int{5, 1, 3}); got != 3 {
+		t.Fatalf("expected odd int median 3, got %d", got)
+	}
+	if got := MedianInt([]int{1, 2, 3, 4}); got != 2 {
+		t.Fatalf("expected even int median 2, got %d", got)
+	}
+	if got := MedianInt64(nil); got != 0 {
+		t.Fatalf("expected zero median for empty int64s, got %d", got)
+	}
+	if got := MedianInt64([]int64{5, 1, 3}); got != 3 {
+		t.Fatalf("expected odd int64 median 3, got %d", got)
+	}
+	if got := MedianInt64([]int64{1, 2, 3, 4}); got != 2 {
+		t.Fatalf("expected even int64 median 2, got %d", got)
 	}
 }

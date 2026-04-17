@@ -23,6 +23,20 @@ func FirstNonEmpty(values ...string) string {
 	return ""
 }
 
+// NonEmptyStrings returns trimmed values and drops blank entries.
+func NonEmptyStrings(values ...string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 // SortedSetValues returns deterministic, sorted values from a string set.
 func SortedSetValues(set map[string]struct{}) []string {
 	if len(set) == 0 {
@@ -42,6 +56,21 @@ func BestTime(primary, fallback time.Time) time.Time {
 		return primary
 	}
 	return fallback
+}
+
+// JoinTrimmed concatenates two trimmed values with separator.
+func JoinTrimmed(left, right, separator string) string {
+	return strings.TrimSpace(left) + separator + strings.TrimSpace(right)
+}
+
+// JoinTrimmedIfRight concatenates two trimmed values when right is non-empty.
+func JoinTrimmedIfRight(left, right, separator string) string {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if right == "" {
+		return left
+	}
+	return left + separator + right
 }
 
 // TimePointerMillis converts a non-zero timestamp into a nullable unix-millis pointer.
@@ -65,4 +94,49 @@ func MedianFloat(values []float64) float64 {
 		return sorted[mid]
 	}
 	return (sorted[mid-1] + sorted[mid]) / 2
+}
+
+// Ratio returns numerator divided by denominator, or zero when denominator is empty.
+func Ratio(numerator, denominator int) float64 {
+	if denominator <= 0 {
+		return 0
+	}
+	return float64(numerator) / float64(denominator)
+}
+
+// SumInts returns the total of values.
+func SumInts(values []int) int {
+	total := 0
+	for _, value := range values {
+		total += value
+	}
+	return total
+}
+
+// MedianInt returns the median integer value, or zero for empty slices.
+func MedianInt(values []int) int {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := append([]int(nil), values...)
+	sort.Ints(sorted)
+	middle := len(sorted) / 2
+	if len(sorted)%2 == 0 {
+		return (sorted[middle-1] + sorted[middle]) / 2
+	}
+	return sorted[middle]
+}
+
+// MedianInt64 returns the median int64 value, or zero for empty slices.
+func MedianInt64(values []int64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sorted := append([]int64(nil), values...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	middle := len(sorted) / 2
+	if len(sorted)%2 == 0 {
+		return (sorted[middle-1] + sorted[middle]) / 2
+	}
+	return sorted[middle]
 }
