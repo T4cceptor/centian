@@ -220,6 +220,7 @@ func readLogFile(path string) ([]common.LogEntry, error) {
 }
 
 func truncate(s string, limit int) string {
+	// TODO: move to global utils, rename to "truncateString"
 	if limit <= 0 || len(s) <= limit {
 		return s
 	}

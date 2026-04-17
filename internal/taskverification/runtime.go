@@ -498,6 +498,7 @@ func failureDetailsFromCommand(kind StepFailureKind, phase StepFailurePhase, res
 }
 
 func truncateOutput(output string) string {
+	// TODO: check if single truncate function can be used, see "log_reader.go - truncate"
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
 		return ""

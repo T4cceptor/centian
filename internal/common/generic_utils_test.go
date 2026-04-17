@@ -186,6 +186,22 @@ func TestCloneStringMap(t *testing.T) {
 	}
 }
 
+func TestSortedStringsCopy(t *testing.T) {
+	if got := SortedStringsCopy(nil); got != nil {
+		t.Fatalf("expected nil for empty input, got %#v", got)
+	}
+
+	source := []string{"b", "a", "c"}
+	sorted := SortedStringsCopy(source)
+	if !reflect.DeepEqual(sorted, []string{"a", "b", "c"}) {
+		t.Fatalf("unexpected sorted strings copy: %#v", sorted)
+	}
+	sorted[0] = "changed"
+	if source[0] != "b" {
+		t.Fatalf("expected source slice to remain unchanged, got %#v", source)
+	}
+}
+
 func ptrInt64(value int64) *int64 {
 	return &value
 }

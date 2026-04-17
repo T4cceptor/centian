@@ -2,8 +2,9 @@ package taskverification
 
 import (
 	"fmt"
-	"sort"
 	"strings"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // PlanningValidationError captures machine-readable planning contract failures.
@@ -41,19 +42,9 @@ func (e *PlanningValidationError) Error() string {
 
 func newPlanningValidationError(required, provided, missing, unknown []string) *PlanningValidationError {
 	return &PlanningValidationError{
-		RequiredParameterNames: cloneSortedStrings(required),
-		ProvidedParameterNames: cloneSortedStrings(provided),
-		MissingParameters:      cloneSortedStrings(missing),
-		UnknownParameters:      cloneSortedStrings(unknown),
+		RequiredParameterNames: common.SortedStringsCopy(required),
+		ProvidedParameterNames: common.SortedStringsCopy(provided),
+		MissingParameters:      common.SortedStringsCopy(missing),
+		UnknownParameters:      common.SortedStringsCopy(unknown),
 	}
-}
-
-func cloneSortedStrings(values []string) []string {
-	// TODO: move to global utils
-	if len(values) == 0 {
-		return nil
-	}
-	cloned := append([]string(nil), values...)
-	sort.Strings(cloned)
-	return cloned
 }

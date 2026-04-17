@@ -213,3 +213,13 @@ func CloneStringMap(parameters map[string]string) map[string]string {
 	}
 	return cloned
 }
+
+// SortedStringsCopy returns a sorted copy of values and preserves empty input as nil.
+func SortedStringsCopy(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := append([]string(nil), values...)
+	sort.Strings(cloned)
+	return cloned
+}
