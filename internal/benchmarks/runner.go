@@ -29,6 +29,7 @@ const (
 	runFileName                    = "run.json"
 	configuredSharedEventStoreMode = "configured_shared"
 	runStatusCompleted             = "completed"
+	runStatusFailed                = "failed"
 )
 
 // TemplateVariant identifies one template tree used for a benchmark run variant.
@@ -160,8 +161,37 @@ type runSpec struct {
 	CaseRoot        string
 	Prompt          *PromptDefinition
 	TemplateVariant TemplateVariant
+	TemplateName    string
+	TemplatePath    string
 	Execution       agentrunner.AgentExecutionOptions
 	Attempt         int
+}
+
+type runWorkspace struct {
+	RunDir               string
+	ProjectDir           string
+	LogsDir              string
+	AgentDir             string
+	ConfigPath           string
+	SelectedTemplatePath string
+	RuntimeDir           string
+	RuntimeTemplatesDir  string
+	InternalLogPath      string
+	BaseURL              string
+	MCPURL               string
+}
+
+type runPersister struct {
+	ctx      context.Context
+	runner   *Runner
+	session  *SessionManifest
+	manifest *RunManifest
+	runPath  string
+}
+
+type templateSelection struct {
+	SourcePath string
+	Name       string
 }
 
 // NewRunner returns a benchmark runner with the default local execution hooks.
@@ -376,7 +406,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 		Runs:             []SessionRunManifestEntry{},
 	}
 
-	specs, err := buildRunSpecs(suiteRoot, selectedRefs, templateVariants, executions, opts.Repeat)
+	specs, err := buildRunSpecs(suiteRoot, selectedRefs, templateVariants, executions, opts.Repeat, suite.Suite.TemplateID)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +436,7 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	}
 	session.EndedAt = r.Now()
 	if anyFailure {
-		session.Status = "failed"
+		session.Status = runStatusFailed
 	}
 	if err := common.WriteJSONFile(filepath.Join(sessionDir, sessionFileName), session); err != nil {
 		return nil, err
@@ -478,192 +508,30 @@ func (r *Runner) executeRun(
 	spec runSpec,
 	opts *RunOptions,
 ) (*RunManifest, error) {
-	// TODO: refactor to reduce length
 	if session == nil {
 		return nil, fmt.Errorf("session manifest is required")
 	}
-	sessionDir := strings.TrimSpace(session.InvocationDir)
-	runDir := filepath.Join(
-		sessionDir,
-		"runs",
-		benchmarkRunDirName(spec),
-	)
-	projectDir := filepath.Join(runDir, "project")
-	logsDir := filepath.Join(runDir, "logs")
-	agentDir := filepath.Join(runDir, "agent")
-	configPath := filepath.Join(runDir, "centian.config.json")
-	selectedTemplatePath := filepath.Join(runDir, "selected-template.yaml")
-	runtimeDir := filepath.Join(runDir, ".runtime")
-	runtimeTemplatesDir := filepath.Join(runtimeDir, "templates")
+	workspace := newRunWorkspace(strings.TrimSpace(session.InvocationDir), spec)
+	manifest := newRunManifest(r.Now(), suite, spec, workspace)
+	persister := r.newRunPersister(ctx, session, manifest, workspace)
+
 	defaultEventStorePath, err := config.ResolveEventStorePath(nil)
 	if err != nil {
-		manifest := &RunManifest{
-			SuiteID:         suite.Suite.ID,
-			SuiteName:       strings.TrimSpace(suite.Suite.Name),
-			CaseID:          spec.CaseRef.ID,
-			CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
-			TemplateID:      suite.Suite.TemplateID,
-			TemplateVariant: spec.TemplateVariant,
-			AgentID:         spec.Execution.Agent,
-			Attempt:         spec.Attempt,
-			SelectedModel:   agentrunner.SelectedModelForExecution(spec.Execution),
-			StartedAt:       r.Now(),
-			EndedAt:         r.Now(),
-			Status:          "failed",
-			ErrorSummary:    err.Error(),
-			ArtifactPaths: RunArtifactPaths{
-				RunDir:               runDir,
-				ProjectDir:           projectDir,
-				LogsDir:              logsDir,
-				AgentDir:             agentDir,
-				ConfigPath:           configPath,
-				SelectedTemplatePath: selectedTemplatePath,
-			},
-		}
-		return manifest, err
+		return r.failRun(manifest, persister, err)
 	}
-	manifest := &RunManifest{
-		SuiteID:         suite.Suite.ID,
-		SuiteName:       strings.TrimSpace(suite.Suite.Name),
-		CaseID:          spec.CaseRef.ID,
-		CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
-		TemplateID:      suite.Suite.TemplateID,
-		TemplateVariant: spec.TemplateVariant,
-		AgentID:         spec.Execution.Agent,
-		Attempt:         spec.Attempt,
-		SelectedModel:   agentrunner.SelectedModelForExecution(spec.Execution),
-		StartedAt:       r.Now(),
-		Status:          "failed",
-		ArtifactPaths: RunArtifactPaths{
-			RunDir:               runDir,
-			ProjectDir:           projectDir,
-			LogsDir:              logsDir,
-			AgentDir:             agentDir,
-			ConfigPath:           configPath,
-			EventStoreMode:       configuredSharedEventStoreMode,
-			EventStorePath:       defaultEventStorePath,
-			SelectedTemplatePath: selectedTemplatePath,
-		},
-	}
-	flushManifest := func() error {
-		runPath := filepath.Join(runDir, runFileName)
-		if err := common.WriteJSONFile(runPath, manifest); err != nil {
-			return err
-		}
-		if strings.TrimSpace(manifest.ArtifactPaths.EventStorePath) == "" {
-			return nil
-		}
-		record, err := buildRunRecord(manifest)
-		if err != nil {
-			return err
-		}
-		if err := r.PersistRun(ctx, manifest.ArtifactPaths.EventStorePath, record); err != nil {
-			return err
-		}
-		if manifest.EndedAt.IsZero() || r.PersistRunScore == nil {
-			return nil
-		}
-		sessionRecord, err := buildSessionRecord(session)
-		if err != nil {
-			return err
-		}
-		scoreRecord, err := buildPersistedRunScoreRecord(ctx, manifest.ArtifactPaths.EventStorePath, sessionRecord, record, r.Now)
-		if err != nil {
-			return err
-		}
-		return r.PersistRunScore(ctx, manifest.ArtifactPaths.EventStorePath, scoreRecord)
-	}
+	manifest.ArtifactPaths.EventStoreMode = configuredSharedEventStoreMode
+	manifest.ArtifactPaths.EventStorePath = defaultEventStorePath
 
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		return manifest, err
+	if err := prepareRunWorkspace(workspace); err != nil {
+		return r.failRun(manifest, persister, err)
 	}
-	for _, dir := range []string{logsDir, agentDir, runtimeTemplatesDir} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			manifest.ErrorSummary = err.Error()
-			manifest.EndedAt = r.Now()
-			_ = flushManifest()
-			return manifest, err
-		}
+	if err := materializeRunInputs(spec, opts, &workspace, manifest, defaultEventStorePath, r.AllocatePort); err != nil {
+		return r.failRun(manifest, persister, err)
 	}
-
-	fixtureRoot := filepath.Join(spec.CaseRoot, spec.CaseDef.Fixture.SeedPath)
-	if spec.CaseDef.Fixture.ResetMode != copySeedResetMode {
-		err := fmt.Errorf("unsupported fixture reset mode %q", spec.CaseDef.Fixture.ResetMode)
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	if err := common.CopyDir(fixtureRoot, projectDir); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	selectedTemplateSourcePath, err := resolveSelectedTemplateFile(spec.TemplateVariant.SourceDir, suite.Suite.TemplateID)
+	started, err := r.startRunCentian(ctx, workspace, manifest, opts)
 	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
+		return r.failRun(manifest, persister, err)
 	}
-	if err := common.CopyFile(selectedTemplateSourcePath, selectedTemplatePath); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	manifest.TemplateName = firstNonEmpty(readTemplateName(selectedTemplatePath), manifest.TemplateName)
-	if err := common.CopyFile(selectedTemplateSourcePath, filepath.Join(runtimeTemplatesDir, filepath.Base(selectedTemplateSourcePath))); err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-
-	port, err := r.AllocatePort()
-	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	baseURL := "http://127.0.0.1:" + port
-	mcpURL := baseURL + "/mcp/taskverification"
-	renderedConfig, err := renderCentianConfig(opts.CentianConfigPath, runtimeTemplatesDir, projectDir, filepath.Join(logsDir, "internal.log"), defaultEventStorePath, port)
-	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	manifest.ArtifactPaths.EventStorePath = renderedConfig.EffectiveEventStorePath
-	if err := os.WriteFile(configPath, renderedConfig.Content, 0o644); err != nil {
-		err = fmt.Errorf("write benchmark config: %w", err)
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-
-	started, err := r.StartCentian(ctx, StartCentianOptions{
-		BinaryPath: opts.CentianBinaryPath,
-		ConfigPath: configPath,
-		ProjectDir: projectDir,
-		LogsDir:    logsDir,
-		BaseURL:    baseURL,
-		MCPURL:     mcpURL,
-	})
-	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	manifest.UIPublicURL = baseURL + "/ui/tasks"
-	manifest.CentianPID = started.PID
 	if opts.OnCentianReady != nil {
 		opts.OnCentianReady(manifest)
 	}
@@ -672,69 +540,10 @@ func (r *Runner) executeRun(
 		if autoStop && started != nil && started.Stop != nil {
 			_ = started.Stop()
 		}
-		_ = os.RemoveAll(runtimeDir)
+		_ = os.RemoveAll(workspace.RuntimeDir)
 	}()
-
-	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-	defer cancel()
-	baselineRuns, err := r.FetchTaskRuns(baseURL)
-	if err != nil {
-		manifest.ErrorSummary = err.Error()
-		manifest.EndedAt = r.Now()
-		_ = flushManifest()
-		return manifest, err
-	}
-	runResult, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
-		Execution:     spec.Execution,
-		ArtifactRoot:  agentDir,
-		WorkspacePath: projectDir,
-		MCPURL:        mcpURL,
-		Prompt:        strings.TrimSpace(spec.Prompt.Prompt),
-		Timeout:       opts.Timeout,
-	})
-	if runResult != nil && strings.TrimSpace(runResult.SelectedModel) != "" {
-		manifest.SelectedModel = runResult.SelectedModel
-	}
-
-	var captureErrs []string
-	if agentErr != nil {
-		captureErrs = append(captureErrs, agentErr.Error())
-	}
-	if err := r.captureRunArtifacts(manifest, logsDir, baseURL, taskRunIDSet(baselineRuns)); err != nil {
-		captureErrs = append(captureErrs, err.Error())
-	}
-	if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == runStatusCompleted {
-		manifest.Status = runStatusCompleted
-	} else if len(captureErrs) == 0 && manifest.LatestTaskRunStatus == "" {
-		captureErrs = append(captureErrs, "no task runs were observed")
-	}
-	if len(captureErrs) > 0 {
-		manifest.ErrorSummary = strings.Join(captureErrs, "; ")
-	}
-	if opts.AfterRun != nil {
-		if err := opts.AfterRun(manifest); err != nil {
-			if manifest.ErrorSummary == "" {
-				manifest.ErrorSummary = err.Error()
-			} else {
-				manifest.ErrorSummary += "; " + err.Error()
-			}
-		}
-	}
-
-	manifest.EndedAt = r.Now()
-	writeErr := flushManifest()
-	if writeErr != nil {
-		if manifest.ErrorSummary == "" {
-			manifest.ErrorSummary = writeErr.Error()
-		} else {
-			manifest.ErrorSummary += "; " + writeErr.Error()
-		}
-		return manifest, writeErr
-	}
-	if manifest.Status != "completed" {
-		return manifest, errors.New(manifest.ErrorSummary)
-	}
-	return manifest, nil
+	agentErr := r.executeAgentRun(ctx, spec, opts, workspace, manifest)
+	return r.finalizeRun(manifest, persister, opts, agentErr)
 }
 
 // captureRunArtifacts records the request log and newly created task runs for one benchmark run.
@@ -771,7 +580,12 @@ func buildRunSpecs(
 	templateVariants []TemplateVariant,
 	executions []agentrunner.AgentExecutionOptions,
 	repeat int,
+	templateID string,
 ) ([]runSpec, error) {
+	selections, err := resolveTemplateSelections(templateVariants, templateID)
+	if err != nil {
+		return nil, err
+	}
 	specs := make([]runSpec, 0, len(caseRefs)*len(templateVariants)*len(executions)*repeat)
 	for _, ref := range caseRefs {
 		caseRoot := filepath.Join(suiteRoot, ref.Path)
@@ -784,6 +598,10 @@ func buildRunSpecs(
 			return nil, err
 		}
 		for _, variant := range templateVariants {
+			selection, ok := selections[variant.Name]
+			if !ok {
+				return nil, fmt.Errorf("missing selected template for variant %q", variant.Name)
+			}
 			for _, execution := range executions {
 				for attempt := 1; attempt <= repeat; attempt++ {
 					specs = append(specs, runSpec{
@@ -792,6 +610,8 @@ func buildRunSpecs(
 						CaseRoot:        caseRoot,
 						Prompt:          prompt,
 						TemplateVariant: variant,
+						TemplateName:    selection.Name,
+						TemplatePath:    selection.SourcePath,
 						Execution:       execution,
 						Attempt:         attempt,
 					})
@@ -1149,11 +969,293 @@ func latestTaskRun(runs []persistence.TaskRunSummary) *persistence.TaskRunSummar
 	if len(runs) == 0 {
 		return nil
 	}
-	sorted := append([]persistence.TaskRunSummary(nil), runs...)
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].StartedAt > sorted[j].StartedAt
+	latest := runs[0]
+	for _, run := range runs[1:] {
+		if run.StartedAt > latest.StartedAt {
+			latest = run
+		}
+	}
+	return &latest
+}
+
+func newRunWorkspace(sessionDir string, spec runSpec) runWorkspace {
+	runDir := filepath.Join(sessionDir, "runs", benchmarkRunDirName(spec))
+	runtimeDir := filepath.Join(runDir, ".runtime")
+	return runWorkspace{
+		RunDir:               runDir,
+		ProjectDir:           filepath.Join(runDir, "project"),
+		LogsDir:              filepath.Join(runDir, "logs"),
+		AgentDir:             filepath.Join(runDir, "agent"),
+		ConfigPath:           filepath.Join(runDir, "centian.config.json"),
+		SelectedTemplatePath: filepath.Join(runDir, "selected-template.yaml"),
+		RuntimeDir:           runtimeDir,
+		RuntimeTemplatesDir:  filepath.Join(runtimeDir, "templates"),
+		InternalLogPath:      filepath.Join(runDir, "logs", "internal.log"),
+	}
+}
+
+func newRunManifest(now time.Time, suite *SuiteDefinition, spec runSpec, workspace runWorkspace) *RunManifest {
+	return &RunManifest{
+		SuiteID:         suite.Suite.ID,
+		SuiteName:       strings.TrimSpace(suite.Suite.Name),
+		CaseID:          spec.CaseRef.ID,
+		CaseName:        strings.TrimSpace(spec.CaseDef.Case.Name),
+		TemplateID:      suite.Suite.TemplateID,
+		TemplateName:    strings.TrimSpace(spec.TemplateName),
+		TemplateVariant: spec.TemplateVariant,
+		AgentID:         spec.Execution.Agent,
+		Attempt:         spec.Attempt,
+		SelectedModel:   agentrunner.SelectedModelForExecution(spec.Execution),
+		StartedAt:       now,
+		Status:          runStatusFailed,
+		ArtifactPaths: RunArtifactPaths{
+			RunDir:               workspace.RunDir,
+			ProjectDir:           workspace.ProjectDir,
+			LogsDir:              workspace.LogsDir,
+			AgentDir:             workspace.AgentDir,
+			ConfigPath:           workspace.ConfigPath,
+			SelectedTemplatePath: workspace.SelectedTemplatePath,
+		},
+	}
+}
+
+func (r *Runner) newRunPersister(ctx context.Context, session *SessionManifest, manifest *RunManifest, workspace runWorkspace) *runPersister {
+	return &runPersister{
+		ctx:      ctx,
+		runner:   r,
+		session:  session,
+		manifest: manifest,
+		runPath:  filepath.Join(workspace.RunDir, runFileName),
+	}
+}
+
+func (p *runPersister) flush() error {
+	if err := common.WriteJSONFile(p.runPath, p.manifest); err != nil {
+		return err
+	}
+	storePath := strings.TrimSpace(p.manifest.ArtifactPaths.EventStorePath)
+	if storePath == "" {
+		return nil
+	}
+	record, err := buildRunRecord(p.manifest)
+	if err != nil {
+		return err
+	}
+	if err := p.runner.PersistRun(p.ctx, storePath, record); err != nil {
+		return err
+	}
+	if p.manifest.EndedAt.IsZero() || p.runner.PersistRunScore == nil {
+		return nil
+	}
+	sessionRecord, err := buildSessionRecord(p.session)
+	if err != nil {
+		return err
+	}
+	scoreRecord, err := buildPersistedRunScoreRecord(p.ctx, storePath, sessionRecord, record, p.runner.Now)
+	if err != nil {
+		return err
+	}
+	return p.runner.PersistRunScore(p.ctx, storePath, scoreRecord)
+}
+
+func (r *Runner) failRun(manifest *RunManifest, persister *runPersister, err error) (*RunManifest, error) {
+	if err == nil {
+		return manifest, nil
+	}
+	appendRunError(manifest, err.Error())
+	manifest.Status = runStatusFailed
+	manifest.EndedAt = r.Now()
+	if persister != nil {
+		_ = persister.flush()
+	}
+	return manifest, err
+}
+
+func prepareRunWorkspace(workspace runWorkspace) error {
+	for _, dir := range []string{workspace.ProjectDir, workspace.LogsDir, workspace.AgentDir, workspace.RuntimeTemplatesDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func materializeRunInputs(
+	spec runSpec,
+	opts *RunOptions,
+	workspace *runWorkspace,
+	manifest *RunManifest,
+	defaultEventStorePath string,
+	allocatePort func() (string, error),
+) error {
+	fixtureRoot := filepath.Join(spec.CaseRoot, spec.CaseDef.Fixture.SeedPath)
+	if spec.CaseDef.Fixture.ResetMode != copySeedResetMode {
+		return fmt.Errorf("unsupported fixture reset mode %q", spec.CaseDef.Fixture.ResetMode)
+	}
+	if err := common.CopyDir(fixtureRoot, workspace.ProjectDir); err != nil {
+		return err
+	}
+	if err := common.CopyFile(spec.TemplatePath, workspace.SelectedTemplatePath); err != nil {
+		return err
+	}
+	if err := common.CopyFile(spec.TemplatePath, filepath.Join(workspace.RuntimeTemplatesDir, filepath.Base(spec.TemplatePath))); err != nil {
+		return err
+	}
+	manifest.TemplateName = firstNonEmpty(strings.TrimSpace(spec.TemplateName), manifest.TemplateName)
+
+	port, err := allocatePort()
+	if err != nil {
+		return err
+	}
+	workspace.BaseURL = "http://127.0.0.1:" + port
+	workspace.MCPURL = workspace.BaseURL + "/mcp/taskverification"
+	renderedConfig, err := renderCentianConfig(
+		opts.CentianConfigPath,
+		workspace.RuntimeTemplatesDir,
+		workspace.ProjectDir,
+		workspace.InternalLogPath,
+		defaultEventStorePath,
+		port,
+	)
+	if err != nil {
+		return err
+	}
+	manifest.ArtifactPaths.EventStorePath = renderedConfig.EffectiveEventStorePath
+	if err := os.WriteFile(workspace.ConfigPath, renderedConfig.Content, 0o644); err != nil {
+		return fmt.Errorf("write benchmark config: %w", err)
+	}
+	return nil
+}
+
+func (r *Runner) startRunCentian(
+	ctx context.Context,
+	workspace runWorkspace,
+	manifest *RunManifest,
+	opts *RunOptions,
+) (*StartedCentian, error) {
+	started, err := r.StartCentian(ctx, StartCentianOptions{
+		BinaryPath: opts.CentianBinaryPath,
+		ConfigPath: workspace.ConfigPath,
+		ProjectDir: workspace.ProjectDir,
+		LogsDir:    workspace.LogsDir,
+		BaseURL:    workspace.BaseURL,
+		MCPURL:     workspace.MCPURL,
 	})
-	return &sorted[0]
+	if err != nil {
+		return nil, err
+	}
+	manifest.UIPublicURL = workspace.BaseURL + "/ui/tasks"
+	manifest.CentianPID = started.PID
+	return started, nil
+}
+
+func (r *Runner) executeAgentRun(
+	ctx context.Context,
+	spec runSpec,
+	opts *RunOptions,
+	workspace runWorkspace,
+	manifest *RunManifest,
+) error {
+	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+
+	baselineRuns, err := r.FetchTaskRuns(workspace.BaseURL)
+	if err != nil {
+		return err
+	}
+	runResult, agentErr := r.LaunchAgent(runCtx, &agentrunner.RunOptions{
+		Execution:     spec.Execution,
+		ArtifactRoot:  workspace.AgentDir,
+		WorkspacePath: workspace.ProjectDir,
+		MCPURL:        workspace.MCPURL,
+		Prompt:        strings.TrimSpace(spec.Prompt.Prompt),
+		Timeout:       opts.Timeout,
+	})
+	if runResult != nil && strings.TrimSpace(runResult.SelectedModel) != "" {
+		manifest.SelectedModel = runResult.SelectedModel
+	}
+
+	var errs []string
+	if agentErr != nil {
+		errs = append(errs, agentErr.Error())
+	}
+	if err := r.captureRunArtifacts(manifest, workspace.LogsDir, workspace.BaseURL, taskRunIDSet(baselineRuns)); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if len(errs) == 0 && manifest.LatestTaskRunStatus == runStatusCompleted {
+		manifest.Status = runStatusCompleted
+		return nil
+	}
+	if len(errs) == 0 && manifest.LatestTaskRunStatus == "" {
+		errs = append(errs, "no task runs were observed")
+	}
+	for _, errMsg := range errs {
+		appendRunError(manifest, errMsg)
+	}
+	return errors.New(manifest.ErrorSummary)
+}
+
+func (r *Runner) finalizeRun(
+	manifest *RunManifest,
+	persister *runPersister,
+	opts *RunOptions,
+	runErr error,
+) (*RunManifest, error) {
+	if runErr != nil {
+		manifest.Status = runStatusFailed
+	}
+	if opts.AfterRun != nil {
+		if err := opts.AfterRun(manifest); err != nil {
+			appendRunError(manifest, err.Error())
+			manifest.Status = runStatusFailed
+			if runErr == nil {
+				runErr = err
+			}
+		}
+	}
+	manifest.EndedAt = r.Now()
+	if err := persister.flush(); err != nil {
+		appendRunError(manifest, err.Error())
+		return manifest, err
+	}
+	if manifest.Status != runStatusCompleted {
+		if runErr != nil {
+			return manifest, runErr
+		}
+		return manifest, errors.New(manifest.ErrorSummary)
+	}
+	return manifest, nil
+}
+
+func appendRunError(manifest *RunManifest, msg string) {
+	msg = strings.TrimSpace(msg)
+	if manifest == nil || msg == "" {
+		return
+	}
+	if manifest.ErrorSummary == "" {
+		manifest.ErrorSummary = msg
+		return
+	}
+	manifest.ErrorSummary += "; " + msg
+}
+
+func resolveTemplateSelections(templateVariants []TemplateVariant, templateID string) (map[string]templateSelection, error) {
+	templateID = strings.TrimSpace(templateID)
+	if templateID == "" {
+		return map[string]templateSelection{}, nil
+	}
+	selections := make(map[string]templateSelection, len(templateVariants))
+	for _, variant := range templateVariants {
+		sourcePath, err := resolveSelectedTemplateFile(variant.SourceDir, templateID)
+		if err != nil {
+			return nil, err
+		}
+		selections[variant.Name] = templateSelection{
+			SourcePath: sourcePath,
+			Name:       readTemplateName(sourcePath),
+		}
+	}
+	return selections, nil
 }
 
 // startCentianProcess launches a run-local Centian child process and waits for its API/MCP endpoints.

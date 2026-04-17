@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/common"
 )
 
@@ -49,10 +50,10 @@ func loadAgentMetadata(path string, agentID string) (*AgentMetadata, []string, e
 		return nil, nil, err
 	}
 	switch agentID {
-	case "claude":
+	case agentrunner.AgentClaude:
 		metadata, err := loadClaudeAgentMetadata(path)
 		return metadata, nil, err
-	case "codex", "codex-ollama":
+	case agentrunner.AgentCodex, agentrunner.AgentCodexOllama:
 		metadata, err := loadCodexAgentMetadata(path)
 		return metadata, nil, err
 	// TODO: missing gemini?

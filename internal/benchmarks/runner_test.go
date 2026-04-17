@@ -161,6 +161,66 @@ func TestRunSuiteContinuesAfterFailure(t *testing.T) {
 	assert.NilError(t, statErr)
 }
 
+func TestRunSuiteFailsWhenAfterRunReturnsError(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	outputRoot := t.TempDir()
+	logDir := t.TempDir()
+	t.Setenv("CENTIAN_LOG_DIR", logDir)
+
+	runner := &Runner{
+		Now:          fixedClock(),
+		AllocatePort: func() (string, error) { return "40123", nil },
+		StartCentian: fakeStartCentian,
+		LaunchAgent: func(_ context.Context, opts *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			return &agentrunner.RunResult{Agent: opts.Execution.Agent}, nil
+		},
+		FetchTaskRuns: alternatingTaskRuns([]persistence.TaskRunSummary{{
+			RunID:      "tr_123",
+			TemplateID: "simple_tdd",
+			StartedAt:  100,
+			Status:     "completed",
+		}}),
+		FetchTaskRunEvents: func(string, string) ([]persistence.TaskRunEvent, error) {
+			return []persistence.TaskRunEvent{{ID: "evt_1"}}, nil
+		},
+		FindLatestRequestLog: fakeRequestLogLookup,
+	}
+
+	session, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        outputRoot,
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+		AfterRun: func(*RunManifest) error {
+			return errors.New("after run failed")
+		},
+	})
+	assert.Assert(t, err != nil)
+	assert.Equal(t, session.Status, "failed")
+
+	runPath := filepath.Join(session.InvocationDir, "runs", "current_codex_compile_failure_red_attempt_001", runFileName)
+	var manifest RunManifest
+	assert.NilError(t, common.ReadJSONFile(runPath, &manifest))
+	assert.Equal(t, manifest.Status, "failed")
+	assert.Assert(t, strings.Contains(manifest.ErrorSummary, "after run failed"))
+
+	store, err := persistence.NewSQLiteStore(filepath.Join(logDir, "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	runRecords, err := store.ListBenchmarkRuns(context.Background(), &persistence.BenchmarkRunFilter{
+		SuiteID: "simple_tdd_v1",
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runRecords), 1)
+	assert.Equal(t, runRecords[0].Status, "failed")
+	assert.Assert(t, strings.Contains(runRecords[0].ErrorSummary, "after run failed"))
+}
+
 func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 	suiteRoot := writeValidSuiteFixture(t)
 	templateDir := writeTemplateVariant(t, "current")
@@ -274,6 +334,80 @@ func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {
 	assert.NilError(t, common.ReadJSONFile(runPath, &manifest))
 	assert.Equal(t, manifest.AgentID, agentrunner.AgentCodexOllama)
 	assert.Equal(t, manifest.SelectedModel, "local-oss")
+}
+
+func TestRunSuiteFailsBeforeLaunchWhenSelectedTemplateMissing(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	mustWriteFile(t, filepath.Join(templateDir, "simple_tdd.yaml"), `
+version: "0.1"
+task:
+  id: "other_template"
+  name: "Other Template"
+  description: "Wrong template"
+workflow:
+  onboarding:
+    instructions: "Collect context"
+`)
+	launches := 0
+
+	runner := &Runner{
+		LaunchAgent: func(_ context.Context, _ *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			launches++
+			return &agentrunner.RunResult{}, nil
+		},
+	}
+
+	_, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        t.TempDir(),
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+	})
+	assert.ErrorContains(t, err, `task template "simple_tdd" was not found`)
+	assert.Equal(t, launches, 0)
+}
+
+func TestRunSuiteFailsBeforeLaunchWhenSelectedTemplateDuplicated(t *testing.T) {
+	suiteRoot := writeValidSuiteFixture(t)
+	templateDir := writeTemplateVariant(t, "current")
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	mustWriteFile(t, filepath.Join(templateDir, "duplicate.yaml"), `
+version: "0.1"
+task:
+  id: "simple_tdd"
+  name: "Duplicate Template"
+  description: "Duplicate template"
+workflow:
+  onboarding:
+    instructions: "Collect context"
+`)
+	launches := 0
+
+	runner := &Runner{
+		LaunchAgent: func(_ context.Context, _ *agentrunner.RunOptions) (*agentrunner.RunResult, error) {
+			launches++
+			return &agentrunner.RunResult{}, nil
+		},
+	}
+
+	_, err := runner.RunSuite(context.Background(), &RunOptions{
+		SuitePath:         suiteRoot,
+		CaseIDs:           []string{"compile_failure_red"},
+		Executions:        []agentrunner.AgentExecutionOptions{{Agent: "codex"}},
+		Repeat:            1,
+		TemplateVariants:  []TemplateVariant{{Name: "current", SourceDir: templateDir}},
+		OutputRoot:        t.TempDir(),
+		Timeout:           time.Minute,
+		CentianBinaryPath: "/tmp/centian",
+	})
+	assert.ErrorContains(t, err, `duplicate task template id "simple_tdd"`)
+	assert.Equal(t, launches, 0)
 }
 
 func TestRunSuiteRejectsUnknownCase(t *testing.T) {
