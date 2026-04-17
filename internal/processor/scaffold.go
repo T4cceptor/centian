@@ -632,6 +632,7 @@ func printNextSteps(out io.Writer, lang scaffoldLanguage, name, outputFile strin
 }
 
 func exists(path string) bool {
+	// TODO: move to global utils
 	_, err := os.Stat(path)
 	return err == nil
 }

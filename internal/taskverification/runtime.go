@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 type commandResult struct {
@@ -498,16 +500,11 @@ func failureDetailsFromCommand(kind StepFailureKind, phase StepFailurePhase, res
 }
 
 func truncateOutput(output string) string {
-	// TODO: check if single truncate function can be used, see "log_reader.go - truncate"
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
 		return ""
 	}
-	runes := []rune(trimmed)
-	if len(runes) <= outputSnippetLimit {
-		return trimmed
-	}
-	return string(runes[:outputSnippetLimit]) + "..."
+	return common.TruncateString(trimmed, outputSnippetLimit)
 }
 
 func phaseActionLabel(phase StepFailurePhase) string {

@@ -229,10 +229,7 @@ func TestTruncate_Details(t *testing.T) {
 		{"something", 9, "something"},
 	}
 	for _, test := range tests {
-		// Given: a longer string, and a limit.
-		// When: calling truncate providing longString and limit.
-		result := truncate(test.longString, test.limit)
-		// Then: result is as expected.
+		result := common.TruncateString(test.longString, test.limit)
 		if result != test.expected {
 			t.Fatalf("Expected: %s, got: %s", test.expected, result)
 		}

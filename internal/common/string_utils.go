@@ -42,3 +42,22 @@ func ValidateUniqueTrimmedStrings(field string, values []string) error {
 	}
 	return nil
 }
+
+// TruncateString shortens value to limit runes and appends an ellipsis when truncation occurs.
+func TruncateString(value string, limit int) string {
+	if limit <= 0 {
+		return value
+	}
+
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+
+	const ellipsis = "..."
+	if limit <= len([]rune(ellipsis)) {
+		return ellipsis
+	}
+
+	return string(runes[:limit-len([]rune(ellipsis))]) + ellipsis
+}
