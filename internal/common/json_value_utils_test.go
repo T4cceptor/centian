@@ -56,4 +56,19 @@ func TestJSONValueHelpers(t *testing.T) {
 	if got := Float64PtrFromAny("5.5"); got == nil || *got != 5.5 {
 		t.Fatalf("expected float64 ptr 5.5, got %+v", got)
 	}
+
+	generic, err := JSONGenericValue(struct {
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}{Name: "demo", Tags: []string{"a", "b"}})
+	if err != nil {
+		t.Fatalf("JSONGenericValue: %v", err)
+	}
+	payload, ok := generic.(map[string]any)
+	if !ok {
+		t.Fatalf("expected generic object map, got %#v", generic)
+	}
+	if payload["name"] != "demo" {
+		t.Fatalf("expected generic name demo, got %#v", payload["name"])
+	}
 }

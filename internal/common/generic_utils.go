@@ -201,3 +201,15 @@ func MedianInt64(values []int64) int64 {
 	}
 	return sorted[middle]
 }
+
+// CloneStringMap returns a shallow copy of parameters and preserves nil/empty as an empty map.
+func CloneStringMap(parameters map[string]string) map[string]string {
+	if len(parameters) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(parameters))
+	for key, value := range parameters {
+		cloned[key] = value
+	}
+	return cloned
+}

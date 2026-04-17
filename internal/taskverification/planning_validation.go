@@ -49,6 +49,7 @@ func newPlanningValidationError(required, provided, missing, unknown []string) *
 }
 
 func cloneSortedStrings(values []string) []string {
+	// TODO: move to global utils
 	if len(values) == 0 {
 		return nil
 	}

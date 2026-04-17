@@ -170,6 +170,22 @@ func TestNowUTCAndUnixMillisHelpers(t *testing.T) {
 	}
 }
 
+func TestCloneStringMap(t *testing.T) {
+	if got := CloneStringMap(nil); len(got) != 0 {
+		t.Fatalf("expected empty map for nil input, got %#v", got)
+	}
+
+	source := map[string]string{"a": "1", "b": "2"}
+	cloned := CloneStringMap(source)
+	if !reflect.DeepEqual(cloned, source) {
+		t.Fatalf("unexpected cloned map: %#v", cloned)
+	}
+	cloned["a"] = "3"
+	if source["a"] != "1" {
+		t.Fatalf("expected source map to remain unchanged, got %#v", source)
+	}
+}
+
 func ptrInt64(value int64) *int64 {
 	return &value
 }

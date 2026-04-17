@@ -98,3 +98,17 @@ func ParseInt64(value any) (int64, bool) {
 	}
 	return 0, false
 }
+
+// JSONGenericValue round-trips a typed Go value through JSON into generic maps/slices/scalars.
+func JSONGenericValue(value any) (any, error) {
+	content, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+
+	var generic any
+	if err := json.Unmarshal(content, &generic); err != nil {
+		return nil, err
+	}
+	return generic, nil
+}
