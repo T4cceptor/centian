@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -77,18 +76,18 @@ func loadClaudeAgentMetadata(path string) (*AgentMetadata, error) {
 		if json.Unmarshal([]byte(line), &payload) != nil {
 			continue
 		}
-		if stringValue(payload["type"]) != "result" {
+		if common.StringValue(payload["type"]) != "result" {
 			continue
 		}
 		return &AgentMetadata{
 			Format:               "claude_result",
 			LogPath:              path,
-			SessionID:            stringValue(payload["session_id"]),
-			NumTurns:             intPtrFromAny(payload["num_turns"]),
-			DurationMilliseconds: int64PtrFromAny(payload["duration_ms"]),
-			TotalCostUSD:         float64PtrFromAny(payload["total_cost_usd"]),
-			Usage:                parseAgentUsageMap(anyMap(payload["usage"])),
-			ModelUsage:           parseClaudeModelUsage(anyMap(payload["modelUsage"])),
+			SessionID:            common.StringValue(payload["session_id"]),
+			NumTurns:             common.IntPtrFromAny(payload["num_turns"]),
+			DurationMilliseconds: common.Int64PtrFromAny(payload["duration_ms"]),
+			TotalCostUSD:         common.Float64PtrFromAny(payload["total_cost_usd"]),
+			Usage:                parseAgentUsageMap(common.AnyMap(payload["usage"])),
+			ModelUsage:           parseClaudeModelUsage(common.AnyMap(payload["modelUsage"])),
 		}, nil
 	}
 	return &AgentMetadata{Format: "claude_result", LogPath: path}, nil
@@ -109,11 +108,11 @@ func loadCodexAgentMetadata(path string) (*AgentMetadata, error) {
 		if json.Unmarshal([]byte(line), &payload) != nil {
 			continue
 		}
-		switch stringValue(payload["type"]) {
+		switch common.StringValue(payload["type"]) {
 		case "thread.started":
-			metadata.ThreadID = stringValue(payload["thread_id"])
+			metadata.ThreadID = common.StringValue(payload["thread_id"])
 		case "turn.completed":
-			metadata.Usage = parseCodexUsageMap(anyMap(payload["usage"]))
+			metadata.Usage = parseCodexUsageMap(common.AnyMap(payload["usage"]))
 		}
 	}
 	return metadata, nil
@@ -219,20 +218,20 @@ func readNonEmptyLines(path string) ([]string, error) {
 // parseAgentUsageMap normalizes Claude-style usage payload fields.
 func parseAgentUsageMap(payload map[string]any) AgentUsageMetadata {
 	return AgentUsageMetadata{
-		InputTokens:              int64PtrFromAny(payload["input_tokens"]),
-		OutputTokens:             int64PtrFromAny(payload["output_tokens"]),
-		CachedInputTokens:        int64PtrFromAny(payload["cached_input_tokens"]),
-		CacheCreationInputTokens: int64PtrFromAny(payload["cache_creation_input_tokens"]),
-		CacheReadInputTokens:     int64PtrFromAny(payload["cache_read_input_tokens"]),
+		InputTokens:              common.Int64PtrFromAny(payload["input_tokens"]),
+		OutputTokens:             common.Int64PtrFromAny(payload["output_tokens"]),
+		CachedInputTokens:        common.Int64PtrFromAny(payload["cached_input_tokens"]),
+		CacheCreationInputTokens: common.Int64PtrFromAny(payload["cache_creation_input_tokens"]),
+		CacheReadInputTokens:     common.Int64PtrFromAny(payload["cache_read_input_tokens"]),
 	}
 }
 
 // parseCodexUsageMap normalizes Codex usage payload fields.
 func parseCodexUsageMap(payload map[string]any) AgentUsageMetadata {
 	return AgentUsageMetadata{
-		InputTokens:       int64PtrFromAny(payload["input_tokens"]),
-		OutputTokens:      int64PtrFromAny(payload["output_tokens"]),
-		CachedInputTokens: int64PtrFromAny(payload["cached_input_tokens"]),
+		InputTokens:       common.Int64PtrFromAny(payload["input_tokens"]),
+		OutputTokens:      common.Int64PtrFromAny(payload["output_tokens"]),
+		CachedInputTokens: common.Int64PtrFromAny(payload["cached_input_tokens"]),
 	}
 }
 
@@ -243,113 +242,14 @@ func parseClaudeModelUsage(payload map[string]any) map[string]AgentModelUsage {
 	}
 	result := make(map[string]AgentModelUsage, len(payload))
 	for modelName, raw := range payload {
-		fields := anyMap(raw)
+		fields := common.AnyMap(raw)
 		result[modelName] = AgentModelUsage{
-			InputTokens:              int64PtrFromAny(fields["inputTokens"]),
-			OutputTokens:             int64PtrFromAny(fields["outputTokens"]),
-			CacheReadInputTokens:     int64PtrFromAny(fields["cacheReadInputTokens"]),
-			CacheCreationInputTokens: int64PtrFromAny(fields["cacheCreationInputTokens"]),
-			CostUSD:                  float64PtrFromAny(fields["costUSD"]),
+			InputTokens:              common.Int64PtrFromAny(fields["inputTokens"]),
+			OutputTokens:             common.Int64PtrFromAny(fields["outputTokens"]),
+			CacheReadInputTokens:     common.Int64PtrFromAny(fields["cacheReadInputTokens"]),
+			CacheCreationInputTokens: common.Int64PtrFromAny(fields["cacheCreationInputTokens"]),
+			CostUSD:                  common.Float64PtrFromAny(fields["costUSD"]),
 		}
 	}
 	return result
-}
-
-// anyMap returns value when it is already a JSON-like object map.
-func anyMap(value any) map[string]any {
-	// TODO: move to global utils
-	if value == nil {
-		return nil
-	}
-	typed, ok := value.(map[string]any)
-	if ok {
-		return typed
-	}
-	return nil
-}
-
-// stringValue converts string-like JSON fields without failing hard on other types.
-func stringValue(value any) string {
-	// TODO: move to global utils
-	typed, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return typed
-}
-
-// intPtrFromAny converts a loosely typed numeric field into *int.
-func intPtrFromAny(value any) *int {
-	// TODO: move to global utils
-	if parsed, ok := parseInt64(value); ok {
-		result := int(parsed)
-		return &result
-	}
-	return nil
-}
-
-// int64PtrFromAny converts a loosely typed numeric field into *int64.
-func int64PtrFromAny(value any) *int64 {
-	// TODO: move to global utils
-	if parsed, ok := parseInt64(value); ok {
-		return &parsed
-	}
-	return nil
-}
-
-// float64PtrFromAny converts a loosely typed numeric field into *float64.
-func float64PtrFromAny(value any) *float64 {
-	// TODO: move to global utils
-	switch typed := value.(type) {
-	case float64:
-		return &typed
-	case float32:
-		result := float64(typed)
-		return &result
-	case int:
-		result := float64(typed)
-		return &result
-	case int64:
-		result := float64(typed)
-		return &result
-	case json.Number:
-		parsed, err := typed.Float64()
-		if err == nil {
-			return &parsed
-		}
-	case string:
-		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
-		if err == nil {
-			return &parsed
-		}
-	}
-	return nil
-}
-
-// parseInt64 accepts common JSON number encodings used in agent logs.
-func parseInt64(value any) (int64, bool) {
-	// TODO: move to global utils
-	switch typed := value.(type) {
-	case int:
-		return int64(typed), true
-	case int32:
-		return int64(typed), true
-	case int64:
-		return typed, true
-	case float64:
-		return int64(typed), true
-	case float32:
-		return int64(typed), true
-	case json.Number:
-		parsed, err := typed.Int64()
-		if err == nil {
-			return parsed, true
-		}
-	case string:
-		parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64)
-		if err == nil {
-			return parsed, true
-		}
-	}
-	return 0, false
 }
