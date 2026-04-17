@@ -267,11 +267,15 @@ func (s *QueryService) ListAgentScorecards(ctx context.Context) ([]AgentScorecar
 
 // agentModelScorecardKey groups one agent/model pair into a stable map key.
 func agentModelScorecardKey(agent, model string) string {
+	// TODO: move to global utils, and rename to match generic functionality
+	// what is done here? looks like a "<string>".join([string1, string2]) equivalent
+	// could potentially be merged with templateIdentityKey somehow
 	return strings.TrimSpace(agent) + "\x00" + strings.TrimSpace(model)
 }
 
 // agentScorecardModels expands one run into the models credited for agent scorecards.
 func agentScorecardModels(model string) []string {
+	// TODO: move to global utils, and rename to match generic functionality
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return nil
@@ -281,6 +285,8 @@ func agentScorecardModels(model string) []string {
 
 // templateIdentityKey groups scorecards by logical template identity.
 func templateIdentityKey(templateID, templateName string) string {
+	// TODO: move to global utils, and rename to match generic functionality
+	// what is done here? looks like a "::".join([string1, string2]) equivalent
 	templateID = strings.TrimSpace(templateID)
 	templateName = strings.TrimSpace(templateName)
 	if templateName == "" {
@@ -299,6 +305,7 @@ func scorecardCentianErrorCount(sc *RunScorecard) int {
 
 // scorecardRate computes a success fraction while tolerating empty groups.
 func scorecardRate(successes, total int) float64 {
+	// TODO: move to global utils, and rename - what is calculated here?
 	if total <= 0 {
 		return 0
 	}
@@ -307,6 +314,7 @@ func scorecardRate(successes, total int) float64 {
 
 // sumInt returns the total of values.
 func sumInt(values []int) int {
+	// TODO: move to global utils
 	total := 0
 	for _, value := range values {
 		total += value
@@ -316,6 +324,7 @@ func sumInt(values []int) int {
 
 // medianInt returns the median integer value, or zero for empty slices.
 func medianInt(values []int) int {
+	// TODO: move to global utils
 	if len(values) == 0 {
 		return 0
 	}
@@ -330,6 +339,7 @@ func medianInt(values []int) int {
 
 // medianInt64 returns the median int64 value, or zero for empty slices.
 func medianInt64(values []int64) int64 {
+	// TODO: move to global utils
 	if len(values) == 0 {
 		return 0
 	}
