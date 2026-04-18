@@ -112,3 +112,20 @@ func JSONGenericValue(value any) (any, error) {
 	}
 	return generic, nil
 }
+
+// ConvertViaJSON converts one pointer value into another JSON-compatible shape via marshal/unmarshal.
+func ConvertViaJSON[In any, Out any](value *In) (*Out, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var out Out
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

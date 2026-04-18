@@ -71,4 +71,19 @@ func TestJSONValueHelpers(t *testing.T) {
 	if payload["name"] != "demo" {
 		t.Fatalf("expected generic name demo, got %#v", payload["name"])
 	}
+
+	type convertedShape struct {
+		Name string `json:"name"`
+	}
+	out, err := ConvertViaJSON[struct {
+		Name string `json:"name"`
+	}, convertedShape](&struct {
+		Name string `json:"name"`
+	}{Name: "snapshot"})
+	if err != nil {
+		t.Fatalf("ConvertViaJSON typed conversion: %v", err)
+	}
+	if out == nil || out.Name != "snapshot" {
+		t.Fatalf("unexpected converted output: %#v", out)
+	}
 }

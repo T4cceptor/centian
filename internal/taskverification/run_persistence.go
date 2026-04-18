@@ -2,9 +2,9 @@ package taskverification
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/taskruns"
 )
 
@@ -50,11 +50,11 @@ func snapshotRunState(run *RunState) (*taskruns.PersistedRunSnapshot, error) {
 		runnableTemplate = snapshot
 	}
 
-	onboarding, err := convertSnapshot[OnboardingArtifact, taskruns.PersistedOnboardingArtifact](run.Onboarding)
+	onboarding, err := common.ConvertViaJSON[OnboardingArtifact, taskruns.PersistedOnboardingArtifact](run.Onboarding)
 	if err != nil {
 		return nil, err
 	}
-	planning, err := convertSnapshot[PlanningArtifact, taskruns.PersistedPlanningArtifact](run.Planning)
+	planning, err := common.ConvertViaJSON[PlanningArtifact, taskruns.PersistedPlanningArtifact](run.Planning)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func snapshotTemplate(template *Template) (*taskruns.PersistedTemplateSnapshot, 
 		//nolint:nilnil // A missing runnable template is represented as an omitted snapshot.
 		return nil, nil
 	}
-	snapshot, err := convertSnapshot[Template, taskruns.PersistedTemplateSnapshot](template)
+	snapshot, err := common.ConvertViaJSON[Template, taskruns.PersistedTemplateSnapshot](template)
 	if err != nil {
 		return nil, err
 	}
@@ -224,20 +224,4 @@ func snapshotStepStates(steps []StepState) []taskruns.PersistedStepStateSnapshot
 		})
 	}
 	return result
-}
-
-func convertSnapshot[In any, Out any](value *In) (*Out, error) {
-	if value == nil {
-		//nolint:nilnil // Optional onboarding/planning artifacts are omitted when absent.
-		return nil, nil
-	}
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	var out Out
-	if err := json.Unmarshal(payload, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
 }
