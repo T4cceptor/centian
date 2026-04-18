@@ -116,6 +116,7 @@ func JSONGenericValue(value any) (any, error) {
 // ConvertViaJSON converts one pointer value into another JSON-compatible shape via marshal/unmarshal.
 func ConvertViaJSON[In any, Out any](value *In) (*Out, error) {
 	if value == nil {
+		//nolint:nilnil // Optional pointer inputs are intentionally preserved as omitted outputs.
 		return nil, nil
 	}
 
