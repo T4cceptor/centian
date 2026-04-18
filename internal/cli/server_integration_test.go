@@ -43,6 +43,11 @@ func TestServerStartIntegration(t *testing.T) {
 	if globalConfig.Proxy.Port != "9001" {
 		t.Errorf("Expected port '9001', got '%s'", globalConfig.Proxy.Port)
 	}
+	expectedEventStorePath := filepath.Join(filepath.Dir(configPath), "events.sqlite")
+	eventStorage := globalConfig.Proxy.EventStorageCapability()
+	if eventStorage == nil || eventStorage.Path != expectedEventStorePath {
+		t.Fatalf("Expected isolated event store path %q, got %+v", expectedEventStorePath, eventStorage)
+	}
 
 	if len(globalConfig.Gateways) != 1 {
 		t.Fatalf("Expected 1 gateway, got %d", len(globalConfig.Gateways))
@@ -264,6 +269,12 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 	t.Helper()
 
 	authDisabled := false
+	eventStorageEnabled := true
+
+	// Keep the integration test fully isolated from any developer-local
+	// default event store schema by pinning storage to a temp path.
+	tmpDir := t.TempDir()
+	eventStorePath := filepath.Join(tmpDir, "events.sqlite")
 	testConfig := &config.GlobalConfig{
 		Name:        "Test Integration Server",
 		Version:     "1.0.0",
@@ -271,6 +282,13 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 		Proxy: &config.ProxySettings{
 			Port:    "9001",
 			Timeout: 30,
+			Capabilities: &config.CapabilitiesSettings{
+				EventStorage: &config.EventStorageCapabilitySettings{
+					Enabled: &eventStorageEnabled,
+					Driver:  config.DefaultEventStorageDriver,
+					Path:    eventStorePath,
+				},
+			},
 		},
 		Gateways: map[string]*config.GatewayConfig{
 			"test-gateway": {
@@ -295,8 +313,6 @@ func createTestConfigFile(t *testing.T, mockServerURL string) string {
 		},
 	}
 
-	// Create temporary directory.
-	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "test_config.json")
 
 	// Write config to file.

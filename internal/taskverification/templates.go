@@ -5,202 +5,17 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
-	tasktemplates "github.com/T4cceptor/centian/task-templates"
+	"github.com/T4cceptor/centian/internal/common"
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultCommandTimeout is the per-command timeout applied to template-defined shell commands.
-const DefaultCommandTimeout = 30 * time.Second
-
 var placeholderPattern = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 
-// Service loads templates and manages the task verification runtime.
-type Service struct {
-	TemplateDir    string
-	WorkingDir     string
-	EventStore     EventStore
-	CommandTimeout time.Duration
-	builtinFS      fs.FS
-}
-
-// ServiceOptions configures non-runtime dependencies for the task verification service.
-type ServiceOptions struct {
-	BuiltinTemplates fs.FS
-}
-
-const builtinTemplatesDir = "integrated"
-
-// NewService creates a task verification service rooted at the given directories.
-func NewService(templateDir, workingDir string) *Service {
-	return NewServiceWithOptions(templateDir, workingDir, ServiceOptions{
-		BuiltinTemplates: tasktemplates.FS,
-	})
-}
-
-// NewServiceWithOptions creates a task verification service with explicit loader configuration.
-func NewServiceWithOptions(templateDir, workingDir string, options ServiceOptions) *Service {
-	return &Service{
-		TemplateDir:    templateDir,
-		WorkingDir:     workingDir,
-		EventStore:     NewInMemoryEventStore(),
-		CommandTimeout: DefaultCommandTimeout,
-		builtinFS:      options.BuiltinTemplates,
-	}
-}
-
-// ListTemplates returns the task templates currently available on disk.
-func (s *Service) ListTemplates() ([]TemplateSummary, error) {
-	templates, err := s.loadTemplates()
-	if err != nil {
-		return nil, err
-	}
-
-	summaries := make([]TemplateSummary, 0, len(templates))
-	for _, template := range templates {
-		summaries = append(summaries, TemplateSummary{
-			ID:           template.Task.ID,
-			Name:         template.Task.Name,
-			Description:  template.Task.Description,
-			Instructions: template.Task.Instructions,
-			Parameters:   template.ParameterDefinitions(),
-			StepCount:    len(template.CompiledWorkflow.WorkflowSteps),
-			Steps:        template.StepSummaries(),
-		})
-	}
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].ID < summaries[j].ID
-	})
-	return summaries, nil
-}
-
-// RegisterTask creates a shell task run from the selected template.
-func (s *Service) RegisterTask(templateID string) (*RunState, error) {
-	template, err := s.loadTemplateByID(templateID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &RunState{
-		RunID:            newTaskRunID(),
-		TemplateID:       template.Task.ID,
-		SelectedTemplate: *template,
-		Status:           TaskStatusActive,
-		Phase:            template.CompiledWorkflow.OnboardingPath,
-		WorkflowReady:    false,
-	}, nil
-}
-
-// CompleteOnboarding validates and persists onboarding context, then advances to planning.
-func (s *Service) CompleteOnboarding(run *RunState, artifact *OnboardingArtifact) error {
-	if err := validateOnboardingArtifact(artifact); err != nil {
-		return err
-	}
-	if err := transitionTaskPhase(run, TaskPhasePlanning, TaskPhaseOnboarding); err != nil {
-		return err
-	}
-
-	artifactCopy := cloneOnboardingArtifact(artifact)
-	run.Onboarding = &artifactCopy
-	run.LastFailureMessage = ""
-	return nil
-}
-
-// CompletePlanning validates and freezes planning context, then enters execution.
-func (s *Service) CompletePlanning(run *RunState, artifact *PlanningArtifact) error {
-	if err := validatePlanningArtifact(&run.SelectedTemplate, artifact); err != nil {
-		return err
-	}
-	artifactCopy := clonePlanningArtifact(artifact)
-	resolved, stepStates, err := freezeRunnableContract(run, &artifactCopy)
-	if err != nil {
-		return err
-	}
-	planningNode, exists := resolved.CompiledWorkflow.Nodes[resolved.CompiledWorkflow.PlanningPath]
-	if !exists {
-		return fmt.Errorf("planning has no compiled workflow node")
-	}
-	nextPath := planningNode.NextPath
-	if nextPath == "" {
-		return fmt.Errorf("planning has no configured next workflow node")
-	}
-	if err := transitionTaskPhase(run, nextPath, run.SelectedTemplate.CompiledWorkflow.PlanningPath); err != nil {
-		return err
-	}
-
-	run.Planning = &artifactCopy
-	run.WorkflowReady = true
-	run.RunnableTemplate = &resolved
-	run.Steps = stepStates
-	run.LastFailureMessage = ""
-	return nil
-}
-
-// RestartTask resets an existing task run back to its onboarding shell state.
-func (s *Service) RestartTask(run *RunState) error {
-	if run == nil {
-		return fmt.Errorf("task is not registered")
-	}
-
-	run.Status = TaskStatusActive
-	run.Phase = run.SelectedTemplate.CompiledWorkflow.OnboardingPath
-	run.Planning = nil
-	run.WorkflowReady = false
-	run.RunnableTemplate = nil
-	run.Steps = nil
-	run.LastFailureMessage = ""
-	run.ExplicitFailReason = ""
-	run.LastActivityAt = 0
-	run.ExpiresAt = 0
-	return nil
-}
-
-// FailTask marks a task run as failed without running additional checks.
-func (s *Service) FailTask(run *RunState, reason string) error {
-	if run == nil {
-		return fmt.Errorf("task is not registered")
-	}
-
-	run.Status = TaskStatusFailed
-	run.ExplicitFailReason = strings.TrimSpace(reason)
-	run.LastFailureMessage = run.ExplicitFailReason
-	run.ExpiresAt = 0
-	return nil
-}
-
-// TimeoutTask marks an active task run as timed out without changing its phase or steps.
-func (s *Service) TimeoutTask(run *RunState) error {
-	if run == nil {
-		return fmt.Errorf("task is not registered")
-	}
-	if run.Status != TaskStatusActive {
-		return fmt.Errorf("task is %s", run.Status)
-	}
-
-	run.Status = TaskStatusTimedOut
-	return nil
-}
-
-// ResumeTask reactivates a timed-out task run without resetting its workflow progress.
-func (s *Service) ResumeTask(run *RunState) error {
-	if run == nil {
-		return fmt.Errorf("task is not registered")
-	}
-	if run.Status != TaskStatusTimedOut {
-		return fmt.Errorf("task is %s", run.Status)
-	}
-
-	run.Status = TaskStatusActive
-	run.LastFailureMessage = ""
-	run.ExpiresAt = 0
-	return nil
-}
-
+// freezeRunnableContract resolves planning parameters into an executable template snapshot.
 func freezeRunnableContract(run *RunState, planning *PlanningArtifact) (Template, []StepState, error) {
 	if run == nil {
 		return Template{}, nil, fmt.Errorf("task is not registered")
@@ -219,6 +34,7 @@ func freezeRunnableContract(run *RunState, planning *PlanningArtifact) (Template
 	return resolved, newWorkflowStepStates(resolved.CompiledWorkflow), nil
 }
 
+// newWorkflowStepStates allocates pending workflow state for each compiled execution step.
 func newWorkflowStepStates(compiled *CompiledWorkflow) []StepState {
 	if compiled == nil || len(compiled.WorkflowSteps) == 0 {
 		return nil
@@ -236,108 +52,7 @@ func newWorkflowStepStates(compiled *CompiledWorkflow) []StepState {
 	return stepStates
 }
 
-func (s *Service) loadTemplateByID(templateID string) (*Template, error) {
-	templates, err := s.loadTemplates()
-	if err != nil {
-		return nil, err
-	}
-	for _, template := range templates {
-		if template.Task.ID == templateID {
-			templateCopy := *template
-			return &templateCopy, nil
-		}
-	}
-	return nil, fmt.Errorf("task template %q not found", templateID)
-}
-
-func (s *Service) loadTemplates() ([]*Template, error) {
-	registry := make(map[string]loadedTemplate)
-
-	if err := s.loadTemplatesFromFS(registry); err != nil {
-		return nil, err
-	}
-	if err := s.loadTemplatesFromDir(registry); err != nil {
-		return nil, err
-	}
-
-	templates := make([]*Template, 0, len(registry))
-	for _, record := range registry {
-		templates = append(templates, record.template)
-	}
-	sort.Slice(templates, func(i, j int) bool {
-		return templates[i].Task.ID < templates[j].Task.ID
-	})
-	return templates, nil
-}
-
-type loadedTemplate struct {
-	template *Template
-	source   string
-	builtin  bool
-}
-
-func (s *Service) loadTemplatesFromFS(registry map[string]loadedTemplate) error {
-	if s.builtinFS == nil {
-		return nil
-	}
-
-	entries, err := fs.ReadDir(s.builtinFS, builtinTemplatesDir)
-	if err != nil {
-		return fmt.Errorf("failed to read built-in task templates: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		path := filepath.Join(builtinTemplatesDir, entry.Name())
-		source := "embedded:" + path
-		template, err := loadTemplateFSFile(s.builtinFS, path, source)
-		if err != nil {
-			return err
-		}
-		if err := registerTemplate(registry, template, source, true); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Service) loadTemplatesFromDir(registry map[string]loadedTemplate) error {
-	entries, err := os.ReadDir(s.TemplateDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to read task template directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		path := filepath.Join(s.TemplateDir, entry.Name())
-		template, err := loadTemplateFile(path)
-		if err != nil {
-			return err
-		}
-		if err := registerTemplate(registry, template, path, false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
+// loadTemplateFile reads one task template from disk and validates it.
 func loadTemplateFile(path string) (*Template, error) {
 	// #nosec G304 -- templates are intentionally read from the configured template directory.
 	content, err := os.ReadFile(path)
@@ -347,6 +62,7 @@ func loadTemplateFile(path string) (*Template, error) {
 	return loadTemplateContent(content, path)
 }
 
+// loadTemplateFSFile reads one embedded task template and validates it.
 func loadTemplateFSFile(templateFS fs.FS, path, source string) (*Template, error) {
 	content, err := fs.ReadFile(templateFS, path)
 	if err != nil {
@@ -355,6 +71,7 @@ func loadTemplateFSFile(templateFS fs.FS, path, source string) (*Template, error
 	return loadTemplateContent(content, source)
 }
 
+// loadTemplateContent parses raw YAML and compiles the template workflow.
 func loadTemplateContent(content []byte, source string) (*Template, error) {
 	var template Template
 	if err := yaml.Unmarshal(content, &template); err != nil {
@@ -366,6 +83,7 @@ func loadTemplateContent(content []byte, source string) (*Template, error) {
 	return &template, nil
 }
 
+// registerTemplate inserts one template into the registry and lets filesystem overrides replace built-ins.
 func registerTemplate(registry map[string]loadedTemplate, template *Template, source string, builtin bool) error {
 	if template == nil {
 		return fmt.Errorf("task template %s is nil", source)
@@ -425,6 +143,7 @@ func (t *Template) validate(checkParameterCoverage bool) error {
 	return nil
 }
 
+// validateParameters checks parameter definitions and placeholder coverage rules.
 func (t *Template) validateParameters(checkCoverage bool) error {
 	definedParams := make(map[string]struct{}, len(t.Parameters))
 	for index, parameter := range t.Parameters {
@@ -462,6 +181,7 @@ func (t *Template) validateParameters(checkCoverage bool) error {
 	return nil
 }
 
+// validatePlaceholderUsage forbids parameter placeholders in metadata and non-execution workflow sections.
 func (t *Template) validatePlaceholderUsage() error {
 	if t == nil || t.Workflow == nil {
 		return nil
@@ -479,9 +199,9 @@ func (t *Template) validatePlaceholderUsage() error {
 		if check.value == nil {
 			continue
 		}
-		generic, err := genericValue(check.value)
+		generic, err := common.JSONGenericValue(check.value)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to convert %s into generic JSON: %w", check.location, err)
 		}
 		if unresolved := findUnresolvedPlaceholder(generic); unresolved != "" {
 			return fmt.Errorf("%s must not reference template parameter placeholder %q", check.location, unresolved)
@@ -490,6 +210,7 @@ func (t *Template) validatePlaceholderUsage() error {
 	return nil
 }
 
+// validateStep validates one execution step and enforces unique step ids.
 func validateStep(stepIndex int, step *Step, stepIDs map[string]struct{}) error {
 	if strings.TrimSpace(step.ID) == "" {
 		return fmt.Errorf("steps[%d].id is required", stepIndex)
@@ -505,6 +226,7 @@ func validateStep(stepIndex int, step *Step, stepIDs map[string]struct{}) error 
 	return validateInvariants(step)
 }
 
+// validateChecks validates all checks attached to one step.
 func validateChecks(step *Step) error {
 	checkIDs := make(map[string]struct{}, len(step.Checks))
 	for checkIndex := range step.Checks {
@@ -516,6 +238,7 @@ func validateChecks(step *Step) error {
 	return nil
 }
 
+// validateCheck validates one check definition inside a workflow step.
 func validateCheck(stepID string, checkIndex int, check *Check, checkIDs map[string]struct{}) error {
 	if strings.TrimSpace(check.ID) == "" {
 		return fmt.Errorf("step %q checks[%d].id is required", stepID, checkIndex)
@@ -536,6 +259,7 @@ func validateCheck(stepID string, checkIndex int, check *Check, checkIDs map[str
 	return validateConditions(stepID, check.ID, "post_conditions", check.PostConditions)
 }
 
+// validateInvariants validates invariant definitions declared on one step.
 func validateInvariants(step *Step) error {
 	invariantIDs := make(map[string]struct{}, len(step.Invariants))
 	for invariantIndex, invariant := range step.Invariants {
@@ -556,6 +280,7 @@ func validateInvariants(step *Step) error {
 	return nil
 }
 
+// validateConditions validates one list of conditions and annotates errors with step context.
 func validateConditions(stepID, checkID, phase string, conditions []Condition) error {
 	for index, condition := range conditions {
 		if err := validateCondition(condition); err != nil {
@@ -565,6 +290,7 @@ func validateConditions(stepID, checkID, phase string, conditions []Condition) e
 	return nil
 }
 
+// validateCondition validates one condition using the registered condition handler.
 func validateCondition(condition Condition) error {
 	if strings.TrimSpace(condition.Type) == "" {
 		return fmt.Errorf("type is required")
@@ -594,8 +320,9 @@ func (t *Template) RequiredParameterNames() []string {
 	return result
 }
 
+// collectPlaceholdersFromValue converts a typed value into generic JSON data before scanning it.
 func collectPlaceholdersFromValue(value any, params map[string]struct{}) {
-	generic, err := genericValue(value)
+	generic, err := common.JSONGenericValue(value)
 	if err != nil {
 		return
 	}
@@ -666,9 +393,9 @@ func (t *Template) Resolve(parameters map[string]string) (Template, error) {
 		}
 	}
 
-	generic, err := genericValue(t)
+	generic, err := common.JSONGenericValue(t)
 	if err != nil {
-		return Template{}, err
+		return Template{}, fmt.Errorf("failed to convert task template into generic JSON: %w", err)
 	}
 	substituted := substitutePlaceholders(generic, parameters)
 	if unresolved := findUnresolvedPlaceholder(substituted); unresolved != "" {
@@ -690,19 +417,7 @@ func (t *Template) Resolve(parameters map[string]string) (Template, error) {
 	return resolved, nil
 }
 
-func genericValue(value any) (any, error) {
-	content, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("failed to serialize template: %w", err)
-	}
-
-	var generic any
-	if err := json.Unmarshal(content, &generic); err != nil {
-		return nil, fmt.Errorf("failed to deserialize template: %w", err)
-	}
-	return generic, nil
-}
-
+// collectPlaceholders walks a JSON-like value tree and records `${name}` placeholders from string leaves.
 func collectPlaceholders(value any, params map[string]struct{}) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -721,6 +436,7 @@ func collectPlaceholders(value any, params map[string]struct{}) {
 	}
 }
 
+// substitutePlaceholders recursively replaces `${name}` placeholders in string leaves.
 func substitutePlaceholders(value any, parameters map[string]string) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -752,6 +468,7 @@ func substitutePlaceholders(value any, parameters map[string]string) any {
 	}
 }
 
+// findUnresolvedPlaceholder returns the first placeholder that remains after substitution.
 func findUnresolvedPlaceholder(value any) string {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -775,6 +492,7 @@ func findUnresolvedPlaceholder(value any) string {
 	return ""
 }
 
+// transitionTaskPhase applies lifecycle guards before moving the run into the next phase.
 func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) error {
 	if run == nil {
 		return fmt.Errorf("task is not registered")
@@ -800,6 +518,7 @@ func transitionTaskPhase(run *RunState, next TaskPhase, allowed ...TaskPhase) er
 	return fmt.Errorf("task is in %s phase; cannot transition to %s", run.Phase, next)
 }
 
+// validateOnboardingArtifact checks the required onboarding snapshot fields.
 func validateOnboardingArtifact(artifact *OnboardingArtifact) error {
 	if artifact == nil {
 		return fmt.Errorf("onboarding artifact is required")
@@ -826,6 +545,7 @@ func validateOnboardingArtifact(artifact *OnboardingArtifact) error {
 	return nil
 }
 
+// cloneOnboardingArtifact copies onboarding data so callers can safely retain the original input.
 func cloneOnboardingArtifact(artifact *OnboardingArtifact) OnboardingArtifact {
 	if artifact == nil {
 		return OnboardingArtifact{}
@@ -866,6 +586,7 @@ func validatePlanningArtifact(template *Template, artifact *PlanningArtifact) er
 	return nil
 }
 
+// validatePlanningParameters ensures planning input names match the template contract.
 func validatePlanningParameters(template *Template, parameters map[string]string) error {
 	if parameters == nil {
 		parameters = map[string]string{}
@@ -891,6 +612,7 @@ func validatePlanningParameters(template *Template, parameters map[string]string
 	return nil
 }
 
+// orderedPlanningInputs returns stable parameter names for planning validation errors and prompts.
 func orderedPlanningInputs(template *Template) []string {
 	if template == nil {
 		return nil
@@ -915,6 +637,7 @@ func orderedPlanningInputs(template *Template) []string {
 	return names
 }
 
+// clonePlanningArtifact copies planning data so runtime state is isolated from caller mutation.
 func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
 	if artifact == nil {
 		return PlanningArtifact{}
@@ -922,33 +645,12 @@ func clonePlanningArtifact(artifact *PlanningArtifact) PlanningArtifact {
 	return PlanningArtifact{
 		PlanSummary:   artifact.PlanSummary,
 		SelectedFiles: append([]string(nil), artifact.SelectedFiles...),
-		Parameters:    cloneParameterMap(artifact.Parameters),
+		Parameters:    common.CloneStringMap(artifact.Parameters),
 		Invariants:    append([]string(nil), artifact.Invariants...),
 	}
 }
 
-func cloneParameterMap(parameters map[string]string) map[string]string {
-	if len(parameters) == 0 {
-		return map[string]string{}
-	}
-	cloned := make(map[string]string, len(parameters))
-	for key, value := range parameters {
-		cloned[key] = value
-	}
-	return cloned
-}
-
+// validateUniqueTrimmedStrings enforces non-blank, duplicate-free string lists for planning artifacts.
 func validateUniqueTrimmedStrings(field string, values []string) error {
-	seen := make(map[string]struct{}, len(values))
-	for index, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			return fmt.Errorf("%s[%d] is required", field, index)
-		}
-		if _, exists := seen[trimmed]; exists {
-			return fmt.Errorf("%s contains duplicate value %q", field, trimmed)
-		}
-		seen[trimmed] = struct{}{}
-	}
-	return nil
+	return common.ValidateUniqueTrimmedStrings(field, values)
 }

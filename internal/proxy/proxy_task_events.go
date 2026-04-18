@@ -122,5 +122,14 @@ func stepEventPayload(result *taskverification.StepResult) map[string]any {
 	if result.FailedInvariantID != "" {
 		payload["failedInvariantId"] = result.FailedInvariantID
 	}
+	if result.Retryable {
+		payload["retryable"] = result.Retryable
+	}
+	if result.RestartRequired {
+		payload["restartRequired"] = result.RestartRequired
+	}
+	if len(result.RecoveryActions) > 0 {
+		payload["recoveryActions"] = result.RecoveryActions
+	}
 	return payload
 }

@@ -25,28 +25,28 @@ func TestConfigLifecycle(t *testing.T) {
 	}
 
 	// Verify default config structure.
-	if config != nil && config.Version != "1.0.0" {
+	if config.Version != "1.0.0" {
 		t.Errorf("Expected version 1.0.0, got %s", config.Version)
 	}
-	if config != nil && config.Proxy == nil {
+	if config.Proxy == nil {
 		t.Fatal("Expected proxy settings to be initialized")
 	}
-	if config != nil && config.Proxy != nil && config.Proxy.Port != "9666" {
+	if config.Proxy != nil && config.Proxy.Port != "9666" {
 		t.Fatalf("Expected default proxy port 9666, got %s", config.Proxy.Port)
 	}
-	if config != nil && config.Proxy != nil && config.Proxy.Capabilities == nil {
+	if config.Proxy != nil && config.Proxy.Capabilities == nil {
 		t.Fatal("Expected proxy capabilities to be initialized")
 	}
-	if config != nil && config.Proxy != nil && config.Proxy.Capabilities != nil && config.Proxy.Capabilities.EventStorage == nil {
+	if config.Proxy != nil && config.Proxy.Capabilities != nil && config.Proxy.Capabilities.EventStorage == nil {
 		t.Fatal("Expected default event storage capability to be initialized")
 	}
-	if config != nil && config.Processors == nil {
+	if config.Processors == nil {
 		t.Fatal("Expected processors to be initialized")
 	}
-	if config != nil && !config.IsAuthEnabled() {
+	if !config.IsAuthEnabled() {
 		t.Fatal("Expected auth to be enabled by default")
 	}
-	if config != nil && config.GetAuthHeader() == "" {
+	if config.GetAuthHeader() == "" {
 		t.Fatal("Expected default auth header to be set")
 	}
 
@@ -117,5 +117,37 @@ func TestGatewayConfigForceReadOnlyHintsEnabled(t *testing.T) {
 	gateway.ForceReadOnlyHints = &tr
 	if !gateway.ForceReadOnlyHintsEnabled() {
 		t.Fatal("expected true for ForceReadOnlyHints=true")
+	}
+}
+
+func TestGatewayConfigForceSafeToolHintsEnabled(t *testing.T) {
+	// Given: nil gateway config
+	// Then: returns false
+	var nilGateway *GatewayConfig
+	if nilGateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected false for nil gateway")
+	}
+
+	// Given: gateway with nil ForceSafeToolHints
+	// Then: returns false
+	gateway := &GatewayConfig{}
+	if gateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected false for nil ForceSafeToolHints")
+	}
+
+	// Given: gateway with ForceSafeToolHints=false
+	// Then: returns false
+	f := false
+	gateway.ForceSafeToolHints = &f
+	if gateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected false for ForceSafeToolHints=false")
+	}
+
+	// Given: gateway with ForceSafeToolHints=true
+	// Then: returns true
+	tr := true
+	gateway.ForceSafeToolHints = &tr
+	if !gateway.ForceSafeToolHintsEnabled() {
+		t.Fatal("expected true for ForceSafeToolHints=true")
 	}
 }

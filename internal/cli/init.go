@@ -126,6 +126,7 @@ func importFromPath(cfg *config.GlobalConfig, path string) (int, error) {
 	return imported, nil
 }
 
+// showImportSummary prints post-import guidance for interactive initialization flows.
 func showImportSummary(imported int) {
 	if imported == 0 {
 		fmt.Printf("\n📋 No servers were imported.\n")
@@ -266,6 +267,7 @@ func initCentian(_ context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// offerShellCompletion prompts for shell completion setup and prints fallback guidance on failure.
 func offerShellCompletion() {
 	if err := SetupShellCompletion(); err != nil {
 		fmt.Printf("⚠️  Shell completion setup failed: %v\n", err)
@@ -273,6 +275,7 @@ func offerShellCompletion() {
 	}
 }
 
+// printInitSuccess prints the standard post-init next-step guidance for non-quickstart setups.
 func printInitSuccess(configPath string, imported int) {
 	fmt.Printf("\n🎉 Centian initialized successfully!\n")
 	fmt.Printf("📁 Configuration created at: %s\n\n", configPath)
@@ -300,6 +303,7 @@ func printInitSuccess(configPath string, imported int) {
 	common.PressEnterToContinue("")
 }
 
+// applyQuickstartConfig injects the default sequential-thinking MCP server into the config.
 func applyQuickstartConfig(cfg *config.GlobalConfig) {
 	enabled := true
 	cfg.Gateways = map[string]*config.GatewayConfig{
@@ -320,6 +324,7 @@ func applyQuickstartConfig(cfg *config.GlobalConfig) {
 	}
 }
 
+// createDefaultAPIKey generates and persists one default API key for a fresh setup.
 func createDefaultAPIKey() (string, error) {
 	key, err := auth.GenerateAPIKey()
 	if err != nil {
@@ -339,6 +344,7 @@ func createDefaultAPIKey() (string, error) {
 	return key, nil
 }
 
+// handleQuickstart finalizes quickstart setup and prints ready-to-paste client snippets.
 func handleQuickstart(configPath string, cfg *config.GlobalConfig) error {
 	apiKey, err := createDefaultAPIKey()
 	if err != nil {

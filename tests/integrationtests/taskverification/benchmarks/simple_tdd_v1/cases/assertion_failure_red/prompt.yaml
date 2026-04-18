@@ -1,0 +1,17 @@
+prompt: |
+  Connect to the MCP server named `centian` and solve this Go benchmark case through the Centian workflow.
+  Register the `simple_tdd` template and use Centian lifecycle tools as the source of truth.
+
+  This benchmark already has an authored red baseline.
+
+  Freeze the following planning parameters:
+  - `testCommand`: `go test ./internal/health -run TestHealthStatus`
+  - `testTarget`: `./internal/health -run TestHealthStatus`
+  - `testFile`: `internal/health/health_test.go`
+  - `expectedError`: `expected ready, got not_ready`
+
+  Requirements:
+  - Verify the authored red baseline before implementing code.
+  - Do not create, rewrite, or edit the locked baseline test file `internal/health/health_test.go`.
+  - Make the selected command pass by changing production code and any supporting non-locked files.
+  - Stop after the task is completed.

@@ -121,6 +121,34 @@ func listToolNames(t *testing.T, clientSession *mcp.ClientSession) []string {
 	return names
 }
 
+func listToolsByName(t *testing.T, clientSession *mcp.ClientSession) map[string]*mcp.Tool {
+	t.Helper()
+
+	result, err := clientSession.ListTools(context.Background(), nil)
+	assert.NilError(t, err)
+
+	byName := make(map[string]*mcp.Tool, len(result.Tools))
+	for _, tool := range result.Tools {
+		if tool != nil {
+			byName[tool.Name] = tool
+		}
+	}
+	return byName
+}
+
+func assertSafeToolHints(t *testing.T, tool *mcp.Tool, toolName string) {
+	t.Helper()
+
+	assert.Assert(t, tool != nil, "missing tool: %s", toolName)
+	assert.Assert(t, tool.Annotations != nil, "missing annotations on %s", toolName)
+	assert.Equal(t, tool.Annotations.ReadOnlyHint, true, "expected ReadOnlyHint=true on %s", toolName)
+	assert.Equal(t, tool.Annotations.IdempotentHint, true, "expected IdempotentHint=true on %s", toolName)
+	assert.Assert(t, tool.Annotations.DestructiveHint != nil, "missing DestructiveHint on %s", toolName)
+	assert.Equal(t, *tool.Annotations.DestructiveHint, false, "expected DestructiveHint=false on %s", toolName)
+	assert.Assert(t, tool.Annotations.OpenWorldHint != nil, "missing OpenWorldHint on %s", toolName)
+	assert.Equal(t, *tool.Annotations.OpenWorldHint, false, "expected OpenWorldHint=false on %s", toolName)
+}
+
 func TestNewUpstreamServerRegistersAuthStatusTool(t *testing.T) {
 	_, session, _ := newOAuthToolTestProxy(t, false)
 
@@ -228,6 +256,78 @@ func TestSyncAvailableToolsSkipsReservedDownstreamToolNames(t *testing.T) {
 
 	proxy.syncAvailableTools(session)
 	assert.DeepEqual(t, listToolNames(t, clientSession), []string{authStatusToolName, "echo"})
+}
+
+func TestForceSafeToolHintsOverrideAuthAndDownstreamToolAnnotations(t *testing.T) {
+	proxy, session, _ := newOAuthToolTestProxy(t, false)
+	forceSafe := true
+	proxy.config.ForceSafeToolHints = &forceSafe
+	session.registeredStaticTools = make(map[string]struct{})
+	session.upstreamServer = proxy.newUpstreamServer(session)
+
+	destructive := true
+	openWorld := true
+	session.downstreamConns["protected"] = &MockDownstreamConnection{
+		serverName: "protected",
+		Status:     StatusConnected,
+		tools: []*mcp.Tool{
+			{
+				Name:        "echo",
+				Description: "echo",
+				InputSchema: map[string]any{"type": "object"},
+				Annotations: &mcp.ToolAnnotations{
+					DestructiveHint: &destructive,
+					OpenWorldHint:   &openWorld,
+				},
+			},
+		},
+	}
+
+	clientSession, cleanup := connectAuthToolClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	proxy.syncAvailableTools(session)
+	toolsByName := listToolsByName(t, clientSession)
+
+	assertSafeToolHints(t, toolsByName[authStatusToolName], authStatusToolName)
+	assertSafeToolHints(t, toolsByName["echo"], "echo")
+}
+
+func TestForceSafeToolHintsOverrideLoginToolAnnotations(t *testing.T) {
+	proxy, session, binding := newOAuthToolTestProxy(t, false)
+	forceSafe := true
+	proxy.config.ForceSafeToolHints = &forceSafe
+
+	_, err := proxy.server.OAuth.CreatePending(binding, "client-id", "client-secret", &centoauth.ResolvedMetadata{
+		Resource:              "http://127.0.0.1:9000/mcp",
+		Scopes:                []string{"tool:echo"},
+		Issuer:                "http://127.0.0.1:9000",
+		AuthorizationEndpoint: "http://127.0.0.1:9000/authorize",
+		TokenEndpoint:         "http://127.0.0.1:9000/token",
+		ClientAuthMethod:      "client_secret_post",
+	}, "verifier")
+	assert.NilError(t, err)
+
+	conn := &MockDownstreamConnection{
+		serverName: "protected",
+		Status:     StatusAuthRequired,
+	}
+	session.downstreamConns["protected"] = conn
+	proxy.downstreamPools[session.downstreamSessionKey] = &DownstreamSessionPool{
+		downstreamSessionKey: session.downstreamSessionKey,
+		identityKey:          session.identityKey,
+		downstreamConns:      map[string]DownstreamConnectionInterface{"protected": conn},
+		upstreamSessions:     map[string]*UpstreamSession{"session-1": session},
+		connecting:           make(map[string]bool),
+	}
+
+	clientSession, cleanup := connectAuthToolClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	proxy.syncAvailableTools(session)
+	toolsByName := listToolsByName(t, clientSession)
+
+	assertSafeToolHints(t, toolsByName[loginToolName("protected")], loginToolName("protected"))
 }
 
 func TestLoginToolUsesURLElicitationWhenSupported(t *testing.T) {

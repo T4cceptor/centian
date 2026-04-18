@@ -11,6 +11,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
+	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"gotest.tools/assert"
@@ -141,6 +142,104 @@ func TestNewSQLiteStoreBootstrapIsIdempotent(t *testing.T) {
 	assert.Assert(t, storeB.DB() != nil)
 }
 
+func TestNewSQLiteStoreMigratesMainSchemaV4ToCurrentSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	seedSchemaVersion4Store(t, db)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.NilError(t, err)
+	assert.NilError(t, store.Close())
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	columns, err := tableColumns(db, "benchmark_runs")
+	assert.NilError(t, err)
+	assert.Assert(t, columns["agent_metadata_json"])
+	assert.Assert(t, columns["case_name"])
+	assert.Assert(t, columns["template_name"])
+	sessionColumns, err := tableColumns(db, "benchmark_sessions")
+	assert.NilError(t, err)
+	assert.Assert(t, sessionColumns["suite_name"])
+	assert.Assert(t, sessionColumns["template_name"])
+	scoreColumns, err := tableColumns(db, "benchmark_run_scores")
+	assert.NilError(t, err)
+	assert.Assert(t, scoreColumns["benchmark_run_id"])
+	assert.Assert(t, scoreColumns["score_status"])
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, schemaVersion)
+}
+
+func TestNewSQLiteStoreRejectsIntermediateBranchSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	_, err = db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 9)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`CREATE TABLE benchmark_runs (
+		benchmark_run_id TEXT PRIMARY KEY,
+		schema_version INTEGER NOT NULL,
+		session_id TEXT NOT NULL,
+		case_id TEXT NOT NULL,
+		agent TEXT NOT NULL,
+		template_variant TEXT NOT NULL,
+		attempt INTEGER NOT NULL,
+		template_id TEXT NOT NULL,
+		selected_model TEXT,
+		started_at_unix_milli INTEGER NOT NULL,
+		ended_at_unix_milli INTEGER,
+		status TEXT NOT NULL,
+		latest_task_run_id TEXT,
+		latest_task_run_status TEXT,
+		linked_task_run_ids_json BLOB NOT NULL,
+		run_dir TEXT NOT NULL,
+		project_dir TEXT NOT NULL,
+		logs_dir TEXT NOT NULL,
+		agent_dir TEXT NOT NULL,
+		config_path TEXT NOT NULL,
+		event_store_mode TEXT,
+		event_store_path TEXT,
+		request_log_path TEXT,
+		selected_template_path TEXT,
+		error_summary TEXT
+	)`)
+	assert.NilError(t, err)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.Assert(t, store == nil)
+	var migrationErr *SchemaMigrationRequiredError
+	assert.Assert(t, errors.As(err, &migrationErr))
+	assert.Equal(t, migrationErr.StoredVersion, 9)
+	assert.Equal(t, migrationErr.ExpectedVersion, schemaVersion)
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	columns, err := tableColumns(db, "benchmark_runs")
+	assert.NilError(t, err)
+	assert.Assert(t, !columns["agent_metadata_json"])
+	scoreColumns, err := tableColumns(db, "benchmark_run_scores")
+	assert.NilError(t, err)
+	assert.Equal(t, len(scoreColumns), 0)
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, 9)
+}
+
 func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.sqlite")
 
@@ -187,6 +286,65 @@ func TestNewSQLiteStoreRejectsMismatchedSchemaWithoutDroppingData(t *testing.T) 
 	err = db.QueryRow(`SELECT COUNT(*) FROM action_events`).Scan(&count)
 	assert.NilError(t, err)
 	assert.Equal(t, count, 0)
+}
+
+func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	session := &BenchmarkSessionRecord{
+		SessionID:          "bm_session_1",
+		SuiteID:            "simple_tdd_v1",
+		SuitePath:          "/tmp/suite",
+		SessionPath:        "/tmp/session",
+		OutputRoot:         "/tmp",
+		TemplateID:         "simple_tdd",
+		StartedAtUnixMilli: 1000,
+		Status:             "completed",
+		RepeatCount:        1,
+	}
+	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), session))
+
+	run := &BenchmarkRunRecord{
+		BenchmarkRunID:      "bm_run_1",
+		SessionID:           session.SessionID,
+		CaseID:              "assertion_failure_red",
+		Agent:               "codex",
+		TemplateVariant:     "current",
+		Attempt:             1,
+		TemplateID:          "simple_tdd",
+		StartedAtUnixMilli:  1000,
+		Status:              "completed",
+		LatestTaskRunID:     "tr_1",
+		LatestTaskRunStatus: "completed",
+		LinkedTaskRunIDs:    []string{"tr_1"},
+		RunDir:              "/tmp/session/run",
+		ProjectDir:          "/tmp/session/run/project",
+		LogsDir:             "/tmp/session/run/logs",
+		AgentDir:            "/tmp/session/run/agent",
+		ConfigPath:          "/tmp/session/run/config.json",
+		EventStorePath:      "/tmp/events.sqlite",
+		AgentMetadataJSON:   json.RawMessage(`{"format":"codex_jsonl","threadId":"thread_1"}`),
+	}
+	assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), run))
+
+	run.Status = "failed"
+	run.ErrorSummary = "agent failed"
+	assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), run))
+
+	sessions, err := store.ListBenchmarkSessions(context.Background(), BenchmarkSessionFilter{SuiteID: "simple_tdd_v1"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(sessions), 1)
+	assert.Equal(t, sessions[0].SessionID, session.SessionID)
+
+	runs, err := store.ListBenchmarkRuns(context.Background(), &BenchmarkRunFilter{SuiteID: "simple_tdd_v1", Agent: "codex"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runs), 1)
+	assert.Equal(t, runs[0].BenchmarkRunID, run.BenchmarkRunID)
+	assert.Equal(t, runs[0].Status, "failed")
+	assert.DeepEqual(t, runs[0].LinkedTaskRunIDs, []string{"tr_1"})
+	assert.Equal(t, string(runs[0].AgentMetadataJSON), `{"format":"codex_jsonl","threadId":"thread_1"}`)
 }
 
 func TestStoreReadMethodsReturnErrorsWhenDatabaseIsClosed(t *testing.T) {
@@ -498,6 +656,83 @@ func TestListTaskRunsKeepsTimedOutRunsOpen(t *testing.T) {
 	assert.Assert(t, summaries[0].EndedAt == nil)
 }
 
+func TestListTaskRunsPrefersPersistedSnapshotMetadata(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	seedTaskEvent(t, store, &taskverification.TaskEvent{
+		ID:                 "run-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: 1_000,
+		TaskRunID:          "run-1",
+		SessionID:          "session-1",
+		TemplateID:         "simple_tdd",
+		PrincipalID:        "principal-1",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhase("execution.step_one"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"status":"active"}`),
+	})
+
+	err = store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
+		RunID:        "run-1",
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Task",
+		Status:       string(taskverification.TaskStatusCompleted),
+		Phase:        "execution.refactor_while_green",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Version: "0.1",
+			Task:    taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Task", Description: "desc"},
+		},
+	})
+	assert.NilError(t, err)
+
+	summaries, err := store.ListTaskRuns(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].TemplateName, "Simple TDD Task")
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusCompleted))
+	assert.Equal(t, summaries[0].CurrentPhase, "execution.refactor_while_green")
+	assert.Assert(t, summaries[0].EndedAt != nil)
+}
+
+func TestListTaskRunsIncludesSnapshotOnlyRuns(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	err = store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
+		RunID:        "run-only-snapshot",
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Task",
+		Status:       string(taskverification.TaskStatusActive),
+		Phase:        string(taskverification.TaskPhaseOnboarding),
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Version: "0.1",
+			Task:    taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Task", Description: "desc"},
+		},
+	})
+	assert.NilError(t, err)
+
+	summaries, err := store.ListTaskRuns(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].RunID, "run-only-snapshot")
+	assert.Equal(t, summaries[0].TemplateName, "Simple TDD Task")
+	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusActive))
+	assert.Equal(t, summaries[0].CurrentPhase, string(taskverification.TaskPhaseOnboarding))
+	assert.Equal(t, summaries[0].EventCount, 0)
+	assert.Assert(t, summaries[0].EndedAt == nil)
+}
+
 func TestGetTaskRunEventsReturnsUnifiedChronologicalTimeline(t *testing.T) {
 	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
 	assert.NilError(t, err)
@@ -666,4 +901,93 @@ func seedActionEvent(t *testing.T, store *Store, event *ActionEventRecord) {
 	t.Helper()
 	_, err := store.DB().NewInsert().Model(event).Exec(context.Background())
 	assert.NilError(t, err)
+}
+
+func seedSchemaVersion4Store(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	_, err := db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 4)`)
+	assert.NilError(t, err)
+
+	stmts := []string{
+		`CREATE TABLE task_events (
+			id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			created_at_unix_milli INTEGER NOT NULL,
+			task_run_id TEXT NOT NULL,
+			session_id TEXT,
+			template_id TEXT NOT NULL,
+			principal_id TEXT,
+			client_name TEXT,
+			client_version TEXT,
+			phase_path TEXT NOT NULL,
+			node_kind TEXT,
+			resulting_phase_path TEXT NOT NULL,
+			resulting_node_kind TEXT,
+			event_type TEXT NOT NULL,
+			outcome TEXT NOT NULL,
+			related_action_request_id TEXT,
+			payload_json BLOB
+		)`,
+		`CREATE INDEX idx_task_events_task_run_id ON task_events(task_run_id)`,
+		`CREATE INDEX idx_task_events_created_at ON task_events(created_at_unix_milli)`,
+		`CREATE TABLE action_events (
+			id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			created_at_unix_milli INTEGER NOT NULL,
+			request_id TEXT NOT NULL,
+			session_id TEXT,
+			principal_id TEXT,
+			transport TEXT,
+			direction TEXT,
+			message_type TEXT,
+			gateway TEXT,
+			server_name TEXT,
+			endpoint TEXT,
+			tool_name TEXT,
+			original_tool_name TEXT,
+			success BOOLEAN NOT NULL,
+			is_error BOOLEAN NOT NULL,
+			payload_json BLOB
+		)`,
+		`CREATE INDEX idx_action_events_request_id ON action_events(request_id)`,
+		`CREATE INDEX idx_action_events_created_at ON action_events(created_at_unix_milli)`,
+		`CREATE TABLE action_event_task_context (
+			request_id TEXT PRIMARY KEY,
+			task_run_id TEXT NOT NULL,
+			invocation_phase_path TEXT NOT NULL,
+			invocation_node_kind TEXT,
+			created_at_unix_milli INTEGER NOT NULL
+		)`,
+		`CREATE INDEX idx_action_event_task_context_task_run_id ON action_event_task_context(task_run_id)`,
+	}
+	for _, stmt := range stmts {
+		_, err = db.Exec(stmt)
+		assert.NilError(t, err)
+	}
+}
+
+func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	columns := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
 }

@@ -51,7 +51,7 @@ func TestCentianDemoClaude(t *testing.T) {
 		filepath.Join(demoRoot, "templates", demoTaskTemplateFile),
 		filepath.Join(demoRoot, "logs"),
 		filepath.Join(demoRoot, "config.json"),
-		filepath.Join(demoRoot, "prompt.md"),
+		filepath.Join(demoRoot, "prompt.yaml"),
 		filepath.Join(demoRoot, "claude_mcp_config.json"),
 		filepath.Join(demoRoot, "centian.pid"),
 		filepath.Join(demoRoot, "agent.stdout.log"),
@@ -113,7 +113,80 @@ func TestCentianDemoGemini(t *testing.T) {
 		filepath.Join(demoRoot, "templates", demoTaskTemplateFile),
 		filepath.Join(demoRoot, "logs"),
 		filepath.Join(demoRoot, "config.json"),
-		filepath.Join(demoRoot, "prompt.md"),
+		filepath.Join(demoRoot, "prompt.yaml"),
+		filepath.Join(demoRoot, "centian.pid"),
+		filepath.Join(demoRoot, "agent.stdout.log"),
+		filepath.Join(demoRoot, "agent.stderr.log"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected demo artifact %s: %v", path, err)
+		}
+	}
+
+	pidBytes, err := os.ReadFile(filepath.Join(demoRoot, "centian.pid"))
+	if err != nil {
+		t.Fatalf("read centian.pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
+	if err != nil {
+		t.Fatalf("parse centian pid: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = syscall.Kill(pid, syscall.SIGTERM)
+	})
+
+	port := readPort(t, filepath.Join(demoRoot, "config.json"))
+	baseURL := "http://127.0.0.1:" + port
+	waitForHTTP(t, baseURL+"/api/task-runs")
+}
+
+func TestCentianDemoCodexOllama(t *testing.T) {
+	if os.Getenv(runDemoIntegrationEnv) != "1" {
+		t.Skipf("set %s=1 to run demo integration tests", runDemoIntegrationEnv)
+	}
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Fatalf("codex is not available: %v", err)
+	}
+	if _, err := exec.LookPath("npx"); err != nil {
+		t.Fatalf("npx is not available: %v", err)
+	}
+
+	root := t.TempDir()
+	binary := filepath.Join(root, "centian")
+	build := exec.Command("go", "build", "-o", binary, "./main.go")
+	build.Dir = repoRoot(t)
+	build.Env = append(os.Environ(), "GOCACHE=/tmp/centian-gocache")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build centian binary: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+
+	codexConfigPath := filepath.Join(root, "codex.toml")
+	if err := os.WriteFile(codexConfigPath, []byte(`
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "read-only"
+
+[profiles.local-oss]
+model_provider = "ollama"
+model = "gpt-oss-20b"
+`), 0o600); err != nil {
+		t.Fatalf("write codex config: %v", err)
+	}
+
+	demoRoot := filepath.Join(root, "demo")
+	cmd := exec.Command(binary, "demo", "--agent", "codex-ollama", "--path", demoRoot, "--codex-config", codexConfigPath, "--profile", "local-oss")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = os.Environ()
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("run centian demo: %v\n%s", err, strings.TrimSpace(string(output)))
+	}
+
+	for _, path := range []string{
+		filepath.Join(demoRoot, "workspace"),
+		filepath.Join(demoRoot, "templates", demoTaskTemplateFile),
+		filepath.Join(demoRoot, "logs"),
+		filepath.Join(demoRoot, "config.json"),
+		filepath.Join(demoRoot, "prompt.yaml"),
 		filepath.Join(demoRoot, "centian.pid"),
 		filepath.Join(demoRoot, "agent.stdout.log"),
 		filepath.Join(demoRoot, "agent.stderr.log"),

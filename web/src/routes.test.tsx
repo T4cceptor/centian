@@ -99,7 +99,7 @@ describe("task run list", () => {
 
     renderApp();
 
-    expect(await screen.findByText("python_tdd_demo")).toBeInTheDocument();
+    expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
     expect(screen.getByText("Execution / Implement Fix")).toBeInTheDocument();
     expect(screen.getByText("5")).toBeInTheDocument();
   });
@@ -139,7 +139,7 @@ describe("task run list", () => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     }, { timeout: 3500 });
 
-    expect(await screen.findByText("python_tdd_demo")).toBeInTheDocument();
+    expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
   }, 8000);
 
   it("shows an error state when the api request fails", async () => {
@@ -180,7 +180,7 @@ describe("task run list", () => {
     await user.type(screen.getByLabelText("API key"), "plain-key");
     await user.click(screen.getByRole("button", { name: "Save and retry" }));
 
-    expect(await screen.findByText("python_tdd_demo")).toBeInTheDocument();
+    expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       2,
       "/api/task-runs",
@@ -289,7 +289,7 @@ describe("task run list", () => {
 
     renderApp();
 
-    expect(await screen.findByText("completed_task")).toBeInTheDocument();
+    expect(await screen.findByText("Completed Task")).toBeInTheDocument();
     expect(screen.getByText("10s")).toBeInTheDocument();
     expect(screen.getByText("success")).toBeInTheDocument();
     expect(screen.getByText("Completed")).toBeInTheDocument();

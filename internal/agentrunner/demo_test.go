@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 type fakeAdapter struct {
@@ -27,8 +29,8 @@ func TestPrepareLayoutRejectsNonDemoNonEmptyDir(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -49,8 +51,8 @@ func TestPrepareLayoutAllowsEmptyExistingDir(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -82,8 +84,8 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -105,7 +107,7 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 		filepath.Join(root, "workspace", ".gemini", "x"): "stale-gemini",
 		filepath.Join(root, "templates", "old.yaml"):     "stale-template",
 		filepath.Join(root, "config.json"):               "stale-config",
-		filepath.Join(root, "prompt.md"):                 "stale-prompt",
+		filepath.Join(root, "prompt.yaml"):               "stale-prompt",
 		filepath.Join(root, "claude_mcp_config.json"):    "stale-agent-config",
 		filepath.Join(root, "centian.pid"):               "12345\n",
 	} {
@@ -140,7 +142,7 @@ func TestPrepareLayoutReusesDemoRootAndPreservesHistory(t *testing.T) {
 		filepath.Join(root, "workspace", ".gemini", "x"),
 		filepath.Join(root, "templates", "old.yaml"),
 		filepath.Join(root, "config.json"),
-		filepath.Join(root, "prompt.md"),
+		filepath.Join(root, "prompt.yaml"),
 		filepath.Join(root, "claude_mcp_config.json"),
 		filepath.Join(root, "centian.pid"),
 	} {
@@ -176,8 +178,8 @@ func TestPrepareLayoutBlocksLivePID(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return true }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -198,8 +200,8 @@ func TestPrepareLayoutRemovesStalePID(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
 	processExistsFunc = func(int) bool { return false }
 	defer func() {
-		allocateFreePortFunc = allocateFreePort
-		processExistsFunc = processExists
+		allocateFreePortFunc = common.AllocateFreePort
+		processExistsFunc = common.ProcessExists
 	}()
 
 	root := filepath.Join(t.TempDir(), "demo")
@@ -221,7 +223,7 @@ func TestPrepareLayoutRemovesStalePID(t *testing.T) {
 
 func TestRenderAssetsWritesExpectedFiles(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = allocateFreePort }()
+	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	root := filepath.Join(t.TempDir(), "demo")
 	layout, err := prepareLayout(&DemoOptions{RootPath: root})
@@ -309,7 +311,7 @@ func TestGeminiCommandConstruction(t *testing.T) {
 
 func TestGeminiWriteConfig(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = allocateFreePort }()
+	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	root := filepath.Join(t.TempDir(), "demo")
 	layout, err := prepareLayout(&DemoOptions{RootPath: root})
@@ -328,14 +330,14 @@ func TestRunAgentAppendsLogs(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "demo")
 	layout := &demoLayout{
 		WorkspacePath:   root,
-		PromptPath:      filepath.Join(root, "prompt.md"),
+		PromptPath:      filepath.Join(root, "prompt.yaml"),
 		AgentStdoutPath: filepath.Join(root, "agent.stdout.log"),
 		AgentStderrPath: filepath.Join(root, "agent.stderr.log"),
 	}
 	if err := os.MkdirAll(layout.WorkspacePath, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
 	}
-	if err := os.WriteFile(layout.PromptPath, []byte("prompt"), 0o644); err != nil {
+	if err := os.WriteFile(layout.PromptPath, []byte("prompt: |\n  prompt\n"), 0o644); err != nil {
 		t.Fatalf("write prompt: %v", err)
 	}
 
@@ -377,8 +379,8 @@ func TestRunAgentAppendsLogs(t *testing.T) {
 
 func TestWritePIDAndStopHint(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "centian.pid")
-	if err := writePID(path, 12345); err != nil {
-		t.Fatalf("writePID: %v", err)
+	if err := common.WritePIDFile(path, 12345); err != nil {
+		t.Fatalf("WritePIDFile: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -387,17 +389,17 @@ func TestWritePIDAndStopHint(t *testing.T) {
 	if strings.TrimSpace(string(data)) != "12345" {
 		t.Fatalf("unexpected pid file contents: %q", string(data))
 	}
-	if got := shellQuote(path); !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
+	if got := common.ShellQuote(path); !strings.HasPrefix(got, "'") || !strings.HasSuffix(got, "'") {
 		t.Fatalf("shellQuote should single-quote the path, got %q", got)
 	}
 }
 
 func TestRunDemoUnsupportedAgent(t *testing.T) {
 	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = allocateFreePort }()
+	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
 
 	_, err := (DemoRunner{}).RunDemo(context.Background(), &DemoOptions{
-		Agent:             "unsupported-agent",
+		Execution:         AgentExecutionOptions{Agent: "unsupported-agent"},
 		RootPath:          filepath.Join(t.TempDir(), "demo"),
 		CentianBinaryPath: "/tmp/centian",
 		Timeout:           time.Second,
@@ -455,6 +457,31 @@ func TestCodexCommandConstruction(t *testing.T) {
 	}
 }
 
+func TestCodexOllamaCommandConstruction(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseConfigPath := filepath.Join(tmpDir, "base.toml")
+	if err := os.WriteFile(baseConfigPath, []byte("[profiles.local-oss]\nmodel = \"gpt-oss-20b\"\n"), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+	layout := &demoLayout{CodexConfig: "/tmp/demo/codex-home/config.toml"}
+
+	command, err := codexOllamaAdapter{profile: "local-oss", baseConfigPath: baseConfigPath}.command(layout, "prompt")
+	if err != nil {
+		t.Fatalf("command: %v", err)
+	}
+
+	joined := strings.Join(command, " ")
+	for _, expected := range []string{
+		"codex",
+		"--oss",
+		"--profile local-oss",
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected %q in command %q", expected, joined)
+		}
+	}
+}
+
 func TestCodexEnvSetsCODEXHOME(t *testing.T) {
 	// Given: a Codex adapter with a layout
 	layout := &demoLayout{
@@ -492,7 +519,73 @@ func TestCodexWriteConfig(t *testing.T) {
 	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
 	assertFileContains(t, layout.CodexConfig, `model = "o3"`)
 	assertFileContains(t, layout.CodexConfig, "/tmp/demo/workspace")
+	assertFileContains(t, layout.CodexConfig, `sandbox_mode = "read-only"`)
 	assertFileContains(t, layout.CodexConfig, `default_tools_approval_mode = "auto"`)
+	assertFileContains(t, layout.CodexConfig, `destructive_enabled = false`)
+	assertFileContains(t, layout.CodexConfig, `open_world_enabled = false`)
+	data, err := os.ReadFile(layout.CodexConfig)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "__MODEL_BLOCK__") {
+		t.Fatalf("expected placeholder removed, got:\n%s", string(data))
+	}
+}
+
+func TestCodexOllamaWriteConfigRequiresBaseConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	err := (codexOllamaAdapter{}).writeConfig(layout)
+	if err == nil || err.Error() != "codex-ollama requires --codex-config pointing to a Codex config with local OSS profiles" {
+		t.Fatalf("expected missing codex config error, got %v", err)
+	}
+}
+
+func TestCodexWriteConfigPatchesCustomBase(t *testing.T) {
+	tmpDir := t.TempDir()
+	baseConfigPath := filepath.Join(tmpDir, "base.toml")
+	baseConfig := `
+model = "ignored"
+oss_provider = "ollama"
+
+[mcp_servers.centian]
+url = "http://old"
+enabled = true
+
+[profiles.custom]
+model_provider = "ollama"
+model = "custom:1b"
+`
+	if err := os.WriteFile(baseConfigPath, []byte(baseConfig), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+
+	layout := &demoLayout{
+		MCPURL:        "http://127.0.0.1:12345/mcp/taskverification",
+		WorkspacePath: "/tmp/demo/workspace",
+		CodexConfig:   filepath.Join(tmpDir, "codex-home", "config.toml"),
+	}
+
+	if err := (codexOllamaAdapter{baseConfigPath: baseConfigPath}).writeConfig(layout); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(layout.CodexConfig)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, `url = "http://old"`) {
+		t.Fatalf("expected old centian block removed, got:\n%s", content)
+	}
+	assertFileContains(t, layout.CodexConfig, `[profiles.custom]`)
+	assertFileContains(t, layout.CodexConfig, `url = "http://127.0.0.1:12345/mcp/taskverification"`)
+	assertFileContains(t, layout.CodexConfig, `[projects."/tmp/demo/workspace"]`)
 }
 
 func TestCodexWriteConfigNoModel(t *testing.T) {
@@ -517,6 +610,9 @@ func TestCodexWriteConfigNoModel(t *testing.T) {
 	}
 	if strings.Contains(string(data), "model =") {
 		t.Fatalf("expected no model line, got:\n%s", string(data))
+	}
+	if strings.Contains(string(data), "__MODEL_BLOCK__") {
+		t.Fatalf("expected placeholder removed, got:\n%s", string(data))
 	}
 }
 
@@ -585,7 +681,7 @@ func TestCodexCleanupRemovesDemoHome(t *testing.T) {
 
 func TestSelectAdapterCodex(t *testing.T) {
 	// Given: demo options with agent "codex"
-	opts := &DemoOptions{Agent: "codex", CodexModel: "o3"}
+	opts := &DemoOptions{Execution: AgentExecutionOptions{Agent: "codex", Model: "o3"}}
 
 	// When: selecting the adapter
 	adapter, err := selectAdapter(opts)
@@ -596,5 +692,23 @@ func TestSelectAdapterCodex(t *testing.T) {
 	}
 	if adapter.name() != AgentCodex {
 		t.Fatalf("expected codex adapter, got %q", adapter.name())
+	}
+}
+
+func TestSelectAdapterCodexOllama(t *testing.T) {
+	opts := &DemoOptions{
+		Execution: AgentExecutionOptions{
+			Agent:           AgentCodexOllama,
+			Profile:         "local-oss",
+			CodexConfigPath: "/tmp/codex.toml",
+		},
+	}
+
+	adapter, err := selectAdapter(opts)
+	if err != nil {
+		t.Fatalf("selectAdapter: %v", err)
+	}
+	if adapter.name() != AgentCodexOllama {
+		t.Fatalf("expected codex-ollama adapter, got %q", adapter.name())
 	}
 }

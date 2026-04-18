@@ -169,6 +169,14 @@ The current taskverification MCP tools are:
 
 These tools are injected as static proxy-owned tools on the Centian endpoint when `taskVerification.enabled` is true.
 
+Response-shape guidance:
+
+- `centian.task_complete_planning` is the rich execution handoff and returns the frozen execution contract summary plus the next actionable step contract
+- lifecycle tools such as register, onboarding completion, resume, restart, and fail return compact workflow state instead of the full task snapshot
+- `centian.task_start_step` and `centian.task_complete_step` return step-local context on success and compact diagnostics on failure
+- failed step actions are retryable in place unless the response explicitly says restart is required
+- `recoveryActions` is the canonical structured recovery field for failed step actions; `nextAction` mirrors the first recovery action summary
+
 ## Runtime Model
 
 ### Task run
@@ -301,6 +309,7 @@ That next node may be:
 - validates the active workflow node
 - runs preconditions
 - captures invariant baselines
+- leaves the step retryable in place when verification fails before activation
 
 `centian.task_complete_step`:
 
@@ -308,6 +317,7 @@ That next node may be:
 - verifies invariants
 - advances to the next workflow node
 - marks the task completed if there is no next node
+- keeps the step retryable in place when verification fails after activation
 
 ### 5. Resume, restart, and fail
 
@@ -486,6 +496,8 @@ It is not yet a full replacement for:
 
 - Templates: [task-templates](../task-templates)
 - Template Authoring: [TASK_TEMPLATE_AUTHORING.md](./TASK_TEMPLATE_AUTHORING.md)
+- Benchmark CLI and fixtures: [tests/integrationtests/taskverification/benchmarks](../tests/integrationtests/taskverification/benchmarks)
+- Benchmarking guide: [BENCHMARKING.md](./BENCHMARKING.md)
 - Runtime: [internal/taskverification](../internal/taskverification)
 - Proxy tool surface: [proxy_taskverification_tools.go](../internal/proxy/proxy_taskverification_tools.go)
 - Persistence projections: [store.go](../internal/persistence/store.go)

@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.0 - 2026-04-18
+
+### Major
+- Added a first-class benchmarking workflow for taskverification, including the new `centian benchmark run` CLI, repeatable suite/case fixtures, preserved per-run artifacts, inline run scoring, and SQLite-backed persistence for benchmark sessions, runs, and derived scorecards.
+- Added benchmark observability to the embedded product surface with read-only API routes under `/api/benchmarks/*` and new UI pages under `/ui/benchmarks` for suite, session, run, and comparison views broken down by template variant and agent/model.
+- Refactored taskverification runtime state around a dedicated service and persisted run snapshots/stats, freezing richer execution contracts at planning completion and surfacing compact workflow/lifecycle responses plus structured recovery hints for step execution.
+
+### Minor
+- Added `codex-ollama` support to the local `centian demo` and benchmark runner flows, including explicit Codex profile/config handling, shared model/profile flag normalization, and updated README guidance for hosted vs local Codex runs.
+- Added repository-side benchmark documentation, checked-in benchmark suites for `simple_tdd` and the demo workflow, smoke coverage, and Makefile helpers for running and inspecting local benchmark sessions.
+- Added conservative tool-hint override options for gateways (`forceReadOnlyHints` and `forceSafeToolHints`) and propagated those metadata overrides across Centian-owned tools and downstream registrations.
+
+### Bugfixes
+- Fixed taskverification step failures so failed preconditions, postconditions, and invariant checks stay retryable in place instead of unnecessarily forcing a restart.
+- Fixed task-run persistence and derived stats so benchmark and task UI/API reads can rebuild consistent timing, call-count, and failure aggregates from persisted snapshots and linked action/task events.
+- Fixed the Codex runtime config patching flow to replace existing MCP/project blocks deterministically and to keep demo-local Codex runs on conservative non-destructive defaults.
+
 ## v0.3.3 - 2026-04-06
 
 ### Major

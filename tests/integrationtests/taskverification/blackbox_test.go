@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/persistence"
 	tv "github.com/T4cceptor/centian/internal/taskverification"
 	"gopkg.in/yaml.v3"
@@ -70,10 +71,6 @@ type requestLogEntry struct {
 		OriginalName string `json:"original_name"`
 		IsError      bool   `json:"is_error"`
 	} `json:"tool_call"`
-}
-
-type promptFile struct {
-	Prompt string `yaml:"prompt"`
 }
 
 func TestTaskVerificationBlackBox(t *testing.T) {
@@ -306,15 +303,11 @@ func writeCentianConfig(
 func loadUserPrompt(t *testing.T, assetsDir string) string {
 	t.Helper()
 
-	content := loadAsset(t, assetsDir, "prompt.yaml")
-	var file promptFile
-	if err := yaml.Unmarshal([]byte(content), &file); err != nil {
-		t.Fatalf("failed to parse prompt.yaml: %v", err)
+	prompt, err := common.LoadPromptDefinition(filepath.Join(assetsDir, "prompt.yaml"))
+	if err != nil {
+		t.Fatalf("failed to load prompt.yaml: %v", err)
 	}
-	if strings.TrimSpace(file.Prompt) == "" {
-		t.Fatalf("prompt.yaml does not contain a prompt")
-	}
-	return strings.TrimSpace(file.Prompt)
+	return prompt.Prompt
 }
 
 func selectedAgentAdapters() []agentAdapter {
@@ -560,19 +553,18 @@ func waitForCentian(t *testing.T, h *blackboxHarness) {
 	t.Helper()
 
 	client := &http.Client{Timeout: 2 * time.Second}
-	deadline := time.Now().Add(45 * time.Second)
 	apiURL := h.baseURL + "/api/task-runs"
-
-	for time.Now().Before(deadline) {
-		mcpReady := isEndpointReachable(client, h.mcpURL)
-		apiReady := isJSONEndpointReady(client, apiURL)
-		if mcpReady && apiReady {
-			fmt.Printf("Task UI: %s/ui/tasks\n", h.baseURL)
-			return
-		}
-		time.Sleep(500 * time.Millisecond)
+	err := common.WaitForReadiness(client, 45*time.Second, 500*time.Millisecond, nil, func(client *http.Client) bool {
+		return isEndpointReachable(client, h.mcpURL) && isJSONEndpointReady(client, apiURL)
+	})
+	if err == nil {
+		fmt.Printf("Task UI: %s/ui/tasks\n", h.baseURL)
+		return
 	}
-	t.Fatalf("centian did not become ready in time; artifacts: %s", h.artifactsDir)
+	if errors.Is(err, common.ErrReadinessTimeout) {
+		t.Fatalf("centian did not become ready in time; artifacts: %s", h.artifactsDir)
+	}
+	t.Fatalf("centian readiness check failed: %v; artifacts: %s", err, h.artifactsDir)
 }
 
 func isEndpointReachable(client *http.Client, endpoint string) bool {

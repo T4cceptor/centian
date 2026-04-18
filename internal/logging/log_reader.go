@@ -159,7 +159,7 @@ func FormatDisplayLine(entry *AnnotatedLogEntry) string {
 	if entry.Event.Error != "" {
 		detail = entry.Event.Error
 	}
-	detail = truncate(detail, 80)
+	detail = common.TruncateString(detail, 80)
 
 	sessionInfo := baseEvent.SessionID
 	if sessionInfo == "" {
@@ -217,17 +217,4 @@ func readLogFile(path string) ([]common.LogEntry, error) {
 	}
 
 	return entries, nil
-}
-
-func truncate(s string, limit int) string {
-	if limit <= 0 || len(s) <= limit {
-		return s
-	}
-
-	const ellipsis = "..."
-	if limit <= len(ellipsis) {
-		return ellipsis
-	}
-
-	return s[:limit-len(ellipsis)] + ellipsis
 }

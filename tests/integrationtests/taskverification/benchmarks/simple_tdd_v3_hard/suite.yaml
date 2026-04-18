@@ -1,0 +1,18 @@
+version: "0.1"
+
+suite:
+  id: "simple_tdd_v3_hard"
+  name: "Simple TDD Benchmark Suite v3"
+  description: "Initial local benchmark suite for the simple_tdd template."
+  templateId: "simple_tdd"
+  localOnly: true
+  scoringSchemaVersion: "v1"
+  executionProtocolVersion: "v1"
+
+cases:
+  - id: "compile_failure_red"
+    path: "cases/compile_failure_red"
+  - id: "assertion_failure_red"
+    path: "cases/assertion_failure_red"
+  - id: "green_then_refactor"
+    path: "cases/green_then_refactor"

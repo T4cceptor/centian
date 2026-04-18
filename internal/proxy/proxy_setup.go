@@ -11,6 +11,7 @@ import (
 
 	centapi "github.com/T4cceptor/centian/internal/api"
 	centauth "github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/benchmarks"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
@@ -145,24 +146,16 @@ func newProjectTaskVerificationService(
 	logger *logging.Logger,
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
 	templateDir := resolveProjectTaskTemplatesPath(projectConfig, workingDir)
-	taskService := taskverification.NewService(templateDir, workingDir)
-
 	eventStorage := projectConfig.EventStorageCapability()
-	if eventStorage != nil && !eventStorage.IsEnabled() {
-		return taskService, nil, noopCloser{}, nil
-	}
-
-	storePath, err := resolveProjectEventStorePath(eventStorage, projectSlug)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	store, err := persistence.NewSQLiteStore(storePath)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
-	}
-	taskService.EventStore = store
-	logger.SetActionEventStore(store)
-	return taskService, store, store, nil
+	return buildTaskVerificationService(
+		templateDir,
+		workingDir,
+		logger,
+		eventStorage == nil || eventStorage.IsEnabled(),
+		func() (string, error) {
+			return resolveProjectEventStorePath(eventStorage, projectSlug)
+		},
+	)
 }
 
 func resolveProjectTaskTemplatesPath(projectConfig *config.ProjectConfig, workingDir string) string {
@@ -256,6 +249,32 @@ type noopCloser struct{}
 // Close implements io.Closer for no-op cleanup paths.
 func (noopCloser) Close() error {
 	return nil
+}
+
+func buildTaskVerificationService(
+	templateDir string,
+	workingDir string,
+	logger *logging.Logger,
+	eventStorageEnabled bool,
+	resolveStorePath func() (string, error),
+) (*taskverification.Service, *persistence.Store, io.Closer, error) {
+	taskService := taskverification.NewService(templateDir, workingDir)
+	if !eventStorageEnabled {
+		return taskService, nil, noopCloser{}, nil
+	}
+
+	storePath, err := resolveStorePath()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	store, err := persistence.NewSQLiteStore(storePath)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
+	}
+	taskService.EventStore = store
+	taskService.RunStore = store
+	logger.SetActionEventStore(store)
+	return taskService, store, store, nil
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints for every project.
@@ -357,6 +376,9 @@ func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
 		return wrapWithAPIKeyAuth(c, project.Slug, next)
 	})
 
+	centapi.NewBenchmarkHandler(benchmarks.NewReadService(project.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, project.Slug, next)
+	})
 	if project.Config != nil && project.Config.UIEnabled() {
 		centui.NewHandler().RegisterRoutes(c.Mux)
 	}

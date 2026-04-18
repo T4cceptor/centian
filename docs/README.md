@@ -13,4 +13,5 @@ This directory is the canonical documentation surface for Centian. The top-level
 - [Processor Development Guide](processor_development_guide.md) for CLI and webhook processors.
 - [Task Template Authoring](TASK_TEMPLATE_AUTHORING.md) for authoring workflow YAML.
 - [Taskverification Runtime](TASKVERIFICATION.md) for the runtime model and task tool lifecycle.
+- [Benchmarking](BENCHMARKING.md) for benchmark suites, preserved artifacts, scorecards, and benchmark UI/API behavior.
 - [MCP Proxy Best Practices](mcp_proxy_best_practices.md) for deployment, gateway design, auth, processors, and taskverification guidance.

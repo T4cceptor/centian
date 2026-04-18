@@ -315,6 +315,7 @@ func TestNewCentianServer_DefaultEventStorageCreatesSQLiteStore(t *testing.T) {
 	assert.Assert(t, !info.IsDir())
 	assert.Equal(t, filepath.Dir(defaultPath), logDir)
 	assert.Assert(t, server.TaskVerification.EventStore != nil)
+	assert.Assert(t, server.TaskVerification.RunStore == server.PersistenceStore)
 	assert.Assert(t, server.PersistenceStore != nil)
 	assert.Equal(t, server.TaskVerification.TemplateDir, filepath.Join(mustGetwd(t), "task-templates"))
 }
