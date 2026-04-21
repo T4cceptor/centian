@@ -11,9 +11,9 @@ import (
 )
 
 type legacyBenchmarkRunLinkRow struct {
-	BenchmarkRunID       string
-	LatestTaskRunID      sql.NullString
-	LinkedTaskRunIDsJSON json.RawMessage
+	BenchmarkRunID       string          `bun:"benchmark_run_id"`
+	LatestTaskRunID      sql.NullString  `bun:"latest_task_run_id"`
+	LinkedTaskRunIDsJSON json.RawMessage `bun:"linked_task_run_ids_json"`
 }
 
 func (s *Store) migrateV5ToV6(ctx context.Context) error {

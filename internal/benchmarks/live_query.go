@@ -518,8 +518,8 @@ func (s *QueryService) aggregateTaskRunStats(ctx context.Context, linkedRunIDs [
 			return nil, err
 		}
 		if aggregate == nil {
-			copy := *stats
-			aggregate = &copy
+			statsCopy := *stats
+			aggregate = &statsCopy
 			continue
 		}
 		aggregate.TaskToolCallCount += stats.TaskToolCallCount

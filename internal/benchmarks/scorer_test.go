@@ -169,7 +169,7 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stderr.log"), []byte{}, 0o644))
 
 	taskRunID := map[string]string{
-		"compile_failure_red":  "tr_compile",
+		"compile_failure_red":   "tr_compile",
 		"assertion_failure_red": "tr_assert",
 	}[entry.CaseID]
 	events := syntheticEventsForCase(entry.CaseID)
@@ -194,19 +194,19 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 	}
 
 	run := &RunManifest{
-		SuiteID:             "simple_tdd_v1",
-		SuiteName:           "Simple TDD Benchmark Suite v1",
-		CaseID:              entry.CaseID,
-		CaseName:            entry.CaseName,
-		TemplateID:          "simple_tdd",
-		TemplateName:        "Simple TDD Current",
-		TemplateVariant:     TemplateVariant{Name: "current"},
-		AgentID:             entry.AgentID,
-		SelectedModel:       syntheticSelectedModel(entry.AgentID, opts),
-		StartedAt:           time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
-		EndedAt:             time.Date(2026, 4, 4, 12, 0, 5, 0, time.UTC),
-		Status:              "completed",
-		LinkedTaskRunIDs:    []string{taskRunID},
+		SuiteID:          "simple_tdd_v1",
+		SuiteName:        "Simple TDD Benchmark Suite v1",
+		CaseID:           entry.CaseID,
+		CaseName:         entry.CaseName,
+		TemplateID:       "simple_tdd",
+		TemplateName:     "Simple TDD Current",
+		TemplateVariant:  TemplateVariant{Name: "current"},
+		AgentID:          entry.AgentID,
+		SelectedModel:    syntheticSelectedModel(entry.AgentID, opts),
+		StartedAt:        time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
+		EndedAt:          time.Date(2026, 4, 4, 12, 0, 5, 0, time.UTC),
+		Status:           "completed",
+		LinkedTaskRunIDs: []string{taskRunID},
 		ArtifactPaths: RunArtifactPaths{
 			RunDir:               runDir,
 			ProjectDir:           projectDir,

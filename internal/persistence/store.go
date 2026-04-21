@@ -67,24 +67,24 @@ type TaskRunFilter struct {
 
 // TaskRunBenchmarkLink is the benchmark metadata associated with one task run.
 type TaskRunBenchmarkLink struct {
-	BenchmarkRunID   string `json:"benchmarkRunId"`
-	SessionID        string `json:"sessionId"`
-	SessionPath      string `json:"sessionPath,omitempty"`
-	SuiteID          string `json:"suiteId"`
-	SuiteName        string `json:"suiteName,omitempty"`
-	CaseID           string `json:"caseId"`
-	CaseName         string `json:"caseName,omitempty"`
-	Agent            string `json:"agent"`
-	SelectedModel    string `json:"selectedModel,omitempty"`
-	TemplateVariant  string `json:"templateVariant"`
-	Attempt          int    `json:"attempt"`
-	StartedAtUnixMilli int64 `json:"startedAtUnixMilli"`
+	BenchmarkRunID     string `json:"benchmarkRunId"`
+	SessionID          string `json:"sessionId"`
+	SessionPath        string `json:"sessionPath,omitempty"`
+	SuiteID            string `json:"suiteId"`
+	SuiteName          string `json:"suiteName,omitempty"`
+	CaseID             string `json:"caseId"`
+	CaseName           string `json:"caseName,omitempty"`
+	Agent              string `json:"agent"`
+	SelectedModel      string `json:"selectedModel,omitempty"`
+	TemplateVariant    string `json:"templateVariant"`
+	Attempt            int    `json:"attempt"`
+	StartedAtUnixMilli int64  `json:"startedAtUnixMilli"`
 }
 
 // TaskRunDetailMetadata is the non-event metadata used by the task-run detail view.
 type TaskRunDetailMetadata struct {
-	RunID           string                 `json:"runId"`
-	BenchmarkLinks  []TaskRunBenchmarkLink `json:"benchmarkLinks,omitempty"`
+	RunID          string                 `json:"runId"`
+	BenchmarkLinks []TaskRunBenchmarkLink `json:"benchmarkLinks,omitempty"`
 }
 
 // TaskRunEventSource identifies where one timeline row originated.

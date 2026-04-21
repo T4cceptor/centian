@@ -87,24 +87,24 @@ type SessionRunManifestEntry struct {
 
 // RunManifest describes one concrete benchmark run.
 type RunManifest struct {
-	SuiteID             string           `json:"suiteId"`
-	SuiteName           string           `json:"suiteName,omitempty"`
-	CaseID              string           `json:"caseId"`
-	CaseName            string           `json:"caseName,omitempty"`
-	TemplateID          string           `json:"templateId"`
-	TemplateName        string           `json:"templateName,omitempty"`
-	TemplateVariant     TemplateVariant  `json:"templateVariant"`
-	AgentID             string           `json:"agentId"`
-	Attempt             int              `json:"attempt"`
-	SelectedModel       string           `json:"selectedModel,omitempty"`
-	StartedAt           time.Time        `json:"startedAt"`
-	EndedAt             time.Time        `json:"endedAt"`
-	Status              string           `json:"status"`
-	UIPublicURL         string           `json:"uiPublicUrl,omitempty"`
-	CentianPID          int              `json:"centianPid,omitempty"`
-	LinkedTaskRunIDs    []string         `json:"linkedTaskRunIds,omitempty"`
-	ArtifactPaths       RunArtifactPaths `json:"artifactPaths"`
-	ErrorSummary        string           `json:"errorSummary,omitempty"`
+	SuiteID          string           `json:"suiteId"`
+	SuiteName        string           `json:"suiteName,omitempty"`
+	CaseID           string           `json:"caseId"`
+	CaseName         string           `json:"caseName,omitempty"`
+	TemplateID       string           `json:"templateId"`
+	TemplateName     string           `json:"templateName,omitempty"`
+	TemplateVariant  TemplateVariant  `json:"templateVariant"`
+	AgentID          string           `json:"agentId"`
+	Attempt          int              `json:"attempt"`
+	SelectedModel    string           `json:"selectedModel,omitempty"`
+	StartedAt        time.Time        `json:"startedAt"`
+	EndedAt          time.Time        `json:"endedAt"`
+	Status           string           `json:"status"`
+	UIPublicURL      string           `json:"uiPublicUrl,omitempty"`
+	CentianPID       int              `json:"centianPid,omitempty"`
+	LinkedTaskRunIDs []string         `json:"linkedTaskRunIds,omitempty"`
+	ArtifactPaths    RunArtifactPaths `json:"artifactPaths"`
+	ErrorSummary     string           `json:"errorSummary,omitempty"`
 }
 
 // RunArtifactPaths lists the raw artifacts captured for one run.

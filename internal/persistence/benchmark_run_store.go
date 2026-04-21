@@ -189,21 +189,12 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context, filter *BenchmarkRunFilte
 	}
 	rows := make([]benchmarkRunRow, 0)
 	query := s.db.NewSelect().Model(&rows)
-	if strings.TrimSpace(filter.SessionID) != "" {
-		query = query.Where("session_id = ?", filter.SessionID)
-	} else if strings.TrimSpace(filter.SuiteID) != "" {
-		sessions, err := s.ListBenchmarkSessions(ctx, BenchmarkSessionFilter{SuiteID: filter.SuiteID})
-		if err != nil {
-			return nil, err
-		}
-		sessionIDs := make([]string, 0, len(sessions))
-		for idx := range sessions {
-			sessionIDs = append(sessionIDs, sessions[idx].SessionID)
-		}
-		if len(sessionIDs) == 0 {
-			return nil, nil
-		}
-		query = query.Where("session_id IN (?)", bun.List(sessionIDs))
+	empty, err := s.applyBenchmarkRunSessionFilter(ctx, query, filter)
+	if err != nil {
+		return nil, err
+	}
+	if empty {
+		return nil, nil
 	}
 	if strings.TrimSpace(filter.CaseID) != "" {
 		query = query.Where("case_id = ?", filter.CaseID)
@@ -230,6 +221,29 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context, filter *BenchmarkRunFilte
 		return nil, err
 	}
 	return records, nil
+}
+
+func (s *Store) applyBenchmarkRunSessionFilter(ctx context.Context, query *bun.SelectQuery, filter *BenchmarkRunFilter) (bool, error) {
+	if strings.TrimSpace(filter.SessionID) != "" {
+		query.Where("session_id = ?", filter.SessionID)
+		return false, nil
+	}
+	if strings.TrimSpace(filter.SuiteID) == "" {
+		return false, nil
+	}
+	sessions, err := s.ListBenchmarkSessions(ctx, BenchmarkSessionFilter{SuiteID: filter.SuiteID})
+	if err != nil {
+		return false, err
+	}
+	sessionIDs := make([]string, 0, len(sessions))
+	for idx := range sessions {
+		sessionIDs = append(sessionIDs, sessions[idx].SessionID)
+	}
+	if len(sessionIDs) == 0 {
+		return true, nil
+	}
+	query.Where("session_id IN (?)", bun.List(sessionIDs))
+	return false, nil
 }
 
 // GetBenchmarkSession returns one benchmark session by id.
