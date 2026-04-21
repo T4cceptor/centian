@@ -314,7 +314,7 @@ func applyConnectionAuthToolState(state *authToolState, conn DownstreamConnectio
 }
 
 func (p *CentianEndpoint) handleAuthStatusTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if session != nil && session.rootsDirty {
+	if p.sessionRootsDirty(session) {
 		p.syncUpstreamSessionState(ctx, session.id)
 	}
 	states := p.buildAuthToolStates(session)
@@ -429,7 +429,7 @@ func (p *CentianEndpoint) handleLoginTool(
 	serverName string,
 	_ *mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	if session != nil && session.rootsDirty {
+	if p.sessionRootsDirty(session) {
 		p.syncUpstreamSessionState(ctx, session.id)
 	}
 
