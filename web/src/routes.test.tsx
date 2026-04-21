@@ -635,7 +635,7 @@ describe("task run detail", () => {
     expect(screen.getByText("Back to task runs")).toBeInTheDocument();
   });
 
-  it("renders benchmark context links for benchmark-linked task runs", async () => {
+  it("renders a benchmark run link for benchmark-linked task runs", async () => {
     globalThis.fetch = vi.fn((input) => {
       const url = String(input);
       if (url.endsWith("/events")) {
@@ -675,17 +675,11 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Benchmark Context")).toBeInTheDocument();
-    expect(screen.getByText("Linked benchmark runs")).toBeInTheDocument();
-    expect(screen.getByText("Assertion-failure red baseline")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open benchmark run" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "Benchmark Run" })).toHaveAttribute(
       "href",
       "/benchmarks/simple_tdd_v1/runs/ba_score",
     );
-    expect(screen.getByRole("link", { name: "Show suite task runs" })).toHaveAttribute(
-      "href",
-      "/tasks?benchmarkSuite=simple_tdd_v1",
-    );
+    expect(screen.queryByText("Benchmark Context")).not.toBeInTheDocument();
   });
 
   it("renders grouped mixed timeline exchanges and shows selected details in the side inspector", async () => {

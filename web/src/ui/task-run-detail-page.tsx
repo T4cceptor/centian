@@ -55,6 +55,7 @@ export function TaskRunDetailPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
+  const benchmarkLink = detailMetadata?.benchmarkLinks?.[0];
 
   useEffect(() => {
     if (!runID) {
@@ -307,10 +308,7 @@ export function TaskRunDetailPage() {
         </div>
       </header>
 
-      <RunMetadataBar stats={runStats} now={now} />
-      {detailMetadata?.benchmarkLinks && detailMetadata.benchmarkLinks.length > 0 ? (
-        <BenchmarkContextPanel links={detailMetadata.benchmarkLinks} />
-      ) : null}
+      <RunMetadataBar stats={runStats} now={now} benchmarkLink={benchmarkLink} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -527,6 +525,8 @@ function DetailStateCard({
   );
 }
 
+type BenchmarkLinkTarget = NonNullable<TaskRunDetailMetadata["benchmarkLinks"]>[number];
+
 // Summary numbers shown above the timeline.
 type RunStats = {
   startedAt: number | undefined;
@@ -535,36 +535,16 @@ type RunStats = {
   totalEvents: number;
 };
 
-function BenchmarkContextPanel({ links }: { links: NonNullable<TaskRunDetailMetadata["benchmarkLinks"]> }) {
-  return (
-    <section className="task-run-benchmark-context">
-      <div className="task-run-benchmark-context__header">
-        <div>
-          <p className="state-card__eyebrow">Benchmark Context</p>
-          <h3>Linked benchmark runs</h3>
-        </div>
-        <p>{links.length} linked benchmark run{links.length === 1 ? "" : "s"}</p>
-      </div>
-      <div className="task-run-benchmark-context__grid">
-        {links.map((link) => (
-          <article key={`${link.benchmarkRunId}:${link.caseId}:${link.attempt}`} className="task-run-benchmark-card">
-            <h4>{link.caseName || link.caseId}</h4>
-            <p>{link.suiteName || link.suiteId}</p>
-            <p>{link.agent}{link.selectedModel ? ` / ${link.selectedModel}` : ""} · {link.templateVariant} · attempt {link.attempt}</p>
-            <p>Started {formatTimestamp(link.startedAtUnixMilli)}</p>
-            <div className="task-run-benchmark-card__links">
-              <Link to={`/benchmarks/${link.suiteId}/runs/${link.benchmarkRunId}`}>Open benchmark run</Link>
-              <Link to={`/tasks?benchmarkSuite=${encodeURIComponent(link.suiteId)}`}>Show suite task runs</Link>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 // Displays the headline metrics for the selected run.
-function RunMetadataBar({ stats, now }: { stats: RunStats; now: number }) {
+function RunMetadataBar({
+  stats,
+  now,
+  benchmarkLink,
+}: {
+  stats: RunStats;
+  now: number;
+  benchmarkLink?: BenchmarkLinkTarget;
+}) {
   // Shared inline styles keep the compact metadata row visually consistent.
   const cellStyle: CSSProperties = {
     display: "flex",
@@ -624,6 +604,15 @@ function RunMetadataBar({ stats, now }: { stats: RunStats; now: number }) {
           <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
         </div>
       )}
+
+      {benchmarkLink ? (
+        <Link
+          className="task-run-detail__benchmark-link"
+          to={`/benchmarks/${benchmarkLink.suiteId}/runs/${benchmarkLink.benchmarkRunId}`}
+        >
+          Benchmark Run
+        </Link>
+      ) : null}
     </div>
   );
 }
