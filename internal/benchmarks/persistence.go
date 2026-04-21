@@ -97,8 +97,6 @@ func buildRunRecord(run *RunManifest) (*persistence.BenchmarkRunRecord, error) {
 		StartedAtUnixMilli:   common.BestTime(run.StartedAt, run.EndedAt).UnixMilli(),
 		EndedAtUnixMilli:     common.TimePointerMillis(run.EndedAt),
 		Status:               run.Status,
-		LatestTaskRunID:      run.LatestTaskRunID,
-		LatestTaskRunStatus:  run.LatestTaskRunStatus,
 		LinkedTaskRunIDs:     append([]string(nil), run.LinkedTaskRunIDs...),
 		RunDir:               run.ArtifactPaths.RunDir,
 		ProjectDir:           run.ArtifactPaths.ProjectDir,

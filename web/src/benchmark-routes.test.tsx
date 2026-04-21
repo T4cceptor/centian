@@ -352,6 +352,10 @@ describe("benchmark routes", () => {
     expect(screen.getByText("Run History")).toBeInTheDocument();
     expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
     expect(screen.getAllByText("codex / gpt-5.4-mini").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Show task runs" })).toHaveAttribute(
+      "href",
+      "/tasks?benchmarkSuite=simple_tdd_v1",
+    );
   });
 
   it("renders the session detail", async () => {

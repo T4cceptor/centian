@@ -60,7 +60,6 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 			Attempt:         1,
 			RelativeRunDir:  filepath.Join("runs", "current_codex_compile_failure_red_attempt_001"),
 			Status:          "completed",
-			LatestTaskRunID: "tr_compile",
 		},
 		{
 			CaseID:          "assertion_failure_red",
@@ -70,7 +69,6 @@ func writeSyntheticScoringSessionAt(t *testing.T, sessionDir string, opts synthe
 			Attempt:         1,
 			RelativeRunDir:  filepath.Join("runs", "current_claude_assertion_failure_red_attempt_001"),
 			Status:          "completed",
-			LatestTaskRunID: "tr_assert",
 		},
 	}
 
@@ -170,7 +168,10 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 	assert.NilError(t, os.WriteFile(requestLogPath, []byte("{}\n"), 0o644))
 	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stderr.log"), []byte{}, 0o644))
 
-	taskRunID := entry.LatestTaskRunID
+	taskRunID := map[string]string{
+		"compile_failure_red":  "tr_compile",
+		"assertion_failure_red": "tr_assert",
+	}[entry.CaseID]
 	events := syntheticEventsForCase(entry.CaseID)
 	assert.NilError(t, writeSyntheticEventStore(sharedEventStorePath, taskRunID, events))
 	assert.NilError(t, os.WriteFile(filepath.Join(agentDir, "agent.stdout.log"), []byte(syntheticAgentStdout(entry.AgentID)), 0o644))
@@ -205,8 +206,6 @@ func writeSyntheticRun(t *testing.T, sessionDir string, suiteRoot string, shared
 		StartedAt:           time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC),
 		EndedAt:             time.Date(2026, 4, 4, 12, 0, 5, 0, time.UTC),
 		Status:              "completed",
-		LatestTaskRunID:     taskRunID,
-		LatestTaskRunStatus: "completed",
 		LinkedTaskRunIDs:    []string{taskRunID},
 		ArtifactPaths: RunArtifactPaths{
 			RunDir:               runDir,

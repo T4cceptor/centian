@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { type BenchmarkRunDetail, fetchBenchmarkRun } from "../api/benchmarks";
 import { ApiError } from "../api/task-runs";
@@ -167,10 +167,23 @@ export function BenchmarkRunDetailPage() {
           </dl>
         </article>
         <article className="benchmark-detail-card">
-          <h3>Files</h3>
+          <h3>Files & Runs</h3>
           <dl className="benchmark-detail-list">
             <div><dt>Edited Files</dt><dd>{scorecard.efficiency.editedFilesCount}</dd></div>
-            <div><dt>Latest Task Run</dt><dd>{scorecard.latestTaskRunId || "—"}</dd></div>
+            <div>
+              <dt>Linked Task Runs</dt>
+              <dd>
+                {scorecard.linkedTaskRunIds && scorecard.linkedTaskRunIds.length > 0 ? (
+                  <span className="benchmark-linked-run-list">
+                    {scorecard.linkedTaskRunIds.map((taskRunId) => (
+                      <Link key={taskRunId} to={`/tasks/${taskRunId}`}>
+                        {taskRunId}
+                      </Link>
+                    ))}
+                  </span>
+                ) : "—"}
+              </dd>
+            </div>
           </dl>
         </article>
       </section>

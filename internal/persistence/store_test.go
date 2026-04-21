@@ -316,8 +316,6 @@ func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
 		TemplateID:          "simple_tdd",
 		StartedAtUnixMilli:  1000,
 		Status:              "completed",
-		LatestTaskRunID:     "tr_1",
-		LatestTaskRunStatus: "completed",
 		LinkedTaskRunIDs:    []string{"tr_1"},
 		RunDir:              "/tmp/session/run",
 		ProjectDir:          "/tmp/session/run/project",
@@ -575,7 +573,7 @@ func TestListTaskRunsAggregatesSummaries(t *testing.T) {
 	})
 
 	// When: task run summaries are queried.
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 
 	// Then: runs are ordered newest-first with aggregated fields populated.
@@ -648,7 +646,7 @@ func TestListTaskRunsKeepsTimedOutRunsOpen(t *testing.T) {
 		Payload:            json.RawMessage(`{"status":"timed_out"}`),
 	})
 
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusTimedOut))
@@ -693,7 +691,7 @@ func TestListTaskRunsPrefersPersistedSnapshotMetadata(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].TemplateName, "Simple TDD Task")
@@ -722,7 +720,7 @@ func TestListTaskRunsIncludesSnapshotOnlyRuns(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].RunID, "run-only-snapshot")

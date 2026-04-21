@@ -121,7 +121,7 @@ model = "gpt-oss-20b"
 	if run.Status != "completed" {
 		t.Fatalf("expected completed run, got %s", run.Status)
 	}
-	if run.LatestTaskRunID == "" || len(run.LinkedTaskRunIDs) == 0 {
+	if len(run.LinkedTaskRunIDs) == 0 {
 		t.Fatalf("expected linked task runs in manifest: %+v", run)
 	}
 	if _, err := os.Stat(run.ArtifactPaths.RequestLogPath); err != nil {

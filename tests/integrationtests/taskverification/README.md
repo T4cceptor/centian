@@ -75,7 +75,7 @@ For each selected agent, the harness does the following:
 The black-box test currently requires all of the following:
 
 - at least one task run was created
-- the latest task run finished with `completed`
+- the final observed task run finished with `completed`
 - the observed task tool call order includes:
   - `centian.task_list_templates`
   - `centian.task_register`

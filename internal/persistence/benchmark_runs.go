@@ -50,9 +50,6 @@ type benchmarkRunRow struct {
 	StartedAtUnixMilli   int64
 	EndedAtUnixMilli     sql.NullInt64
 	Status               string
-	LatestTaskRunID      string
-	LatestTaskRunStatus  string
-	LinkedTaskRunIDsJSON json.RawMessage `bun:"linked_task_run_ids_json"`
 	RunDir               string
 	ProjectDir           string
 	LogsDir              string
@@ -97,8 +94,6 @@ type BenchmarkRunRecord struct {
 	StartedAtUnixMilli   int64           `json:"startedAtUnixMilli"`
 	EndedAtUnixMilli     *int64          `json:"endedAtUnixMilli,omitempty"`
 	Status               string          `json:"status"`
-	LatestTaskRunID      string          `json:"latestTaskRunId,omitempty"`
-	LatestTaskRunStatus  string          `json:"latestTaskRunStatus,omitempty"`
 	LinkedTaskRunIDs     []string        `json:"linkedTaskRunIds,omitempty"`
 	RunDir               string          `json:"runDir"`
 	ProjectDir           string          `json:"projectDir"`
@@ -130,8 +125,77 @@ type BenchmarkRunFilter struct {
 }
 
 func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
-	// TODO: move to migration?
-	stmts := []string{
+	for _, stmt := range benchmarkRunTableStatementsV6() {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func createLegacyBenchmarkRunTablesV5(ctx context.Context, db bun.IDB) error {
+	for _, stmt := range benchmarkRunTableStatementsV5() {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
+		}
+	}
+	return nil
+}
+
+func benchmarkRunTableStatementsV6() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS benchmark_sessions (
+			session_id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			suite_id TEXT NOT NULL,
+			suite_name TEXT,
+			suite_path TEXT NOT NULL,
+			session_path TEXT NOT NULL,
+			output_root TEXT NOT NULL,
+			template_id TEXT NOT NULL,
+			template_name TEXT,
+			started_at_unix_milli INTEGER NOT NULL,
+			ended_at_unix_milli INTEGER,
+			status TEXT NOT NULL,
+			repeat_count INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_benchmark_sessions_suite_started ON benchmark_sessions(suite_id, started_at_unix_milli DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_benchmark_sessions_path ON benchmark_sessions(session_path)`,
+		`CREATE TABLE IF NOT EXISTS benchmark_runs (
+			benchmark_run_id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			session_id TEXT NOT NULL,
+			case_id TEXT NOT NULL,
+			case_name TEXT,
+			agent TEXT NOT NULL,
+			template_variant TEXT NOT NULL,
+			attempt INTEGER NOT NULL,
+			template_id TEXT NOT NULL,
+			template_name TEXT,
+			selected_model TEXT,
+			started_at_unix_milli INTEGER NOT NULL,
+			ended_at_unix_milli INTEGER,
+			status TEXT NOT NULL,
+			run_dir TEXT NOT NULL,
+			project_dir TEXT NOT NULL,
+			logs_dir TEXT NOT NULL,
+			agent_dir TEXT NOT NULL,
+			config_path TEXT NOT NULL,
+			event_store_mode TEXT,
+			event_store_path TEXT,
+			request_log_path TEXT,
+			selected_template_path TEXT,
+			error_summary TEXT,
+			agent_metadata_json BLOB,
+			FOREIGN KEY(session_id) REFERENCES benchmark_sessions(session_id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_benchmark_runs_session_case_agent_variant ON benchmark_runs(session_id, case_id, agent, template_variant, attempt)`,
+		`CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_lookup ON benchmark_runs(template_id, agent, template_variant)`,
+	}
+}
+
+func benchmarkRunTableStatementsV5() []string {
+	return []string{
 		`CREATE TABLE IF NOT EXISTS benchmark_sessions (
 			session_id TEXT PRIMARY KEY,
 			schema_version INTEGER NOT NULL,
@@ -184,12 +248,6 @@ func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
 		`CREATE INDEX IF NOT EXISTS idx_benchmark_runs_suite_lookup ON benchmark_runs(template_id, agent, template_variant)`,
 		`CREATE INDEX IF NOT EXISTS idx_benchmark_runs_latest_task_run ON benchmark_runs(latest_task_run_id)`,
 	}
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
-		}
-	}
-	return nil
 }
 
 func benchmarkSessionRowFromRecord(record *BenchmarkSessionRecord) *benchmarkSessionRow {
@@ -240,10 +298,6 @@ func benchmarkRunRowFromRecord(record *BenchmarkRunRecord) (*benchmarkRunRow, er
 	if record == nil {
 		return nil, errBenchmarkRunRecordRequired
 	}
-	linkedTaskRunIDsJSON, err := json.Marshal(record.LinkedTaskRunIDs)
-	if err != nil {
-		return nil, fmt.Errorf("marshal linked task run ids: %w", err)
-	}
 	row := &benchmarkRunRow{
 		BenchmarkRunID:       record.BenchmarkRunID,
 		SchemaVersion:        benchmarkRunSchemaVersion,
@@ -258,9 +312,6 @@ func benchmarkRunRowFromRecord(record *BenchmarkRunRecord) (*benchmarkRunRow, er
 		SelectedModel:        record.SelectedModel,
 		StartedAtUnixMilli:   record.StartedAtUnixMilli,
 		Status:               record.Status,
-		LatestTaskRunID:      record.LatestTaskRunID,
-		LatestTaskRunStatus:  record.LatestTaskRunStatus,
-		LinkedTaskRunIDsJSON: linkedTaskRunIDsJSON,
 		RunDir:               record.RunDir,
 		ProjectDir:           record.ProjectDir,
 		LogsDir:              record.LogsDir,
@@ -297,8 +348,6 @@ func (row *benchmarkRunRow) toRecord() (*BenchmarkRunRecord, error) {
 		StartedAtUnixMilli:   row.StartedAtUnixMilli,
 		EndedAtUnixMilli:     nullInt64Pointer(row.EndedAtUnixMilli),
 		Status:               row.Status,
-		LatestTaskRunID:      row.LatestTaskRunID,
-		LatestTaskRunStatus:  row.LatestTaskRunStatus,
 		RunDir:               row.RunDir,
 		ProjectDir:           row.ProjectDir,
 		LogsDir:              row.LogsDir,
@@ -310,11 +359,6 @@ func (row *benchmarkRunRow) toRecord() (*BenchmarkRunRecord, error) {
 		SelectedTemplatePath: row.SelectedTemplatePath,
 		ErrorSummary:         row.ErrorSummary,
 		AgentMetadataJSON:    append(json.RawMessage(nil), row.AgentMetadataJSON...),
-	}
-	if len(row.LinkedTaskRunIDsJSON) > 0 {
-		if err := json.Unmarshal(row.LinkedTaskRunIDsJSON, &record.LinkedTaskRunIDs); err != nil {
-			return nil, fmt.Errorf("unmarshal linked task run ids: %w", err)
-		}
 	}
 	return record, nil
 }

@@ -18,6 +18,30 @@ export type TaskRunSummary = {
   eventCount: number;
 };
 
+export type TaskRunFilters = {
+  benchmarkSuite?: string;
+};
+
+export type TaskRunBenchmarkLink = {
+  benchmarkRunId: string;
+  sessionId: string;
+  sessionPath?: string;
+  suiteId: string;
+  suiteName?: string;
+  caseId: string;
+  caseName?: string;
+  agent: string;
+  selectedModel?: string;
+  templateVariant: string;
+  attempt: number;
+  startedAtUnixMilli: number;
+};
+
+export type TaskRunDetailMetadata = {
+  runId: string;
+  benchmarkLinks?: TaskRunBenchmarkLink[];
+};
+
 export type TaskRunEvent = {
   source: "task" | "action";
   id: string;
@@ -73,9 +97,22 @@ async function requestJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function fetchTaskRuns(signal?: AbortSignal): Promise<TaskRunSummary[]> {
-  const runs = await requestJSON<TaskRunSummary[]>("/api/task-runs", signal);
+function buildQuery(filters: TaskRunFilters = {}): string {
+  const params = new URLSearchParams();
+  if (filters.benchmarkSuite) {
+    params.set("benchmarkSuite", filters.benchmarkSuite);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function fetchTaskRuns(filters: TaskRunFilters = {}, signal?: AbortSignal): Promise<TaskRunSummary[]> {
+  const runs = await requestJSON<TaskRunSummary[]>(`/api/task-runs${buildQuery(filters)}`, signal);
   return Array.isArray(runs) ? runs : [];
+}
+
+export async function fetchTaskRunDetail(runID: string, signal?: AbortSignal): Promise<TaskRunDetailMetadata> {
+  return requestJSON<TaskRunDetailMetadata>(`/api/task-runs/${encodeURIComponent(runID)}`, signal);
 }
 
 export async function fetchTaskRunEvents(runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {

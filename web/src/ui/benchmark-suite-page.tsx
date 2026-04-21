@@ -229,7 +229,12 @@ export function BenchmarkSuitePage() {
       <section className="benchmark-section">
         <div className="benchmark-section__header">
           <h3>Run History</h3>
-          <p>{runs.length} scorecards</p>
+          <div className="benchmark-section__actions">
+            <p>{runs.length} scorecards</p>
+            <Link className="benchmark-section__link" to={`/tasks?benchmarkSuite=${encodeURIComponent(suiteID)}`}>
+              Show task runs
+            </Link>
+          </div>
         </div>
         <BenchmarkRunTable suiteId={suiteID} runs={runs} />
       </section>

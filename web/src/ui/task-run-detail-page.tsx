@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
@@ -42,7 +42,9 @@ export type TimelineItem =
 // Loads a single run, groups its events into timeline sections, and drives the inspector UI.
 export function TaskRunDetailPage() {
   const { runID } = useParams();
+  const location = useLocation();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
+  const [detailMetadata, setDetailMetadata] = useState<TaskRunDetailMetadata | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedItemID, setSelectedItemID] = useState<string>("");
@@ -58,6 +60,7 @@ export function TaskRunDetailPage() {
     if (!runID) {
       setLoadState("invalid");
       setEvents([]);
+      setDetailMetadata(null);
       return;
     }
 
@@ -67,9 +70,13 @@ export function TaskRunDetailPage() {
     setSelectedItemID("");
 
     // Reset view state when the route changes and ignore responses from aborted requests.
-    void fetchTaskRunEvents(runID, controller.signal)
-      .then((result) => {
-        setEvents(result);
+    void Promise.all([
+      fetchTaskRunEvents(runID, controller.signal),
+      fetchTaskRunDetail(runID, controller.signal),
+    ])
+      .then(([eventResult, detailResult]) => {
+        setEvents(eventResult);
+        setDetailMetadata(detailResult);
         setLoadState("ready");
       })
       .catch((error: unknown) => {
@@ -294,13 +301,16 @@ export function TaskRunDetailPage() {
           </p>
         </div>
         <div className="task-run-detail__header-actions">
-          <Link className="back-link" style={{fontFamily:"inter"}} to="/tasks">
+          <Link className="back-link" style={{fontFamily:"inter"}} to={`/tasks${location.search || ""}`}>
             Back to task runs
           </Link>
         </div>
       </header>
 
       <RunMetadataBar stats={runStats} now={now} />
+      {detailMetadata?.benchmarkLinks && detailMetadata.benchmarkLinks.length > 0 ? (
+        <BenchmarkContextPanel links={detailMetadata.benchmarkLinks} />
+      ) : null}
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -524,6 +534,34 @@ type RunStats = {
   errorCount: number;
   totalEvents: number;
 };
+
+function BenchmarkContextPanel({ links }: { links: NonNullable<TaskRunDetailMetadata["benchmarkLinks"]> }) {
+  return (
+    <section className="task-run-benchmark-context">
+      <div className="task-run-benchmark-context__header">
+        <div>
+          <p className="state-card__eyebrow">Benchmark Context</p>
+          <h3>Linked benchmark runs</h3>
+        </div>
+        <p>{links.length} linked benchmark run{links.length === 1 ? "" : "s"}</p>
+      </div>
+      <div className="task-run-benchmark-context__grid">
+        {links.map((link) => (
+          <article key={`${link.benchmarkRunId}:${link.caseId}:${link.attempt}`} className="task-run-benchmark-card">
+            <h4>{link.caseName || link.caseId}</h4>
+            <p>{link.suiteName || link.suiteId}</p>
+            <p>{link.agent}{link.selectedModel ? ` / ${link.selectedModel}` : ""} · {link.templateVariant} · attempt {link.attempt}</p>
+            <p>Started {formatTimestamp(link.startedAtUnixMilli)}</p>
+            <div className="task-run-benchmark-card__links">
+              <Link to={`/benchmarks/${link.suiteId}/runs/${link.benchmarkRunId}`}>Open benchmark run</Link>
+              <Link to={`/tasks?benchmarkSuite=${encodeURIComponent(link.suiteId)}`}>Show suite task runs</Link>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 // Displays the headline metrics for the selected run.
 function RunMetadataBar({ stats, now }: { stats: RunStats; now: number }) {

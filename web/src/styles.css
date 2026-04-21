@@ -177,6 +177,32 @@ code,
   text-transform: uppercase;
 }
 
+.task-run-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.task-run-filter-chip {
+  padding: 6px 10px;
+  border: 1px solid rgba(140, 230, 216, 0.24);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(140, 230, 216, 0.08);
+  font-size: 0.84rem;
+}
+
+.task-run-filter-clear {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
 .task-run-table {
   display: grid;
   gap: 10px;
@@ -281,6 +307,17 @@ code,
 .benchmark-page {
   display: grid;
   gap: 20px;
+}
+
+.benchmark-section__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.benchmark-section__link {
+  color: var(--accent);
+  font-size: 0.9rem;
 }
 
 .benchmark-toolbar,
@@ -821,6 +858,59 @@ code,
 .task-run-detail__workspace {
   position: relative;
   min-width: 0;
+}
+
+.task-run-benchmark-context {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid rgba(140, 230, 216, 0.16);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(9, 18, 28, 0.78), rgba(6, 13, 20, 0.92));
+}
+
+.task-run-benchmark-context__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+}
+
+.task-run-benchmark-context__header h3,
+.task-run-benchmark-card h4,
+.task-run-benchmark-card p {
+  margin: 0;
+}
+
+.task-run-benchmark-context__header p:last-child,
+.task-run-benchmark-card p {
+  color: var(--text-dim);
+}
+
+.task-run-benchmark-context__grid {
+  display: grid;
+  gap: 12px;
+}
+
+.task-run-benchmark-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgba(140, 230, 216, 0.14);
+  border-radius: 14px;
+  background: rgba(5, 15, 22, 0.72);
+}
+
+.task-run-benchmark-card__links,
+.benchmark-linked-run-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-run-benchmark-card__links a,
+.benchmark-linked-run-list a {
+  color: var(--accent);
 }
 
 .task-run-detail__header,

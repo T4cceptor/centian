@@ -44,7 +44,6 @@ type BenchmarkRunSummary struct {
 	Attempt                   int            `json:"attempt"`
 	RawStatus                 string         `json:"rawStatus"`
 	Scored                    bool           `json:"scored"`
-	LatestTaskRunID           string         `json:"latestTaskRunId,omitempty"`
 	LinkedTaskRunIDs          []string       `json:"linkedTaskRunIds,omitempty"`
 	CompletedSuccessfully     bool           `json:"completedSuccessfully"`
 	FinalVerificationPassed   bool           `json:"finalVerificationPassed"`

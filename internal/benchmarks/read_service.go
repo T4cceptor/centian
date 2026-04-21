@@ -89,7 +89,6 @@ func buildBenchmarkRunSummary(item *persistence.BenchmarkRunRecord, session *per
 		Attempt:                   scorecard.Attempt,
 		RawStatus:                 scorecard.RawStatus,
 		Scored:                    true,
-		LatestTaskRunID:           scorecard.LatestTaskRunID,
 		LinkedTaskRunIDs:          append([]string(nil), scorecard.LinkedTaskRunIDs...),
 		CompletedSuccessfully:     scorecard.Outcome.CompletedSuccessfully,
 		FinalVerificationPassed:   scorecard.Outcome.FinalVerificationPassed,
@@ -139,7 +138,6 @@ func unscoredRunSummary(session *persistence.BenchmarkSessionRecord, item *persi
 		Attempt:          item.Attempt,
 		RawStatus:        item.Status,
 		Scored:           false,
-		LatestTaskRunID:  item.LatestTaskRunID,
 		LinkedTaskRunIDs: append([]string(nil), item.LinkedTaskRunIDs...),
 		Errors:           append([]string(nil), errors...),
 	}
@@ -155,7 +153,6 @@ func toRunSummaryRow(run BenchmarkRunSummary) RunSummaryRow {
 		TemplateVariant:           run.TemplateVariant,
 		Attempt:                   run.Attempt,
 		RawStatus:                 run.RawStatus,
-		LatestTaskRunID:           run.LatestTaskRunID,
 		LinkedTaskRunIDs:          append([]string(nil), run.LinkedTaskRunIDs...),
 		Scored:                    run.Scored,
 		CompletedSuccessfully:     run.CompletedSuccessfully,

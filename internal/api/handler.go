@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/persistence"
@@ -11,7 +14,9 @@ import (
 
 // Store provides the persistence-backed projections required by the API.
 type Store interface {
-	ListTaskRuns(ctx context.Context) ([]persistence.TaskRunSummary, error)
+	ListTaskRuns(ctx context.Context, filter persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error)
+	GetTaskRun(ctx context.Context, runID string) (*persistence.TaskRunSummary, error)
+	ListTaskRunBenchmarkLinks(ctx context.Context, runID string) ([]persistence.TaskRunBenchmarkLink, error)
 	GetTaskRunEvents(ctx context.Context, runID string) ([]persistence.TaskRunEvent, error)
 }
 
@@ -50,11 +55,14 @@ func (h *Handler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware fu
 	}
 
 	register("GET /api/task-runs", h.handleListTaskRuns)
+	register("GET /api/task-runs/{runID}", h.handleGetTaskRun)
 	register("GET /api/task-runs/{runID}/events", h.handleGetTaskRunEvents)
 }
 
 func (h *Handler) handleListTaskRuns(w http.ResponseWriter, r *http.Request) {
-	summaries, err := h.store.ListTaskRuns(r.Context())
+	summaries, err := h.store.ListTaskRuns(r.Context(), persistence.TaskRunFilter{
+		BenchmarkSuiteID: strings.TrimSpace(r.URL.Query().Get("benchmarkSuite")),
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list task runs")
 		return
@@ -63,6 +71,32 @@ func (h *Handler) handleListTaskRuns(w http.ResponseWriter, r *http.Request) {
 		summaries = []persistence.TaskRunSummary{}
 	}
 	writeJSON(w, http.StatusOK, summaries)
+}
+
+func (h *Handler) handleGetTaskRun(w http.ResponseWriter, r *http.Request) {
+	runID := r.PathValue("runID")
+	if !identifiers.IsKind(runID, identifiers.KindTaskRun) {
+		writeError(w, http.StatusBadRequest, "invalid run id")
+		return
+	}
+	summary, err := h.store.GetTaskRun(r.Context(), runID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "task run not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get task run")
+		return
+	}
+	links, err := h.store.ListTaskRunBenchmarkLinks(r.Context(), runID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get task run")
+		return
+	}
+	writeJSON(w, http.StatusOK, persistence.TaskRunDetailMetadata{
+		RunID:          summary.RunID,
+		BenchmarkLinks: links,
+	})
 }
 
 func (h *Handler) handleGetTaskRunEvents(w http.ResponseWriter, r *http.Request) {

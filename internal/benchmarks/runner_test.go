@@ -2,6 +2,7 @@ package benchmarks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -85,9 +86,11 @@ func TestRunSuiteExpandsMatrixAndWritesManifests(t *testing.T) {
 	runPath := filepath.Join(session.InvocationDir, "runs", "a_codex_compile_failure_red_attempt_001", runFileName)
 	data, err := os.ReadFile(runPath)
 	assert.NilError(t, err)
-	assert.Assert(t, strings.Contains(string(data), `"latestTaskRunId": "tr_123"`))
 	assert.Assert(t, strings.Contains(string(data), `"eventStoreMode": "configured_shared"`))
 	assert.Assert(t, strings.Contains(string(data), filepath.Join(logDir, "events.sqlite")))
+	var manifest RunManifest
+	assert.NilError(t, json.Unmarshal(data, &manifest))
+	assert.DeepEqual(t, manifest.LinkedTaskRunIDs, []string{"tr_123"})
 
 	store, err := persistence.NewSQLiteStore(filepath.Join(logDir, "events.sqlite"))
 	assert.NilError(t, err)
@@ -283,7 +286,6 @@ func TestRunSuiteCapturesOnlyTaskRunsCreatedDuringCurrentCell(t *testing.T) {
 	var manifest RunManifest
 	assert.NilError(t, common.ReadJSONFile(runPath, &manifest))
 	assert.DeepEqual(t, manifest.LinkedTaskRunIDs, []string{"tr_new"})
-	assert.Equal(t, manifest.LatestTaskRunID, "tr_new")
 }
 
 func TestRunSuitePersistsCodexOllamaAgentMetadata(t *testing.T) {

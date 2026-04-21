@@ -14,16 +14,32 @@ import (
 )
 
 type stubStore struct {
-	listTaskRunsFn     func(context.Context) ([]persistence.TaskRunSummary, error)
-	getTaskRunEventsFn func(context.Context, string) ([]persistence.TaskRunEvent, error)
-	getTaskRunCalls    int
+	listTaskRunsFn            func(context.Context, persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error)
+	getTaskRunFn              func(context.Context, string) (*persistence.TaskRunSummary, error)
+	listTaskRunBenchmarkLinks func(context.Context, string) ([]persistence.TaskRunBenchmarkLink, error)
+	getTaskRunEventsFn        func(context.Context, string) ([]persistence.TaskRunEvent, error)
+	getTaskRunCalls           int
 }
 
-func (s *stubStore) ListTaskRuns(ctx context.Context) ([]persistence.TaskRunSummary, error) {
+func (s *stubStore) ListTaskRuns(ctx context.Context, filter persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error) {
 	if s.listTaskRunsFn == nil {
 		return nil, nil
 	}
-	return s.listTaskRunsFn(ctx)
+	return s.listTaskRunsFn(ctx, filter)
+}
+
+func (s *stubStore) GetTaskRun(ctx context.Context, runID string) (*persistence.TaskRunSummary, error) {
+	if s.getTaskRunFn == nil {
+		return nil, nil
+	}
+	return s.getTaskRunFn(ctx, runID)
+}
+
+func (s *stubStore) ListTaskRunBenchmarkLinks(ctx context.Context, runID string) ([]persistence.TaskRunBenchmarkLink, error) {
+	if s.listTaskRunBenchmarkLinks == nil {
+		return nil, nil
+	}
+	return s.listTaskRunBenchmarkLinks(ctx, runID)
 }
 
 func (s *stubStore) GetTaskRunEvents(ctx context.Context, runID string) ([]persistence.TaskRunEvent, error) {
@@ -38,7 +54,7 @@ func TestHandler_ListTaskRuns(t *testing.T) {
 	t.Run("returns summaries as json", func(t *testing.T) {
 		// Given: a handler backed by a store returning task run summaries
 		handler := NewHandler(&stubStore{
-			listTaskRunsFn: func(context.Context) ([]persistence.TaskRunSummary, error) {
+			listTaskRunsFn: func(context.Context, persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error) {
 				return []persistence.TaskRunSummary{{
 					RunID:        identifiers.New(identifiers.KindTaskRun),
 					TemplateID:   "template-a",
@@ -73,7 +89,7 @@ func TestHandler_ListTaskRuns(t *testing.T) {
 	t.Run("returns json error on store failure", func(t *testing.T) {
 		// Given: a handler backed by a failing store
 		handler := NewHandler(&stubStore{
-			listTaskRunsFn: func(context.Context) ([]persistence.TaskRunSummary, error) {
+			listTaskRunsFn: func(context.Context, persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error) {
 				return nil, errors.New("boom")
 			},
 		})
@@ -93,6 +109,75 @@ func TestHandler_ListTaskRuns(t *testing.T) {
 		err := json.Unmarshal(rec.Body.Bytes(), &response)
 		assert.NilError(t, err)
 		assert.Equal(t, response.Error, "failed to list task runs")
+	})
+
+	t.Run("passes benchmark suite filters through query params", func(t *testing.T) {
+		var received persistence.TaskRunFilter
+		handler := NewHandler(&stubStore{
+			listTaskRunsFn: func(_ context.Context, filter persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error) {
+				received = filter
+				return []persistence.TaskRunSummary{}, nil
+			},
+		})
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/task-runs?benchmarkSuite=simple_tdd_v1", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusOK)
+		assert.Equal(t, received.BenchmarkSuiteID, "simple_tdd_v1")
+	})
+}
+
+func TestHandler_GetTaskRun(t *testing.T) {
+	validRunID := identifiers.New(identifiers.KindTaskRun)
+
+	t.Run("returns detail metadata as json", func(t *testing.T) {
+		handler := NewHandler(&stubStore{
+			getTaskRunFn: func(context.Context, string) (*persistence.TaskRunSummary, error) {
+				return &persistence.TaskRunSummary{RunID: validRunID, TemplateID: "template-a"}, nil
+			},
+			listTaskRunBenchmarkLinks: func(context.Context, string) ([]persistence.TaskRunBenchmarkLink, error) {
+				return []persistence.TaskRunBenchmarkLink{{
+					BenchmarkRunID:  "bm_run_1",
+					SuiteID:         "simple_tdd_v1",
+					SuiteName:       "Simple TDD",
+					CaseID:          "compile_failure_red",
+					Agent:           "codex",
+					TemplateVariant: "current",
+					Attempt:         1,
+				}}, nil
+			},
+		})
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/task-runs/"+validRunID, http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusOK)
+		var detail persistence.TaskRunDetailMetadata
+		err := json.Unmarshal(rec.Body.Bytes(), &detail)
+		assert.NilError(t, err)
+		assert.Equal(t, detail.RunID, validRunID)
+		assert.Equal(t, len(detail.BenchmarkLinks), 1)
+		assert.Equal(t, detail.BenchmarkLinks[0].BenchmarkRunID, "bm_run_1")
+	})
+
+	t.Run("rejects invalid run ids before store lookup", func(t *testing.T) {
+		store := &stubStore{}
+		handler := NewHandler(store)
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/task-runs/not-a-run-id", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusBadRequest)
 	})
 }
 

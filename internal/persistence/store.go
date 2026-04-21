@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -20,7 +21,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -57,6 +58,33 @@ type TaskRunSummary struct {
 	TaskEventCount   int    `json:"taskEventCount"`
 	ActionEventCount int    `json:"actionEventCount"`
 	EventCount       int    `json:"eventCount"`
+}
+
+// TaskRunFilter restricts task-run listing to one subset.
+type TaskRunFilter struct {
+	BenchmarkSuiteID string
+}
+
+// TaskRunBenchmarkLink is the benchmark metadata associated with one task run.
+type TaskRunBenchmarkLink struct {
+	BenchmarkRunID   string `json:"benchmarkRunId"`
+	SessionID        string `json:"sessionId"`
+	SessionPath      string `json:"sessionPath,omitempty"`
+	SuiteID          string `json:"suiteId"`
+	SuiteName        string `json:"suiteName,omitempty"`
+	CaseID           string `json:"caseId"`
+	CaseName         string `json:"caseName,omitempty"`
+	Agent            string `json:"agent"`
+	SelectedModel    string `json:"selectedModel,omitempty"`
+	TemplateVariant  string `json:"templateVariant"`
+	Attempt          int    `json:"attempt"`
+	StartedAtUnixMilli int64 `json:"startedAtUnixMilli"`
+}
+
+// TaskRunDetailMetadata is the non-event metadata used by the task-run detail view.
+type TaskRunDetailMetadata struct {
+	RunID           string                 `json:"runId"`
+	BenchmarkLinks  []TaskRunBenchmarkLink `json:"benchmarkLinks,omitempty"`
 }
 
 // TaskRunEventSource identifies where one timeline row originated.
@@ -219,6 +247,7 @@ func NewSQLiteStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite event store: %w", err)
 	}
+	sqldb.SetMaxOpenConns(1)
 
 	store := &Store{
 		db: bun.NewDB(sqldb, sqlitedialect.New()),
@@ -337,6 +366,9 @@ func (s *Store) createTables(ctx context.Context) error {
 	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
+	if err := createBenchmarkRunTaskRunLinkTables(ctx, s.db); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run task-run link schema: %w", err)
+	}
 	if err := createBenchmarkRunScoreTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run score schema: %w", err)
 	}
@@ -356,7 +388,12 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 
 	switch fromVersion {
 	case 4:
-		return s.migrateV4ToV5(ctx)
+		if err := s.migrateV4ToV5(ctx); err != nil {
+			return err
+		}
+		return s.migrateV5ToV6(ctx)
+	case 5:
+		return s.migrateV5ToV6(ctx)
 	default:
 		return &SchemaMigrationRequiredError{
 			StoredVersion:   fromVersion,
@@ -448,7 +485,28 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 }
 
 // ListTaskRuns returns aggregated task run summaries ordered by start time descending.
-func (s *Store) ListTaskRuns(ctx context.Context) ([]TaskRunSummary, error) {
+func (s *Store) ListTaskRuns(ctx context.Context, filter TaskRunFilter) ([]TaskRunSummary, error) {
+	rows, err := s.selectTaskRunSummaryRows(ctx, filter, "")
+	if err != nil {
+		return nil, err
+	}
+	return buildTaskRunSummaries(rows), nil
+}
+
+// GetTaskRun returns one aggregated task run summary by id.
+func (s *Store) GetTaskRun(ctx context.Context, runID string) (*TaskRunSummary, error) {
+	rows, err := s.selectTaskRunSummaryRows(ctx, TaskRunFilter{}, runID)
+	if err != nil {
+		return nil, err
+	}
+	summaries := buildTaskRunSummaries(rows)
+	if len(summaries) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &summaries[0], nil
+}
+
+func (s *Store) selectTaskRunSummaryRows(ctx context.Context, filter TaskRunFilter, runID string) ([]taskRunSummaryRow, error) {
 	rows := make([]taskRunSummaryRow, 0)
 	query := `
 WITH task_agg AS (
@@ -528,7 +586,8 @@ event_only_runs AS (
 	LEFT JOIN action_counts ON action_counts.task_run_id = agg.task_run_id
 	LEFT JOIN task_runs tr ON tr.run_id = agg.task_run_id
 	WHERE tr.run_id IS NULL
-)
+),
+combined_runs AS (
 SELECT
 	run_id,
 	has_snapshot,
@@ -570,12 +629,36 @@ SELECT
 	latest_event_type,
 	latest_event_payload
 FROM event_only_runs
-ORDER BY started_at DESC, run_id DESC
+)
+SELECT * FROM combined_runs
 `
-	if err := s.db.NewRaw(query).Scan(ctx, &rows); err != nil {
+	args := make([]any, 0, 2)
+	clauses := make([]string, 0, 2)
+	if strings.TrimSpace(runID) != "" {
+		clauses = append(clauses, "run_id = ?")
+		args = append(args, runID)
+	}
+	if strings.TrimSpace(filter.BenchmarkSuiteID) != "" {
+		clauses = append(clauses, `run_id IN (
+			SELECT DISTINCT link.task_run_id
+			FROM benchmark_run_task_runs link
+			JOIN benchmark_runs br ON br.benchmark_run_id = link.benchmark_run_id
+			JOIN benchmark_sessions bs ON bs.session_id = br.session_id
+			WHERE bs.suite_id = ?
+		)`)
+		args = append(args, filter.BenchmarkSuiteID)
+	}
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY started_at DESC, run_id DESC"
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
+	return rows, nil
+}
 
+func buildTaskRunSummaries(rows []taskRunSummaryRow) []TaskRunSummary {
 	summaries := make([]TaskRunSummary, 0, len(rows))
 	for idx := range rows {
 		row := rows[idx]
@@ -608,7 +691,35 @@ ORDER BY started_at DESC, run_id DESC
 		}
 		summaries = append(summaries, summary)
 	}
-	return summaries, nil
+	return summaries
+}
+
+// ListTaskRunBenchmarkLinks returns benchmark runs linked to the given task run.
+func (s *Store) ListTaskRunBenchmarkLinks(ctx context.Context, runID string) ([]TaskRunBenchmarkLink, error) {
+	rows := make([]TaskRunBenchmarkLink, 0)
+	if err := s.db.NewRaw(`
+SELECT
+	br.benchmark_run_id,
+	br.session_id,
+	bs.session_path,
+	bs.suite_id,
+	bs.suite_name,
+	br.case_id,
+	br.case_name,
+	br.agent,
+	br.selected_model,
+	br.template_variant,
+	br.attempt,
+	br.started_at_unix_milli
+FROM benchmark_run_task_runs link
+JOIN benchmark_runs br ON br.benchmark_run_id = link.benchmark_run_id
+JOIN benchmark_sessions bs ON bs.session_id = br.session_id
+WHERE link.task_run_id = ?
+ORDER BY br.started_at_unix_milli DESC, br.benchmark_run_id ASC
+`, runID).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // GetTaskRunEvents returns the unified task/action timeline for one run.

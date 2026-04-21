@@ -288,23 +288,33 @@ Common benchmark-specific failures:
 - `repeat must be greater than zero`: benchmark attempts must be a positive integer
 - unscored runs in UI/API usually mean the run artifact was preserved but inline score derivation failed; the run remains visible, but it does not contribute synthetic zero metrics
 
-If a run still appears in benchmark UI after manual cleanup, check `benchmark_runs` first. Benchmark overview pages are driven from benchmark run rows, not only from `task_runs`.
+If a run still appears in benchmark UI after manual cleanup, check `benchmark_runs` and `benchmark_run_task_runs` first. Benchmark overview pages are driven from benchmark run rows plus the normalized benchmark-to-task-run links, not only from `task_runs`.
 
 Useful SQLite checks:
 
 ```sql
-SELECT benchmark_run_id, latest_task_run_id, linked_task_run_ids_json
-FROM benchmark_runs
-ORDER BY started_at_unix_milli DESC
+SELECT l.benchmark_run_id, l.task_run_id, l.link_order
+FROM benchmark_run_task_runs l
+JOIN benchmark_runs r ON r.benchmark_run_id = l.benchmark_run_id
+ORDER BY r.started_at_unix_milli DESC, l.link_order ASC
 LIMIT 20;
 ```
 
 Delete one timed-out task from benchmark overview:
 
 ```sql
+DELETE FROM benchmark_run_task_runs
+WHERE task_run_id = 'tr_xxx';
+```
+
+Delete the now-unlinked benchmark run rows if needed:
+
+```sql
 DELETE FROM benchmark_runs
-WHERE latest_task_run_id = 'tr_xxx'
-   OR CAST(linked_task_run_ids_json AS TEXT) LIKE '%tr_xxx%';
+WHERE benchmark_run_id NOT IN (
+  SELECT DISTINCT benchmark_run_id
+  FROM benchmark_run_task_runs
+);
 ```
 
 If you expect parent/child cleanup to cascade, enable foreign keys before delete:
