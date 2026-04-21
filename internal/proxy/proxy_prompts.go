@@ -31,7 +31,9 @@ func (p *CentianEndpoint) syncAvailablePrompts(session *UpstreamSession) {
 		serverName string
 	}
 	desiredPrompts := make(map[string]promptEntry) // keyed by upstream prompt name
-	for serverName, conn := range session.downstreamConns {
+	for _, entry := range p.sessionConnectionSnapshot(session) {
+		serverName := entry.serverName
+		conn := entry.conn
 		if !conn.IsConnected() {
 			continue
 		}
@@ -116,7 +118,7 @@ func (p *CentianEndpoint) registerAvailablePrompts(session *UpstreamSession) {
 
 // forwardGetPrompt retrieves a prompt from the named downstream server.
 func (p *CentianEndpoint) forwardGetPrompt(ctx context.Context, session *UpstreamSession, serverName, downstreamName string, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
-	conn, err := session.GetConnectionByServerName(serverName)
+	conn, err := p.sessionConnection(session, serverName)
 	if err != nil {
 		return nil, fmt.Errorf("prompt %q: %w", downstreamName, err)
 	}

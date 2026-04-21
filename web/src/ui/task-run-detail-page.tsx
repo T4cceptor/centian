@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunEvents, type TaskRunEvent } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
@@ -42,7 +42,9 @@ export type TimelineItem =
 // Loads a single run, groups its events into timeline sections, and drives the inspector UI.
 export function TaskRunDetailPage() {
   const { runID } = useParams();
+  const location = useLocation();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
+  const [detailMetadata, setDetailMetadata] = useState<TaskRunDetailMetadata | null>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [selectedItemID, setSelectedItemID] = useState<string>("");
@@ -53,11 +55,13 @@ export function TaskRunDetailPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
+  const benchmarkLink = detailMetadata?.benchmarkLinks?.[0];
 
   useEffect(() => {
     if (!runID) {
       setLoadState("invalid");
       setEvents([]);
+      setDetailMetadata(null);
       return;
     }
 
@@ -67,9 +71,13 @@ export function TaskRunDetailPage() {
     setSelectedItemID("");
 
     // Reset view state when the route changes and ignore responses from aborted requests.
-    void fetchTaskRunEvents(runID, controller.signal)
-      .then((result) => {
-        setEvents(result);
+    void Promise.all([
+      fetchTaskRunEvents(runID, controller.signal),
+      fetchTaskRunDetail(runID, controller.signal),
+    ])
+      .then(([eventResult, detailResult]) => {
+        setEvents(eventResult);
+        setDetailMetadata(detailResult);
         setLoadState("ready");
       })
       .catch((error: unknown) => {
@@ -294,13 +302,13 @@ export function TaskRunDetailPage() {
           </p>
         </div>
         <div className="task-run-detail__header-actions">
-          <Link className="back-link" style={{fontFamily:"inter"}} to="/tasks">
+          <Link className="back-link" style={{fontFamily:"inter"}} to={`/tasks${location.search || ""}`}>
             Back to task runs
           </Link>
         </div>
       </header>
 
-      <RunMetadataBar stats={runStats} now={now} />
+      <RunMetadataBar stats={runStats} now={now} benchmarkLink={benchmarkLink} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -517,6 +525,8 @@ function DetailStateCard({
   );
 }
 
+type BenchmarkLinkTarget = NonNullable<TaskRunDetailMetadata["benchmarkLinks"]>[number];
+
 // Summary numbers shown above the timeline.
 type RunStats = {
   startedAt: number | undefined;
@@ -526,7 +536,15 @@ type RunStats = {
 };
 
 // Displays the headline metrics for the selected run.
-function RunMetadataBar({ stats, now }: { stats: RunStats; now: number }) {
+function RunMetadataBar({
+  stats,
+  now,
+  benchmarkLink,
+}: {
+  stats: RunStats;
+  now: number;
+  benchmarkLink?: BenchmarkLinkTarget;
+}) {
   // Shared inline styles keep the compact metadata row visually consistent.
   const cellStyle: CSSProperties = {
     display: "flex",
@@ -586,6 +604,15 @@ function RunMetadataBar({ stats, now }: { stats: RunStats; now: number }) {
           <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
         </div>
       )}
+
+      {benchmarkLink ? (
+        <Link
+          className="task-run-detail__benchmark-link"
+          to={`/benchmarks/${benchmarkLink.suiteId}/runs/${benchmarkLink.benchmarkRunId}`}
+        >
+          Benchmark Run
+        </Link>
+      ) : null}
     </div>
   );
 }

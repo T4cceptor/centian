@@ -101,9 +101,10 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 	if session == nil {
 		return
 	}
+	downstreamSessionKey := p.sessionDownstreamSessionKey(session)
 
 	p.mu.RLock()
-	pool := p.downstreamPools[session.downstreamSessionKey]
+	pool := p.downstreamPools[downstreamSessionKey]
 	p.mu.RUnlock()
 
 	if pool == nil {
@@ -112,7 +113,7 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 
 	totalDownstreams := len(pool.downstreamConns)
 	if totalDownstreams == 0 {
-		common.LogWarn("ProxyEndpoint[%s]: no downstream servers available for session %s", p.name, session.downstreamSessionKey)
+		common.LogWarn("ProxyEndpoint[%s]: no downstream servers available for session %s", p.name, downstreamSessionKey)
 		return
 	}
 
@@ -134,7 +135,7 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 			"ProxyEndpoint[%s]: upstream session %s using pooled downstream session %s with %d/%d connected servers",
 			p.name,
 			session.id,
-			session.downstreamSessionKey,
+			downstreamSessionKey,
 			summary.connectedCount,
 			totalDownstreams,
 		)
@@ -142,14 +143,14 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 		common.LogInfo(
 			"ProxyEndpoint[%s]: initializing pooled downstream session %s in background (%d/%d still connecting)",
 			p.name,
-			session.downstreamSessionKey,
+			downstreamSessionKey,
 			summary.connectingCount,
 			totalDownstreams,
 		)
 	case len(summary.connErrors) > 0:
 		common.LogError("ProxyEndpoint[%s]: all connections failed: %v", p.name, summary.connErrors)
 	default:
-		common.LogWarn("ProxyEndpoint[%s]: no pooled downstream connections are connected for %s", p.name, session.downstreamSessionKey)
+		common.LogWarn("ProxyEndpoint[%s]: no pooled downstream connections are connected for %s", p.name, downstreamSessionKey)
 	}
 }
 
@@ -253,7 +254,7 @@ func (p *CentianEndpoint) ProcessCall(callCtx CallContext, direction common.McpE
 }
 
 func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamSession, serverName string, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if session.protocolVersion == "" || session.rootsDirty {
+	if p.sessionNeedsSync(session) {
 		p.syncUpstreamSessionState(ctx, session.id)
 	}
 
@@ -306,7 +307,7 @@ func (p *CentianEndpoint) handleToolCall(ctx context.Context, session *UpstreamS
 		if authErr, ok := centoauth.IsAuthorizationRequired(err); ok {
 			return nil, p.handleDownstreamToolAuthorizationRequired(ctx, session, serverName, authErr)
 		}
-		p.invalidateDownstreamPool(session.downstreamSessionKey)
+		p.invalidateDownstreamPool(p.sessionDownstreamSessionKey(session))
 		return nil, err
 	}
 	// Call processing loop on result
@@ -322,7 +323,7 @@ func (p *CentianEndpoint) getSyncedSession(ctx context.Context) (*mcp.ServerSess
 	if err != nil {
 		return nil, err
 	}
-	if session.rootsDirty {
+	if p.sessionRootsDirty(session) {
 		p.syncUpstreamSessionState(ctx, session.id)
 	}
 	return serverSession, nil

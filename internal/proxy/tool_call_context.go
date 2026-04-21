@@ -56,7 +56,7 @@ func NewToolCallContext(
 	routingCtx := buildRoutingContext(proxy, upstreamSession, serverName)
 	// TODO: get headers from ctx
 
-	conn, err := upstreamSession.GetConnectionByServerName(serverName)
+	conn, err := proxy.sessionConnection(upstreamSession, serverName)
 	transport := common.UnknownTransport
 	if err != nil {
 		common.LogWarn("unable to get connection for '%s': %v", serverName, err)
@@ -119,7 +119,8 @@ func buildRoutingContext(proxy *CentianEndpoint, upstreamSession *UpstreamSessio
 	}
 
 	// Try to get connection details
-	if conn, ok := upstreamSession.downstreamConns[serverName]; ok {
+	conn, err := proxy.sessionConnection(upstreamSession, serverName)
+	if err == nil && conn != nil {
 		cfg := conn.GetConfig()
 		if cfg != nil {
 			if cfg.URL != "" {
@@ -142,7 +143,7 @@ func buildRoutingContext(proxy *CentianEndpoint, upstreamSession *UpstreamSessio
 func (c *ToolCallContext) SendRequest(ctx context.Context) error {
 	// Resolve connection based on (potentially modified) serverName
 	serverName := c.GetServerName()
-	conn, err := c.upstreamSession.GetConnectionByServerName(serverName)
+	conn, err := c.proxy.sessionConnection(c.upstreamSession, serverName)
 	if err != nil {
 		return err
 	}

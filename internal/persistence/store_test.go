@@ -13,6 +13,8 @@ import (
 	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/sqliteshim"
 	"gotest.tools/assert"
 )
@@ -177,6 +179,78 @@ func TestNewSQLiteStoreMigratesMainSchemaV4ToCurrentSchema(t *testing.T) {
 	assert.Equal(t, version, schemaVersion)
 }
 
+func TestNewSQLiteStoreMigratesBenchmarkLinksV5ToV6(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	seedSchemaVersion5Store(t, db)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	runs, err := store.ListBenchmarkRuns(context.Background(), &BenchmarkRunFilter{SuiteID: "simple_tdd_v1"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runs), 1)
+	assert.DeepEqual(t, runs[0].LinkedTaskRunIDs, []string{"tr_1", "tr_2", "tr_3"})
+
+	links, err := store.ListBenchmarkRunTaskRunLinks(context.Background(), &BenchmarkRunTaskRunLinkFilter{
+		BenchmarkRunID: "bm_run_1",
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(links), 3)
+	assert.Equal(t, links[0].TaskRunID, "tr_1")
+	assert.Equal(t, *links[0].LinkOrder, 0)
+	assert.Equal(t, links[1].TaskRunID, "tr_2")
+	assert.Equal(t, *links[1].LinkOrder, 1)
+	assert.Equal(t, links[2].TaskRunID, "tr_3")
+	assert.Equal(t, *links[2].LinkOrder, 2)
+
+	score, err := store.GetBenchmarkRunScore(context.Background(), "bm_run_1")
+	assert.NilError(t, err)
+	assert.Equal(t, score.BenchmarkRunID, "bm_run_1")
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	columns, err := tableColumns(db, "benchmark_runs")
+	assert.NilError(t, err)
+	assert.Assert(t, !columns["latest_task_run_id"])
+	assert.Assert(t, !columns["latest_task_run_status"])
+	assert.Assert(t, !columns["linked_task_run_ids_json"])
+
+	legacyCount, err := sqliteMasterCount(db, "table", "benchmark_runs_v5_legacy")
+	assert.NilError(t, err)
+	assert.Equal(t, legacyCount, 0)
+
+	linkCount, err := sqliteMasterCount(db, "table", "benchmark_run_task_runs")
+	assert.NilError(t, err)
+	assert.Equal(t, linkCount, 1)
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, schemaVersion)
+}
+
+func TestNewSQLiteStoreFailsV5ToV6MigrationOnMissingTaskRun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	seedSchemaVersion5Store(t, db)
+	_, err = db.Exec(`DELETE FROM task_runs WHERE run_id = 'tr_3'`)
+	assert.NilError(t, err)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.Assert(t, store == nil)
+	assert.ErrorContains(t, err, "legacy benchmark run bm_run_1 references missing task run tr_3")
+}
+
 func TestNewSQLiteStoreRejectsIntermediateBranchSchemaVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.sqlite")
 
@@ -307,25 +381,23 @@ func TestBenchmarkSessionAndRunUpsertAndList(t *testing.T) {
 	assert.NilError(t, store.UpsertBenchmarkSession(context.Background(), session))
 
 	run := &BenchmarkRunRecord{
-		BenchmarkRunID:      "bm_run_1",
-		SessionID:           session.SessionID,
-		CaseID:              "assertion_failure_red",
-		Agent:               "codex",
-		TemplateVariant:     "current",
-		Attempt:             1,
-		TemplateID:          "simple_tdd",
-		StartedAtUnixMilli:  1000,
-		Status:              "completed",
-		LatestTaskRunID:     "tr_1",
-		LatestTaskRunStatus: "completed",
-		LinkedTaskRunIDs:    []string{"tr_1"},
-		RunDir:              "/tmp/session/run",
-		ProjectDir:          "/tmp/session/run/project",
-		LogsDir:             "/tmp/session/run/logs",
-		AgentDir:            "/tmp/session/run/agent",
-		ConfigPath:          "/tmp/session/run/config.json",
-		EventStorePath:      "/tmp/events.sqlite",
-		AgentMetadataJSON:   json.RawMessage(`{"format":"codex_jsonl","threadId":"thread_1"}`),
+		BenchmarkRunID:     "bm_run_1",
+		SessionID:          session.SessionID,
+		CaseID:             "assertion_failure_red",
+		Agent:              "codex",
+		TemplateVariant:    "current",
+		Attempt:            1,
+		TemplateID:         "simple_tdd",
+		StartedAtUnixMilli: 1000,
+		Status:             "completed",
+		LinkedTaskRunIDs:   []string{"tr_1"},
+		RunDir:             "/tmp/session/run",
+		ProjectDir:         "/tmp/session/run/project",
+		LogsDir:            "/tmp/session/run/logs",
+		AgentDir:           "/tmp/session/run/agent",
+		ConfigPath:         "/tmp/session/run/config.json",
+		EventStorePath:     "/tmp/events.sqlite",
+		AgentMetadataJSON:  json.RawMessage(`{"format":"codex_jsonl","threadId":"thread_1"}`),
 	}
 	assert.NilError(t, store.UpsertBenchmarkRun(context.Background(), run))
 
@@ -575,7 +647,7 @@ func TestListTaskRunsAggregatesSummaries(t *testing.T) {
 	})
 
 	// When: task run summaries are queried.
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 
 	// Then: runs are ordered newest-first with aggregated fields populated.
@@ -648,7 +720,7 @@ func TestListTaskRunsKeepsTimedOutRunsOpen(t *testing.T) {
 		Payload:            json.RawMessage(`{"status":"timed_out"}`),
 	})
 
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].Status, string(taskverification.TaskStatusTimedOut))
@@ -693,7 +765,7 @@ func TestListTaskRunsPrefersPersistedSnapshotMetadata(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].TemplateName, "Simple TDD Task")
@@ -722,7 +794,7 @@ func TestListTaskRunsIncludesSnapshotOnlyRuns(t *testing.T) {
 	})
 	assert.NilError(t, err)
 
-	summaries, err := store.ListTaskRuns(context.Background())
+	summaries, err := store.ListTaskRuns(context.Background(), TaskRunFilter{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(summaries), 1)
 	assert.Equal(t, summaries[0].RunID, "run-only-snapshot")
@@ -969,6 +1041,211 @@ func seedSchemaVersion4Store(t *testing.T, db *sql.DB) {
 	}
 }
 
+func seedSchemaVersion5Store(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	ctx := context.Background()
+	_, err := db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 5)`)
+	assert.NilError(t, err)
+
+	bundb := bun.NewDB(db, sqlitedialect.New())
+	assert.NilError(t, createLegacyBenchmarkRunTablesV5(ctx, bundb))
+	assert.NilError(t, createBenchmarkRunScoreTables(ctx, bundb))
+	assert.NilError(t, createTaskRunSnapshotTables(ctx, bundb))
+
+	_, err = db.Exec(`
+INSERT INTO benchmark_sessions (
+	session_id,
+	schema_version,
+	suite_id,
+	suite_name,
+	suite_path,
+	session_path,
+	output_root,
+	template_id,
+	template_name,
+	started_at_unix_milli,
+	status,
+	repeat_count
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"bm_session_1",
+		benchmarkRunSchemaVersion,
+		"simple_tdd_v1",
+		"Simple TDD Benchmark Suite v1",
+		"/tmp/suite",
+		"/tmp/session",
+		"/tmp",
+		"simple_tdd",
+		"Simple TDD Current",
+		1000,
+		"completed",
+		1,
+	)
+	assert.NilError(t, err)
+
+	insertTaskRunSnapshotRow(t, db, "tr_1", "completed")
+	insertTaskRunSnapshotRow(t, db, "tr_2", "failed")
+	insertTaskRunSnapshotRow(t, db, "tr_3", "completed")
+
+	linkedJSON, err := json.Marshal([]string{"tr_1", "tr_2", "tr_1"})
+	assert.NilError(t, err)
+	_, err = db.Exec(`
+INSERT INTO benchmark_runs (
+	benchmark_run_id,
+	schema_version,
+	session_id,
+	case_id,
+	case_name,
+	agent,
+	template_variant,
+	attempt,
+	template_id,
+	template_name,
+	selected_model,
+	started_at_unix_milli,
+	ended_at_unix_milli,
+	status,
+	latest_task_run_id,
+	latest_task_run_status,
+	linked_task_run_ids_json,
+	run_dir,
+	project_dir,
+	logs_dir,
+	agent_dir,
+	config_path,
+	event_store_mode,
+	event_store_path,
+	request_log_path,
+	selected_template_path,
+	error_summary,
+	agent_metadata_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"bm_run_1",
+		benchmarkRunSchemaVersion,
+		"bm_session_1",
+		"compile_failure_red",
+		"Compile Failure Red",
+		"codex",
+		"current",
+		1,
+		"simple_tdd",
+		"Simple TDD Current",
+		"gpt-5.4-mini",
+		1000,
+		2000,
+		"completed",
+		"tr_3",
+		"completed",
+		linkedJSON,
+		"/tmp/session/run",
+		"/tmp/session/run/project",
+		"/tmp/session/run/logs",
+		"/tmp/session/run/agent",
+		"/tmp/session/run/config.json",
+		"configured_shared",
+		"/tmp/events.sqlite",
+		"/tmp/session/run/logs/requests_0001.jsonl",
+		"/tmp/session/run/selected-template.yaml",
+		"",
+		[]byte(`{"threadId":"thread_1"}`),
+	)
+	assert.NilError(t, err)
+
+	scoreErrorsJSON, err := json.Marshal([]string{})
+	assert.NilError(t, err)
+	_, err = db.Exec(`
+INSERT INTO benchmark_run_scores (
+	benchmark_run_id,
+	schema_version,
+	score_status,
+	score_version,
+	generated_at_unix_milli,
+	scorecard_json,
+	score_errors_json,
+	selected_model,
+	completed_successfully,
+	final_verification_passed,
+	first_pass_success,
+	restart_occurred,
+	fail_occurred,
+	timeout_occurred,
+	invariant_violation,
+	wall_clock_seconds,
+	total_tool_calls,
+	total_task_tool_calls,
+	total_downstream_tool_calls,
+	failed_task_tool_calls,
+	failed_downstream_tool_calls,
+	edited_files_count
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"bm_run_1",
+		benchmarkRunScoreSchemaVersion,
+		"scored",
+		"v1",
+		2000,
+		[]byte(`{"benchmarkRunId":"bm_run_1"}`),
+		scoreErrorsJSON,
+		"gpt-5.4-mini",
+		true,
+		true,
+		true,
+		false,
+		false,
+		false,
+		false,
+		5.0,
+		3,
+		1,
+		2,
+		0,
+		0,
+		1,
+	)
+	assert.NilError(t, err)
+}
+
+func insertTaskRunSnapshotRow(t *testing.T, db *sql.DB, runID string, status string) {
+	t.Helper()
+
+	payload, err := json.Marshal(taskruns.PersistedRunSnapshot{
+		RunID:        runID,
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Current",
+		Status:       status,
+		Phase:        "execution.implement_fix",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Task: taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Current"},
+		},
+	})
+	assert.NilError(t, err)
+
+	_, err = db.Exec(`
+INSERT INTO task_runs (
+	run_id,
+	schema_version,
+	created_at_unix_milli,
+	updated_at_unix_milli,
+	template_id,
+	template_name,
+	status,
+	phase,
+	payload_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		runID,
+		taskRunSnapshotSchemaVersion,
+		1000,
+		1000,
+		"simple_tdd",
+		"Simple TDD Current",
+		status,
+		"execution.implement_fix",
+		payload,
+	)
+	assert.NilError(t, err)
+}
+
 func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
 	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
@@ -990,4 +1267,11 @@ func tableColumns(db *sql.DB, table string) (map[string]bool, error) {
 		columns[name] = true
 	}
 	return columns, rows.Err()
+}
+
+func sqliteMasterCount(db *sql.DB, entryType string, name string) (int, error) {
+	row := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?`, entryType, name)
+	var count int
+	err := row.Scan(&count)
+	return count, err
 }

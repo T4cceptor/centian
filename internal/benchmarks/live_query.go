@@ -405,22 +405,19 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if !ok {
 		return nil, fmt.Errorf("missing case definition for %q", run.CaseID)
 	}
-	latestTaskRunID := strings.TrimSpace(run.LatestTaskRunID)
-	if latestTaskRunID == "" {
-		latestTaskRunID = common.LastNonEmpty(run.LinkedTaskRunIDs)
-	}
-	if latestTaskRunID == "" {
+	if len(run.LinkedTaskRunIDs) == 0 {
 		return nil, fmt.Errorf("benchmark run %q is missing linked task runs", run.RunDir)
 	}
-	snapshot, err := s.store.GetTaskRunSnapshot(ctx, latestTaskRunID)
+	s.recomputeStatsForLinkedRuns(ctx, run.LinkedTaskRunIDs)
+	snapshots, err := s.loadLinkedTaskRunSnapshots(ctx, run.LinkedTaskRunIDs)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("task run snapshot %q was not found", latestTaskRunID)
-		}
 		return nil, err
 	}
-	s.recomputeStatsForLinkedRuns(ctx, latestTaskRunID, run.LinkedTaskRunIDs)
-	stats, err := s.aggregateTaskRunStats(ctx, latestTaskRunID, run.LinkedTaskRunIDs)
+	lastSnapshot, err := s.latestLinkedTaskRunSnapshot(ctx, run.LinkedTaskRunIDs, snapshots)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := s.aggregateTaskRunStats(ctx, run.LinkedTaskRunIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -443,12 +440,12 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if err != nil {
 		return nil, err
 	}
-	templateID := common.FirstNonEmpty(run.TemplateID, snapshot.TemplateID)
-	templateName := templateNameFromSnapshot(snapshot)
+	templateID := common.FirstNonEmpty(run.TemplateID, session.TemplateID, lastSnapshot.TemplateID)
+	templateName := common.FirstNonEmpty(run.TemplateName, session.TemplateName, templateNameFromSnapshot(lastSnapshot))
 	if templateName == "" {
 		templateName = templateID
 	}
-	finalVerificationPassed := strings.TrimSpace(snapshot.Status) == runStatusCompleted
+	finalVerificationPassed := strings.TrimSpace(lastSnapshot.Status) == runStatusCompleted
 	restartCount := stats.RestartCount
 	failCount := stats.FailCount
 	timeoutCount := stats.TimeoutCount
@@ -498,7 +495,6 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 		AgentStdoutPath: agentStdoutPath,
 		AgentStderrPath: agentStderrPath,
 		RawStatus:       run.Status,
-		LatestTaskRunID: latestTaskRunID,
 		LinkedTaskRunIDs: append([]string(nil),
 			run.LinkedTaskRunIDs...,
 		),
@@ -513,43 +509,41 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 }
 
 // aggregateTaskRunStats sums stats from all linked task run IDs so that errors from
-// scaffolding or intermediate runs are not lost. The latest task run must be present;
-// additional linked runs are added on top if available.
-func (s *QueryService) aggregateTaskRunStats(ctx context.Context, latestTaskRunID string, linkedRunIDs []string) (*persistence.TaskRunStatsRecord, error) {
-	latest, err := s.store.GetTaskRunStats(ctx, latestTaskRunID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("task run stats %q were not found", latestTaskRunID)
-		}
-		return nil, err
-	}
-	for _, runID := range linkedRunIDs {
-		if strings.TrimSpace(runID) == "" || runID == latestTaskRunID {
-			continue
-		}
-		extra, err := s.store.GetTaskRunStats(ctx, runID)
+// scaffolding or intermediate runs are not lost.
+func (s *QueryService) aggregateTaskRunStats(ctx context.Context, linkedRunIDs []string) (*persistence.TaskRunStatsRecord, error) {
+	var aggregate *persistence.TaskRunStatsRecord
+	for _, runID := range orderedUniqueRunIDs(linkedRunIDs) {
+		stats, err := s.store.GetTaskRunStats(ctx, runID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				continue // non-latest linked run may have no stats row; skip it
+				return nil, fmt.Errorf("task run stats %q were not found", runID)
 			}
 			return nil, err
 		}
-		latest.TaskToolCallCount += extra.TaskToolCallCount
-		latest.DownstreamToolCallCount += extra.DownstreamToolCallCount
-		latest.TaskToolErrorCount += extra.TaskToolErrorCount
-		latest.DownstreamToolErrorCount += extra.DownstreamToolErrorCount
-		latest.RestartCount += extra.RestartCount
-		latest.FailCount += extra.FailCount
-		latest.TimeoutCount += extra.TimeoutCount
+		if aggregate == nil {
+			statsCopy := *stats
+			aggregate = &statsCopy
+			continue
+		}
+		aggregate.TaskToolCallCount += stats.TaskToolCallCount
+		aggregate.DownstreamToolCallCount += stats.DownstreamToolCallCount
+		aggregate.TaskToolErrorCount += stats.TaskToolErrorCount
+		aggregate.DownstreamToolErrorCount += stats.DownstreamToolErrorCount
+		aggregate.RestartCount += stats.RestartCount
+		aggregate.FailCount += stats.FailCount
+		aggregate.TimeoutCount += stats.TimeoutCount
 	}
-	return latest, nil
+	if aggregate == nil {
+		return nil, fmt.Errorf("benchmark run is missing linked task runs")
+	}
+	return aggregate, nil
 }
 
 // recomputeStatsForLinkedRuns refreshes task_run_stats from raw events for all unique run IDs
 // associated with a benchmark run. Errors are ignored — stale stats are preferable to a hard failure.
-func (s *QueryService) recomputeStatsForLinkedRuns(ctx context.Context, latestTaskRunID string, linkedRunIDs []string) {
+func (s *QueryService) recomputeStatsForLinkedRuns(ctx context.Context, linkedRunIDs []string) {
 	seen := make(map[string]struct{})
-	for _, runID := range append([]string{latestTaskRunID}, linkedRunIDs...) {
+	for _, runID := range linkedRunIDs {
 		runID = strings.TrimSpace(runID)
 		if runID == "" {
 			continue
@@ -560,6 +554,93 @@ func (s *QueryService) recomputeStatsForLinkedRuns(ctx context.Context, latestTa
 		seen[runID] = struct{}{}
 		_ = s.store.RecomputeTaskRunStats(ctx, runID)
 	}
+}
+
+func (s *QueryService) loadLinkedTaskRunSnapshots(ctx context.Context, linkedRunIDs []string) ([]*persistence.TaskRunSnapshotRecord, error) {
+	orderedIDs := orderedUniqueRunIDs(linkedRunIDs)
+	if len(orderedIDs) == 0 {
+		return nil, fmt.Errorf("benchmark run is missing linked task runs")
+	}
+	snapshots := make([]*persistence.TaskRunSnapshotRecord, 0, len(orderedIDs))
+	for _, runID := range orderedIDs {
+		snapshot, err := s.store.GetTaskRunSnapshot(ctx, runID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("task run snapshot %q was not found", runID)
+			}
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
+func (s *QueryService) latestLinkedTaskRunSnapshot(
+	ctx context.Context,
+	linkedRunIDs []string,
+	snapshots []*persistence.TaskRunSnapshotRecord,
+) (*persistence.TaskRunSnapshotRecord, error) {
+	orderedIDs := orderedUniqueRunIDs(linkedRunIDs)
+	if len(orderedIDs) == 0 || len(snapshots) == 0 {
+		return nil, fmt.Errorf("benchmark run is missing linked task runs")
+	}
+
+	snapshotByRunID := make(map[string]*persistence.TaskRunSnapshotRecord, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot == nil {
+			continue
+		}
+		snapshotByRunID[snapshot.RunID] = snapshot
+	}
+
+	var latestSnapshot *persistence.TaskRunSnapshotRecord
+	var latestStartedAt int64
+	var latestFallbackAt int64
+	latestOrder := -1
+	for idx, runID := range orderedIDs {
+		snapshot, ok := snapshotByRunID[runID]
+		if !ok {
+			return nil, fmt.Errorf("task run snapshot %q was not found", runID)
+		}
+		stats, err := s.store.GetTaskRunStats(ctx, runID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("task run stats %q were not found", runID)
+			}
+			return nil, err
+		}
+
+		startedAt := stats.StartedAtUnixMilli
+		fallbackAt := snapshot.UpdatedAtUnixMilli
+		if endedAt := nullInt64Value(stats.EndedAtUnixMilli); endedAt > fallbackAt {
+			fallbackAt = endedAt
+		}
+		if fallbackAt == 0 {
+			fallbackAt = snapshot.CreatedAtUnixMilli
+		}
+
+		if latestSnapshot == nil ||
+			startedAt > latestStartedAt ||
+			(startedAt == latestStartedAt && fallbackAt > latestFallbackAt) ||
+			(startedAt == latestStartedAt && fallbackAt == latestFallbackAt && idx > latestOrder) {
+			latestSnapshot = snapshot
+			latestStartedAt = startedAt
+			latestFallbackAt = fallbackAt
+			latestOrder = idx
+		}
+	}
+
+	if latestSnapshot == nil {
+		return nil, fmt.Errorf("benchmark run is missing linked task runs")
+	}
+	return latestSnapshot, nil
+}
+
+func nullInt64Value(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // runAgentMetadata prefers persisted agent metadata and falls back to parsing stdout logs.
@@ -617,6 +698,26 @@ func findSessionByID(sessions []persistence.BenchmarkSessionRecord, sessionID st
 		}
 	}
 	return nil
+}
+
+func orderedUniqueRunIDs(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 // templateNameFromSnapshot derives the most specific template name available in the snapshot payload.

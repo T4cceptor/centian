@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/uptrace/bun"
@@ -69,38 +70,40 @@ func (s *Store) UpsertBenchmarkRun(ctx context.Context, record *BenchmarkRunReco
 	if err != nil {
 		return err
 	}
-	_, err = s.db.NewInsert().
-		Model(row).
-		On("CONFLICT (benchmark_run_id) DO UPDATE").
-		Set("schema_version = EXCLUDED.schema_version").
-		Set("session_id = EXCLUDED.session_id").
-		Set("case_id = EXCLUDED.case_id").
-		Set("case_name = EXCLUDED.case_name").
-		Set("agent = EXCLUDED.agent").
-		Set("template_variant = EXCLUDED.template_variant").
-		Set("attempt = EXCLUDED.attempt").
-		Set("template_id = EXCLUDED.template_id").
-		Set("template_name = EXCLUDED.template_name").
-		Set("selected_model = EXCLUDED.selected_model").
-		Set("started_at_unix_milli = EXCLUDED.started_at_unix_milli").
-		Set("ended_at_unix_milli = EXCLUDED.ended_at_unix_milli").
-		Set("status = EXCLUDED.status").
-		Set("latest_task_run_id = EXCLUDED.latest_task_run_id").
-		Set("latest_task_run_status = EXCLUDED.latest_task_run_status").
-		Set("linked_task_run_ids_json = EXCLUDED.linked_task_run_ids_json").
-		Set("run_dir = EXCLUDED.run_dir").
-		Set("project_dir = EXCLUDED.project_dir").
-		Set("logs_dir = EXCLUDED.logs_dir").
-		Set("agent_dir = EXCLUDED.agent_dir").
-		Set("config_path = EXCLUDED.config_path").
-		Set("event_store_mode = EXCLUDED.event_store_mode").
-		Set("event_store_path = EXCLUDED.event_store_path").
-		Set("request_log_path = EXCLUDED.request_log_path").
-		Set("selected_template_path = EXCLUDED.selected_template_path").
-		Set("error_summary = EXCLUDED.error_summary").
-		Set("agent_metadata_json = EXCLUDED.agent_metadata_json").
-		Exec(ctx)
-	return err
+	links := orderedBenchmarkRunTaskRunLinks(record)
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewInsert().
+			Model(row).
+			On("CONFLICT (benchmark_run_id) DO UPDATE").
+			Set("schema_version = EXCLUDED.schema_version").
+			Set("session_id = EXCLUDED.session_id").
+			Set("case_id = EXCLUDED.case_id").
+			Set("case_name = EXCLUDED.case_name").
+			Set("agent = EXCLUDED.agent").
+			Set("template_variant = EXCLUDED.template_variant").
+			Set("attempt = EXCLUDED.attempt").
+			Set("template_id = EXCLUDED.template_id").
+			Set("template_name = EXCLUDED.template_name").
+			Set("selected_model = EXCLUDED.selected_model").
+			Set("started_at_unix_milli = EXCLUDED.started_at_unix_milli").
+			Set("ended_at_unix_milli = EXCLUDED.ended_at_unix_milli").
+			Set("status = EXCLUDED.status").
+			Set("run_dir = EXCLUDED.run_dir").
+			Set("project_dir = EXCLUDED.project_dir").
+			Set("logs_dir = EXCLUDED.logs_dir").
+			Set("agent_dir = EXCLUDED.agent_dir").
+			Set("config_path = EXCLUDED.config_path").
+			Set("event_store_mode = EXCLUDED.event_store_mode").
+			Set("event_store_path = EXCLUDED.event_store_path").
+			Set("request_log_path = EXCLUDED.request_log_path").
+			Set("selected_template_path = EXCLUDED.selected_template_path").
+			Set("error_summary = EXCLUDED.error_summary").
+			Set("agent_metadata_json = EXCLUDED.agent_metadata_json").
+			Exec(ctx); err != nil {
+			return err
+		}
+		return replaceBenchmarkRunTaskRunLinks(ctx, tx, record.BenchmarkRunID, links)
+	})
 }
 
 // UpsertBenchmarkRunScore persists or replaces one benchmark run score snapshot row.
@@ -186,21 +189,12 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context, filter *BenchmarkRunFilte
 	}
 	rows := make([]benchmarkRunRow, 0)
 	query := s.db.NewSelect().Model(&rows)
-	if strings.TrimSpace(filter.SessionID) != "" {
-		query = query.Where("session_id = ?", filter.SessionID)
-	} else if strings.TrimSpace(filter.SuiteID) != "" {
-		sessions, err := s.ListBenchmarkSessions(ctx, BenchmarkSessionFilter{SuiteID: filter.SuiteID})
-		if err != nil {
-			return nil, err
-		}
-		sessionIDs := make([]string, 0, len(sessions))
-		for idx := range sessions {
-			sessionIDs = append(sessionIDs, sessions[idx].SessionID)
-		}
-		if len(sessionIDs) == 0 {
-			return nil, nil
-		}
-		query = query.Where("session_id IN (?)", bun.List(sessionIDs))
+	empty, err := s.applyBenchmarkRunSessionFilter(ctx, query, filter)
+	if err != nil {
+		return nil, err
+	}
+	if empty {
+		return nil, nil
 	}
 	if strings.TrimSpace(filter.CaseID) != "" {
 		query = query.Where("case_id = ?", filter.CaseID)
@@ -223,7 +217,33 @@ func (s *Store) ListBenchmarkRuns(ctx context.Context, filter *BenchmarkRunFilte
 		}
 		records = append(records, *record)
 	}
+	if err := s.populateLinkedTaskRunIDs(ctx, records); err != nil {
+		return nil, err
+	}
 	return records, nil
+}
+
+func (s *Store) applyBenchmarkRunSessionFilter(ctx context.Context, query *bun.SelectQuery, filter *BenchmarkRunFilter) (bool, error) {
+	if strings.TrimSpace(filter.SessionID) != "" {
+		query.Where("session_id = ?", filter.SessionID)
+		return false, nil
+	}
+	if strings.TrimSpace(filter.SuiteID) == "" {
+		return false, nil
+	}
+	sessions, err := s.ListBenchmarkSessions(ctx, BenchmarkSessionFilter{SuiteID: filter.SuiteID})
+	if err != nil {
+		return false, err
+	}
+	sessionIDs := make([]string, 0, len(sessions))
+	for idx := range sessions {
+		sessionIDs = append(sessionIDs, sessions[idx].SessionID)
+	}
+	if len(sessionIDs) == 0 {
+		return true, nil
+	}
+	query.Where("session_id IN (?)", bun.List(sessionIDs))
+	return false, nil
 }
 
 // GetBenchmarkSession returns one benchmark session by id.
@@ -247,7 +267,15 @@ func (s *Store) GetBenchmarkRun(ctx context.Context, benchmarkRunID string) (*Be
 	if err := s.db.NewSelect().Model(row).Where("benchmark_run_id = ?", benchmarkRunID).Scan(ctx); err != nil {
 		return nil, err
 	}
-	return row.toRecord()
+	record, err := row.toRecord()
+	if err != nil {
+		return nil, err
+	}
+	records := []BenchmarkRunRecord{*record}
+	if err := s.populateLinkedTaskRunIDs(ctx, records); err != nil {
+		return nil, err
+	}
+	return &records[0], nil
 }
 
 // ListBenchmarkRunScores returns all persisted benchmark run score snapshots.
@@ -283,4 +311,112 @@ func (s *Store) GetBenchmarkRunScore(ctx context.Context, benchmarkRunID string)
 		return nil, err
 	}
 	return row.toRecord()
+}
+
+// ListBenchmarkRunTaskRunLinks returns benchmark/task-run links filtered by run or task.
+func (s *Store) ListBenchmarkRunTaskRunLinks(ctx context.Context, filter *BenchmarkRunTaskRunLinkFilter) ([]BenchmarkRunTaskRunLinkRecord, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("benchmark run task-run link store is not initialized")
+	}
+	if filter == nil {
+		filter = &BenchmarkRunTaskRunLinkFilter{}
+	}
+	rows := make([]benchmarkRunTaskRunLinkRow, 0)
+	query := s.db.NewSelect().Model(&rows)
+	if strings.TrimSpace(filter.BenchmarkRunID) != "" {
+		query = query.Where("benchmark_run_id = ?", filter.BenchmarkRunID)
+	} else if len(filter.BenchmarkRunIDs) > 0 {
+		query = query.Where("benchmark_run_id IN (?)", bun.List(filter.BenchmarkRunIDs))
+	}
+	if strings.TrimSpace(filter.TaskRunID) != "" {
+		query = query.Where("task_run_id = ?", filter.TaskRunID)
+	}
+	query = query.OrderExpr("benchmark_run_id ASC, COALESCE(link_order, 2147483647) ASC, task_run_id ASC")
+	if err := query.Scan(ctx); err != nil {
+		return nil, err
+	}
+	records := make([]BenchmarkRunTaskRunLinkRecord, 0, len(rows))
+	for idx := range rows {
+		records = append(records, rows[idx].toRecord())
+	}
+	return records, nil
+}
+
+func (s *Store) populateLinkedTaskRunIDs(ctx context.Context, runs []BenchmarkRunRecord) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	runIDs := make([]string, 0, len(runs))
+	indexByRunID := make(map[string]int, len(runs))
+	for idx := range runs {
+		runIDs = append(runIDs, runs[idx].BenchmarkRunID)
+		indexByRunID[runs[idx].BenchmarkRunID] = idx
+	}
+	links, err := s.ListBenchmarkRunTaskRunLinks(ctx, &BenchmarkRunTaskRunLinkFilter{BenchmarkRunIDs: runIDs})
+	if err != nil {
+		return err
+	}
+	for _, link := range links {
+		runIdx, ok := indexByRunID[link.BenchmarkRunID]
+		if !ok {
+			continue
+		}
+		runs[runIdx].LinkedTaskRunIDs = append(runs[runIdx].LinkedTaskRunIDs, link.TaskRunID)
+	}
+	return nil
+}
+
+func replaceBenchmarkRunTaskRunLinks(ctx context.Context, db bun.IDB, benchmarkRunID string, links []BenchmarkRunTaskRunLinkRecord) error {
+	if strings.TrimSpace(benchmarkRunID) == "" {
+		return fmt.Errorf("benchmark run id is required")
+	}
+	if _, err := db.NewDelete().Table("benchmark_run_task_runs").Where("benchmark_run_id = ?", benchmarkRunID).Exec(ctx); err != nil {
+		return err
+	}
+	if len(links) == 0 {
+		return nil
+	}
+	rows := make([]*benchmarkRunTaskRunLinkRow, 0, len(links))
+	for _, link := range links {
+		row, err := benchmarkRunTaskRunLinkRowFromRecord(link)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, row)
+	}
+	_, err := db.NewInsert().Model(&rows).Exec(ctx)
+	return err
+}
+
+func orderedBenchmarkRunTaskRunLinks(record *BenchmarkRunRecord) []BenchmarkRunTaskRunLinkRecord {
+	if record == nil || len(record.LinkedTaskRunIDs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(record.LinkedTaskRunIDs))
+	links := make([]BenchmarkRunTaskRunLinkRecord, 0, len(record.LinkedTaskRunIDs))
+	for idx, taskRunID := range record.LinkedTaskRunIDs {
+		taskRunID = strings.TrimSpace(taskRunID)
+		if taskRunID == "" {
+			continue
+		}
+		if _, exists := seen[taskRunID]; exists {
+			continue
+		}
+		seen[taskRunID] = struct{}{}
+		order := idx
+		links = append(links, BenchmarkRunTaskRunLinkRecord{
+			BenchmarkRunID: record.BenchmarkRunID,
+			TaskRunID:      taskRunID,
+			LinkOrder:      &order,
+		})
+	}
+	sort.SliceStable(links, func(i, j int) bool {
+		left := links[i].LinkOrder
+		right := links[j].LinkOrder
+		if left == nil || right == nil {
+			return links[i].TaskRunID < links[j].TaskRunID
+		}
+		return *left < *right
+	})
+	return links
 }

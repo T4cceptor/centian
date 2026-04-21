@@ -171,7 +171,6 @@ describe("benchmark routes", () => {
     renderApp(["/benchmarks"]);
 
     expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
-    expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
     expect(screen.getByText("Template Scorecards")).toBeInTheDocument();
     expect(screen.getByText("Success Rate")).toBeInTheDocument();
     expect(screen.getByText("MCP Events (Centian/MCP)")).toBeInTheDocument();
@@ -257,6 +256,7 @@ describe("benchmark routes", () => {
   });
 
   it("renders the suite overview", async () => {
+    const user = userEvent.setup();
     globalThis.fetch = vi.fn((input) => {
       const url = String(input);
       if (url.includes("/sessions")) {
@@ -339,8 +339,13 @@ describe("benchmark routes", () => {
 
     renderApp(["/benchmarks/simple_tdd_v1"]);
 
-    expect(await screen.findByRole("heading", { name: "Simple TDD Benchmark Suite v1" })).toBeInTheDocument();
-    expect(screen.getAllByText("Simple TDD Current").length).toBeGreaterThan(0);
+    expect(
+      await screen.findByText(
+        (_, element) =>
+          element?.classList.contains("state-card__eyebrow") === true &&
+          (element.textContent ?? "").includes("Simple TDD Benchmark Suite v1"),
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText("By Variant")).toBeInTheDocument();
     expect(screen.getByText("By Agent")).toBeInTheDocument();
     expect(screen.getAllByText("Total Actions (Centian/MCP)").length).toBeGreaterThan(0);
@@ -349,9 +354,24 @@ describe("benchmark routes", () => {
     expect(
       screen.getAllByText((_, element) => (element?.textContent ?? "").replace(/\s+/g, "") === "1/1").length,
     ).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("Run History")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Sessions" }));
+
+    expect(screen.getByRole("heading", { name: "Sessions" })).toBeInTheDocument();
+    expect(screen.queryByText("By Variant")).not.toBeInTheDocument();
+    expect(screen.getByText("session_one")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Runs History" }));
+
     expect(screen.getByText("Run History")).toBeInTheDocument();
     expect(screen.getAllByText("Assertion-failure red baseline").length).toBeGreaterThan(0);
     expect(screen.getAllByText("codex / gpt-5.4-mini").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Show task runs" })).toHaveAttribute(
+      "href",
+      "/tasks?benchmarkSuite=simple_tdd_v1",
+    );
   });
 
   it("renders the session detail", async () => {
@@ -476,6 +496,7 @@ describe("benchmark routes", () => {
             },
             agentMetadata: { selectedModel: "gpt-5.4-mini" },
             generatedAt: "2026-04-05T12:00:00Z",
+            linkedTaskRunIds: ["tr_1742947200123_0000000001"],
           },
         }),
       ) as typeof fetch;
@@ -491,6 +512,11 @@ describe("benchmark routes", () => {
     expect(screen.getAllByText("gpt-5.4-mini").length).toBeGreaterThan(0);
     expect(screen.getByText("Restart Count")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Assertion-failure red baseline" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "To Task Run" })).toHaveAttribute(
+      "href",
+      "/tasks/tr_1742947200123_0000000001",
+    );
+    expect(screen.queryByText("Linked Task Runs")).not.toBeInTheDocument();
   });
 });
 

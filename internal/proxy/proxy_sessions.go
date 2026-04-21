@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -26,6 +27,11 @@ type downstreamPoolUpdate struct {
 	syncPool     bool
 	closePool    *DownstreamSessionPool
 	waitForReady bool
+}
+
+type namedDownstreamConnection struct {
+	serverName string
+	conn       DownstreamConnectionInterface
 }
 
 // getSessionID returns the MCP session ID from the request or synthesizes one for new POST sessions.
@@ -196,11 +202,15 @@ func (p *CentianEndpoint) readUpstreamClientState(
 	}
 
 	initializeParams := serverSession.InitializeParams()
+	p.mu.RLock()
+	sessionRoots := normalizeRoots(session.roots)
+	sessionRootsDirty := session.rootsDirty
+	p.mu.RUnlock()
 	clientState := &capturedUpstreamClientState{
 		protocolVersion: initializeParams.ProtocolVersion,
 		capabilities:    initializeParams.Capabilities,
-		roots:           session.roots,
-		rootsDirty:      session.rootsDirty,
+		roots:           sessionRoots,
+		rootsDirty:      sessionRootsDirty,
 		clientName:      initializeParams.ClientInfo.Name,
 		clientVersion:   initializeParams.ClientInfo.Version,
 	}
@@ -437,6 +447,70 @@ func (p *CentianEndpoint) invalidateDownstreamPool(downstreamSessionKey string) 
 	}
 	common.LogWarn("ProxyEndpoint[%s]: invalidating pooled downstream session %s", p.name, downstreamSessionKey)
 	p.closeDownstreamSessionPool(pool)
+}
+
+func (p *CentianEndpoint) sessionNeedsSync(session *UpstreamSession) bool {
+	if p == nil || session == nil {
+		return false
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return session.protocolVersion == "" || session.rootsDirty
+}
+
+func (p *CentianEndpoint) sessionRootsDirty(session *UpstreamSession) bool {
+	if p == nil || session == nil {
+		return false
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return session.rootsDirty
+}
+
+func (p *CentianEndpoint) sessionDownstreamSessionKey(session *UpstreamSession) string {
+	if p == nil || session == nil {
+		return ""
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return session.downstreamSessionKey
+}
+
+func (p *CentianEndpoint) sessionConnection(session *UpstreamSession, serverName string) (DownstreamConnectionInterface, error) {
+	if p == nil || session == nil {
+		return nil, fmt.Errorf("upstream session is not available")
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return connectionByServerName(session.downstreamConns, serverName)
+}
+
+func (p *CentianEndpoint) sessionConnectionSnapshot(session *UpstreamSession) []namedDownstreamConnection {
+	if p == nil || session == nil {
+		return nil
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if len(session.downstreamConns) == 0 {
+		return nil
+	}
+
+	serverNames := make([]string, 0, len(session.downstreamConns))
+	for serverName := range session.downstreamConns {
+		serverNames = append(serverNames, serverName)
+	}
+	sort.Strings(serverNames)
+
+	snapshot := make([]namedDownstreamConnection, 0, len(serverNames))
+	for _, serverName := range serverNames {
+		snapshot = append(snapshot, namedDownstreamConnection{
+			serverName: serverName,
+			conn:       session.downstreamConns[serverName],
+		})
+	}
+	return snapshot
 }
 
 // Close terminates all sessions and their downstream connections.

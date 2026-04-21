@@ -14,7 +14,7 @@ func (s *Store) migrateV4ToV5(ctx context.Context) error {
 	}{
 		{name: "create task run snapshots", run: createTaskRunSnapshotTables},
 		{name: "create task run stats", run: createTaskRunStatsTables},
-		{name: "create benchmark runs", run: createBenchmarkRunTables},
+		{name: "create benchmark runs", run: createLegacyBenchmarkRunTablesV5},
 		{name: "create benchmark run scores", run: createBenchmarkRunScoreTables},
 	}
 	for _, step := range steps {

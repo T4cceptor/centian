@@ -14,8 +14,13 @@ function createFetchResponse(body: unknown, status: number = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(),
     json: async () => body,
   } as Response;
+}
+
+function createTaskRunDetailResponse(runId: string, benchmarkLinks: unknown[] = []): Response {
+  return createFetchResponse({ runId, benchmarkLinks });
 }
 
 function deferred<T>() {
@@ -327,7 +332,8 @@ describe("task run list", () => {
             payloadJson: { status: "active" },
           },
         ]),
-      ) as typeof fetch;
+      )
+      .mockResolvedValueOnce(createTaskRunDetailResponse("tr_1742947200123_0000000001")) as typeof fetch;
 
     renderApp();
 
@@ -336,12 +342,50 @@ describe("task run list", () => {
     expect(await screen.findByText("Run Detail")).toBeInTheDocument();
     expect(screen.getByText(/TR · 0000000001/)).toBeInTheDocument();
   });
+
+  it("applies the benchmark suite filter from the url", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            runId: "tr_1742947200123_0000000001",
+            templateId: "python_tdd_demo",
+            startedAt: 1742947200123,
+            status: "succeeded",
+            currentPhase: "planning.review",
+            taskEventCount: 2,
+            actionEventCount: 3,
+            eventCount: 5,
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks?benchmarkSuite=simple_tdd_v1"]);
+
+    expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
+    expect(screen.getByText("Benchmark suite: simple_tdd_v1")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/task-runs?benchmarkSuite=simple_tdd_v1",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+    expect(screen.getByRole("link", { name: /tr_1742947200123_0000000001/i })).toHaveAttribute(
+      "href",
+      "/tasks/tr_1742947200123_0000000001?benchmarkSuite=simple_tdd_v1",
+    );
+  });
 });
 
 describe("task run detail", () => {
   it("shows a loading state before the event api resolves", async () => {
     const pending = deferred<Response>();
-    globalThis.fetch = vi.fn(() => pending.promise) as typeof fetch;
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.endsWith("/events")) {
+        return pending.promise;
+      }
+      return Promise.resolve(createTaskRunDetailResponse("tr_1742947200123_0000000001"));
+    }) as typeof fetch;
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
@@ -369,6 +413,7 @@ describe("task run detail", () => {
           },
         ]),
       )
+      .mockResolvedValueOnce(createTaskRunDetailResponse("tr_1742947200123_0000000001"))
       .mockResolvedValueOnce(
         createFetchResponse([
           {
@@ -399,7 +444,7 @@ describe("task run detail", () => {
     expect(await screen.findByText("Run Detail")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(3);
     }, { timeout: 2500 });
     await waitFor(() => {
       const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent ?? "");
@@ -496,8 +541,9 @@ describe("task run detail", () => {
   });
 
   it("stops polling the detail timeline after the run reaches a terminal state", async () => {
-    globalThis.fetch = vi.fn(() =>
-      Promise.resolve(
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
         createFetchResponse([
           {
             source: "task",
@@ -510,8 +556,8 @@ describe("task run detail", () => {
             payloadJson: { status: "completed" },
           },
         ]),
-      ),
-    ) as typeof fetch;
+      )
+      .mockResolvedValueOnce(createTaskRunDetailResponse("tr_1742947200123_0000000001")) as typeof fetch;
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
@@ -519,7 +565,7 @@ describe("task run detail", () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 2200));
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   }, 8000);
 
   it("keeps polling after a failed step event while the task run remains active", async () => {
@@ -587,6 +633,53 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Task timeline is protected")).toBeInTheDocument();
     expect(screen.getByText("Back to task runs")).toBeInTheDocument();
+  });
+
+  it("renders a benchmark run link for benchmark-linked task runs", async () => {
+    globalThis.fetch = vi.fn((input) => {
+      const url = String(input);
+      if (url.endsWith("/events")) {
+        return Promise.resolve(
+          createFetchResponse([
+            {
+              source: "task",
+              id: "te_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              eventType: "task_registered",
+              outcome: "succeeded",
+              phasePath: "onboarding",
+              resultingPhasePath: "onboarding",
+              payloadJson: { status: "active" },
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(
+        createTaskRunDetailResponse("tr_1742947200123_0000000001", [
+          {
+            benchmarkRunId: "ba_score",
+            sessionId: "ba_session",
+            suiteId: "simple_tdd_v1",
+            suiteName: "Simple TDD Benchmark Suite v1",
+            caseId: "assertion_failure_red",
+            caseName: "Assertion-failure red baseline",
+            agent: "codex",
+            selectedModel: "gpt-5.4-mini",
+            templateVariant: "current",
+            attempt: 1,
+            startedAtUnixMilli: 1742947200123,
+          },
+        ]),
+      );
+    }) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByRole("link", { name: "Benchmark Run" })).toHaveAttribute(
+      "href",
+      "/benchmarks/simple_tdd_v1/runs/ba_score",
+    );
+    expect(screen.queryByText("Benchmark Context")).not.toBeInTheDocument();
   });
 
   it("renders grouped mixed timeline exchanges and shows selected details in the side inspector", async () => {
@@ -1298,6 +1391,7 @@ describe("task run detail", () => {
           },
         ]),
       )
+      .mockResolvedValueOnce(createTaskRunDetailResponse("tr_1742947200123_0000000001"))
       .mockResolvedValueOnce(createFetchResponse([])) as typeof fetch;
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);

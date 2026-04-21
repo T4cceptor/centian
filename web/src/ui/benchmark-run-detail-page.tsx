@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { type BenchmarkRunDetail, fetchBenchmarkRun } from "../api/benchmarks";
 import { ApiError } from "../api/task-runs";
@@ -106,6 +106,7 @@ export function BenchmarkRunDetailPage() {
     scorecard.selectedModel ||
     scorecard.agentMetadata?.selectedModel ||
     firstModelUsageKey(scorecard.agentMetadata?.modelUsage);
+  const primaryTaskRunID = scorecard.linkedTaskRunIds?.[0];
 
   return (
     <div className="benchmark-page">
@@ -115,9 +116,16 @@ export function BenchmarkRunDetailPage() {
           <h2>{detail.caseName || scorecard.caseId}</h2>
           <p className="benchmark-toolbar__meta">{detail.templateName || scorecard.templateId}</p>
         </div>
-        <p className="benchmark-toolbar__meta">
-          {scorecard.agent}{selectedModel ? ` · ${selectedModel}` : ""} · {scorecard.templateVariant} · attempt {scorecard.attempt}
-        </p>
+        <div className="benchmark-toolbar__actions">
+          {primaryTaskRunID ? (
+            <Link className="benchmark-toolbar__link" to={`/tasks/${primaryTaskRunID}`}>
+              To Task Run
+            </Link>
+          ) : null}
+          <p className="benchmark-toolbar__meta">
+            {scorecard.agent}{selectedModel ? ` · ${selectedModel}` : ""} · {scorecard.templateVariant} · attempt {scorecard.attempt}
+          </p>
+        </div>
       </div>
 
       <div className="benchmark-summary-grid">
@@ -153,6 +161,7 @@ export function BenchmarkRunDetailPage() {
             <div><dt>Final Verification</dt><dd>{String(scorecard.outcome.finalVerificationPassed)}</dd></div>
             <div><dt>First Pass</dt><dd>{String(scorecard.outcome.firstPassSuccess)}</dd></div>
             <div><dt>Invariant Violation</dt><dd>{String(scorecard.outcome.invariantViolation)}</dd></div>
+            <div><dt>Edited Files</dt><dd>{scorecard.efficiency.editedFilesCount}</dd></div>
           </dl>
         </article>
         <article className="benchmark-detail-card">
@@ -164,13 +173,6 @@ export function BenchmarkRunDetailPage() {
             <div><dt>Restart Count</dt><dd>{scorecard.process.restartCount}</dd></div>
             <div><dt>Fail Count</dt><dd>{scorecard.process.failCount}</dd></div>
             <div><dt>Timeout Count</dt><dd>{scorecard.process.timeoutCount}</dd></div>
-          </dl>
-        </article>
-        <article className="benchmark-detail-card">
-          <h3>Files</h3>
-          <dl className="benchmark-detail-list">
-            <div><dt>Edited Files</dt><dd>{scorecard.efficiency.editedFilesCount}</dd></div>
-            <div><dt>Latest Task Run</dt><dd>{scorecard.latestTaskRunId || "—"}</dd></div>
           </dl>
         </article>
       </section>

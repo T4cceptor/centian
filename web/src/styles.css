@@ -112,6 +112,9 @@ code,
   font-size: 0.76rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .app-header__subtitle {
@@ -175,6 +178,32 @@ code,
   font-size: 0.84rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.task-run-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.task-run-filter-chip {
+  padding: 6px 10px;
+  border: 1px solid rgba(140, 230, 216, 0.24);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(140, 230, 216, 0.08);
+  font-size: 0.84rem;
+}
+
+.task-run-filter-clear {
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
 }
 
 .task-run-table {
@@ -283,6 +312,17 @@ code,
   gap: 20px;
 }
 
+.benchmark-section__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.benchmark-section__link {
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
 .benchmark-toolbar,
 .benchmark-section__header {
   display: flex;
@@ -299,9 +339,39 @@ code,
   color: var(--text-dim);
 }
 
-.benchmark-toolbar__heading {
+.benchmark-toolbar__actions {
   display: grid;
-  gap: 6px;
+  justify-items: end;
+  gap: 16px;
+}
+
+.benchmark-toolbar__link {
+  padding: 14px 24px;
+  border: 1px solid rgba(116, 204, 194, 0.24);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: linear-gradient(180deg, rgba(10, 20, 30, 0.76), rgba(8, 16, 24, 0.9));
+  box-shadow: inset 0 1px 0 rgba(140, 230, 216, 0.12);
+  text-decoration: none;
+  font-size: 0.98rem;
+  line-height: 1;
+}
+
+.benchmark-toolbar__link:hover {
+  border-color: rgba(140, 230, 216, 0.38);
+  color: #b7fff6;
+}
+
+.benchmark-toolbar__link:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: 2px;
+}
+
+.benchmark-toolbar__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -312,10 +382,65 @@ code,
   gap: 12px;
 }
 
+.benchmark-toolbar__suite-title {
+  margin: 0;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 1.02rem;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.benchmark-toolbar__controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: end;
+  gap: 14px 20px;
+}
+
 .benchmark-toolbar__badges {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.benchmark-suite-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.benchmark-suite-tabs__tab {
+  min-width: 118px;
+  padding: 10px 16px;
+  border: 1px solid rgba(140, 230, 216, 0.18);
+  border-radius: 14px;
+  background: rgba(8, 16, 24, 0.72);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.benchmark-suite-tabs__tab--active {
+  border-color: rgba(140, 230, 216, 0.36);
+  background: linear-gradient(180deg, rgba(18, 39, 48, 0.88), rgba(11, 24, 31, 0.92));
+  color: var(--accent-strong);
+  box-shadow: inset 0 1px 0 rgba(140, 230, 216, 0.12);
+}
+
+.benchmark-suite-tabs__tab:hover {
+  border-color: rgba(140, 230, 216, 0.28);
+  color: #b7fff6;
+}
+
+.benchmark-suite-tabs__tab:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: 2px;
 }
 
 .benchmark-toggle {
@@ -365,7 +490,7 @@ code,
 .benchmark-filter {
   display: grid;
   gap: 6px;
-  min-width: 150px;
+  min-width: 140px;
 }
 
 .benchmark-filter span {
@@ -841,6 +966,30 @@ code,
 .task-run-detail__title-block {
   display: grid;
   gap: 4px;
+}
+
+.task-run-detail__benchmark-link {
+  margin-left: auto;
+  padding: 14px 24px;
+  border: 1px solid rgba(116, 204, 194, 0.24);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: linear-gradient(180deg, rgba(10, 20, 30, 0.76), rgba(8, 16, 24, 0.9));
+  box-shadow: inset 0 1px 0 rgba(140, 230, 216, 0.12);
+  text-decoration: none;
+  font-size: 0.98rem;
+  line-height: 1;
+  align-self: center;
+}
+
+.task-run-detail__benchmark-link:hover {
+  border-color: rgba(140, 230, 216, 0.38);
+  color: #b7fff6;
+}
+
+.task-run-detail__benchmark-link:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: 2px;
 }
 
 .task-run-detail__run-id {

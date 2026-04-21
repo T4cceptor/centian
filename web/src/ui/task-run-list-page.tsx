@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
@@ -31,12 +31,17 @@ function getTaskRunDisplayPhase(run: TaskRunSummary): string {
 
 // Shows the live task run index, including loading, empty, and error states.
 export function TaskRunListPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [authHeaderName, setAuthHeaderName] = useState<string>();
   const [now, setNow] = useState(() => Date.now());
   const [reloadToken, setReloadToken] = useState(0);
+  const benchmarkSuite = searchParams.get("benchmarkSuite")?.trim() ?? "";
+  const activeFilters = benchmarkSuite ? [{ key: "benchmarkSuite", label: `Benchmark suite: ${benchmarkSuite}` }] : [];
+  const listSearch = searchParams.toString();
+  const detailSuffix = listSearch ? `?${listSearch}` : "";
 
   useEffect(() => {
     const controller = new AbortController();
@@ -44,7 +49,7 @@ export function TaskRunListPage() {
     setErrorMessage("");
 
     // Abort in-flight fetches when the page unmounts so stale responses do not win.
-    void fetchTaskRuns(controller.signal)
+    void fetchTaskRuns({ benchmarkSuite: benchmarkSuite || undefined }, controller.signal)
       .then((result) => {
         setRuns(result);
         setLoadState("ready");
@@ -64,7 +69,7 @@ export function TaskRunListPage() {
       });
 
     return () => controller.abort();
-  }, [reloadToken]);
+  }, [benchmarkSuite, reloadToken]);
 
   useEffect(() => {
     if (loadState !== "ready") {
@@ -85,7 +90,7 @@ export function TaskRunListPage() {
       inFlight = true;
       controller = new AbortController();
 
-      void fetchTaskRuns(controller.signal)
+      void fetchTaskRuns({ benchmarkSuite: benchmarkSuite || undefined }, controller.signal)
         .then((result) => {
           setRuns(result);
         })
@@ -110,7 +115,7 @@ export function TaskRunListPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [loadState]);
+  }, [benchmarkSuite, loadState]);
 
   useEffect(() => {
     const activeRunExists = runs.some((run) => getTaskRunUIStatus(run.status, run.endedAt) === "active");
@@ -162,8 +167,12 @@ export function TaskRunListPage() {
     return (
       <div className="state-card">
         <p className="state-card__eyebrow">Quiet Channel</p>
-        <h2>No task runs yet</h2>
-        <p>Registered task workflows will appear here once the event store has data.</p>
+        <h2>{activeFilters.length > 0 ? "No matching task runs" : "No task runs yet"}</h2>
+        <p>
+          {activeFilters.length > 0
+            ? "No persisted task runs match the active benchmark filters."
+            : "Registered task workflows will appear here once the event store has data."}
+        </p>
       </div>
     );
   }
@@ -174,6 +183,22 @@ export function TaskRunListPage() {
         <div>
           <p className="state-card__eyebrow">Live Index</p>
           <h2>Observed task executions</h2>
+          {activeFilters.length > 0 ? (
+            <div className="task-run-filter-bar" aria-label="Active task run filters">
+              {activeFilters.map((filter) => (
+                <span key={filter.key} className="task-run-filter-chip">
+                  {filter.label}
+                </span>
+              ))}
+              <button
+                type="button"
+                className="task-run-filter-clear"
+                onClick={() => setSearchParams(new URLSearchParams())}
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
         </div>
         <p className="task-run-list__count">{runs.length} tracked runs</p>
       </div>
@@ -202,7 +227,7 @@ export function TaskRunListPage() {
                 key={run.runId}
                 aria-label={`Open task run ${run.runId}`}
                 className="task-run-row"
-                to={`/tasks/${run.runId}`}
+                to={`/tasks/${run.runId}${detailSuffix}`}
               >
                 <span className="task-run-row__run" title={run.runId}>
                   <strong>{formatTaskRunId(run.runId)}</strong>

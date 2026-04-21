@@ -64,7 +64,6 @@ type RunScorecard struct {
 	AgentStdoutPath  string              `json:"agentStdoutPath,omitempty"`
 	AgentStderrPath  string              `json:"agentStderrPath,omitempty"`
 	RawStatus        string              `json:"rawStatus"`
-	LatestTaskRunID  string              `json:"latestTaskRunId,omitempty"`
 	LinkedTaskRunIDs []string            `json:"linkedTaskRunIds,omitempty"`
 	Outcome          ScorecardOutcome    `json:"outcome"`
 	Process          ScorecardProcess    `json:"process"`
@@ -141,7 +140,6 @@ type RunSummaryRow struct {
 	EventStoreMode            string         `json:"eventStoreMode,omitempty"`
 	EventStorePath            string         `json:"eventStorePath,omitempty"`
 	RawStatus                 string         `json:"rawStatus"`
-	LatestTaskRunID           string         `json:"latestTaskRunId,omitempty"`
 	LinkedTaskRunIDs          []string       `json:"linkedTaskRunIds,omitempty"`
 	Scored                    bool           `json:"scored"`
 	CompletedSuccessfully     bool           `json:"completedSuccessfully"`

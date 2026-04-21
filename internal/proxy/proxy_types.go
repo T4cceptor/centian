@@ -61,7 +61,9 @@ type CentianServer struct {
 type UpstreamSession struct {
 	id string
 
-	upstreamServer              *mcp.Server
+	upstreamServer *mcp.Server
+	// downstreamConns mirrors the currently attached pool connections and is
+	// swapped under CentianEndpoint.mu during session reconciliation.
 	downstreamConns             map[string]DownstreamConnectionInterface
 	registeredTools             map[string]struct{}
 	registeredStaticTools       map[string]struct{}
@@ -154,11 +156,6 @@ func (p *DownstreamSessionPool) IsConnecting(serverName string) (bool, error) {
 }
 
 const initialDownstreamReadyWait = 500 * time.Millisecond
-
-// GetConnectionByServerName returns a downstream connection for the given server name.
-func (s *UpstreamSession) GetConnectionByServerName(serverName string) (DownstreamConnectionInterface, error) {
-	return connectionByServerName(s.downstreamConns, serverName)
-}
 
 func (s *UpstreamSession) downstreamClientState() *DownstreamClientState {
 	return buildDownstreamClientState(s.protocolVersion, s.clientCapabilities, s.roots)

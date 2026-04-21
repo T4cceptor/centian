@@ -75,40 +75,36 @@ type SessionManifest struct {
 
 // SessionRunManifestEntry summarizes one concrete run under a session.
 type SessionRunManifestEntry struct {
-	CaseID              string `json:"caseId"`
-	CaseName            string `json:"caseName,omitempty"`
-	AgentID             string `json:"agentId"`
-	TemplateVariant     string `json:"templateVariant"`
-	Attempt             int    `json:"attempt"`
-	RelativeRunDir      string `json:"relativeRunDir"`
-	Status              string `json:"status"`
-	LatestTaskRunID     string `json:"latestTaskRunId,omitempty"`
-	LatestTaskRunStatus string `json:"latestTaskRunStatus,omitempty"`
-	ErrorSummary        string `json:"errorSummary,omitempty"`
+	CaseID          string `json:"caseId"`
+	CaseName        string `json:"caseName,omitempty"`
+	AgentID         string `json:"agentId"`
+	TemplateVariant string `json:"templateVariant"`
+	Attempt         int    `json:"attempt"`
+	RelativeRunDir  string `json:"relativeRunDir"`
+	Status          string `json:"status"`
+	ErrorSummary    string `json:"errorSummary,omitempty"`
 }
 
 // RunManifest describes one concrete benchmark run.
 type RunManifest struct {
-	SuiteID             string           `json:"suiteId"`
-	SuiteName           string           `json:"suiteName,omitempty"`
-	CaseID              string           `json:"caseId"`
-	CaseName            string           `json:"caseName,omitempty"`
-	TemplateID          string           `json:"templateId"`
-	TemplateName        string           `json:"templateName,omitempty"`
-	TemplateVariant     TemplateVariant  `json:"templateVariant"`
-	AgentID             string           `json:"agentId"`
-	Attempt             int              `json:"attempt"`
-	SelectedModel       string           `json:"selectedModel,omitempty"`
-	StartedAt           time.Time        `json:"startedAt"`
-	EndedAt             time.Time        `json:"endedAt"`
-	Status              string           `json:"status"`
-	UIPublicURL         string           `json:"uiPublicUrl,omitempty"`
-	CentianPID          int              `json:"centianPid,omitempty"`
-	LatestTaskRunID     string           `json:"latestTaskRunId,omitempty"`
-	LatestTaskRunStatus string           `json:"latestTaskRunStatus,omitempty"`
-	LinkedTaskRunIDs    []string         `json:"linkedTaskRunIds,omitempty"`
-	ArtifactPaths       RunArtifactPaths `json:"artifactPaths"`
-	ErrorSummary        string           `json:"errorSummary,omitempty"`
+	SuiteID          string           `json:"suiteId"`
+	SuiteName        string           `json:"suiteName,omitempty"`
+	CaseID           string           `json:"caseId"`
+	CaseName         string           `json:"caseName,omitempty"`
+	TemplateID       string           `json:"templateId"`
+	TemplateName     string           `json:"templateName,omitempty"`
+	TemplateVariant  TemplateVariant  `json:"templateVariant"`
+	AgentID          string           `json:"agentId"`
+	Attempt          int              `json:"attempt"`
+	SelectedModel    string           `json:"selectedModel,omitempty"`
+	StartedAt        time.Time        `json:"startedAt"`
+	EndedAt          time.Time        `json:"endedAt"`
+	Status           string           `json:"status"`
+	UIPublicURL      string           `json:"uiPublicUrl,omitempty"`
+	CentianPID       int              `json:"centianPid,omitempty"`
+	LinkedTaskRunIDs []string         `json:"linkedTaskRunIds,omitempty"`
+	ArtifactPaths    RunArtifactPaths `json:"artifactPaths"`
+	ErrorSummary     string           `json:"errorSummary,omitempty"`
 }
 
 // RunArtifactPaths lists the raw artifacts captured for one run.
@@ -416,16 +412,14 @@ func (r *Runner) RunSuite(ctx context.Context, opts *RunOptions) (*SessionManife
 	for _, spec := range specs {
 		manifest, runErr := r.executeRun(ctx, session, suite, spec, opts)
 		entry := SessionRunManifestEntry{
-			CaseID:              spec.CaseRef.ID,
-			CaseName:            manifest.CaseName,
-			AgentID:             spec.Execution.Agent,
-			TemplateVariant:     spec.TemplateVariant.Name,
-			Attempt:             spec.Attempt,
-			RelativeRunDir:      relativeRunDir(sessionDir, manifest.ArtifactPaths.RunDir),
-			Status:              manifest.Status,
-			LatestTaskRunID:     manifest.LatestTaskRunID,
-			LatestTaskRunStatus: manifest.LatestTaskRunStatus,
-			ErrorSummary:        manifest.ErrorSummary,
+			CaseID:          spec.CaseRef.ID,
+			CaseName:        manifest.CaseName,
+			AgentID:         spec.Execution.Agent,
+			TemplateVariant: spec.TemplateVariant.Name,
+			Attempt:         spec.Attempt,
+			RelativeRunDir:  relativeRunDir(sessionDir, manifest.ArtifactPaths.RunDir),
+			Status:          manifest.Status,
+			ErrorSummary:    manifest.ErrorSummary,
 		}
 		session.Runs = append(session.Runs, entry)
 		session.TemplateName = common.FirstNonEmpty(session.TemplateName, manifest.TemplateName)
@@ -552,25 +546,22 @@ func (r *Runner) captureRunArtifacts(
 	logsDir string,
 	baseURL string,
 	baselineRunIDs map[string]struct{},
-) error {
+) (*persistence.TaskRunSummary, error) {
 	runs, err := r.FetchTaskRuns(baseURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	runs = filterNewTaskRuns(runs, baselineRunIDs)
 	manifest.LinkedTaskRunIDs = taskRunIDs(runs)
 
-	if latest := latestTaskRun(runs); latest != nil {
-		manifest.LatestTaskRunID = latest.RunID
-		manifest.LatestTaskRunStatus = latest.Status
-	}
+	latest := latestTaskRun(runs)
 
 	requestLogPath, err := r.FindLatestRequestLog(logsDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	manifest.ArtifactPaths.RequestLogPath = requestLogPath
-	return nil
+	return latest, nil
 }
 
 // buildRunSpecs expands cases, template variants, agents, and attempts into executable runs.
@@ -1179,14 +1170,15 @@ func (r *Runner) executeAgentRun(
 	if agentErr != nil {
 		errs = append(errs, agentErr.Error())
 	}
-	if err := r.captureRunArtifacts(manifest, workspace.LogsDir, workspace.BaseURL, taskRunIDSet(baselineRuns)); err != nil {
-		errs = append(errs, err.Error())
+	latestRun, captureErr := r.captureRunArtifacts(manifest, workspace.LogsDir, workspace.BaseURL, taskRunIDSet(baselineRuns))
+	if captureErr != nil {
+		errs = append(errs, captureErr.Error())
 	}
-	if len(errs) == 0 && manifest.LatestTaskRunStatus == runStatusCompleted {
+	if len(errs) == 0 && latestRun != nil && latestRun.Status == runStatusCompleted {
 		manifest.Status = runStatusCompleted
 		return nil
 	}
-	if len(errs) == 0 && manifest.LatestTaskRunStatus == "" {
+	if len(errs) == 0 && latestRun == nil {
 		errs = append(errs, "no task runs were observed")
 	}
 	for _, errMsg := range errs {

@@ -81,7 +81,6 @@ export type BenchmarkRunSummary = {
   attempt: number;
   rawStatus: string;
   scored: boolean;
-  latestTaskRunId?: string;
   linkedTaskRunIds?: string[];
   completedSuccessfully: boolean;
   finalVerificationPassed: boolean;
@@ -173,7 +172,6 @@ export type BenchmarkRunDetail = {
     selectedModel?: string;
     attempt: number;
     rawStatus: string;
-    latestTaskRunId?: string;
     linkedTaskRunIds?: string[];
     outcome: {
       completedSuccessfully: boolean;

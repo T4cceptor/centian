@@ -187,6 +187,25 @@ func TestMarkUpstreamSessionRootsDirty(t *testing.T) {
 	assert.Assert(t, proxy.upstreamSessions["session-1"].rootsDirty)
 }
 
+func TestSessionConnectionSnapshotReturnsSortedCopy(t *testing.T) {
+	proxy := &CentianEndpoint{}
+	session := &UpstreamSession{
+		downstreamConns: map[string]DownstreamConnectionInterface{
+			"server-b": &MockDownstreamConnection{serverName: "server-b"},
+			"server-a": &MockDownstreamConnection{serverName: "server-a"},
+		},
+	}
+
+	snapshot := proxy.sessionConnectionSnapshot(session)
+	assert.Equal(t, len(snapshot), 2)
+	assert.Equal(t, snapshot[0].serverName, "server-a")
+	assert.Equal(t, snapshot[1].serverName, "server-b")
+
+	delete(session.downstreamConns, "server-a")
+	assert.Equal(t, snapshot[0].serverName, "server-a")
+	assert.Assert(t, snapshot[0].conn != nil)
+}
+
 func TestApplyClientStateLockedPoolTransitions(t *testing.T) {
 	proxy := NewSingleEndpoint("server-a", "/mcp/server-a", &config.GatewayConfig{
 		MCPServers: map[string]*config.MCPServerConfig{

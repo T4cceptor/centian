@@ -168,7 +168,7 @@ func (p *CentianEndpoint) registerAvailableResourceTemplates(session *UpstreamSe
 
 // forwardReadResource reads a resource from the named downstream server.
 func (p *CentianEndpoint) forwardReadResource(ctx context.Context, session *UpstreamSession, serverName, uri string) (*mcp.ReadResourceResult, error) {
-	conn, err := session.GetConnectionByServerName(serverName)
+	conn, err := p.sessionConnection(session, serverName)
 	if err != nil {
 		return nil, fmt.Errorf("resource %q: %w", uri, err)
 	}
@@ -216,7 +216,8 @@ func (p *CentianEndpoint) forwardUnsubscribe(ctx context.Context, session *Upstr
 // forwardCompletion forwards a completion request to the first connected downstream.
 // Completions are not resource-specific, so any capable downstream can handle them.
 func (p *CentianEndpoint) forwardCompletion(ctx context.Context, session *UpstreamSession, req *mcp.CompleteRequest) (*mcp.CompleteResult, error) {
-	for _, conn := range session.downstreamConns {
+	for _, entry := range p.sessionConnectionSnapshot(session) {
+		conn := entry.conn
 		if conn.IsConnected() {
 			result, err := conn.Complete(ctx, req)
 			if err != nil {
@@ -230,7 +231,8 @@ func (p *CentianEndpoint) forwardCompletion(ctx context.Context, session *Upstre
 
 // findConnectionForResourceURI returns the first connected downstream that advertises the given URI.
 func (p *CentianEndpoint) findConnectionForResourceURI(session *UpstreamSession, uri string) DownstreamConnectionInterface {
-	for _, conn := range session.downstreamConns {
+	for _, entry := range p.sessionConnectionSnapshot(session) {
+		conn := entry.conn
 		if !conn.IsConnected() {
 			continue
 		}
@@ -251,7 +253,9 @@ func (p *CentianEndpoint) desiredResourceState(session *UpstreamSession) (map[st
 	}
 
 	if !p.isAggregatedProxy {
-		for serverName, conn := range session.downstreamConns {
+		for _, entry := range p.sessionConnectionSnapshot(session) {
+			serverName := entry.serverName
+			conn := entry.conn
 			if !conn.IsConnected() {
 				continue
 			}
@@ -267,7 +271,9 @@ func (p *CentianEndpoint) desiredResourceState(session *UpstreamSession) (map[st
 
 	owners := make(map[string]map[string]struct{})
 	entries := make(map[string]resourceEntry)
-	for serverName, conn := range session.downstreamConns {
+	for _, entry := range p.sessionConnectionSnapshot(session) {
+		serverName := entry.serverName
+		conn := entry.conn
 		if !conn.IsConnected() {
 			continue
 		}
@@ -302,7 +308,9 @@ func (p *CentianEndpoint) desiredResourceTemplateState(session *UpstreamSession)
 	}
 
 	if !p.isAggregatedProxy {
-		for serverName, conn := range session.downstreamConns {
+		for _, entry := range p.sessionConnectionSnapshot(session) {
+			serverName := entry.serverName
+			conn := entry.conn
 			if !conn.IsConnected() {
 				continue
 			}
@@ -321,7 +329,9 @@ func (p *CentianEndpoint) desiredResourceTemplateState(session *UpstreamSession)
 
 	owners := make(map[string]map[string]struct{})
 	entries := make(map[string]resourceTemplateEntry)
-	for serverName, conn := range session.downstreamConns {
+	for _, entry := range p.sessionConnectionSnapshot(session) {
+		serverName := entry.serverName
+		conn := entry.conn
 		if !conn.IsConnected() {
 			continue
 		}
