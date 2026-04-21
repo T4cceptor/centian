@@ -16,6 +16,8 @@ import { formatBenchmarkRate, formatBenchmarkSeconds } from "./benchmark-format"
 import { BenchmarkRunTable } from "./benchmark-run-table";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
+type SuiteTab = "overview" | "sessions" | "runs";
+
 export function BenchmarkSuitePage() {
   const { suiteID = "" } = useParams();
   const [allRuns, setAllRuns] = useState<BenchmarkRunSummary[]>([]);
@@ -26,6 +28,7 @@ export function BenchmarkSuitePage() {
   const [caseId, setCaseId] = useState("");
   const [templateVariant, setTemplateVariant] = useState("");
   const [loadState, setLoadState] = useState<LoadState>("loading");
+  const [activeTab, setActiveTab] = useState<SuiteTab>("overview");
   const [errorMessage, setErrorMessage] = useState("");
   const [authHeaderName, setAuthHeaderName] = useState<string>();
   const [reloadToken, setReloadToken] = useState(0);
@@ -121,123 +124,150 @@ export function BenchmarkSuitePage() {
   const agentOptions = Array.from(new Set(allRuns.map((run) => run.agent))).sort();
   const caseOptions = Array.from(new Set(allRuns.map((run) => run.caseId))).sort();
   const variantOptions = Array.from(new Set(allRuns.map((run) => run.templateVariant))).sort();
-  const templateTitle = comparison?.templateName ?? runs[0]?.templateName ?? comparison?.templateId ?? suiteID;
   const suiteTitle = comparison?.suiteName ?? sessions[0]?.suiteName ?? suiteID;
   const variantRows = comparison?.aggregates.byTemplateVariant ?? [];
   const agentRows = comparison?.aggregates.byAgent ?? [];
+  const tabItems: Array<{ id: SuiteTab; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "sessions", label: "Sessions" },
+    { id: "runs", label: "Runs History" },
+  ];
 
   return (
     <div className="benchmark-page">
       <div className="benchmark-toolbar">
         <div className="benchmark-toolbar__heading">
-          <p className="state-card__eyebrow">Suite Overview</p>
-          <div className="benchmark-toolbar__title-row">
-            <h2>{suiteTitle}</h2>
-            <div className="benchmark-toolbar__badges">
-              <span className="benchmark-badge">{comparison?.runCount ?? 0} Runs</span>
-              <span className="benchmark-badge">{comparison?.sessionCount ?? 0} Sessions</span>
-            </div>
-          </div>
-          <p className="benchmark-toolbar__meta">{templateTitle}</p>
+          <p className="state-card__eyebrow">
+            <span><b>Suite Overview</b> - {suiteTitle}</span>
+            <span className="benchmark-badge">{comparison?.runCount ?? 0} Runs</span>
+            <span className="benchmark-badge">{comparison?.sessionCount ?? 0} Sessions</span>
+          </p>
         </div>
-        <div className="benchmark-filters">
-          <label className="benchmark-filter">
-            <span>Agent</span>
-            <select value={agent} onChange={(event) => setAgent(event.target.value)}>
-              <option value="">All agents</option>
-              {agentOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="benchmark-filter">
-            <span>Case</span>
-            <select value={caseId} onChange={(event) => setCaseId(event.target.value)}>
-              <option value="">All cases</option>
-              {caseOptions.map((value) => (
-                <option key={value} value={value}>
-                  {allRuns.find((run) => run.caseId === value)?.caseName ?? value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="benchmark-filter">
-            <span>Variant</span>
-            <select value={templateVariant} onChange={(event) => setTemplateVariant(event.target.value)}>
-              <option value="">All variants</option>
-              {variantOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="benchmark-toolbar__controls">
+          <div className="benchmark-suite-tabs" role="tablist" aria-label="Benchmark suite sections">
+            {tabItems.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`benchmark-suite-tabs__tab${isActive ? " benchmark-suite-tabs__tab--active" : ""}`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="benchmark-filters">
+            <label className="benchmark-filter">
+              <span>Agent</span>
+              <select value={agent} onChange={(event) => setAgent(event.target.value)}>
+                <option value="">All agents</option>
+                {agentOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="benchmark-filter">
+              <span>Case</span>
+              <select value={caseId} onChange={(event) => setCaseId(event.target.value)}>
+                <option value="">All cases</option>
+                {caseOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {allRuns.find((run) => run.caseId === value)?.caseName ?? value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="benchmark-filter">
+              <span>Variant</span>
+              <select value={templateVariant} onChange={(event) => setTemplateVariant(event.target.value)}>
+                <option value="">All variants</option>
+                {variantOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       </div>
 
-      <section className="benchmark-section">
-        <div className="benchmark-section__header">
-          <h3>By Variant</h3>
-          <p>{variantRows.length} grouped rows</p>
-        </div>
-        <BenchmarkAnalysisTable rows={variantRows} firstColumnLabel="Variant" />
-      </section>
-
-      <section className="benchmark-section">
-        <div className="benchmark-section__header">
-          <h3>By Agent</h3>
-          <p>{agentRows.length} grouped rows</p>
-        </div>
-        <BenchmarkAnalysisTable rows={agentRows} firstColumnLabel="Agent" />
-      </section>
-
-      <section className="benchmark-section">
-        <div className="benchmark-section__header">
-          <h3>Sessions</h3>
-          <p>{sessions.length} session rows</p>
-        </div>
-        {sessions.length === 0 ? (
-          <p className="benchmark-empty">No sessions match the current filters.</p>
-        ) : (
-          <div className="benchmark-table" role="table" aria-label="Benchmark sessions">
-            <div className="benchmark-table__header benchmark-table__header--sessions" role="row">
-              <span>Session</span>
-              <span>Runs</span>
-              <span>Scored</span>
-              <span>Failures</span>
+      {activeTab === "overview" ? (
+        <>
+          <section className="benchmark-section">
+            <div className="benchmark-section__header">
+              <h3>By Variant</h3>
+              <p>{variantRows.length} grouped rows</p>
             </div>
-            <div className="benchmark-table__body" role="rowgroup">
-              {sessions.map((session) => (
-                <Link
-                  key={session.sessionId}
-                  className="benchmark-row benchmark-row--sessions"
-                  to={`/benchmarks/${suiteID}/sessions/${session.sessionId}`}
-                >
-                  <span>{session.sessionPath.split("/").slice(-1)[0]}</span>
-                  <span>{session.runCount}</span>
-                  <span>{session.scoredRunCount}</span>
-                  <span>{session.failedToScoreCount}</span>
-                </Link>
-              ))}
+            <BenchmarkAnalysisTable rows={variantRows} firstColumnLabel="Variant" />
+          </section>
+
+          <section className="benchmark-section">
+            <div className="benchmark-section__header">
+              <h3>By Agent</h3>
+              <p>{agentRows.length} grouped rows</p>
+            </div>
+            <BenchmarkAnalysisTable rows={agentRows} firstColumnLabel="Agent" />
+          </section>
+        </>
+      ) : null}
+
+      {activeTab === "sessions" ? (
+        <section className="benchmark-section">
+          <div className="benchmark-section__header">
+            <h3>Sessions</h3>
+            <p>{sessions.length} session rows</p>
+          </div>
+          {sessions.length === 0 ? (
+            <p className="benchmark-empty">No sessions match the current filters.</p>
+          ) : (
+            <div className="benchmark-table" role="table" aria-label="Benchmark sessions">
+              <div className="benchmark-table__header benchmark-table__header--sessions" role="row">
+                <span>Session</span>
+                <span>Runs</span>
+                <span>Scored</span>
+                <span>Failures</span>
+              </div>
+              <div className="benchmark-table__body" role="rowgroup">
+                {sessions.map((session) => (
+                  <Link
+                    key={session.sessionId}
+                    className="benchmark-row benchmark-row--sessions"
+                    to={`/benchmarks/${suiteID}/sessions/${session.sessionId}`}
+                  >
+                    <span>{session.sessionPath.split("/").slice(-1)[0]}</span>
+                    <span>{session.runCount}</span>
+                    <span>{session.scoredRunCount}</span>
+                    <span>{session.failedToScoreCount}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "runs" ? (
+        <section className="benchmark-section">
+          <div className="benchmark-section__header">
+            <h3>Run History</h3>
+            <div className="benchmark-section__actions">
+              <p>{runs.length} scorecards</p>
+              <Link className="benchmark-section__link" to={`/tasks?benchmarkSuite=${encodeURIComponent(suiteID)}`}>
+                Show task runs
+              </Link>
             </div>
           </div>
-        )}
-      </section>
-
-      <section className="benchmark-section">
-        <div className="benchmark-section__header">
-          <h3>Run History</h3>
-          <div className="benchmark-section__actions">
-            <p>{runs.length} scorecards</p>
-            <Link className="benchmark-section__link" to={`/tasks?benchmarkSuite=${encodeURIComponent(suiteID)}`}>
-              Show task runs
-            </Link>
-          </div>
-        </div>
-        <BenchmarkRunTable suiteId={suiteID} runs={runs} />
-      </section>
+          <BenchmarkRunTable suiteId={suiteID} runs={runs} />
+        </section>
+      ) : null}
     </div>
   );
 }

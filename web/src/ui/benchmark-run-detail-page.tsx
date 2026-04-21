@@ -106,6 +106,7 @@ export function BenchmarkRunDetailPage() {
     scorecard.selectedModel ||
     scorecard.agentMetadata?.selectedModel ||
     firstModelUsageKey(scorecard.agentMetadata?.modelUsage);
+  const primaryTaskRunID = scorecard.linkedTaskRunIds?.[0];
 
   return (
     <div className="benchmark-page">
@@ -115,9 +116,16 @@ export function BenchmarkRunDetailPage() {
           <h2>{detail.caseName || scorecard.caseId}</h2>
           <p className="benchmark-toolbar__meta">{detail.templateName || scorecard.templateId}</p>
         </div>
-        <p className="benchmark-toolbar__meta">
-          {scorecard.agent}{selectedModel ? ` · ${selectedModel}` : ""} · {scorecard.templateVariant} · attempt {scorecard.attempt}
-        </p>
+        <div className="benchmark-toolbar__actions">
+          {primaryTaskRunID ? (
+            <Link className="benchmark-toolbar__link" to={`/tasks/${primaryTaskRunID}`}>
+              To Task Run
+            </Link>
+          ) : null}
+          <p className="benchmark-toolbar__meta">
+            {scorecard.agent}{selectedModel ? ` · ${selectedModel}` : ""} · {scorecard.templateVariant} · attempt {scorecard.attempt}
+          </p>
+        </div>
       </div>
 
       <div className="benchmark-summary-grid">
@@ -153,6 +161,7 @@ export function BenchmarkRunDetailPage() {
             <div><dt>Final Verification</dt><dd>{String(scorecard.outcome.finalVerificationPassed)}</dd></div>
             <div><dt>First Pass</dt><dd>{String(scorecard.outcome.firstPassSuccess)}</dd></div>
             <div><dt>Invariant Violation</dt><dd>{String(scorecard.outcome.invariantViolation)}</dd></div>
+            <div><dt>Edited Files</dt><dd>{scorecard.efficiency.editedFilesCount}</dd></div>
           </dl>
         </article>
         <article className="benchmark-detail-card">
@@ -164,26 +173,6 @@ export function BenchmarkRunDetailPage() {
             <div><dt>Restart Count</dt><dd>{scorecard.process.restartCount}</dd></div>
             <div><dt>Fail Count</dt><dd>{scorecard.process.failCount}</dd></div>
             <div><dt>Timeout Count</dt><dd>{scorecard.process.timeoutCount}</dd></div>
-          </dl>
-        </article>
-        <article className="benchmark-detail-card">
-          <h3>Files & Runs</h3>
-          <dl className="benchmark-detail-list">
-            <div><dt>Edited Files</dt><dd>{scorecard.efficiency.editedFilesCount}</dd></div>
-            <div>
-              <dt>Linked Task Runs</dt>
-              <dd>
-                {scorecard.linkedTaskRunIds && scorecard.linkedTaskRunIds.length > 0 ? (
-                  <span className="benchmark-linked-run-list">
-                    {scorecard.linkedTaskRunIds.map((taskRunId) => (
-                      <Link key={taskRunId} to={`/tasks/${taskRunId}`}>
-                        {taskRunId}
-                      </Link>
-                    ))}
-                  </span>
-                ) : "—"}
-              </dd>
-            </div>
           </dl>
         </article>
       </section>
