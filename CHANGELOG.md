@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.1 - 2026-04-21
+
+### Major
+- Refactored benchmark persistence around a normalized `benchmark_run_task_runs` relation, added the `v5 -> v6` migration path for existing SQLite data, removed persisted `latest_task_run_*` and JSON-linked task-run fields from `benchmark_runs`, and switched benchmark scoring/read paths to operate on the full linked task-run set instead of a privileged “latest” run.
+
+### Minor
+- Extended the task-run API and embedded UI so benchmark/task-run relationships are navigable in both directions: `/api/task-runs` now supports benchmark-suite filtering, task-run detail views surface a direct benchmark-run link when applicable, and benchmark suite/run pages now link back into the relevant task-run views.
+- Reworked the benchmark suite UI to better support post-v0.4 inspection flows, including compact suite headers, top-level `Overview`/`Sessions`/`Runs History` tabs, cleaner benchmark run detail cards, and removal of redundant linked-run/context panels.
+- Added frontend test and typecheck coverage to the standard developer workflow so `make test-all` now runs the web Vitest suite and `make lint` also validates the frontend TypeScript surface.
+- Updated benchmark persistence and product documentation to describe the new relational benchmark/task-run model and the benchmark-linked task-run inspection workflow.
+
+### Bugfixes
+- Fixed a race between proxy session bootstrap/synchronization and downstream tool-call handling by routing mirrored session state reads through lock-safe accessors, which stabilizes the flaky `TestServerStartIntegration` path under `-race`.
+- Fixed the benchmark suite frontend route tests to match the updated suite-header rendering and restored passing frontend test coverage after the UI cleanup pass.
+
 ## v0.4.0 - 2026-04-18
 
 ### Major
