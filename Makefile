@@ -31,7 +31,7 @@ endif
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-lint web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -130,7 +130,7 @@ benchmark-score-latest: build-go ## Score the newest preserved simple_tdd benchm
 	echo "Inspect in UI: /ui/benchmarks/simple_tdd_v1/sessions/<session-id>"; \
 	echo "Inspect in API: /api/benchmarks/suites/simple_tdd_v1/sessions/<session-id>"
 
-test-all: test test-integration ## Run all tests (unit + integration)
+test-all: test test-integration web-test ## Run all tests (unit + integration + frontend)
 
 test-coverage: ## Run tests with coverage report
 	@echo "Running tests with coverage..."
@@ -149,7 +149,7 @@ test-coverage-html: test-coverage ## Run tests with coverage and open HTML repor
 	@echo "Opening coverage report in browser..."
 	@open build/coverage.html || xdg-open build/coverage.html || echo "Please open build/coverage.html in your browser"
 
-lint: ## Run linter (requires golangci-lint)
+lint: web-lint ## Run linters (Go + frontend)
 	@echo "Running linter..."
 	golangci-lint run --timeout=5m ./...
 
@@ -207,6 +207,10 @@ web-stage: web-build ## Stage frontend assets for Go embedding
 web-test: ensure-web-tooling ## Run frontend tests
 	@echo "Running frontend tests..."
 	cd $(WEB_DIR) && npm test
+
+web-lint: ensure-web-tooling ## Run frontend lint/type checks
+	@echo "Running frontend lint checks..."
+	cd $(WEB_DIR) && npm run lint
 
 web-preview: ensure-web-tooling ## Preview the built frontend app
 	@echo "Previewing frontend app..."

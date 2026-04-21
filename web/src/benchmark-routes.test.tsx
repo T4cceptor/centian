@@ -339,7 +339,13 @@ describe("benchmark routes", () => {
 
     renderApp(["/benchmarks/simple_tdd_v1"]);
 
-    expect(await screen.findByText("Simple TDD Benchmark Suite v1")).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        (_, element) =>
+          element?.classList.contains("state-card__eyebrow") === true &&
+          (element.textContent ?? "").includes("Simple TDD Benchmark Suite v1"),
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText("By Variant")).toBeInTheDocument();
     expect(screen.getByText("By Agent")).toBeInTheDocument();
     expect(screen.getAllByText("Total Actions (Centian/MCP)").length).toBeGreaterThan(0);
