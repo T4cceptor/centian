@@ -247,6 +247,8 @@ func NewSQLiteStore(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite event store: %w", err)
 	}
+	// Keep the event store on one SQLite connection so bootstrap/migration and
+	// concurrent readers all observe one consistent sqliteshim-backed handle.
 	sqldb.SetMaxOpenConns(1)
 
 	store := &Store{

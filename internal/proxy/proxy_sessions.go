@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -26,6 +27,11 @@ type downstreamPoolUpdate struct {
 	syncPool     bool
 	closePool    *DownstreamSessionPool
 	waitForReady bool
+}
+
+type namedDownstreamConnection struct {
+	serverName string
+	conn       DownstreamConnectionInterface
 }
 
 // getSessionID returns the MCP session ID from the request or synthesizes one for new POST sessions.
@@ -477,6 +483,34 @@ func (p *CentianEndpoint) sessionConnection(session *UpstreamSession, serverName
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return connectionByServerName(session.downstreamConns, serverName)
+}
+
+func (p *CentianEndpoint) sessionConnectionSnapshot(session *UpstreamSession) []namedDownstreamConnection {
+	if p == nil || session == nil {
+		return nil
+	}
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if len(session.downstreamConns) == 0 {
+		return nil
+	}
+
+	serverNames := make([]string, 0, len(session.downstreamConns))
+	for serverName := range session.downstreamConns {
+		serverNames = append(serverNames, serverName)
+	}
+	sort.Strings(serverNames)
+
+	snapshot := make([]namedDownstreamConnection, 0, len(serverNames))
+	for _, serverName := range serverNames {
+		snapshot = append(snapshot, namedDownstreamConnection{
+			serverName: serverName,
+			conn:       session.downstreamConns[serverName],
+		})
+	}
+	return snapshot
 }
 
 // Close terminates all sessions and their downstream connections.

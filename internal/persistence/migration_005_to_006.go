@@ -22,10 +22,10 @@ func (s *Store) migrateV5ToV6(ctx context.Context) error {
 		return err
 	}
 
+	// The store keeps one SQLite connection and relies on the driver's default
+	// foreign-key-off bootstrap state during migration. Keep the schema rewrite
+	// transactional, and let tests exercise the real bootstrap path end to end.
 	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
-			return fmt.Errorf("disable foreign keys for v5->v6 migration: %w", err)
-		}
 		if _, err := tx.ExecContext(ctx, `ALTER TABLE benchmark_runs RENAME TO benchmark_runs_v5_legacy`); err != nil {
 			return fmt.Errorf("rename legacy benchmark_runs table: %w", err)
 		}
@@ -101,9 +101,6 @@ FROM benchmark_runs_v5_legacy`); err != nil {
 		}
 		if _, err := tx.ExecContext(ctx, `DROP TABLE benchmark_runs_v5_legacy`); err != nil {
 			return fmt.Errorf("drop legacy benchmark_runs table: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `PRAGMA foreign_keys = ON`); err != nil {
-			return fmt.Errorf("re-enable foreign keys for v5->v6 migration: %w", err)
 		}
 		return nil
 	})

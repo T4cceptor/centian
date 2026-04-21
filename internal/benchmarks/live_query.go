@@ -408,12 +408,15 @@ func (s *QueryService) scoreRunRecord(ctx context.Context, session *persistence.
 	if len(run.LinkedTaskRunIDs) == 0 {
 		return nil, fmt.Errorf("benchmark run %q is missing linked task runs", run.RunDir)
 	}
+	s.recomputeStatsForLinkedRuns(ctx, run.LinkedTaskRunIDs)
 	snapshots, err := s.loadLinkedTaskRunSnapshots(ctx, run.LinkedTaskRunIDs)
 	if err != nil {
 		return nil, err
 	}
-	lastSnapshot := snapshots[len(snapshots)-1]
-	s.recomputeStatsForLinkedRuns(ctx, run.LinkedTaskRunIDs)
+	lastSnapshot, err := s.latestLinkedTaskRunSnapshot(ctx, run.LinkedTaskRunIDs, snapshots)
+	if err != nil {
+		return nil, err
+	}
 	stats, err := s.aggregateTaskRunStats(ctx, run.LinkedTaskRunIDs)
 	if err != nil {
 		return nil, err
@@ -570,6 +573,74 @@ func (s *QueryService) loadLinkedTaskRunSnapshots(ctx context.Context, linkedRun
 		snapshots = append(snapshots, snapshot)
 	}
 	return snapshots, nil
+}
+
+func (s *QueryService) latestLinkedTaskRunSnapshot(
+	ctx context.Context,
+	linkedRunIDs []string,
+	snapshots []*persistence.TaskRunSnapshotRecord,
+) (*persistence.TaskRunSnapshotRecord, error) {
+	orderedIDs := orderedUniqueRunIDs(linkedRunIDs)
+	if len(orderedIDs) == 0 || len(snapshots) == 0 {
+		return nil, fmt.Errorf("benchmark run is missing linked task runs")
+	}
+
+	snapshotByRunID := make(map[string]*persistence.TaskRunSnapshotRecord, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot == nil {
+			continue
+		}
+		snapshotByRunID[snapshot.RunID] = snapshot
+	}
+
+	var latestSnapshot *persistence.TaskRunSnapshotRecord
+	var latestStartedAt int64
+	var latestFallbackAt int64
+	latestOrder := -1
+	for idx, runID := range orderedIDs {
+		snapshot, ok := snapshotByRunID[runID]
+		if !ok {
+			return nil, fmt.Errorf("task run snapshot %q was not found", runID)
+		}
+		stats, err := s.store.GetTaskRunStats(ctx, runID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("task run stats %q were not found", runID)
+			}
+			return nil, err
+		}
+
+		startedAt := stats.StartedAtUnixMilli
+		fallbackAt := snapshot.UpdatedAtUnixMilli
+		if endedAt := nullInt64Value(stats.EndedAtUnixMilli); endedAt > fallbackAt {
+			fallbackAt = endedAt
+		}
+		if fallbackAt == 0 {
+			fallbackAt = snapshot.CreatedAtUnixMilli
+		}
+
+		if latestSnapshot == nil ||
+			startedAt > latestStartedAt ||
+			(startedAt == latestStartedAt && fallbackAt > latestFallbackAt) ||
+			(startedAt == latestStartedAt && fallbackAt == latestFallbackAt && idx > latestOrder) {
+			latestSnapshot = snapshot
+			latestStartedAt = startedAt
+			latestFallbackAt = fallbackAt
+			latestOrder = idx
+		}
+	}
+
+	if latestSnapshot == nil {
+		return nil, fmt.Errorf("benchmark run is missing linked task runs")
+	}
+	return latestSnapshot, nil
+}
+
+func nullInt64Value(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // runAgentMetadata prefers persisted agent metadata and falls back to parsing stdout logs.

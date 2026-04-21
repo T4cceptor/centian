@@ -38,6 +38,74 @@ func TestCollectFloat64(t *testing.T) {
 	}
 }
 
+func TestScoreRunRecordUsesChronologicallyLatestLinkedTaskRun(t *testing.T) {
+	root := t.TempDir()
+	suiteRoot := checkedInSimpleTDDSuiteRoot(t)
+	sessionDir := filepath.Join(root, "20260404210000_run")
+	runEntry := SessionRunManifestEntry{
+		CaseID:          "compile_failure_red",
+		CaseName:        "Compile Failure Red",
+		AgentID:         "codex",
+		TemplateVariant: "current",
+		Attempt:         1,
+		RelativeRunDir:  filepath.Join("runs", "current_codex_compile_failure_red_attempt_001"),
+		Status:          "completed",
+	}
+	sharedEventStorePath := filepath.Join(sessionDir, "shared-events.sqlite")
+
+	runManifest := writeSyntheticRun(t, sessionDir, suiteRoot, sharedEventStorePath, runEntry, syntheticSessionOptions{})
+	runManifest.LinkedTaskRunIDs = []string{"tr_latest", "tr_compile"}
+
+	store, err := persistence.NewSQLiteStore(sharedEventStorePath)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	assert.NilError(t, writeSyntheticEventStore(sharedEventStorePath, "tr_latest", offsetTaskRunEvents(syntheticEventsForCase("compile_failure_red"), 10_000)))
+
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
+		RunID:        "tr_compile",
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Current",
+		Status:       "failed",
+		Phase:        "execution.implement_fix",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Task: taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Current"},
+		},
+	}))
+	assert.NilError(t, store.UpsertTaskRunSnapshot(context.Background(), &taskruns.PersistedRunSnapshot{
+		RunID:        "tr_latest",
+		TemplateID:   "simple_tdd",
+		TemplateName: "Simple TDD Current",
+		Status:       "completed",
+		Phase:        "execution.refactor_while_green",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Task: taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Current"},
+		},
+	}))
+
+	sessionRecord := &persistence.BenchmarkSessionRecord{
+		SessionID:          "bm_session_1",
+		SuiteID:            "simple_tdd_v1",
+		SuiteName:          "Simple TDD Benchmark Suite v1",
+		SuitePath:          suiteRoot,
+		SessionPath:        sessionDir,
+		OutputRoot:         root,
+		TemplateID:         "simple_tdd",
+		TemplateName:       "Simple TDD Current",
+		StartedAtUnixMilli: runManifest.StartedAt.UnixMilli(),
+		Status:             "completed",
+		RepeatCount:        1,
+	}
+	runRecord, err := buildRunRecord(runManifest)
+	assert.NilError(t, err)
+
+	scorecard, err := NewQueryService(store).scoreRunRecord(context.Background(), sessionRecord, runRecord)
+	assert.NilError(t, err)
+	assert.Assert(t, scorecard != nil)
+	assert.Equal(t, scorecard.Outcome.FinalVerificationPassed, true)
+	assert.Equal(t, scorecard.Outcome.CompletedSuccessfully, true)
+}
+
 type syntheticSessionOptions struct {
 	includeInvariantViolation bool
 	includeLegacyManualScore  bool
@@ -315,6 +383,16 @@ func syntheticEventsForCase(caseID string) []persistence.TaskRunEvent {
 		})
 	}
 	return events
+}
+
+func offsetTaskRunEvents(events []persistence.TaskRunEvent, offset int64) []persistence.TaskRunEvent {
+	shifted := make([]persistence.TaskRunEvent, 0, len(events))
+	for _, event := range events {
+		copyEvent := event
+		copyEvent.CreatedAtUnixMilli += offset
+		shifted = append(shifted, copyEvent)
+	}
+	return shifted
 }
 
 func writeSyntheticEventStore(path string, taskRunID string, events []persistence.TaskRunEvent) error {

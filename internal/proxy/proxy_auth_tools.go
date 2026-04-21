@@ -140,7 +140,9 @@ func (p *CentianEndpoint) desiredToolState(session *UpstreamSession) (map[string
 	toolServers := make(map[string]string)
 	authStates := p.buildAuthToolStates(session)
 
-	for serverName, conn := range session.downstreamConns {
+	for _, entry := range p.sessionConnectionSnapshot(session) {
+		serverName := entry.serverName
+		conn := entry.conn
 		if !conn.IsConnected() {
 			continue
 		}
