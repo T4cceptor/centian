@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.2 - 2026-04-23
+
+### Minor
+- Added per-gateway task verification control via `verificationRequirement`, so each gateway can now independently run with task verification `off`, `optional`, or `required` instead of inheriting one project-wide enforcement mode.
+- Added a global persisted MCP events feed with the new `/api/events` API and `/ui/events` page, making it possible to inspect MCP request/response traffic even when an event is not associated with a task run.
+- Updated README and task verification/configuration docs to describe the new gateway-level verification modes and the broader event-observability flow.
+
 ## v0.4.1 - 2026-04-21
 
 ### Major
