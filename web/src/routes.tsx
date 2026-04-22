@@ -5,6 +5,7 @@ import { BenchmarkRunDetailPage } from "./ui/benchmark-run-detail-page";
 import { BenchmarkSessionDetailPage } from "./ui/benchmark-session-detail-page";
 import { BenchmarkSuiteListPage } from "./ui/benchmark-suite-list-page";
 import { BenchmarkSuitePage } from "./ui/benchmark-suite-page";
+import { EventListPage } from "./ui/event-list-page";
 import { ErrorBoundary } from "./ui/error-boundary";
 import { TaskRunDetailPage } from "./ui/task-run-detail-page";
 import { TaskRunListPage } from "./ui/task-run-list-page";
@@ -17,6 +18,7 @@ export function AppRoutes() {
           <Route path="/" element={<Navigate to="/tasks" replace />} />
           <Route path="/tasks" element={<TaskRunListPage />} />
           <Route path="/tasks/:runID" element={<TaskRunDetailPage />} />
+          <Route path="/events" element={<EventListPage />} />
           <Route path="/benchmarks" element={<BenchmarkSuiteListPage />} />
           <Route path="/benchmarks/:suiteID" element={<BenchmarkSuitePage />} />
           <Route path="/benchmarks/:suiteID/sessions/:sessionID" element={<BenchmarkSessionDetailPage />} />

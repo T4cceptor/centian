@@ -376,6 +376,142 @@ describe("task run list", () => {
   });
 });
 
+describe("event list", () => {
+  it("renders the events route and primary nav", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              gateway: "gw",
+              serverName: "server-a",
+              direction: "[CLIENT -> SERVER]",
+              messageType: "request",
+              success: true,
+              isError: false,
+              requestId: "req-1",
+            },
+          ],
+          nextCursor: "cursor-2",
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    expect(await screen.findByText("shell__exec")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
+    expect(screen.getByText("Observed MCP events")).toBeInTheDocument();
+  });
+
+  it("reflects URL filters in the request and active chips", async () => {
+    globalThis.fetch = vi.fn(() => Promise.resolve(createFetchResponse({ items: [] }))) as typeof fetch;
+
+    renderApp(["/events?gateway=gw&server=server-a&success=false"]);
+
+    expect(await screen.findByText("No matching events")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/events?gateway=gw&server=server-a&success=false", expect.anything());
+    expect(screen.getByText("Gateway: gw")).toBeInTheDocument();
+    expect(screen.getByText("Server: server-a")).toBeInTheDocument();
+    expect(screen.getByText("Success: false")).toBeInTheDocument();
+  });
+
+  it("paginates older events and returns to newest", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/events") {
+        return Promise.resolve(
+          createFetchResponse({
+            items: [
+              {
+                id: "ae_1742947200123_0000000003",
+                createdAtUnixMilli: 1742947200123,
+                toolName: "tool-new",
+                success: true,
+                isError: false,
+              },
+            ],
+            nextCursor: "cursor-2",
+          }),
+        );
+      }
+      if (url === "/api/events?cursor=cursor-2") {
+        return Promise.resolve(
+          createFetchResponse({
+            items: [
+              {
+                id: "ae_1742947200123_0000000001",
+                createdAtUnixMilli: 1742947100123,
+                toolName: "tool-old",
+                success: true,
+                isError: false,
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    }) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    expect(await screen.findByText("tool-new")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("tool-old")).toBeInTheDocument();
+    expect(screen.getByText("Older page")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Newest" }));
+    expect(await screen.findByText("tool-new")).toBeInTheDocument();
+  });
+
+  it("expands rows to show payload and related task links", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              originalToolName: "shell__exec",
+              success: true,
+              isError: false,
+              requestId: "req-1",
+              sessionId: "sid-1",
+              endpoint: "/mcp/gw",
+              transport: "http",
+              taskRunId: "tr_1742947200123_0000000001",
+              invocationPhasePath: "planning.review",
+              payloadJson: {
+                arguments: {
+                  command: "pwd",
+                },
+              },
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    await user.click(await screen.findByRole("button", { name: /shell__exec/i }));
+
+    expect(screen.getByText(/Related task:/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "tr_1742947200123_0000000001" })).toHaveAttribute(
+      "href",
+      "/tasks/tr_1742947200123_0000000001",
+    );
+    expect(screen.getByDisplayValue(/"command": "pwd"/)).toBeInTheDocument();
+    expect(screen.getByText("Planning / Review")).toBeInTheDocument();
+  });
+});
+
 describe("task run detail", () => {
   it("shows a loading state before the event api resolves", async () => {
     const pending = deferred<Response>();
