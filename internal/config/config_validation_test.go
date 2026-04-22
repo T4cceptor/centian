@@ -104,11 +104,12 @@ func TestIsValidHTTPURL(t *testing.T) {
 // TestValidateGateway tests gateway configuration validation.
 func TestValidateGateway(t *testing.T) {
 	tests := []struct {
-		name      string
-		gName     string
-		gateway   GatewayConfig
-		wantError bool
-		errorMsg  string
+		name                    string
+		gName                   string
+		gateway                 GatewayConfig
+		taskVerificationEnabled bool
+		wantError               bool
+		errorMsg                string
 	}{
 		{
 			name:  "valid gateway with stdio server",
@@ -244,6 +245,96 @@ func TestValidateGateway(t *testing.T) {
 			wantError: true,
 			errorMsg:  "name is required",
 		},
+		{
+			name:  "gateway with supported off verification requirement",
+			gName: "gateway1",
+			gateway: GatewayConfig{
+				VerificationRequirement: VerificationRequirementOff,
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": {
+						Name:    "server1",
+						Command: "node",
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name:  "gateway with supported optional verification requirement",
+			gName: "gateway1",
+			gateway: GatewayConfig{
+				VerificationRequirement: VerificationRequirementOptional,
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": {
+						Name:    "server1",
+						Command: "node",
+					},
+				},
+			},
+			taskVerificationEnabled: true,
+			wantError:               false,
+		},
+		{
+			name:  "gateway with supported required verification requirement",
+			gName: "gateway1",
+			gateway: GatewayConfig{
+				VerificationRequirement: VerificationRequirementRequired,
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": {
+						Name:    "server1",
+						Command: "node",
+					},
+				},
+			},
+			taskVerificationEnabled: true,
+			wantError:               false,
+		},
+		{
+			name:  "gateway rejects unsupported verification requirement",
+			gName: "gateway1",
+			gateway: GatewayConfig{
+				VerificationRequirement: "recommended",
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": {
+						Name:    "server1",
+						Command: "node",
+					},
+				},
+			},
+			taskVerificationEnabled: true,
+			wantError:               true,
+			errorMsg:                "verificationRequirement",
+		},
+		{
+			name:  "gateway rejects optional verification requirement when project task verification disabled",
+			gName: "gateway1",
+			gateway: GatewayConfig{
+				VerificationRequirement: VerificationRequirementOptional,
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": {
+						Name:    "server1",
+						Command: "node",
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires project capabilities.taskVerification.enabled=true",
+		},
+		{
+			name:  "gateway rejects required verification requirement when project task verification disabled",
+			gName: "gateway1",
+			gateway: GatewayConfig{
+				VerificationRequirement: VerificationRequirementRequired,
+				MCPServers: map[string]*MCPServerConfig{
+					"server1": {
+						Name:    "server1",
+						Command: "node",
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires project capabilities.taskVerification.enabled=true",
+		},
 	}
 
 	for _, tt := range tests {
@@ -251,7 +342,7 @@ func TestValidateGateway(t *testing.T) {
 			// Given: a gateway configuration.
 
 			// When: validating the gateway.
-			err := validateGateway(tt.gName, tt.gateway)
+			err := validateGateway(tt.gName, tt.gateway, tt.taskVerificationEnabled)
 
 			// Then: verify error expectation.
 			if tt.wantError {

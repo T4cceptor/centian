@@ -3,11 +3,13 @@ package persistence
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -177,6 +179,87 @@ type ActionEventRecord struct {
 	PayloadJSON        json.RawMessage
 }
 
+// EventListCursor identifies the last row included in one event page.
+type EventListCursor struct {
+	CreatedAtUnixMilli int64
+	ID                 string
+}
+
+// Encode returns the opaque string form used by the API.
+func (c EventListCursor) Encode() string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d:%s", c.CreatedAtUnixMilli, c.ID)))
+}
+
+// ParseEventCursor decodes one opaque cursor value.
+func ParseEventCursor(raw string) (EventListCursor, bool, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return EventListCursor{}, false, nil
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return EventListCursor{}, false, fmt.Errorf("decode event cursor: %w", err)
+	}
+
+	timestampText, id, ok := strings.Cut(string(decoded), ":")
+	if !ok || strings.TrimSpace(timestampText) == "" || strings.TrimSpace(id) == "" {
+		return EventListCursor{}, false, fmt.Errorf("decode event cursor: invalid format")
+	}
+
+	createdAtUnixMilli, err := strconv.ParseInt(timestampText, 10, 64)
+	if err != nil {
+		return EventListCursor{}, false, fmt.Errorf("decode event cursor: invalid timestamp")
+	}
+
+	return EventListCursor{
+		CreatedAtUnixMilli: createdAtUnixMilli,
+		ID:                 id,
+	}, true, nil
+}
+
+// EventListFilter restricts the global action-event feed.
+type EventListFilter struct {
+	Gateway     string
+	ServerName  string
+	ToolName    string
+	Direction   string
+	MessageType string
+	RequestID   string
+	SessionID   string
+	Success     *bool
+	Cursor      *EventListCursor
+	Limit       int
+}
+
+// EventListItem is one row in the global action-event feed.
+type EventListItem struct {
+	ID                  string          `json:"id"`
+	CreatedAtUnixMilli  int64           `json:"createdAtUnixMilli"`
+	RequestID           string          `json:"requestId,omitempty"`
+	SessionID           string          `json:"sessionId,omitempty"`
+	Transport           string          `json:"transport,omitempty"`
+	Direction           string          `json:"direction,omitempty"`
+	MessageType         string          `json:"messageType,omitempty"`
+	Gateway             string          `json:"gateway,omitempty"`
+	ServerName          string          `json:"serverName,omitempty"`
+	Endpoint            string          `json:"endpoint,omitempty"`
+	ToolName            string          `json:"toolName,omitempty"`
+	OriginalToolName    string          `json:"originalToolName,omitempty"`
+	Success             bool            `json:"success"`
+	IsError             bool            `json:"isError"`
+	PayloadJSON         json.RawMessage `json:"payloadJson,omitempty"`
+	TaskRunID           string          `json:"taskRunId,omitempty"`
+	InvocationPhasePath string          `json:"invocationPhasePath,omitempty"`
+	InvocationNodeKind  string          `json:"invocationNodeKind,omitempty"`
+}
+
+// EventListPage is the paginated response model for the global action-event feed.
+type EventListPage struct {
+	Items      []EventListItem `json:"items"`
+	NextCursor string          `json:"nextCursor,omitempty"`
+}
+
 type schemaVersionRow struct {
 	bun.BaseModel `bun:"table:event_store_schema"`
 	Name          string `bun:",pk"`
@@ -227,6 +310,27 @@ type taskRunEventRow struct {
 	Gateway                sql.NullString
 	ServerName             sql.NullString
 	Endpoint               sql.NullString
+}
+
+type eventListRow struct {
+	ID                  string
+	CreatedAtUnixMilli  int64
+	RequestID           sql.NullString
+	SessionID           sql.NullString
+	Transport           sql.NullString
+	Direction           sql.NullString
+	MessageType         sql.NullString
+	Gateway             sql.NullString
+	ServerName          sql.NullString
+	Endpoint            sql.NullString
+	ToolName            sql.NullString
+	OriginalToolName    sql.NullString
+	Success             bool
+	IsError             bool
+	PayloadJSON         json.RawMessage
+	TaskRunID           sql.NullString
+	InvocationPhasePath sql.NullString
+	InvocationNodeKind  sql.NullString
 }
 
 // Store persists task and action events to SQLite using Bun.
@@ -815,6 +919,125 @@ ORDER BY created_at_unix_milli ASC, id ASC
 		})
 	}
 	return events, nil
+}
+
+// ListEvents returns paginated action events ordered newest-first.
+func (s *Store) ListEvents(ctx context.Context, filter *EventListFilter) (*EventListPage, error) {
+	if filter == nil {
+		filter = &EventListFilter{}
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows := make([]eventListRow, 0, limit+1)
+	query := `
+SELECT
+	ae.id,
+	ae.created_at_unix_milli,
+	ae.request_id,
+	ae.session_id,
+	ae.transport,
+	ae.direction,
+	ae.message_type,
+	ae.gateway,
+	ae.server_name,
+	ae.endpoint,
+	ae.tool_name,
+	ae.original_tool_name,
+	ae.success,
+	ae.is_error,
+	ae.payload_json,
+	ctx.task_run_id,
+	ctx.invocation_phase_path,
+	ctx.invocation_node_kind
+FROM action_events ae
+LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
+`
+	clauses, args := buildEventListFilters(filter)
+
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY ae.created_at_unix_milli DESC, ae.id DESC LIMIT ?"
+	args = append(args, limit+1)
+
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+
+	page := &EventListPage{
+		Items: make([]EventListItem, 0, min(limit, len(rows))),
+	}
+	if len(rows) > limit {
+		page.NextCursor = EventListCursor{
+			CreatedAtUnixMilli: rows[limit-1].CreatedAtUnixMilli,
+			ID:                 rows[limit-1].ID,
+		}.Encode()
+		rows = rows[:limit]
+	}
+
+	for idx := range rows {
+		page.Items = append(page.Items, eventListItemFromRow(&rows[idx]))
+	}
+
+	return page, nil
+}
+
+func buildEventListFilters(filter *EventListFilter) ([]string, []any) {
+	clauses := make([]string, 0, 9)
+	args := make([]any, 0, 16)
+
+	appendFilter := func(field, value string) {
+		if value == "" {
+			return
+		}
+		clauses = append(clauses, field+" = ?")
+		args = append(args, value)
+	}
+
+	appendFilter("ae.gateway", filter.Gateway)
+	appendFilter("ae.server_name", filter.ServerName)
+	appendFilter("ae.tool_name", filter.ToolName)
+	appendFilter("ae.direction", filter.Direction)
+	appendFilter("ae.message_type", filter.MessageType)
+	appendFilter("ae.request_id", filter.RequestID)
+	appendFilter("ae.session_id", filter.SessionID)
+
+	if filter.Success != nil {
+		clauses = append(clauses, "ae.success = ?")
+		args = append(args, *filter.Success)
+	}
+	if filter.Cursor != nil {
+		clauses = append(clauses, "(ae.created_at_unix_milli < ? OR (ae.created_at_unix_milli = ? AND ae.id < ?))")
+		args = append(args, filter.Cursor.CreatedAtUnixMilli, filter.Cursor.CreatedAtUnixMilli, filter.Cursor.ID)
+	}
+
+	return clauses, args
+}
+
+func eventListItemFromRow(row *eventListRow) EventListItem {
+	return EventListItem{
+		ID:                  row.ID,
+		CreatedAtUnixMilli:  row.CreatedAtUnixMilli,
+		RequestID:           nullStringValue(row.RequestID),
+		SessionID:           nullStringValue(row.SessionID),
+		Transport:           nullStringValue(row.Transport),
+		Direction:           nullStringValue(row.Direction),
+		MessageType:         nullStringValue(row.MessageType),
+		Gateway:             nullStringValue(row.Gateway),
+		ServerName:          nullStringValue(row.ServerName),
+		Endpoint:            nullStringValue(row.Endpoint),
+		ToolName:            nullStringValue(row.ToolName),
+		OriginalToolName:    nullStringValue(row.OriginalToolName),
+		Success:             row.Success,
+		IsError:             row.IsError,
+		PayloadJSON:         row.PayloadJSON,
+		TaskRunID:           nullStringValue(row.TaskRunID),
+		InvocationPhasePath: nullStringValue(row.InvocationPhasePath),
+		InvocationNodeKind:  nullStringValue(row.InvocationNodeKind),
+	}
 }
 
 // TaskEvents returns all persisted task lifecycle events ordered by timestamp.

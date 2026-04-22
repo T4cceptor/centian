@@ -24,14 +24,18 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 		return nil, false
 	}
 
+	policy := p.taskVerificationPolicy()
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 
 	run := session.taskRun
 	if run == nil {
-		if p.taskVerificationToolsEnabled() {
+		if policy.requiresRegistration() {
 			return governanceDeniedResult(callCtx, taskverification.TaskPhaseInitialization, "", "", nil, governanceDeniedRegistrationNeeded, p.server.TaskVerification.WorkingDir), true
 		}
+		return nil, false
+	}
+	if !policy.enforcesActiveTaskGovernance() {
 		return nil, false
 	}
 	if run.Status != taskverification.TaskStatusActive {

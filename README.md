@@ -77,7 +77,7 @@ All tool calls flow through Centian's proxy — giving you:
 
 ## Agent Process Verification — define success upfront
 
-Centian verifies that agents do what they committed to do.
+Centian verifies that agents do what they committed to do - why this is a problem is described in detail in our benchmark where we tested 9 agents on a test-driven development task using centian: ["Done!" — But Did Your Agent Actually Do the Work?](https://t4cceptor.github.io/centian-benchmarks/).
 
 Before execution, you define what success looks like — and Centian enforces it step by step.
 

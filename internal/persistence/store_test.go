@@ -959,9 +959,155 @@ func TestGetTaskRunEventsReturnsTaskOnlyAndEmptyForUnknownRun(t *testing.T) {
 	assert.Equal(t, len(missingEvents), 0)
 }
 
+func TestListEventsAppliesFiltersAndExposesTaskContext(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	seedActionContext(t, store, taskverification.ActionEventTaskContext{
+		RequestID:           "req-1",
+		TaskRunID:           identifiers.New(identifiers.KindTaskRun),
+		InvocationPhasePath: taskverification.TaskPhasePlanning,
+		InvocationNodeKind:  taskverification.WorkflowNodeKindPlanning,
+		CreatedAtUnixMilli:  3_000,
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 identifiers.New(identifiers.KindActionEvent),
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 3_000,
+		RequestID:          "req-1",
+		SessionID:          "sid-1",
+		Transport:          "http",
+		Direction:          string(common.DirectionClientToServer),
+		MessageType:        string(common.MessageTypeRequest),
+		Gateway:            "gw",
+		ServerName:         "server-a",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "shell__exec",
+		OriginalToolName:   "shell__exec",
+		Success:            true,
+		IsError:            false,
+		PayloadJSON:        json.RawMessage(`{"arguments":{"command":"pwd"}}`),
+	})
+	seedActionEvent(t, store, &ActionEventRecord{
+		ID:                 identifiers.New(identifiers.KindActionEvent),
+		SchemaVersion:      schemaVersion,
+		CreatedAtUnixMilli: 2_000,
+		RequestID:          "req-2",
+		SessionID:          "sid-2",
+		Transport:          "stdio",
+		Direction:          string(common.DirectionServerToClient),
+		MessageType:        string(common.MessageTypeResponse),
+		Gateway:            "gw",
+		ServerName:         "server-b",
+		Endpoint:           "/mcp/gw",
+		ToolName:           "git__search",
+		OriginalToolName:   "git__search",
+		Success:            false,
+		IsError:            true,
+		PayloadJSON:        json.RawMessage(`{"error":"boom"}`),
+	})
+
+	page, err := store.ListEvents(context.Background(), &EventListFilter{
+		Gateway:     "gw",
+		ServerName:  "server-a",
+		ToolName:    "shell__exec",
+		Direction:   string(common.DirectionClientToServer),
+		MessageType: string(common.MessageTypeRequest),
+		RequestID:   "req-1",
+		SessionID:   "sid-1",
+		Success:     boolPointer(true),
+		Limit:       10,
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(page.Items), 1)
+	assert.Equal(t, page.Items[0].RequestID, "req-1")
+	assert.Equal(t, page.Items[0].TaskRunID != "", true)
+	assert.Equal(t, page.Items[0].InvocationPhasePath, string(taskverification.TaskPhasePlanning))
+	assert.Equal(t, page.Items[0].InvocationNodeKind, string(taskverification.WorkflowNodeKindPlanning))
+
+	unfiltered, err := store.ListEvents(context.Background(), &EventListFilter{Limit: 10})
+	assert.NilError(t, err)
+	assert.Equal(t, len(unfiltered.Items), 2)
+	assert.Equal(t, unfiltered.Items[0].RequestID, "req-1")
+	assert.Equal(t, unfiltered.Items[1].RequestID, "req-2")
+	assert.Equal(t, unfiltered.Items[1].TaskRunID, "")
+}
+
+func TestListEventsPaginatesWithStableCursorOrdering(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	for _, event := range []*ActionEventRecord{
+		{
+			ID:                 "ae_0000000003000_0000000003",
+			SchemaVersion:      schemaVersion,
+			CreatedAtUnixMilli: 3_000,
+			RequestID:          "req-3",
+			ToolName:           "tool-c",
+			Success:            true,
+		},
+		{
+			ID:                 "ae_0000000003000_0000000002",
+			SchemaVersion:      schemaVersion,
+			CreatedAtUnixMilli: 3_000,
+			RequestID:          "req-2",
+			ToolName:           "tool-b",
+			Success:            true,
+		},
+		{
+			ID:                 "ae_0000000003000_0000000001",
+			SchemaVersion:      schemaVersion,
+			CreatedAtUnixMilli: 3_000,
+			RequestID:          "req-1",
+			ToolName:           "tool-a",
+			Success:            true,
+		},
+		{
+			ID:                 "ae_0000000002000_0000000001",
+			SchemaVersion:      schemaVersion,
+			CreatedAtUnixMilli: 2_000,
+			RequestID:          "req-0",
+			ToolName:           "tool-z",
+			Success:            true,
+		},
+	} {
+		seedActionEvent(t, store, event)
+	}
+
+	firstPage, err := store.ListEvents(context.Background(), &EventListFilter{Limit: 2})
+	assert.NilError(t, err)
+	assert.Equal(t, len(firstPage.Items), 2)
+	assert.Equal(t, firstPage.Items[0].ID, "ae_0000000003000_0000000003")
+	assert.Equal(t, firstPage.Items[1].ID, "ae_0000000003000_0000000002")
+	assert.Assert(t, firstPage.NextCursor != "")
+
+	cursor, hasCursor, err := ParseEventCursor(firstPage.NextCursor)
+	assert.NilError(t, err)
+	assert.Equal(t, hasCursor, true)
+	secondPage, err := store.ListEvents(context.Background(), &EventListFilter{
+		Limit:  2,
+		Cursor: &cursor,
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, len(secondPage.Items), 2)
+	assert.Equal(t, secondPage.Items[0].ID, "ae_0000000003000_0000000001")
+	assert.Equal(t, secondPage.Items[1].ID, "ae_0000000002000_0000000001")
+	assert.Equal(t, secondPage.NextCursor, "")
+}
+
 func seedTaskEvent(t *testing.T, store *Store, event *taskverification.TaskEvent) {
 	t.Helper()
 	assert.NilError(t, store.AppendTaskEvent(event))
+}
+
+func boolPointer(value bool) *bool {
+	return &value
 }
 
 func seedActionContext(t *testing.T, store *Store, ctx taskverification.ActionEventTaskContext) {

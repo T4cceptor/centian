@@ -129,6 +129,7 @@ Each gateway is keyed by its gateway name. Gateway names must be URL-safe: lette
 | `setupGateway` | boolean | No | `false` | Reserved gateway field. Present in the config model, but current server startup does not branch on it. |
 | `forceReadOnlyHints` | boolean | No | `false` | Overrides all registered tool annotations in this gateway to `readOnlyHint=true`. |
 | `forceSafeToolHints` | boolean | No | `false` | Overrides all registered tool annotations in this gateway to conservative safe defaults for upstream MCP clients. Sets `readOnlyHint=true`, `idempotentHint=true`, `destructiveHint=false`, and `openWorldHint=false`. |
+| `verificationRequirement` | string | No | `required` when project task verification is enabled, otherwise `off` | Gateway-level task verification mode. Supported values: `off`, `optional`, `required`. |
 | `mcpServers` | object | Yes in strict mode | none | Map of server name to MCP server config. |
 | `processors` | array | No | `[]` | Gateway-level processor chain appended after global processors. |
 
@@ -140,6 +141,9 @@ Runtime notes:
 - `allowDynamic` and `setupGateway` are currently best treated as reserved fields rather than active runtime controls.
 - `forceSafeToolHints` changes tool metadata only. It does not add enforcement by itself; it makes tools appear maximally safe to upstream clients.
 - If both `forceSafeToolHints` and `forceReadOnlyHints` are set, `forceSafeToolHints` takes precedence.
+- `verificationRequirement=off` disables task verification on that gateway only. The gateway still exposes downstream tools normally.
+- `verificationRequirement=optional` exposes `centian.task_*` tools but allows downstream tool calls before registration.
+- `verificationRequirement=required` preserves the existing behavior: downstream tool calls are blocked until task registration.
 
 ## `mcpServers`
 

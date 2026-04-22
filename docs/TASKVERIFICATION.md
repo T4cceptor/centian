@@ -55,13 +55,17 @@ Add `proxy.capabilities.taskVerification` to your Centian config. If you also wa
 
 Notes:
 
-- `taskVerification.enabled` controls whether `centian.task_*` tools are exposed.
+- `taskVerification.enabled` enables the task verification runtime for the project.
 - `taskVerification.templatesPath` overrides where Centian looks for runtime disk templates.
 - `taskVerification.idleTimeoutSeconds` enables task idle timeout when greater than `0`.
 - `eventStorage.enabled` defaults to `true`.
 - `eventStorage.driver` currently only supports `sqlite`.
 - `eventStorage.path` is optional. If omitted, Centian uses `~/.centian/logs/events.sqlite`.
 - `ui.enabled` only exposes the embedded frontend. It does not enable taskverification tools by itself.
+- Each gateway can further control task verification participation with `verificationRequirement`:
+  - `off`: no `centian.task_*` tools on that gateway; downstream tools still work normally
+  - `optional`: `centian.task_*` tools are exposed, but downstream tools can be used before registration
+  - `required`: `centian.task_*` tools are exposed and downstream tools are blocked until registration
 
 ### 2. Understand template sources
 
@@ -87,6 +91,8 @@ The agent then talks to one Centian endpoint and receives both:
 
 - normal proxied MCP tools
 - `centian.task_*` tools
+
+If you only want some gateways to participate in task verification, set `verificationRequirement` per gateway instead of disabling the project capability globally.
 
 ### 4. Start Centian
 

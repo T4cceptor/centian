@@ -5,10 +5,13 @@ import { Link, useLocation } from "react-router-dom";
 export function AppShell({ children }: PropsWithChildren) {
   const location = useLocation();
   const benchmarkSection = location.pathname.startsWith("/benchmarks");
-  const title = benchmarkSection ? "Benchmarks" : "Task Runs";
+  const eventSection = location.pathname.startsWith("/events");
+  const title = benchmarkSection ? "Benchmarks" : eventSection ? "Events" : "Task Runs";
   const subtitle = benchmarkSection
     ? "Inspect persisted benchmark suites, sessions, scorecards, and comparisons."
-    : "Inspect task workflow progress, current phase, and run volume.";
+    : eventSection
+      ? "Inspect all persisted MCP action events across the proxy."
+      : "Inspect task workflow progress, current phase, and run volume.";
 
   return (
     <div className="app-shell">
@@ -20,8 +23,11 @@ export function AppShell({ children }: PropsWithChildren) {
             <p className="app-header__eyebrow">Centian Monitor</p>
             <h1>{title}</h1>
             <nav className="app-header__nav" aria-label="Primary">
-              <Link className={!benchmarkSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to="/tasks">
+              <Link className={!benchmarkSection && !eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to="/tasks">
                 Tasks
+              </Link>
+              <Link className={eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to="/events">
+                Events
               </Link>
               <Link className={benchmarkSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to="/benchmarks">
                 Benchmarks

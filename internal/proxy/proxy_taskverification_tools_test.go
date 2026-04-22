@@ -19,14 +19,29 @@ import (
 )
 
 func newTaskToolTestProxy(t *testing.T, templateContent string) (*CentianEndpoint, *UpstreamSession) {
-	return newTaskToolTestProxyWithEnabled(t, templateContent, true)
+	return newTaskToolTestProxyWithRequirement(t, templateContent, true, "")
 }
 
 func newTaskToolTestProxyWithEnabled(t *testing.T, templateContent string, enabled bool) (*CentianEndpoint, *UpstreamSession) {
-	return newTaskToolTestProxyWithTimeout(t, templateContent, enabled, 0)
+	return newTaskToolTestProxyWithRequirement(t, templateContent, enabled, "")
 }
 
-func newTaskToolTestProxyWithTimeout(t *testing.T, templateContent string, enabled bool, idleTimeoutSeconds int) (*CentianEndpoint, *UpstreamSession) {
+func newTaskToolTestProxyWithRequirement(
+	t *testing.T,
+	templateContent string,
+	enabled bool,
+	requirement string,
+) (*CentianEndpoint, *UpstreamSession) {
+	return newTaskToolTestProxyWithTimeout(t, templateContent, enabled, requirement, 0)
+}
+
+func newTaskToolTestProxyWithTimeout(
+	t *testing.T,
+	templateContent string,
+	enabled bool,
+	requirement string,
+	idleTimeoutSeconds int,
+) (*CentianEndpoint, *UpstreamSession) {
 	t.Helper()
 
 	t.Setenv("HOME", t.TempDir())
@@ -61,7 +76,9 @@ func newTaskToolTestProxyWithTimeout(t *testing.T, templateContent string, enabl
 			Logger:           logger,
 			TaskVerification: taskverification.NewServiceWithOptions(templateDir, workingDir, taskverification.ServiceOptions{}),
 		},
-		config:           &config.GatewayConfig{},
+		config: &config.GatewayConfig{
+			VerificationRequirement: requirement,
+		},
 		upstreamSessions: make(map[string]*UpstreamSession),
 		downstreamPools:  make(map[string]*DownstreamSessionPool),
 	}
@@ -171,6 +188,145 @@ func TestNewUpstreamServerRegistersTaskVerificationTools(t *testing.T) {
 		taskResumeTool,
 		taskStartStepTool,
 	})
+}
+
+func TestGatewayVerificationRequirementControlsTaskToolExposure(t *testing.T) {
+	tests := []struct {
+		name        string
+		requirement string
+		aggregated  bool
+		expected    []string
+	}{
+		{
+			name:        "off hides task tools on single endpoint",
+			requirement: config.VerificationRequirementOff,
+			expected:    []string{"github__search"},
+		},
+		{
+			name:        "optional exposes task tools on single endpoint",
+			requirement: config.VerificationRequirementOptional,
+			expected: []string{
+				taskCompleteOnboardingTool,
+				taskCompletePlanningTool,
+				taskCompleteStepTool,
+				taskFailTool,
+				taskListTemplatesTool,
+				taskRegisterTool,
+				taskRestartTool,
+				taskResumeTool,
+				taskStartStepTool,
+				"github__search",
+			},
+		},
+		{
+			name:        "required exposes task tools on aggregated endpoint",
+			requirement: config.VerificationRequirementRequired,
+			aggregated:  true,
+			expected: []string{
+				taskCompleteOnboardingTool,
+				taskCompletePlanningTool,
+				taskCompleteStepTool,
+				taskFailTool,
+				taskListTemplatesTool,
+				taskRegisterTool,
+				taskRestartTool,
+				taskResumeTool,
+				taskStartStepTool,
+				"server-a___github__search",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoint, session := newTaskToolTestProxyWithRequirement(t, basicTaskTemplate(), true, tt.requirement)
+			endpoint.isAggregatedProxy = tt.aggregated
+			attachTaskToolDownstream(t, endpoint, session, "github__search")
+
+			clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+			defer cleanup()
+
+			assert.DeepEqual(t, listToolNames(t, clientSession), tt.expected)
+		})
+	}
+}
+
+func TestGatewayVerificationRequirementControlsPreRegistrationGovernance(t *testing.T) {
+	tests := []struct {
+		name        string
+		requirement string
+		wantBlocked bool
+	}{
+		{
+			name:        "off allows downstream calls before task registration",
+			requirement: config.VerificationRequirementOff,
+		},
+		{
+			name:        "optional allows downstream calls before task registration",
+			requirement: config.VerificationRequirementOptional,
+		},
+		{
+			name:        "required blocks downstream calls before task registration",
+			requirement: config.VerificationRequirementRequired,
+			wantBlocked: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			endpoint, session := newTaskToolTestProxyWithRequirement(t, basicTaskTemplate(), true, tt.requirement)
+			downstream := attachTaskToolDownstream(t, endpoint, session, "github__search")
+
+			clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+			defer cleanup()
+
+			result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+				Name:      "github__search",
+				Arguments: map[string]any{"query": "issue"},
+			})
+			assert.NilError(t, err)
+			assert.Assert(t, result != nil)
+
+			if tt.wantBlocked {
+				assert.Assert(t, result.IsError)
+				structured := result.StructuredContent.(map[string]any)
+				assert.Equal(t, structured["reason"], governanceDeniedRegistrationNeeded)
+				assert.Assert(t, downstream.CapturedRequest == nil)
+				return
+			}
+
+			assert.Assert(t, !result.IsError)
+			assert.Assert(t, downstream.CapturedRequest != nil)
+		})
+	}
+}
+
+func TestGatewayVerificationOptionalEnforcesWorkflowGovernanceAfterTaskRegistration(t *testing.T) {
+	endpoint, session := newTaskToolTestProxyWithRequirement(t, basicTaskTemplate(), true, config.VerificationRequirementOptional)
+	downstream := attachTaskToolDownstream(t, endpoint, session, "github__search")
+
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: taskRegisterTool,
+		Arguments: map[string]any{
+			"templateId": "task",
+		},
+	})
+	assert.NilError(t, err)
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "github__search",
+		Arguments: map[string]any{"query": "issue"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, result.IsError)
+
+	structured := result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["reason"], governanceDeniedNoPatternMatch)
+	assert.Assert(t, downstream.CapturedRequest == nil)
 }
 
 func TestTaskToolFlowAndRestartFail(t *testing.T) {
@@ -1378,7 +1534,7 @@ func TestWorkflowNodeToolGovernanceDeniesFailedTask(t *testing.T) {
 }
 
 func TestTaskIdleTimeoutDeniesDownstreamToolsAndRecordsEvent(t *testing.T) {
-	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, 1)
+	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, "", 1)
 	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
@@ -1420,7 +1576,7 @@ func TestTaskIdleTimeoutDeniesDownstreamToolsAndRecordsEvent(t *testing.T) {
 }
 
 func TestTaskActivityRefreshesIdleTimeoutForTaskAndDownstreamCalls(t *testing.T) {
-	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, 1)
+	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, "", 1)
 	attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
@@ -1459,7 +1615,7 @@ func TestTaskActivityRefreshesIdleTimeoutForTaskAndDownstreamCalls(t *testing.T)
 }
 
 func TestTaskResumeRequiresTimedOutRunAndPreservesWorkflowProgress(t *testing.T) {
-	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, 1)
+	endpoint, session := newTaskToolTestProxyWithTimeout(t, basicTaskTemplate(), true, "", 1)
 	downstream := attachTaskToolDownstream(t, endpoint, session, "shell__exec")
 
 	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})

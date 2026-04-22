@@ -376,6 +376,10 @@ func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
 		return wrapWithAPIKeyAuth(c, project.Slug, next)
 	})
 
+	centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, project.Slug, next)
+	})
+
 	centapi.NewBenchmarkHandler(benchmarks.NewReadService(project.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 		return wrapWithAPIKeyAuth(c, project.Slug, next)
 	})
