@@ -398,14 +398,8 @@ code,
   gap: 12px;
 }
 
-.event-card {
-  border: 1px solid rgba(140, 230, 216, 0.14);
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(9, 18, 28, 0.78), rgba(6, 13, 20, 0.92));
-}
-
+.event-list__header,
 .event-card__summary {
-  width: 100%;
   display: grid;
   grid-template-columns:
     minmax(0, 0.9fr)
@@ -417,6 +411,24 @@ code,
     minmax(0, 1.1fr);
   gap: 16px;
   align-items: center;
+}
+
+.event-list__header {
+  padding: 0 18px 4px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.event-card {
+  border: 1px solid rgba(140, 230, 216, 0.14);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(9, 18, 28, 0.78), rgba(6, 13, 20, 0.92));
+}
+
+.event-card__summary {
+  width: 100%;
   padding: 18px;
   border: 0;
   background: transparent;
@@ -467,9 +479,41 @@ code,
   gap: 14px;
 }
 
+.event-card__meta-item {
+  min-width: 0;
+}
+
 .event-card__meta p,
 .event-card__task-link {
   margin: 0;
+}
+
+.event-card__meta-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.event-card__meta-value--id {
+  color: var(--text-main);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.86rem;
+}
+
+.event-card__meta-action-row {
+  display: grid;
+  gap: 10px;
+}
+
+.event-card__filter-button {
+  width: fit-content;
+  padding: 8px 12px;
+  border: 1px solid rgba(140, 230, 216, 0.18);
+  border-radius: 999px;
+  background: rgba(9, 18, 28, 0.78);
+  color: var(--accent-strong);
+  font: inherit;
+  cursor: pointer;
 }
 
 .event-card__payload {
@@ -1817,6 +1861,10 @@ code,
   }
 
   .task-run-table__header {
+    display: none;
+  }
+
+  .event-list__header {
     display: none;
   }
 

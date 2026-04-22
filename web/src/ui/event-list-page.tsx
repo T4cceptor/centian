@@ -334,6 +334,15 @@ export function EventListPage() {
         </div>
       ) : (
         <div className="event-list" role="list">
+          <div className="event-list__header" aria-hidden="true">
+            <span>Time</span>
+            <span>Tool</span>
+            <span>Server</span>
+            <span>Direction</span>
+            <span>Type</span>
+            <span>Status</span>
+            <span>Request</span>
+          </div>
           {items.map((item) => {
             const expanded = expandedEventID === item.id;
             const timestampParts = formatTimestampCompact(item.createdAtUnixMilli);
@@ -359,36 +368,53 @@ export function EventListPage() {
                     <span className={statusClass}>{item.success ? "success" : "failed"}</span>
                   </span>
                   <span className="event-card__identity" title={identityLabel}>
-                    {identityLabel}
+                    {formatEventIdentity(identityLabel)}
                   </span>
                 </button>
 
                 {expanded ? (
                   <div className="event-card__detail">
                     <div className="event-card__meta">
-                      <div>
+                      <div className="event-card__meta-item">
                         <p className="event-card__meta-label">Request ID</p>
-                        <p>{item.requestId ?? "—"}</p>
+                        <p className="event-card__meta-value event-card__meta-value--id">{item.requestId ?? "—"}</p>
                       </div>
-                      <div>
+                      <div className="event-card__meta-item">
                         <p className="event-card__meta-label">Session ID</p>
-                        <p>{item.sessionId ?? "—"}</p>
+                        <div className="event-card__meta-action-row">
+                          <p className="event-card__meta-value event-card__meta-value--id">{item.sessionId ?? "—"}</p>
+                          {item.sessionId ? (
+                            <button
+                              type="button"
+                              className="event-card__filter-button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                const next = new URLSearchParams(searchParams);
+                                next.set("sessionId", item.sessionId!);
+                                next.delete("cursor");
+                                setSearchParams(next);
+                              }}
+                            >
+                              Filter session
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
-                      <div>
+                      <div className="event-card__meta-item">
                         <p className="event-card__meta-label">Endpoint</p>
-                        <p>{item.endpoint ?? "—"}</p>
+                        <p className="event-card__meta-value">{item.endpoint ?? "—"}</p>
                       </div>
-                      <div>
+                      <div className="event-card__meta-item">
                         <p className="event-card__meta-label">Transport</p>
-                        <p>{item.transport ?? "—"}</p>
+                        <p className="event-card__meta-value">{item.transport ?? "—"}</p>
                       </div>
-                      <div>
+                      <div className="event-card__meta-item">
                         <p className="event-card__meta-label">Original Tool</p>
-                        <p>{item.originalToolName && item.originalToolName !== item.toolName ? item.originalToolName : "—"}</p>
+                        <p className="event-card__meta-value">{item.originalToolName && item.originalToolName !== item.toolName ? item.originalToolName : "—"}</p>
                       </div>
-                      <div>
+                      <div className="event-card__meta-item">
                         <p className="event-card__meta-label">Invocation Phase</p>
-                        <p>{item.invocationPhasePath ? humanizePhase(item.invocationPhasePath) : "—"}</p>
+                        <p className="event-card__meta-value">{item.invocationPhasePath ? humanizePhase(item.invocationPhasePath) : "—"}</p>
                       </div>
                     </div>
 
@@ -470,4 +496,14 @@ function formatPayloadJSON(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function formatEventIdentity(value: string): string {
+  if (!value || value === "—") {
+    return "—";
+  }
+  if (value.length <= 22) {
+    return value;
+  }
+  return `${value.slice(0, 8)}…${value.slice(-8)}`;
 }

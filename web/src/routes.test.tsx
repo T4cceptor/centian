@@ -405,6 +405,9 @@ describe("event list", () => {
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
     expect(screen.getByText("Observed MCP events")).toBeInTheDocument();
+    const header = screen.getByText("Time").closest(".event-list__header");
+    expect(header).not.toBeNull();
+    expect(within(header as HTMLElement).getByText("Request")).toBeInTheDocument();
   });
 
   it("reflects URL filters in the request and active chips", async () => {
@@ -468,35 +471,55 @@ describe("event list", () => {
     expect(await screen.findByText("tool-new")).toBeInTheDocument();
   });
 
-  it("expands rows to show payload and related task links", async () => {
+  it("expands rows to show payload, related task links, and session quick filters", async () => {
     const user = userEvent.setup();
-    globalThis.fetch = vi.fn(() =>
-      Promise.resolve(
-        createFetchResponse({
-          items: [
-            {
-              id: "ae_1742947200123_0000000001",
-              createdAtUnixMilli: 1742947200123,
-              toolName: "shell__exec",
-              originalToolName: "shell__exec",
-              success: true,
-              isError: false,
-              requestId: "req-1",
-              sessionId: "sid-1",
-              endpoint: "/mcp/gw",
-              transport: "http",
-              taskRunId: "tr_1742947200123_0000000001",
-              invocationPhasePath: "planning.review",
-              payloadJson: {
-                arguments: {
-                  command: "pwd",
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/events") {
+        return Promise.resolve(
+          createFetchResponse({
+            items: [
+              {
+                id: "ae_1742947200123_0000000001",
+                createdAtUnixMilli: 1742947200123,
+                toolName: "shell__exec",
+                originalToolName: "shell__exec",
+                success: true,
+                isError: false,
+                requestId: "req-1",
+                sessionId: "sid-1",
+                endpoint: "/mcp/gw",
+                transport: "http",
+                taskRunId: "tr_1742947200123_0000000001",
+                invocationPhasePath: "planning.review",
+                payloadJson: {
+                  arguments: {
+                    command: "pwd",
+                  },
                 },
               },
-            },
-          ],
-        }),
-      ),
-    ) as typeof fetch;
+            ],
+          }),
+        );
+      }
+      if (url === "/api/events?sessionId=sid-1") {
+        return Promise.resolve(
+          createFetchResponse({
+            items: [
+              {
+                id: "ae_1742947200123_0000000001",
+                createdAtUnixMilli: 1742947200123,
+                toolName: "shell__exec",
+                success: true,
+                isError: false,
+                sessionId: "sid-1",
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    }) as typeof fetch;
 
     renderApp(["/events"]);
 
@@ -509,6 +532,8 @@ describe("event list", () => {
     );
     expect(screen.getByDisplayValue(/"command": "pwd"/)).toBeInTheDocument();
     expect(screen.getByText("Planning / Review")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Filter session" }));
+    expect(await screen.findByText("Session: sid-1")).toBeInTheDocument();
   });
 });
 
