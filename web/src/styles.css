@@ -395,7 +395,7 @@ code,
 
 .event-list {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .event-list__header,
@@ -414,22 +414,22 @@ code,
 }
 
 .event-list__header {
-  padding: 0 18px 4px;
+  padding: 0 14px 2px;
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .event-card {
   border: 1px solid rgba(140, 230, 216, 0.14);
-  border-radius: 16px;
+  border-radius: 14px;
   background: linear-gradient(180deg, rgba(9, 18, 28, 0.78), rgba(6, 13, 20, 0.92));
 }
 
 .event-card__summary {
   width: 100%;
-  padding: 18px;
+  padding: 12px 14px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -443,11 +443,11 @@ code,
 }
 
 .event-card__timestamp {
-  display: grid;
-  gap: 2px;
   color: var(--text-muted);
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .event-card__tool,
@@ -457,13 +457,21 @@ code,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .event-card__direction,
 .event-card__message {
   color: var(--text-dim);
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 0.76rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.event-card__summary .status-badge {
+  min-width: 74px;
+  padding: 3px 8px;
+  font-size: 0.68rem;
 }
 
 .event-card__detail {

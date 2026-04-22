@@ -7,6 +7,12 @@ import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatTimestampCompact, humanizePhase } from "./format";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
+type EventSortColumn = "time" | "tool" | "server" | "direction" | "messageType" | "status" | "request";
+type SortDirection = "asc" | "desc";
+type EventSortState = {
+  column: EventSortColumn;
+  direction: SortDirection;
+};
 type FilterFormState = {
   gateway: string;
   server: string;
@@ -29,6 +35,16 @@ const defaultFilterForm: FilterFormState = {
   sessionId: "",
 };
 
+const eventColumns: Array<{ key: EventSortColumn; label: string }> = [
+  { key: "time", label: "Time" },
+  { key: "tool", label: "Tool" },
+  { key: "server", label: "Server" },
+  { key: "direction", label: "Direction" },
+  { key: "messageType", label: "Type" },
+  { key: "status", label: "Status" },
+  { key: "request", label: "Request" },
+];
+
 export function EventListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<EventListItem[]>([]);
@@ -39,9 +55,11 @@ export function EventListPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const [expandedEventID, setExpandedEventID] = useState<string>();
   const [filterForm, setFilterForm] = useState<FilterFormState>(defaultFilterForm);
+  const [sortState, setSortState] = useState<EventSortState>({ column: "time", direction: "desc" });
 
   const filters = eventFiltersFromSearchParams(searchParams);
   const activeFilters = buildActiveFilterChips(filters);
+  const sortedItems = [...items].sort((left, right) => compareEvents(left, right, sortState));
 
   useEffect(() => {
     setFilterForm({
@@ -334,18 +352,44 @@ export function EventListPage() {
         </div>
       ) : (
         <div className="event-list" role="list">
-          <div className="event-list__header" aria-hidden="true">
-            <span>Time</span>
-            <span>Tool</span>
-            <span>Server</span>
-            <span>Direction</span>
-            <span>Type</span>
-            <span>Status</span>
-            <span>Request</span>
+          <div className="event-list__header" role="row">
+            {eventColumns.map((column) => {
+              const isActive = sortState.column === column.key;
+              const ariaSort = isActive ? (sortState.direction === "asc" ? "ascending" : "descending") : "none";
+              return (
+                <span key={column.key} role="columnheader" aria-sort={ariaSort}>
+                  <button
+                    type="button"
+                    className={isActive ? "benchmark-sort-button benchmark-sort-button--active" : "benchmark-sort-button"}
+                    aria-label={`Sort by ${column.label}${isActive ? ` (${sortState.direction})` : ""}`}
+                    onClick={() => {
+                      setSortState((current) => {
+                        if (current.column === column.key) {
+                          return {
+                            column: column.key,
+                            direction: current.direction === "asc" ? "desc" : "asc",
+                          };
+                        }
+                        return {
+                          column: column.key,
+                          direction: defaultEventSortDirection(column.key),
+                        };
+                      });
+                    }}
+                  >
+                    <span>{column.label}</span>
+                    <span className="benchmark-sort-button__indicator" aria-hidden="true">
+                      {isActive ? (sortState.direction === "asc" ? "▲" : "▼") : "↕"}
+                    </span>
+                  </button>
+                </span>
+              );
+            })}
           </div>
-          {items.map((item) => {
+          {sortedItems.map((item) => {
             const expanded = expandedEventID === item.id;
             const timestampParts = formatTimestampCompact(item.createdAtUnixMilli);
+            const compactTimestamp = `${timestampParts.date} ${timestampParts.time}`;
             const statusClass = item.success ? "status-badge status-badge--success" : "status-badge status-badge--failed";
             const identityLabel = item.requestId ?? item.sessionId ?? "—";
 
@@ -356,10 +400,7 @@ export function EventListPage() {
                   className="event-card__summary"
                   onClick={() => setExpandedEventID(expanded ? undefined : item.id)}
                 >
-                  <span className="event-card__timestamp" title={formatTimestamp(item.createdAtUnixMilli)}>
-                    <span>{timestampParts.date}</span>
-                    <span>{timestampParts.time}</span>
-                  </span>
+                  <span className="event-card__timestamp" title={formatTimestamp(item.createdAtUnixMilli)}>{compactTimestamp}</span>
                   <span className="event-card__tool">{item.toolName ?? item.originalToolName ?? "Unknown tool"}</span>
                   <span className="event-card__server">{[item.gateway, item.serverName].filter(Boolean).join(" / ") || "—"}</span>
                   <span className="event-card__direction">{item.direction ?? "—"}</span>
@@ -506,4 +547,67 @@ function formatEventIdentity(value: string): string {
     return value;
   }
   return `${value.slice(0, 8)}…${value.slice(-8)}`;
+}
+
+function defaultEventSortDirection(column: EventSortColumn): SortDirection {
+  switch (column) {
+    case "time":
+      return "desc";
+    default:
+      return "asc";
+  }
+}
+
+function compareEvents(left: EventListItem, right: EventListItem, sortState: EventSortState): number {
+  const directionMultiplier = sortState.direction === "asc" ? 1 : -1;
+  const primaryComparison = comparePrimaryEventColumn(left, right, sortState.column) * directionMultiplier;
+  if (primaryComparison !== 0) {
+    return primaryComparison;
+  }
+
+  const timeComparison = compareNumbers(right.createdAtUnixMilli, left.createdAtUnixMilli);
+  if (timeComparison !== 0) {
+    return timeComparison;
+  }
+
+  return right.id.localeCompare(left.id);
+}
+
+function comparePrimaryEventColumn(left: EventListItem, right: EventListItem, column: EventSortColumn): number {
+  switch (column) {
+    case "time":
+      return compareNumbers(left.createdAtUnixMilli, right.createdAtUnixMilli);
+    case "tool":
+      return compareStrings(left.toolName ?? left.originalToolName ?? "", right.toolName ?? right.originalToolName ?? "");
+    case "server":
+      return compareStrings(serverLabel(left), serverLabel(right));
+    case "direction":
+      return compareStrings(left.direction ?? "", right.direction ?? "");
+    case "messageType":
+      return compareStrings(left.messageType ?? "", right.messageType ?? "");
+    case "status":
+      return compareNumbers(eventStatusRank(left), eventStatusRank(right));
+    case "request":
+      return compareStrings(eventIdentityValue(left), eventIdentityValue(right));
+  }
+}
+
+function compareNumbers(left: number, right: number): number {
+  return left - right;
+}
+
+function compareStrings(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
+function serverLabel(item: EventListItem): string {
+  return [item.gateway, item.serverName].filter(Boolean).join(" / ");
+}
+
+function eventStatusRank(item: EventListItem): number {
+  return item.success ? 1 : 0;
+}
+
+function eventIdentityValue(item: EventListItem): string {
+  return item.requestId ?? item.sessionId ?? "";
 }

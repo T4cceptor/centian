@@ -405,9 +405,8 @@ describe("event list", () => {
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
     expect(screen.getByText("Observed MCP events")).toBeInTheDocument();
-    const header = screen.getByText("Time").closest(".event-list__header");
-    expect(header).not.toBeNull();
-    expect(within(header as HTMLElement).getByText("Request")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by Time/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by Request/i })).toBeInTheDocument();
   });
 
   it("reflects URL filters in the request and active chips", async () => {
@@ -469,6 +468,55 @@ describe("event list", () => {
 
     await user.click(screen.getByRole("button", { name: "Newest" }));
     expect(await screen.findByText("tool-new")).toBeInTheDocument();
+  });
+
+  it("sorts the visible event page by column like the benchmark overview", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000002",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "zeta__tool",
+              gateway: "gw",
+              serverName: "server-z",
+              success: true,
+              isError: false,
+              requestId: "req-z",
+            },
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200122,
+              toolName: "alpha__tool",
+              gateway: "gw",
+              serverName: "server-a",
+              success: false,
+              isError: true,
+              requestId: "req-a",
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    const { container } = renderApp(["/events"]);
+
+    await screen.findByText("zeta__tool");
+    let toolNodes = container.querySelectorAll(".event-card__tool");
+    expect(toolNodes[0]?.textContent).toBe("zeta__tool");
+    expect(toolNodes[1]?.textContent).toBe("alpha__tool");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Tool" }));
+    toolNodes = container.querySelectorAll(".event-card__tool");
+    expect(toolNodes[0]?.textContent).toBe("alpha__tool");
+    expect(toolNodes[1]?.textContent).toBe("zeta__tool");
+
+    await user.click(screen.getByRole("button", { name: "Sort by Tool (asc)" }));
+    toolNodes = container.querySelectorAll(".event-card__tool");
+    expect(toolNodes[0]?.textContent).toBe("zeta__tool");
+    expect(toolNodes[1]?.textContent).toBe("alpha__tool");
   });
 
   it("expands rows to show payload, related task links, and session quick filters", async () => {
