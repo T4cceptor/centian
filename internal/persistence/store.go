@@ -979,7 +979,7 @@ LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
 	}
 
 	for idx := range rows {
-		page.Items = append(page.Items, eventListItemFromRow(rows[idx]))
+		page.Items = append(page.Items, eventListItemFromRow(&rows[idx]))
 	}
 
 	return page, nil
@@ -1017,7 +1017,7 @@ func buildEventListFilters(filter *EventListFilter) ([]string, []any) {
 	return clauses, args
 }
 
-func eventListItemFromRow(row eventListRow) EventListItem {
+func eventListItemFromRow(row *eventListRow) EventListItem {
 	return EventListItem{
 		ID:                  row.ID,
 		CreatedAtUnixMilli:  row.CreatedAtUnixMilli,
