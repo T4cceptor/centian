@@ -65,15 +65,7 @@ func (p *CentianEndpoint) testToolsEnabled() bool {
 }
 
 func (p *CentianEndpoint) taskVerificationToolsEnabled() bool {
-	if p == nil {
-		return false
-	}
-	if p.project != nil && p.project.Config != nil {
-		return p.project.Config.TaskVerificationEnabled()
-	}
-	// Fallback: check legacy server config for backwards compatibility with tests.
-	return p.server != nil && p.server.Config != nil && p.server.Config.Proxy != nil &&
-		p.server.Config.Proxy.TaskVerificationEnabled()
+	return p.taskVerificationPolicy().exposesTaskTools()
 }
 
 func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, server *mcp.Server) {

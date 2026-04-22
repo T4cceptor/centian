@@ -955,45 +955,7 @@ SELECT
 FROM action_events ae
 LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
 `
-	args := make([]any, 0, 16)
-	clauses := make([]string, 0, 9)
-
-	if filter.Gateway != "" {
-		clauses = append(clauses, "ae.gateway = ?")
-		args = append(args, filter.Gateway)
-	}
-	if filter.ServerName != "" {
-		clauses = append(clauses, "ae.server_name = ?")
-		args = append(args, filter.ServerName)
-	}
-	if filter.ToolName != "" {
-		clauses = append(clauses, "ae.tool_name = ?")
-		args = append(args, filter.ToolName)
-	}
-	if filter.Direction != "" {
-		clauses = append(clauses, "ae.direction = ?")
-		args = append(args, filter.Direction)
-	}
-	if filter.MessageType != "" {
-		clauses = append(clauses, "ae.message_type = ?")
-		args = append(args, filter.MessageType)
-	}
-	if filter.RequestID != "" {
-		clauses = append(clauses, "ae.request_id = ?")
-		args = append(args, filter.RequestID)
-	}
-	if filter.SessionID != "" {
-		clauses = append(clauses, "ae.session_id = ?")
-		args = append(args, filter.SessionID)
-	}
-	if filter.Success != nil {
-		clauses = append(clauses, "ae.success = ?")
-		args = append(args, *filter.Success)
-	}
-	if filter.Cursor != nil {
-		clauses = append(clauses, "(ae.created_at_unix_milli < ? OR (ae.created_at_unix_milli = ? AND ae.id < ?))")
-		args = append(args, filter.Cursor.CreatedAtUnixMilli, filter.Cursor.CreatedAtUnixMilli, filter.Cursor.ID)
-	}
+	clauses, args := buildEventListFilters(filter)
 
 	if len(clauses) > 0 {
 		query += " WHERE " + strings.Join(clauses, " AND ")
@@ -1017,30 +979,65 @@ LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
 	}
 
 	for idx := range rows {
-		row := rows[idx]
-		page.Items = append(page.Items, EventListItem{
-			ID:                  row.ID,
-			CreatedAtUnixMilli:  row.CreatedAtUnixMilli,
-			RequestID:           nullStringValue(row.RequestID),
-			SessionID:           nullStringValue(row.SessionID),
-			Transport:           nullStringValue(row.Transport),
-			Direction:           nullStringValue(row.Direction),
-			MessageType:         nullStringValue(row.MessageType),
-			Gateway:             nullStringValue(row.Gateway),
-			ServerName:          nullStringValue(row.ServerName),
-			Endpoint:            nullStringValue(row.Endpoint),
-			ToolName:            nullStringValue(row.ToolName),
-			OriginalToolName:    nullStringValue(row.OriginalToolName),
-			Success:             row.Success,
-			IsError:             row.IsError,
-			PayloadJSON:         row.PayloadJSON,
-			TaskRunID:           nullStringValue(row.TaskRunID),
-			InvocationPhasePath: nullStringValue(row.InvocationPhasePath),
-			InvocationNodeKind:  nullStringValue(row.InvocationNodeKind),
-		})
+		page.Items = append(page.Items, eventListItemFromRow(rows[idx]))
 	}
 
 	return page, nil
+}
+
+func buildEventListFilters(filter *EventListFilter) ([]string, []any) {
+	clauses := make([]string, 0, 9)
+	args := make([]any, 0, 16)
+
+	appendFilter := func(field, value string) {
+		if value == "" {
+			return
+		}
+		clauses = append(clauses, field+" = ?")
+		args = append(args, value)
+	}
+
+	appendFilter("ae.gateway", filter.Gateway)
+	appendFilter("ae.server_name", filter.ServerName)
+	appendFilter("ae.tool_name", filter.ToolName)
+	appendFilter("ae.direction", filter.Direction)
+	appendFilter("ae.message_type", filter.MessageType)
+	appendFilter("ae.request_id", filter.RequestID)
+	appendFilter("ae.session_id", filter.SessionID)
+
+	if filter.Success != nil {
+		clauses = append(clauses, "ae.success = ?")
+		args = append(args, *filter.Success)
+	}
+	if filter.Cursor != nil {
+		clauses = append(clauses, "(ae.created_at_unix_milli < ? OR (ae.created_at_unix_milli = ? AND ae.id < ?))")
+		args = append(args, filter.Cursor.CreatedAtUnixMilli, filter.Cursor.CreatedAtUnixMilli, filter.Cursor.ID)
+	}
+
+	return clauses, args
+}
+
+func eventListItemFromRow(row eventListRow) EventListItem {
+	return EventListItem{
+		ID:                  row.ID,
+		CreatedAtUnixMilli:  row.CreatedAtUnixMilli,
+		RequestID:           nullStringValue(row.RequestID),
+		SessionID:           nullStringValue(row.SessionID),
+		Transport:           nullStringValue(row.Transport),
+		Direction:           nullStringValue(row.Direction),
+		MessageType:         nullStringValue(row.MessageType),
+		Gateway:             nullStringValue(row.Gateway),
+		ServerName:          nullStringValue(row.ServerName),
+		Endpoint:            nullStringValue(row.Endpoint),
+		ToolName:            nullStringValue(row.ToolName),
+		OriginalToolName:    nullStringValue(row.OriginalToolName),
+		Success:             row.Success,
+		IsError:             row.IsError,
+		PayloadJSON:         row.PayloadJSON,
+		TaskRunID:           nullStringValue(row.TaskRunID),
+		InvocationPhasePath: nullStringValue(row.InvocationPhasePath),
+		InvocationNodeKind:  nullStringValue(row.InvocationNodeKind),
+	}
 }
 
 // TaskEvents returns all persisted task lifecycle events ordered by timestamp.

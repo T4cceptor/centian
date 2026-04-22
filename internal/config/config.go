@@ -28,6 +28,14 @@ const (
 // DefaultProjectSlug is the project slug used when no explicit projects are configured.
 const DefaultProjectSlug = "default"
 
+// Gateway verification requirement values control how a gateway participates
+// in project task verification.
+const (
+	VerificationRequirementOff      = "off"
+	VerificationRequirementOptional = "optional"
+	VerificationRequirementRequired = "required"
+)
+
 // GlobalConfig represents the main configuration structure stored at ~/.centian/config.json.
 // This is the root configuration object that contains all settings for MCP servers,
 // proxy behavior, processors, and additional metadata.
@@ -557,12 +565,13 @@ func (p *ProxySettings) UIEnabled() bool {
 
 // GatewayConfig represents a logical grouping of HTTP MCP servers.
 type GatewayConfig struct {
-	AllowDynamic         bool                        `json:"allowDynamic,omitempty"`       // Allow dynamic proxy endpoints
-	AllowGatewayEndpoint bool                        `json:"setupGateway,omitempty"`       // Setup gateway endpoint with namespacing
-	ForceReadOnlyHints   *bool                       `json:"forceReadOnlyHints,omitempty"` // Override all tool annotations to readOnlyHint=true
-	ForceSafeToolHints   *bool                       `json:"forceSafeToolHints,omitempty"` // Override all tool annotations to conservative safe defaults for MCP clients
-	MCPServers           map[string]*MCPServerConfig `json:"mcpServers"`                   // HTTP MCP servers in this gateway
-	Processors           []*ProcessorConfig          `json:"processors,omitempty"`
+	AllowDynamic            bool                        `json:"allowDynamic,omitempty"`            // Allow dynamic proxy endpoints
+	AllowGatewayEndpoint    bool                        `json:"setupGateway,omitempty"`            // Setup gateway endpoint with namespacing
+	ForceReadOnlyHints      *bool                       `json:"forceReadOnlyHints,omitempty"`      // Override all tool annotations to readOnlyHint=true
+	ForceSafeToolHints      *bool                       `json:"forceSafeToolHints,omitempty"`      // Override all tool annotations to conservative safe defaults for MCP clients
+	VerificationRequirement string                      `json:"verificationRequirement,omitempty"` // Gateway task verification policy: off, optional, required
+	MCPServers              map[string]*MCPServerConfig `json:"mcpServers"`                        // HTTP MCP servers in this gateway
+	Processors              []*ProcessorConfig          `json:"processors,omitempty"`
 }
 
 // ListServers returns a slice of all available MCPServerConfigs for this GatewayConfig.
@@ -607,6 +616,15 @@ func (g *GatewayConfig) ForceReadOnlyHintsEnabled() bool {
 // overridden to conservative safe defaults for this gateway. Defaults to false.
 func (g *GatewayConfig) ForceSafeToolHintsEnabled() bool {
 	return g != nil && g.ForceSafeToolHints != nil && *g.ForceSafeToolHints
+}
+
+// NormalizedVerificationRequirement returns the configured requirement after trimming
+// and lowercasing. Empty means the gateway should use the default policy.
+func (g *GatewayConfig) NormalizedVerificationRequirement() string {
+	if g == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(g.VerificationRequirement))
 }
 
 //////// PROCESSOR CONFIG STRUCTS ///////.
@@ -866,6 +884,8 @@ func validateProjects(projects map[string]*ProjectConfig, strict bool) error {
 
 // validateFlatLayout validates the legacy flat config layout.
 func validateFlatLayout(config *GlobalConfig, strict bool) error {
+	normalizeGateways(config.Gateways)
+
 	if err := validateNameConventions(config.Gateways); err != nil {
 		return err
 	}
@@ -880,7 +900,8 @@ func validateFlatLayout(config *GlobalConfig, strict bool) error {
 	}
 
 	if strict {
-		if err := validateGateways(config.Gateways); err != nil {
+		taskVerificationEnabled := config != nil && config.Proxy != nil && config.Proxy.TaskVerificationEnabled()
+		if err := validateGateways(config.Gateways, taskVerificationEnabled); err != nil {
 			return err
 		}
 		if err := validateProcessors(config.Processors); err != nil {
@@ -913,6 +934,8 @@ func validateProjectSlug(slug string) error {
 
 // validateProjectConfig validates a single project configuration.
 func validateProjectConfig(slug string, project *ProjectConfig, strict bool) error {
+	normalizeGateways(project.Gateways)
+
 	if err := validateNameConventions(project.Gateways); err != nil {
 		return fmt.Errorf("project '%s': %w", slug, err)
 	}
@@ -927,7 +950,7 @@ func validateProjectConfig(slug string, project *ProjectConfig, strict bool) err
 	}
 
 	if strict {
-		if err := validateGateways(project.Gateways); err != nil {
+		if err := validateGateways(project.Gateways, project.TaskVerificationEnabled()); err != nil {
 			return fmt.Errorf("project '%s': %w", slug, err)
 		}
 		if err := validateProcessors(project.Processors); err != nil {
@@ -982,6 +1005,15 @@ func normalizeCapabilities(capabilities *CapabilitiesSettings) {
 	}
 }
 
+func normalizeGateways(gateways map[string]*GatewayConfig) {
+	for _, gateway := range gateways {
+		if gateway == nil {
+			continue
+		}
+		gateway.VerificationRequirement = gateway.NormalizedVerificationRequirement()
+	}
+}
+
 // validateNameConventions validates gateway and server names.
 // This is run for both strict and non-strict config validation.
 func validateNameConventions(gateways map[string]*GatewayConfig) error {
@@ -1003,7 +1035,7 @@ func validateNameConventions(gateways map[string]*GatewayConfig) error {
 
 // validateGateways validates gateway configurations without requiring any.
 // This allows empty gateway maps (for freshly initialized configs).
-func validateGateways(gateways map[string]*GatewayConfig) error {
+func validateGateways(gateways map[string]*GatewayConfig, taskVerificationEnabled bool) error {
 	if len(gateways) == 0 {
 		return fmt.Errorf("no gateways configured - at least one gateway is required")
 	}
@@ -1011,7 +1043,7 @@ func validateGateways(gateways map[string]*GatewayConfig) error {
 		if gatewayConfig == nil {
 			return fmt.Errorf("gateway '%s': config cannot be nil", gatewayName)
 		}
-		if err := validateGateway(gatewayName, *gatewayConfig); err != nil {
+		if err := validateGateway(gatewayName, *gatewayConfig, taskVerificationEnabled); err != nil {
 			return err
 		}
 		for name, server := range gatewayConfig.MCPServers {
@@ -1035,7 +1067,7 @@ func isValidHTTPURL(urlStr string) bool {
 }
 
 // validateGateway validates a gateway configuration.
-func validateGateway(name string, config GatewayConfig) error {
+func validateGateway(name string, config GatewayConfig, taskVerificationEnabled bool) error {
 	// Validate gateway name is URL compliant (used in endpoint paths).
 	if !common.IsURLCompliant(name) {
 		return fmt.Errorf("gateway '%s': name must be URL-safe (alphanumeric, dash, underscore only)", name)
@@ -1057,6 +1089,17 @@ func validateGateway(name string, config GatewayConfig) error {
 		if err := validateProcessors(config.Processors); err != nil {
 			return fmt.Errorf("gateway '%s': %w", name, err)
 		}
+	}
+
+	requirement := config.NormalizedVerificationRequirement()
+	switch requirement {
+	case "", VerificationRequirementOff:
+	case VerificationRequirementOptional, VerificationRequirementRequired:
+		if !taskVerificationEnabled {
+			return fmt.Errorf("gateway '%s': verificationRequirement %q requires project capabilities.taskVerification.enabled=true", name, requirement)
+		}
+	default:
+		return fmt.Errorf("gateway '%s': verificationRequirement %q is unsupported (expected off, optional, or required)", name, requirement)
 	}
 
 	return nil
