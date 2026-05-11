@@ -1,0 +1,209 @@
+package agentrunner
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/persistence"
+	"github.com/T4cceptor/centian/internal/taskruns"
+	"github.com/T4cceptor/centian/internal/taskverification"
+)
+
+func TestLoadSyntheticDemoScenarioEmbedded(t *testing.T) {
+	scenario, data, err := loadSyntheticDemoScenario("")
+	if err != nil {
+		t.Fatalf("loadSyntheticDemoScenario: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected embedded scenario bytes")
+	}
+	if scenario.Version != syntheticDemoScenarioVersion {
+		t.Fatalf("expected version %d, got %d", syntheticDemoScenarioVersion, scenario.Version)
+	}
+	if scenario.DurationMS < 20_000 || scenario.DurationMS > 30_000 {
+		t.Fatalf("expected embedded scenario to last 20-30 seconds, got %dms", scenario.DurationMS)
+	}
+	if len(scenario.Timeline) == 0 {
+		t.Fatal("expected embedded timeline items")
+	}
+}
+
+func TestLoadSyntheticDemoScenarioFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "scenario.json")
+	if err := os.WriteFile(path, []byte(`{
+		"version": 1,
+		"timeline": [
+			{"offsetMs": 0, "snapshot": {"templateId": "demo", "templateName": "Demo", "status": "active", "phase": "onboarding", "selectedTemplate": {"version": "0.1", "task": {"id": "demo", "name": "Demo", "description": "Demo"}}}}
+		]
+	}`), 0o600); err != nil {
+		t.Fatalf("write scenario: %v", err)
+	}
+
+	scenario, data, err := loadSyntheticDemoScenario(path)
+	if err != nil {
+		t.Fatalf("loadSyntheticDemoScenario: %v", err)
+	}
+	if !strings.Contains(string(data), `"version": 1`) {
+		t.Fatalf("expected original file bytes, got %s", string(data))
+	}
+	if len(scenario.Timeline) != 1 {
+		t.Fatalf("expected one timeline item, got %d", len(scenario.Timeline))
+	}
+}
+
+func TestValidateSyntheticDemoScenarioRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name     string
+		scenario *syntheticDemoScenario
+		fragment string
+	}{
+		{
+			name:     "unsupported version",
+			scenario: &syntheticDemoScenario{Version: 99, Timeline: []syntheticDemoTimelineItem{{Snapshot: &taskruns.PersistedRunSnapshot{}}}},
+			fragment: "unsupported demo scenario version",
+		},
+		{
+			name:     "unordered offsets",
+			scenario: &syntheticDemoScenario{Version: 1, Timeline: []syntheticDemoTimelineItem{{OffsetMS: 10, Snapshot: &taskruns.PersistedRunSnapshot{}}, {OffsetMS: 9, TaskEvent: &taskverification.TaskEvent{}}}},
+			fragment: "before the previous item",
+		},
+		{
+			name:     "empty operation",
+			scenario: &syntheticDemoScenario{Version: 1, Timeline: []syntheticDemoTimelineItem{{OffsetMS: 0}}},
+			fragment: "has no operation",
+		},
+		{
+			name: "duplicate action context",
+			scenario: &syntheticDemoScenario{Version: 1, Timeline: []syntheticDemoTimelineItem{
+				{OffsetMS: 0, Snapshot: &taskruns.PersistedRunSnapshot{}},
+				{OffsetMS: 1, ActionContext: &taskverification.ActionEventTaskContext{RequestID: "req-1"}},
+				{OffsetMS: 2, ActionContext: &taskverification.ActionEventTaskContext{RequestID: "req-1"}},
+			}},
+			fragment: "duplicates request id",
+		},
+		{
+			name:     "no task data",
+			scenario: &syntheticDemoScenario{Version: 1, Timeline: []syntheticDemoTimelineItem{{OffsetMS: 0, ActionEvent: &common.LogEntry{}}}},
+			fragment: "must include at least one task snapshot or task event",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSyntheticDemoScenario(tt.scenario)
+			if err == nil || !strings.Contains(err.Error(), tt.fragment) {
+				t.Fatalf("expected %q error, got %v", tt.fragment, err)
+			}
+		})
+	}
+}
+
+func TestSyntheticDemoReplayPersistsTimelineWithoutWaiting(t *testing.T) {
+	layout := &demoLayout{EventStorePath: filepath.Join(t.TempDir(), "events.sqlite")}
+	scenario := &syntheticDemoScenario{
+		Version:    1,
+		DurationMS: 300,
+		Defaults: syntheticDemoDefaults{
+			RunID:        "run-1",
+			SessionID:    "session-1",
+			TemplateID:   "demo",
+			TemplateName: "Demo",
+			PrincipalID:  "principal-1",
+		},
+		Timeline: []syntheticDemoTimelineItem{
+			{
+				OffsetMS: 0,
+				Snapshot: &taskruns.PersistedRunSnapshot{
+					Status: "active",
+					Phase:  "onboarding",
+				},
+			},
+			{
+				OffsetMS: 100,
+				TaskEvent: &taskverification.TaskEvent{
+					PhasePath:          taskverification.TaskPhaseOnboarding,
+					ResultingPhasePath: taskverification.TaskPhasePlanning,
+					EventType:          taskverification.TaskEventTypeOnboardingCompleted,
+				},
+			},
+			{
+				OffsetMS: 250,
+				ActionEvent: &common.LogEntry{
+					BaseMcpEvent: common.BaseMcpEvent{
+						RequestID:   "request-1",
+						Direction:   common.DirectionClientToServer,
+						MessageType: common.MessageTypeRequest,
+						Success:     true,
+					},
+					Routing: common.RoutingContext{ServerName: "shell"},
+					ToolCall: &common.ToolCallLog{
+						Name:      "shell__exec",
+						Arguments: []byte(`{"command":"go test ./..."}`),
+					},
+				},
+				ActionContext: &taskverification.ActionEventTaskContext{
+					RequestID:           "request-1",
+					InvocationPhasePath: taskverification.TaskPhasePlanning,
+				},
+			},
+		},
+	}
+	var sleeps []time.Duration
+	replayer := syntheticDemoReplayer{
+		now: func() time.Time {
+			return time.UnixMilli(1_742_947_200_000).UTC()
+		},
+		sleep: func(_ context.Context, duration time.Duration) error {
+			sleeps = append(sleeps, duration)
+			return nil
+		},
+	}
+
+	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	var totalSleep time.Duration
+	for _, duration := range sleeps {
+		totalSleep += duration
+	}
+	if totalSleep != 300*time.Millisecond {
+		t.Fatalf("expected replay sleeps to span 300ms, got %s from %#v", totalSleep, sleeps)
+	}
+
+	store, err := persistence.NewSQLiteStore(layout.EventStorePath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	summaries, err := store.ListTaskRuns(context.Background(), persistence.TaskRunFilter{})
+	if err != nil {
+		t.Fatalf("ListTaskRuns: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected one task run, got %d", len(summaries))
+	}
+	if summaries[0].ActionEventCount != 1 || summaries[0].TaskEventCount != 1 {
+		t.Fatalf("unexpected event counts: action=%d task=%d", summaries[0].ActionEventCount, summaries[0].TaskEventCount)
+	}
+
+	events, err := store.GetTaskRunEvents(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("GetTaskRunEvents: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected task and action events, got %d", len(events))
+	}
+	if events[0].CreatedAtUnixMilli != 1_742_947_200_100 {
+		t.Fatalf("expected offset timestamp, got %d", events[0].CreatedAtUnixMilli)
+	}
+	if events[1].ToolName != "shell__exec" {
+		t.Fatalf("expected shell action event, got %q", events[1].ToolName)
+	}
+}
