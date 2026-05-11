@@ -166,6 +166,7 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 	start := r.now().UTC()
 	var previousOffset int64
 	seenContexts := make(map[string]struct{})
+	requestIDs := make(map[string]string)
 	for idx := range scenario.Timeline {
 		item := scenario.Timeline[idx]
 		delay := time.Duration(item.OffsetMS-previousOffset) * time.Millisecond
@@ -173,7 +174,7 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 			return fmt.Errorf("replay demo item %d: %w", idx, err)
 		}
 		previousOffset = item.OffsetMS
-		if err := applySyntheticDemoItem(ctx, store, defaults, start.Add(time.Duration(item.OffsetMS)*time.Millisecond), item, seenContexts); err != nil {
+		if err := applySyntheticDemoItem(ctx, store, defaults, start.Add(time.Duration(item.OffsetMS)*time.Millisecond), item, seenContexts, requestIDs); err != nil {
 			return fmt.Errorf("replay demo item %d: %w", idx, err)
 		}
 	}
@@ -218,6 +219,7 @@ func applySyntheticDemoItem(
 	timestamp time.Time,
 	item syntheticDemoTimelineItem,
 	seenContexts map[string]struct{},
+	requestIDs map[string]string,
 ) error {
 	if item.Snapshot != nil {
 		snapshot := *item.Snapshot
@@ -229,23 +231,35 @@ func applySyntheticDemoItem(
 	if item.TaskEvent != nil {
 		event := *item.TaskEvent
 		applyTaskEventDefaults(&event, defaults, timestamp)
+		if event.RelatedActionRequestID != "" {
+			event.RelatedActionRequestID = resolveSyntheticDemoRequestID(requestIDs, event.RelatedActionRequestID)
+		}
 		if err := store.AppendTaskEvent(&event); err != nil {
 			return err
 		}
 	}
+	resolvedActionEventRequestID := ""
 	if item.ActionEvent != nil {
 		event := *item.ActionEvent
+		logicalRequestID := event.RequestID
 		applyActionEventDefaults(&event, defaults, timestamp)
+		if logicalRequestID != "" {
+			event.RequestID = resolveSyntheticDemoRequestID(requestIDs, logicalRequestID)
+		}
+		resolvedActionEventRequestID = event.RequestID
 		if err := store.AppendActionEvent(&event); err != nil {
 			return err
-		}
-		if item.ActionContext != nil && item.ActionContext.RequestID == "" {
-			item.ActionContext.RequestID = event.RequestID
 		}
 	}
 	if item.ActionContext != nil {
 		actionContext := *item.ActionContext
+		logicalRequestID := actionContext.RequestID
 		applyActionContextDefaults(&actionContext, defaults, timestamp)
+		if logicalRequestID != "" {
+			actionContext.RequestID = resolveSyntheticDemoRequestID(requestIDs, logicalRequestID)
+		} else if resolvedActionEventRequestID != "" {
+			actionContext.RequestID = resolvedActionEventRequestID
+		}
 		if _, ok := seenContexts[actionContext.RequestID]; ok {
 			return fmt.Errorf("duplicate action context request id %q", actionContext.RequestID)
 		}
@@ -255,6 +269,18 @@ func applySyntheticDemoItem(
 		}
 	}
 	return nil
+}
+
+func resolveSyntheticDemoRequestID(requestIDs map[string]string, logicalID string) string {
+	if logicalID == "" {
+		return identifiers.New(identifiers.KindRequest)
+	}
+	if mapped, ok := requestIDs[logicalID]; ok {
+		return mapped
+	}
+	mapped := identifiers.New(identifiers.KindRequest)
+	requestIDs[logicalID] = mapped
+	return mapped
 }
 
 func applySnapshotDefaults(snapshot *taskruns.PersistedRunSnapshot, defaults syntheticDemoDefaults, timestamp time.Time) {

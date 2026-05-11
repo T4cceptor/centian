@@ -4,8 +4,8 @@
   "defaults": {
     "templateId": "guided_tdd_workflow",
     "templateName": "Guided TDD Workflow",
-    "principalId": "synthetic-demo-user",
-    "clientName": "centian-demo",
+    "principalId": "local:synthetic-demo",
+    "clientName": "centian-demo-agent",
     "clientVersion": "synthetic"
   },
   "timeline": [
@@ -13,27 +13,108 @@
       "offsetMs": 0,
       "snapshot": {
         "status": "active",
-        "phase": "onboarding",
+        "phase": "initialization",
         "workflowReady": false,
         "selectedTemplate": {
           "version": "0.1",
           "task": {
             "id": "guided_tdd_workflow",
             "name": "Guided TDD Workflow",
-            "description": "Synthetic guided TDD demo run."
+            "description": "Use Centian to drive a structured TDD loop with explicit scaffolding, a failing-baseline step, and an implementation step."
           }
         },
         "steps": [
-          {
-            "id": "implement_solution",
-            "path": "execution.implement_solution",
-            "status": "pending"
-          }
+          { "id": "setup_test_file", "path": "scaffolding.setup_test_file", "status": "pending" },
+          { "id": "setup_test_scaffolding", "path": "scaffolding.setup_test_scaffolding", "status": "pending" },
+          { "id": "establish_failing_baseline", "path": "execution.establish_failing_baseline", "status": "pending" },
+          { "id": "implement_solution", "path": "execution.implement_solution", "status": "pending" }
         ]
       }
     },
     {
+      "offsetMs": 700,
+      "actionEvent": {
+        "status": 200,
+        "request_id": "req_1742947200000_0000000001",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "http", "gateway": "taskverification", "server_name": "centian", "endpoint": "/mcp/taskverification" },
+        "tool_call": {
+          "name": "centian.task_list_templates",
+          "original_name": "centian.task_list_templates",
+          "arguments": {},
+          "result": {
+            "content": [
+              { "type": "text", "text": "guided_tdd_workflow (4 steps)\nminimal (1 steps)\nsimple_tdd (3 steps)" }
+            ]
+          }
+        }
+      }
+    },
+    {
       "offsetMs": 1200,
+      "actionEvent": {
+        "status": 403,
+        "request_id": "req_1742947200000_0000000002",
+        "direction": "[SERVER -> CLIENT]",
+        "message_type": "response",
+        "success": false,
+        "error": "All actions are blocked until task registration at centian.",
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "filesystem", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "__WORKSPACE__"] },
+        "tool_call": {
+          "name": "list_allowed_directories",
+          "original_name": "filesystem___list_allowed_directories",
+          "arguments": {},
+          "is_error": true,
+          "result": {
+            "content": [
+              { "type": "text", "text": "All actions are blocked until task registration at centian. Call centian.task_register first." }
+            ],
+            "structuredContent": {
+              "phase": "initialization",
+              "reason": "registration_required",
+              "requestedTool": "filesystem___list_allowed_directories",
+              "nextAction": "Call centian.task_list_templates, then centian.task_register."
+            }
+          }
+        }
+      }
+    },
+    {
+      "offsetMs": 2100,
+      "actionEvent": {
+        "status": 200,
+        "request_id": "req_1742947200000_0000000003",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "http", "gateway": "taskverification", "server_name": "centian", "endpoint": "/mcp/taskverification" },
+        "tool_call": {
+          "name": "centian.task_register",
+          "original_name": "centian.task_register",
+          "arguments": { "templateId": "guided_tdd_workflow" },
+          "result": {
+            "content": [
+              { "type": "text", "text": "Registered task guided_tdd_workflow with 4 declared step(s)." }
+            ],
+            "structuredContent": {
+              "phase": "onboarding",
+              "status": "active",
+              "allowedTools": ["shell__*", "filesystem__*"],
+              "nextAction": "Call centian.task_complete_onboarding to freeze the onboarding context."
+            }
+          }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000003",
+        "invocationPhasePath": "initialization",
+        "invocationNodeKind": "onboarding"
+      }
+    },
+    {
+      "offsetMs": 2300,
       "taskEvent": {
         "phasePath": "initialization",
         "nodeKind": "onboarding",
@@ -41,65 +122,111 @@
         "resultingNodeKind": "onboarding",
         "eventType": "task_registered",
         "outcome": "succeeded",
-        "payload": {
-          "status": "active"
-        }
+        "relatedActionRequestId": "req_1742947200000_0000000003",
+        "payload": { "status": "active" }
       }
     },
     {
-      "offsetMs": 3500,
+      "offsetMs": 3400,
       "actionEvent": {
-        "request_id": "req_1742947201000_0000000001",
+        "status": 0,
+        "request_id": "req_1742947200000_0000000004",
         "direction": "[CLIENT -> SERVER]",
         "message_type": "request",
         "success": true,
-        "routing": {
-          "gateway": "taskverification",
-          "server_name": "filesystem",
-          "endpoint": "/mcp/taskverification"
-        },
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "filesystem", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "__WORKSPACE__"] },
         "tool_call": {
-          "name": "filesystem__read_file",
-          "original_name": "read_file",
-          "arguments": {
-            "path": "package.json"
-          }
+          "name": "list_directory",
+          "original_name": "filesystem___list_directory",
+          "arguments": { "path": "." }
         }
       },
       "actionContext": {
-        "requestId": "req_1742947201000_0000000001",
+        "requestId": "req_1742947200000_0000000004",
         "invocationPhasePath": "onboarding",
         "invocationNodeKind": "onboarding"
       }
     },
     {
-      "offsetMs": 5200,
+      "offsetMs": 3700,
       "actionEvent": {
-        "request_id": "req_1742947201000_0000000001",
+        "status": 0,
+        "request_id": "req_1742947200000_0000000004",
         "direction": "[SERVER -> CLIENT]",
         "message_type": "response",
         "success": true,
-        "routing": {
-          "gateway": "taskverification",
-          "server_name": "filesystem",
-          "endpoint": "/mcp/taskverification"
-        },
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "filesystem", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "__WORKSPACE__"] },
         "tool_call": {
-          "name": "filesystem__read_file",
-          "original_name": "read_file",
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "{ \"scripts\": { \"test\": \"node --test\" } }"
-              }
-            ]
-          }
+          "name": "list_directory",
+          "original_name": "filesystem___list_directory",
+          "arguments": { "path": "." },
+          "result": { "content": [{ "type": "text", "text": "" }], "structuredContent": { "content": "" } }
         }
       }
     },
     {
-      "offsetMs": 7000,
+      "offsetMs": 4300,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000005",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "filesystem", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "__WORKSPACE__"] },
+        "tool_call": {
+          "name": "search_files",
+          "original_name": "filesystem___search_files",
+          "arguments": { "path": ".", "pattern": "**/*.js" },
+          "result": { "content": [{ "type": "text", "text": "No matches found" }], "structuredContent": { "content": "No matches found" } }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000005",
+        "invocationPhasePath": "onboarding",
+        "invocationNodeKind": "onboarding"
+      }
+    },
+    {
+      "offsetMs": 5600,
+      "actionEvent": {
+        "status": 200,
+        "request_id": "req_1742947200000_0000000006",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "http", "gateway": "taskverification", "server_name": "centian", "endpoint": "/mcp/taskverification" },
+        "tool_call": {
+          "name": "centian.task_complete_onboarding",
+          "original_name": "centian.task_complete_onboarding",
+          "arguments": {
+            "onboarding": {
+              "taskSummary": "Implement a dependency-free JavaScript solution for scoreParentheses(text) using Node's built-in test runner.",
+              "artifactMap": [
+                { "path": "scoreParentheses.js", "kind": "implementation", "notes": "Default export for the scoring function." },
+                { "path": "scoreParentheses.test.js", "kind": "test", "notes": "Node built-in test file covering balanced parentheses scoring." }
+              ],
+              "commonCommands": [
+                { "command": "node --test scoreParentheses.test.js", "purpose": "Run the selected test target." },
+                { "command": "node --check scoreParentheses.js", "purpose": "Syntax-check the implementation file." }
+              ],
+              "constraints": [
+                "Use only Node built-ins.",
+                "Establish a failing baseline before implementing the solution.",
+                "Keep scoreParentheses.test.js stable once implementation starts."
+              ]
+            }
+          },
+          "result": { "content": [{ "type": "text", "text": "Task onboarding completed; task moved to planning." }] }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000006",
+        "invocationPhasePath": "onboarding",
+        "invocationNodeKind": "onboarding"
+      }
+    },
+    {
+      "offsetMs": 5800,
       "taskEvent": {
         "phasePath": "onboarding",
         "nodeKind": "onboarding",
@@ -107,29 +234,290 @@
         "resultingNodeKind": "planning",
         "eventType": "onboarding_completed",
         "outcome": "succeeded",
+        "relatedActionRequestId": "req_1742947200000_0000000006",
         "payload": {
           "status": "active",
-          "taskSummary": "Implement and verify scoreParentheses with a guided TDD loop."
+          "taskSummary": "Implement scoreParentheses(text) in an empty Node project using a guided TDD workflow."
         }
       }
     },
     {
-      "offsetMs": 9400,
+      "offsetMs": 7000,
+      "actionEvent": {
+        "status": 400,
+        "request_id": "req_1742947200000_0000000007",
+        "direction": "[SERVER -> CLIENT]",
+        "message_type": "response",
+        "success": false,
+        "error": "planning.parameters is missing required fields: expectedError, implementationTarget",
+        "routing": { "transport": "http", "gateway": "taskverification", "server_name": "centian", "endpoint": "/mcp/taskverification" },
+        "tool_call": {
+          "name": "centian.task_complete_planning",
+          "original_name": "centian.task_complete_planning",
+          "arguments": {
+            "planning": {
+              "planSummary": "Create a test, then implement the function.",
+              "selectedFiles": ["scoreParentheses.test.js", "scoreParentheses.js"],
+              "parameters": {
+                "testCommand": "node --test",
+                "testTarget": "scoreParentheses.test.js",
+                "testFile": "scoreParentheses.test.js",
+                "testName": "scores balanced parentheses strings",
+                "lintCommand": "node --check scoreParentheses.js"
+              }
+            }
+          },
+          "is_error": true,
+          "result": {
+            "content": [
+              { "type": "text", "text": "Planning rejected: planning.parameters must include expectedError and implementationTarget before execution can begin." }
+            ],
+            "structuredContent": {
+              "phase": "planning",
+              "reason": "missing_required_planning_parameters",
+              "missingParameters": ["expectedError", "implementationTarget"],
+              "nextAction": "Call centian.task_complete_planning again with every required parameter."
+            }
+          }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000007",
+        "invocationPhasePath": "planning",
+        "invocationNodeKind": "planning"
+      }
+    },
+    {
+      "offsetMs": 7200,
       "taskEvent": {
         "phasePath": "planning",
         "nodeKind": "planning",
-        "resultingPhasePath": "execution.implement_solution",
-        "resultingNodeKind": "execution",
+        "resultingPhasePath": "planning",
+        "resultingNodeKind": "planning",
         "eventType": "planning_completed",
-        "outcome": "succeeded",
+        "outcome": "failed",
+        "relatedActionRequestId": "req_1742947200000_0000000007",
         "payload": {
           "status": "active",
-          "planSummary": "Create a focused test, implement the parser, then run node --test."
+          "error": "planning.parameters is missing required fields: expectedError, implementationTarget"
         }
+      }
+    },
+    {
+      "offsetMs": 8500,
+      "actionEvent": {
+        "status": 200,
+        "request_id": "req_1742947200000_0000000008",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "http", "gateway": "taskverification", "server_name": "centian", "endpoint": "/mcp/taskverification" },
+        "tool_call": {
+          "name": "centian.task_complete_planning",
+          "original_name": "centian.task_complete_planning",
+          "arguments": {
+            "planning": {
+              "planSummary": "Create scoreParentheses.test.js, scaffold a failing baseline and stub, confirm the red test, then implement scoreParentheses.js without changing the locked test.",
+              "selectedFiles": ["scoreParentheses.test.js", "scoreParentheses.js"],
+              "parameters": {
+                "expectedError": "Expected values to be strictly equal",
+                "implementationTarget": "scoreParentheses.js",
+                "lintCommand": "node --check scoreParentheses.js",
+                "testCommand": "node --test",
+                "testFile": "scoreParentheses.test.js",
+                "testName": "scores balanced parentheses strings",
+                "testTarget": "scoreParentheses.test.js"
+              },
+              "invariants": ["scoreParentheses.test.js must remain unchanged during implementation."]
+            }
+          },
+          "result": { "content": [{ "type": "text", "text": "Task planning completed; execution is ready." }] }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000008",
+        "invocationPhasePath": "planning",
+        "invocationNodeKind": "planning"
+      }
+    },
+    {
+      "offsetMs": 8700,
+      "taskEvent": {
+        "phasePath": "planning",
+        "nodeKind": "planning",
+        "resultingPhasePath": "scaffolding.setup_test_file",
+        "resultingNodeKind": "scaffolding",
+        "eventType": "planning_completed",
+        "outcome": "succeeded",
+        "relatedActionRequestId": "req_1742947200000_0000000008",
+        "payload": {
+          "status": "active",
+          "planSummary": "Use a four-step TDD flow in the empty root for scoreParentheses(text)."
+        }
+      }
+    },
+    {
+      "offsetMs": 9500,
+      "taskEvent": {
+        "phasePath": "scaffolding.setup_test_file",
+        "nodeKind": "scaffolding",
+        "resultingPhasePath": "scaffolding.setup_test_file",
+        "resultingNodeKind": "scaffolding",
+        "eventType": "step_started",
+        "outcome": "succeeded",
+        "payload": { "status": "active", "step": 1, "stepId": "setup_test_file", "stepStatus": "active" }
+      }
+    },
+    {
+      "offsetMs": 10300,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000009",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
+        "tool_call": {
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": { "command": "touch scoreParentheses.test.js" },
+          "result": { "content": [{ "type": "text", "text": "exit_code: 0\nstdout: ''\nstderr: ''" }] }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000009",
+        "invocationPhasePath": "scaffolding.setup_test_file",
+        "invocationNodeKind": "scaffolding"
       }
     },
     {
       "offsetMs": 11000,
+      "taskEvent": {
+        "phasePath": "scaffolding.setup_test_file",
+        "nodeKind": "scaffolding",
+        "resultingPhasePath": "scaffolding.setup_test_scaffolding",
+        "resultingNodeKind": "scaffolding",
+        "eventType": "step_completed",
+        "outcome": "succeeded",
+        "payload": { "status": "active", "step": 1, "stepId": "setup_test_file", "stepStatus": "passed" }
+      }
+    },
+    {
+      "offsetMs": 11800,
+      "taskEvent": {
+        "phasePath": "scaffolding.setup_test_scaffolding",
+        "nodeKind": "scaffolding",
+        "resultingPhasePath": "scaffolding.setup_test_scaffolding",
+        "resultingNodeKind": "scaffolding",
+        "eventType": "step_started",
+        "outcome": "succeeded",
+        "payload": { "status": "active", "step": 2, "stepId": "setup_test_scaffolding", "stepStatus": "active" }
+      }
+    },
+    {
+      "offsetMs": 12800,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000010",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
+        "tool_call": {
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": {
+            "command": "node -e \"const fs=require('node:fs'); fs.writeFileSync('scoreParentheses.test.js', 'import test from \\'node:test\\';\\nimport assert from \\'node:assert/strict\\';\\nimport scoreParentheses from \\'./scoreParentheses.js\\';\\n\\ntest(\\'scores balanced parentheses strings\\', () => {\\n  assert.equal(scoreParentheses(\\'()\\'), 1);\\n  assert.equal(scoreParentheses(\\'(())\\'), 2);\\n  assert.equal(scoreParentheses(\\'()()\\'), 2);\\n});\\n'); fs.writeFileSync('scoreParentheses.js', 'export default function scoreParentheses() {\\n  return 0;\\n}\\n');\""
+          },
+          "result": { "content": [{ "type": "text", "text": "exit_code: 0\nstdout: ''\nstderr: ''" }] }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000010",
+        "invocationPhasePath": "scaffolding.setup_test_scaffolding",
+        "invocationNodeKind": "scaffolding"
+      }
+    },
+    {
+      "offsetMs": 13700,
+      "taskEvent": {
+        "phasePath": "scaffolding.setup_test_scaffolding",
+        "nodeKind": "scaffolding",
+        "resultingPhasePath": "execution.establish_failing_baseline",
+        "resultingNodeKind": "execution",
+        "eventType": "step_completed",
+        "outcome": "succeeded",
+        "payload": { "status": "active", "step": 2, "stepId": "setup_test_scaffolding", "stepStatus": "passed" }
+      }
+    },
+    {
+      "offsetMs": 14600,
+      "taskEvent": {
+        "phasePath": "execution.establish_failing_baseline",
+        "nodeKind": "execution",
+        "resultingPhasePath": "execution.establish_failing_baseline",
+        "resultingNodeKind": "execution",
+        "eventType": "step_started",
+        "outcome": "succeeded",
+        "payload": { "status": "active", "step": 3, "stepId": "establish_failing_baseline", "stepStatus": "active" }
+      }
+    },
+    {
+      "offsetMs": 15400,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000011",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
+        "tool_call": {
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": { "command": "node --test scoreParentheses.test.js" }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000011",
+        "invocationPhasePath": "execution.establish_failing_baseline",
+        "invocationNodeKind": "execution"
+      }
+    },
+    {
+      "offsetMs": 15600,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000011",
+        "direction": "[SERVER -> CLIENT]",
+        "message_type": "response",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
+        "tool_call": {
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": { "command": "node --test scoreParentheses.test.js" },
+          "result": {
+            "content": [
+              { "type": "text", "text": "exit_code: 1\nstdout: |\n  not ok 1 scores balanced parentheses strings\nstderr: |\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n  0 !== 1" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "offsetMs": 16600,
+      "taskEvent": {
+        "phasePath": "execution.establish_failing_baseline",
+        "nodeKind": "execution",
+        "resultingPhasePath": "execution.implement_solution",
+        "resultingNodeKind": "execution",
+        "eventType": "step_completed",
+        "outcome": "succeeded",
+        "payload": { "status": "active", "step": 3, "stepId": "establish_failing_baseline", "stepStatus": "passed", "summary": "Baseline is red for the intended assertion." }
+      }
+    },
+    {
+      "offsetMs": 17600,
       "taskEvent": {
         "phasePath": "execution.implement_solution",
         "nodeKind": "execution",
@@ -137,121 +525,163 @@
         "resultingNodeKind": "execution",
         "eventType": "step_started",
         "outcome": "succeeded",
-        "payload": {
-          "status": "active",
-          "step": 1,
-          "stepId": "implement_solution",
-          "stepStatus": "active"
-        }
+        "payload": { "status": "active", "step": 4, "stepId": "implement_solution", "stepStatus": "active" }
       }
     },
     {
-      "offsetMs": 13750,
+      "offsetMs": 19000,
       "actionEvent": {
-        "request_id": "req_1742947201000_0000000002",
+        "status": 0,
+        "request_id": "req_1742947200000_0000000012",
         "direction": "[CLIENT -> SERVER]",
         "message_type": "request",
         "success": true,
-        "routing": {
-          "gateway": "taskverification",
-          "server_name": "shell",
-          "endpoint": "/mcp/taskverification"
-        },
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
         "tool_call": {
-          "name": "shell__exec",
-          "original_name": "exec",
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
           "arguments": {
-            "command": "node --test"
-          }
+            "command": "node -e \"const fs=require('node:fs'); let test=fs.readFileSync('scoreParentheses.test.js','utf8'); fs.writeFileSync('scoreParentheses.test.js', test.replace('assert.equal(scoreParentheses(\\'()()\\'), 2);', 'assert.equal(scoreParentheses(\\'(()(()))\\'), 6);'));\""
+          },
+          "result": { "content": [{ "type": "text", "text": "exit_code: 0\nstdout: ''\nstderr: ''" }] }
         }
       },
       "actionContext": {
-        "requestId": "req_1742947201000_0000000002",
+        "requestId": "req_1742947200000_0000000012",
         "invocationPhasePath": "execution.implement_solution",
         "invocationNodeKind": "execution"
       }
     },
     {
-      "offsetMs": 16000,
+      "offsetMs": 20300,
       "actionEvent": {
-        "request_id": "req_1742947201000_0000000002",
+        "status": 409,
+        "request_id": "req_1742947200000_0000000013",
         "direction": "[SERVER -> CLIENT]",
         "message_type": "response",
-        "success": true,
-        "routing": {
-          "gateway": "taskverification",
-          "server_name": "shell",
-          "endpoint": "/mcp/taskverification"
-        },
+        "success": false,
+        "error": "step 4 failed: invariant test_file_stable changed",
+        "routing": { "transport": "http", "gateway": "taskverification", "server_name": "centian", "endpoint": "/mcp/taskverification" },
         "tool_call": {
-          "name": "shell__exec",
-          "original_name": "exec",
+          "name": "centian.task_complete_step",
+          "original_name": "centian.task_complete_step",
+          "arguments": { "step": 4 },
           "is_error": true,
           "result": {
             "content": [
-              {
-                "type": "text",
-                "text": "not ok 1 scoreParentheses handles nested groups"
-              }
-            ]
-          }
-        }
-      }
-    },
-    {
-      "offsetMs": 18500,
-      "actionEvent": {
-        "request_id": "req_1742947201000_0000000003",
-        "direction": "[CLIENT -> SERVER]",
-        "message_type": "request",
-        "success": true,
-        "routing": {
-          "gateway": "taskverification",
-          "server_name": "shell",
-          "endpoint": "/mcp/taskverification"
-        },
-        "tool_call": {
-          "name": "shell__exec",
-          "original_name": "exec",
-          "arguments": {
-            "command": "node --test"
+              { "type": "text", "text": "step 4 failed: invariant test_file_stable changed. Restore scoreParentheses.test.js and complete the implementation instead." }
+            ],
+            "structuredContent": {
+              "phase": "execution.implement_solution",
+              "status": "active",
+              "step": 4,
+              "stepStatus": "active",
+              "failureKind": "invariant",
+              "failedInvariantId": "test_file_stable",
+              "retryable": true,
+              "recoveryActions": [
+                { "kind": "restore_locked_file", "summary": "Restore scoreParentheses.test.js to the baseline captured when step 4 started." },
+                { "kind": "edit_implementation", "summary": "Make scoreParentheses.js pass without changing the locked test file." }
+              ]
+            }
           }
         }
       },
       "actionContext": {
-        "requestId": "req_1742947201000_0000000003",
+        "requestId": "req_1742947200000_0000000013",
         "invocationPhasePath": "execution.implement_solution",
         "invocationNodeKind": "execution"
       }
     },
     {
-      "offsetMs": 20750,
+      "offsetMs": 20500,
+      "taskEvent": {
+        "phasePath": "execution.implement_solution",
+        "nodeKind": "execution",
+        "resultingPhasePath": "execution.implement_solution",
+        "resultingNodeKind": "execution",
+        "eventType": "step_completed",
+        "outcome": "failed",
+        "relatedActionRequestId": "req_1742947200000_0000000013",
+        "payload": {
+          "status": "active",
+          "step": 4,
+          "stepId": "implement_solution",
+          "stepStatus": "active",
+          "failureKind": "invariant",
+          "failedInvariantId": "test_file_stable",
+          "summary": "The selected test file changed after implementation started."
+        }
+      }
+    },
+    {
+      "offsetMs": 21800,
       "actionEvent": {
-        "request_id": "req_1742947201000_0000000003",
+        "status": 0,
+        "request_id": "req_1742947200000_0000000014",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
+        "tool_call": {
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": {
+            "command": "node -e \"const fs=require('node:fs'); fs.writeFileSync('scoreParentheses.test.js', 'import test from \\'node:test\\';\\nimport assert from \\'node:assert/strict\\';\\nimport scoreParentheses from \\'./scoreParentheses.js\\';\\n\\ntest(\\'scores balanced parentheses strings\\', () => {\\n  assert.equal(scoreParentheses(\\'()\\'), 1);\\n  assert.equal(scoreParentheses(\\'(())\\'), 2);\\n  assert.equal(scoreParentheses(\\'()()\\'), 2);\\n});\\n'); fs.writeFileSync('scoreParentheses.js', 'export default function scoreParentheses(text) {\\n  let score = 0;\\n  let depth = 0;\\n  for (const char of text) {\\n    if (char === \\'(\\') { depth += 1; continue; }\\n    depth -= 1;\\n    if (text[text.indexOf(char) - 1] === \\'(\\') { score += 2 ** depth; }\\n  }\\n  return score;\\n}\\n');\""
+          },
+          "result": { "content": [{ "type": "text", "text": "exit_code: 0\nstdout: ''\nstderr: ''" }] }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000014",
+        "invocationPhasePath": "execution.implement_solution",
+        "invocationNodeKind": "execution"
+      }
+    },
+    {
+      "offsetMs": 22700,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000015",
+        "direction": "[CLIENT -> SERVER]",
+        "message_type": "request",
+        "success": true,
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
+        "tool_call": {
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": { "command": "node --check scoreParentheses.js && node --test scoreParentheses.test.js" }
+        }
+      },
+      "actionContext": {
+        "requestId": "req_1742947200000_0000000015",
+        "invocationPhasePath": "execution.implement_solution",
+        "invocationNodeKind": "execution"
+      }
+    },
+    {
+      "offsetMs": 22900,
+      "actionEvent": {
+        "status": 0,
+        "request_id": "req_1742947200000_0000000015",
         "direction": "[SERVER -> CLIENT]",
         "message_type": "response",
         "success": true,
-        "routing": {
-          "gateway": "taskverification",
-          "server_name": "shell",
-          "endpoint": "/mcp/taskverification"
-        },
+        "routing": { "transport": "stdio", "gateway": "taskverification", "server_name": "shell", "endpoint": "/mcp/taskverification", "downstream_cmd": "npx", "args": ["-y", "shell-command-mcp"] },
         "tool_call": {
-          "name": "shell__exec",
-          "original_name": "exec",
+          "name": "execute_command",
+          "original_name": "shell___execute_command",
+          "arguments": { "command": "node --check scoreParentheses.js && node --test scoreParentheses.test.js" },
           "result": {
             "content": [
-              {
-                "type": "text",
-                "text": "ok 1 scoreParentheses handles nested groups"
-              }
+              { "type": "text", "text": "exit_code: 0\nstdout: |\n  ✔ scores balanced parentheses strings\n  ℹ tests 1\n  ℹ pass 1\n  ℹ fail 0\nstderr: ''" }
             ]
           }
         }
       }
     },
     {
-      "offsetMs": 23000,
+      "offsetMs": 24200,
       "taskEvent": {
         "phasePath": "execution.implement_solution",
         "nodeKind": "execution",
@@ -261,9 +691,10 @@
         "outcome": "succeeded",
         "payload": {
           "status": "completed",
-          "step": 1,
+          "step": 4,
           "stepId": "implement_solution",
-          "stepStatus": "passed"
+          "stepStatus": "passed",
+          "summary": "step 4 (implement_solution) completed; task completed"
         }
       }
     },
@@ -273,20 +704,35 @@
         "status": "completed",
         "phase": "execution.implement_solution",
         "workflowReady": true,
+        "onboarding": {
+          "taskSummary": "Implement scoreParentheses(text) in an empty Node project using built-in tests."
+        },
+        "planning": {
+          "planSummary": "Create a failing Node test, scaffold the implementation, verify red, then implement without changing the locked test file.",
+          "selectedFiles": ["scoreParentheses.test.js", "scoreParentheses.js"],
+          "parameters": {
+            "expectedError": "Expected values to be strictly equal",
+            "implementationTarget": "scoreParentheses.js",
+            "lintCommand": "node --check scoreParentheses.js",
+            "testCommand": "node --test",
+            "testFile": "scoreParentheses.test.js",
+            "testName": "scores balanced parentheses strings",
+            "testTarget": "scoreParentheses.test.js"
+          }
+        },
         "selectedTemplate": {
           "version": "0.1",
           "task": {
             "id": "guided_tdd_workflow",
             "name": "Guided TDD Workflow",
-            "description": "Synthetic guided TDD demo run."
+            "description": "Use Centian to drive a structured TDD loop with explicit scaffolding, a failing-baseline step, and an implementation step."
           }
         },
         "steps": [
-          {
-            "id": "implement_solution",
-            "path": "execution.implement_solution",
-            "status": "passed"
-          }
+          { "id": "setup_test_file", "path": "scaffolding.setup_test_file", "status": "passed" },
+          { "id": "setup_test_scaffolding", "path": "scaffolding.setup_test_scaffolding", "status": "passed" },
+          { "id": "establish_failing_baseline", "path": "execution.establish_failing_baseline", "status": "passed" },
+          { "id": "implement_solution", "path": "execution.implement_solution", "status": "passed" }
         ]
       }
     }

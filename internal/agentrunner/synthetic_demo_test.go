@@ -207,3 +207,85 @@ func TestSyntheticDemoReplayPersistsTimelineWithoutWaiting(t *testing.T) {
 		t.Fatalf("expected shell action event, got %q", events[1].ToolName)
 	}
 }
+
+func TestSyntheticDemoReplayRemapsLogicalRequestIDsPerRun(t *testing.T) {
+	layout := &demoLayout{EventStorePath: filepath.Join(t.TempDir(), "events.sqlite")}
+	scenario := &syntheticDemoScenario{
+		Version: 1,
+		Defaults: syntheticDemoDefaults{
+			RunID:        "run-1",
+			TemplateID:   "demo",
+			TemplateName: "Demo",
+		},
+		Timeline: []syntheticDemoTimelineItem{
+			{
+				OffsetMS: 0,
+				Snapshot: &taskruns.PersistedRunSnapshot{
+					Status: "active",
+					Phase:  "planning",
+				},
+			},
+			{
+				OffsetMS: 1,
+				ActionEvent: &common.LogEntry{
+					BaseMcpEvent: common.BaseMcpEvent{
+						RequestID:   "logical-request",
+						Direction:   common.DirectionClientToServer,
+						MessageType: common.MessageTypeRequest,
+						Success:     true,
+					},
+					ToolCall: &common.ToolCallLog{Name: "centian.task_complete_planning"},
+				},
+				ActionContext: &taskverification.ActionEventTaskContext{
+					RequestID:           "logical-request",
+					InvocationPhasePath: taskverification.TaskPhasePlanning,
+				},
+			},
+			{
+				OffsetMS: 2,
+				ActionEvent: &common.LogEntry{
+					BaseMcpEvent: common.BaseMcpEvent{
+						RequestID:   "logical-request",
+						Direction:   common.DirectionServerToClient,
+						MessageType: common.MessageTypeResponse,
+						Success:     true,
+					},
+					ToolCall: &common.ToolCallLog{Name: "centian.task_complete_planning"},
+				},
+			},
+		},
+	}
+	replayer := syntheticDemoReplayer{
+		now: func() time.Time { return time.UnixMilli(1_742_947_200_000).UTC() },
+		sleep: func(context.Context, time.Duration) error {
+			return nil
+		},
+	}
+
+	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
+		t.Fatalf("first replay: %v", err)
+	}
+	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
+		t.Fatalf("second replay: %v", err)
+	}
+
+	store, err := persistence.NewSQLiteStore(layout.EventStorePath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	events, err := store.GetTaskRunEvents(context.Background(), "run-1")
+	if err != nil {
+		t.Fatalf("GetTaskRunEvents: %v", err)
+	}
+	requestIDs := make(map[string]struct{})
+	for _, event := range events {
+		if event.RequestID != "" {
+			requestIDs[event.RequestID] = struct{}{}
+		}
+	}
+	if len(requestIDs) != 2 {
+		t.Fatalf("expected one remapped request id per replay, got %d: %#v", len(requestIDs), requestIDs)
+	}
+}
