@@ -20,6 +20,8 @@ import (
 )
 
 const (
+	darwinOS = "darwin"
+
 	// AgentClaude is the supported public agent identifier for the Claude CLI.
 	AgentClaude = common.AgentClaude
 	// AgentGemini is the supported public agent identifier for the Gemini CLI.
@@ -186,7 +188,7 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 
 	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
 
-	if options.OpenBrowser && runtime.GOOS == "darwin" {
+	if options.OpenBrowser && runtime.GOOS == darwinOS {
 		//nolint:gosec // UI URL is generated locally from the bound loopback port.
 		_ = exec.Command("open", result.UIPublicURL).Start()
 	}
@@ -217,7 +219,7 @@ func normalizeOptions(opts *DemoOptions) (*DemoOptions, error) {
 	if opts.Stderr == nil {
 		opts.Stderr = io.Discard
 	}
-	if !opts.OpenBrowser && runtime.GOOS == "darwin" {
+	if !opts.OpenBrowser && runtime.GOOS == darwinOS {
 		opts.OpenBrowser = true
 	}
 	return opts, nil
@@ -240,7 +242,7 @@ func normalizeSyntheticOptions(opts *DemoOptions) (*DemoOptions, error) {
 	if opts.Stderr == nil {
 		opts.Stderr = io.Discard
 	}
-	if !opts.OpenBrowser && runtime.GOOS == "darwin" {
+	if !opts.OpenBrowser && runtime.GOOS == darwinOS {
 		opts.OpenBrowser = true
 	}
 	opts.ScenarioFilePath = strings.TrimSpace(opts.ScenarioFilePath)
@@ -340,7 +342,7 @@ func (DemoRunner) RunSyntheticDemo(ctx context.Context, opts *DemoOptions) (*Dem
 	}
 
 	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
-	if options.OpenBrowser && runtime.GOOS == "darwin" {
+	if options.OpenBrowser && runtime.GOOS == darwinOS {
 		//nolint:gosec // UI URL is generated locally from the bound loopback port.
 		_ = exec.Command("open", result.UIPublicURL).Start()
 	}

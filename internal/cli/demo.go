@@ -87,9 +87,9 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	var result *agentrunner.DemoResult
 	agent := strings.TrimSpace(cmd.String("agent"))
 	if agent == "" {
-		scenarioPath, err := demoScenarioFileFromFlags(cmd)
-		if err != nil {
-			return err
+		scenarioPath, scenarioErr := demoScenarioFileFromFlags(cmd)
+		if scenarioErr != nil {
+			return scenarioErr
 		}
 		options.ScenarioFilePath = scenarioPath
 		result, err = runner.RunSyntheticDemo(ctx, options)
@@ -97,9 +97,9 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		if strings.TrimSpace(cmd.String("file")) != "" {
 			return fmt.Errorf("--file cannot be used with --agent")
 		}
-		execution, err := demoExecutionFromFlags(cmd)
-		if err != nil {
-			return err
+		execution, executionErr := demoExecutionFromFlags(cmd)
+		if executionErr != nil {
+			return executionErr
 		}
 		options.Execution = execution
 		result, err = runner.RunDemo(ctx, options)

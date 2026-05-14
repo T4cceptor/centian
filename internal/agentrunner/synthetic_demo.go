@@ -106,38 +106,56 @@ func validateSyntheticDemoScenario(scenario *syntheticDemoScenario) error {
 		return fmt.Errorf("demo scenario timeline is required")
 	}
 
+	return validateSyntheticDemoTimeline(scenario)
+}
+
+func validateSyntheticDemoTimeline(scenario *syntheticDemoScenario) error {
 	seenSnapshotOrTaskEvent := false
 	seenActionContexts := make(map[string]struct{})
 	var previousOffset int64
 	for idx := range scenario.Timeline {
 		item := scenario.Timeline[idx]
-		if item.OffsetMS < 0 {
-			return fmt.Errorf("demo scenario item %d has negative offset", idx)
-		}
-		if idx > 0 && item.OffsetMS < previousOffset {
-			return fmt.Errorf("demo scenario item %d offset is before the previous item", idx)
+		hasSnapshotOrTaskEvent, err := validateSyntheticDemoTimelineItem(item, idx, previousOffset, scenario.DurationMS, seenActionContexts)
+		if err != nil {
+			return err
 		}
 		previousOffset = item.OffsetMS
-		if scenario.DurationMS > 0 && item.OffsetMS > int64(scenario.DurationMS) {
-			return fmt.Errorf("demo scenario item %d exceeds duration", idx)
-		}
-		if item.Snapshot == nil && item.TaskEvent == nil && item.ActionEvent == nil && item.ActionContext == nil {
-			return fmt.Errorf("demo scenario item %d has no operation", idx)
-		}
-		if item.Snapshot != nil || item.TaskEvent != nil {
+		if hasSnapshotOrTaskEvent {
 			seenSnapshotOrTaskEvent = true
-		}
-		if item.ActionContext != nil && item.ActionContext.RequestID != "" {
-			if _, ok := seenActionContexts[item.ActionContext.RequestID]; ok {
-				return fmt.Errorf("demo scenario action context duplicates request id %q", item.ActionContext.RequestID)
-			}
-			seenActionContexts[item.ActionContext.RequestID] = struct{}{}
 		}
 	}
 	if !seenSnapshotOrTaskEvent {
 		return fmt.Errorf("demo scenario must include at least one task snapshot or task event")
 	}
 	return nil
+}
+
+func validateSyntheticDemoTimelineItem(
+	item syntheticDemoTimelineItem,
+	idx int,
+	previousOffset int64,
+	durationMS int,
+	seenActionContexts map[string]struct{},
+) (bool, error) {
+	if item.OffsetMS < 0 {
+		return false, fmt.Errorf("demo scenario item %d has negative offset", idx)
+	}
+	if idx > 0 && item.OffsetMS < previousOffset {
+		return false, fmt.Errorf("demo scenario item %d offset is before the previous item", idx)
+	}
+	if durationMS > 0 && item.OffsetMS > int64(durationMS) {
+		return false, fmt.Errorf("demo scenario item %d exceeds duration", idx)
+	}
+	if item.Snapshot == nil && item.TaskEvent == nil && item.ActionEvent == nil && item.ActionContext == nil {
+		return false, fmt.Errorf("demo scenario item %d has no operation", idx)
+	}
+	if item.ActionContext != nil && item.ActionContext.RequestID != "" {
+		if _, ok := seenActionContexts[item.ActionContext.RequestID]; ok {
+			return false, fmt.Errorf("demo scenario action context duplicates request id %q", item.ActionContext.RequestID)
+		}
+		seenActionContexts[item.ActionContext.RequestID] = struct{}{}
+	}
+	return item.Snapshot != nil || item.TaskEvent != nil, nil
 }
 
 func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, scenario *syntheticDemoScenario) error {
@@ -162,7 +180,7 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 		_ = store.Close()
 	}()
 
-	defaults := resolveSyntheticDemoDefaults(scenario.Defaults)
+	defaults := resolveSyntheticDemoDefaults(&scenario.Defaults)
 	start := r.now().UTC()
 	var previousOffset int64
 	seenContexts := make(map[string]struct{})
@@ -187,7 +205,10 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 	return nil
 }
 
-func resolveSyntheticDemoDefaults(defaults syntheticDemoDefaults) syntheticDemoDefaults {
+func resolveSyntheticDemoDefaults(defaults *syntheticDemoDefaults) *syntheticDemoDefaults {
+	if defaults == nil {
+		defaults = &syntheticDemoDefaults{}
+	}
 	if defaults.RunID == "" {
 		defaults.RunID = identifiers.New(identifiers.KindTaskRun)
 	}
@@ -215,7 +236,7 @@ func resolveSyntheticDemoDefaults(defaults syntheticDemoDefaults) syntheticDemoD
 func applySyntheticDemoItem(
 	ctx context.Context,
 	store *persistence.Store,
-	defaults syntheticDemoDefaults,
+	defaults *syntheticDemoDefaults,
 	timestamp time.Time,
 	item syntheticDemoTimelineItem,
 	seenContexts map[string]struct{},
@@ -283,7 +304,7 @@ func resolveSyntheticDemoRequestID(requestIDs map[string]string, logicalID strin
 	return mapped
 }
 
-func applySnapshotDefaults(snapshot *taskruns.PersistedRunSnapshot, defaults syntheticDemoDefaults, timestamp time.Time) {
+func applySnapshotDefaults(snapshot *taskruns.PersistedRunSnapshot, defaults *syntheticDemoDefaults, timestamp time.Time) {
 	if snapshot.RunID == "" {
 		snapshot.RunID = defaults.RunID
 	}
@@ -316,7 +337,7 @@ func applySnapshotDefaults(snapshot *taskruns.PersistedRunSnapshot, defaults syn
 	}
 }
 
-func applyTaskEventDefaults(event *taskverification.TaskEvent, defaults syntheticDemoDefaults, timestamp time.Time) {
+func applyTaskEventDefaults(event *taskverification.TaskEvent, defaults *syntheticDemoDefaults, timestamp time.Time) {
 	if event.ID == "" {
 		event.ID = identifiers.New(identifiers.KindTaskEvent)
 	}
@@ -358,7 +379,7 @@ func applyTaskEventDefaults(event *taskverification.TaskEvent, defaults syntheti
 	}
 }
 
-func applyActionEventDefaults(event *common.LogEntry, defaults syntheticDemoDefaults, timestamp time.Time) {
+func applyActionEventDefaults(event *common.LogEntry, defaults *syntheticDemoDefaults, timestamp time.Time) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = timestamp
 	}
@@ -391,7 +412,7 @@ func applyActionEventDefaults(event *common.LogEntry, defaults syntheticDemoDefa
 	}
 }
 
-func applyActionContextDefaults(ctx *taskverification.ActionEventTaskContext, defaults syntheticDemoDefaults, timestamp time.Time) {
+func applyActionContextDefaults(ctx *taskverification.ActionEventTaskContext, defaults *syntheticDemoDefaults, timestamp time.Time) {
 	if ctx.RequestID == "" {
 		ctx.RequestID = identifiers.New(identifiers.KindRequest)
 	}
