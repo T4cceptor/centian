@@ -20,6 +20,8 @@ import (
 )
 
 const (
+	darwinOS = "darwin"
+
 	// AgentClaude is the supported public agent identifier for the Claude CLI.
 	AgentClaude = common.AgentClaude
 	// AgentGemini is the supported public agent identifier for the Gemini CLI.
@@ -53,6 +55,7 @@ var disposableDemoPaths = []string{
 	"config.json",
 	"prompt.yaml",
 	"prompt.md",
+	"demo_scenario.json",
 	"centian.pid",
 	"claude_mcp_config.json",
 	"codex-home",
@@ -67,6 +70,7 @@ var allowedDemoRootEntries = map[string]struct{}{
 	"config.json":            {},
 	"prompt.yaml":            {},
 	"prompt.md":              {},
+	"demo_scenario.json":     {},
 	"agent.stdout.log":       {},
 	"agent.stderr.log":       {},
 	"centian.pid":            {},
@@ -81,6 +85,7 @@ type DemoOptions struct {
 	Execution         AgentExecutionOptions
 	RootPath          string
 	CentianBinaryPath string
+	ScenarioFilePath  string
 	Timeout           time.Duration
 	OpenBrowser       bool
 	Stdout            io.Writer
@@ -122,6 +127,7 @@ type demoLayout struct {
 	LogsPath        string
 	ConfigPath      string
 	PromptPath      string
+	ScenarioPath    string
 	AgentStdoutPath string
 	AgentStderrPath string
 	InternalLogPath string
@@ -180,20 +186,9 @@ func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, 
 		return nil, err
 	}
 
-	result := &DemoResult{
-		RootPath:      layout.RootPath,
-		WorkspacePath: layout.WorkspacePath,
-		ConfigPath:    layout.ConfigPath,
-		PromptPath:    layout.PromptPath,
-		AgentStdout:   layout.AgentStdoutPath,
-		AgentStderr:   layout.AgentStderrPath,
-		UIPublicURL:   layout.BaseURL + "/ui/tasks",
-		MCPURL:        layout.MCPURL,
-		PID:           centianCmd.Process.Pid,
-		StopHint:      fmt.Sprintf("kill $(cat %s)", common.ShellQuote(layout.PIDPath)),
-	}
+	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
 
-	if options.OpenBrowser && runtime.GOOS == "darwin" {
+	if options.OpenBrowser && runtime.GOOS == darwinOS {
 		//nolint:gosec // UI URL is generated locally from the bound loopback port.
 		_ = exec.Command("open", result.UIPublicURL).Start()
 	}
@@ -224,10 +219,49 @@ func normalizeOptions(opts *DemoOptions) (*DemoOptions, error) {
 	if opts.Stderr == nil {
 		opts.Stderr = io.Discard
 	}
-	if !opts.OpenBrowser && runtime.GOOS == "darwin" {
+	if !opts.OpenBrowser && runtime.GOOS == darwinOS {
 		opts.OpenBrowser = true
 	}
 	return opts, nil
+}
+
+// normalizeSyntheticOptions fills omitted demo options for the synthetic flow.
+func normalizeSyntheticOptions(opts *DemoOptions) (*DemoOptions, error) {
+	if opts == nil {
+		return nil, fmt.Errorf("demo options are required")
+	}
+	if strings.TrimSpace(opts.RootPath) == "" {
+		return nil, fmt.Errorf("demo root path is required")
+	}
+	if strings.TrimSpace(opts.CentianBinaryPath) == "" {
+		return nil, fmt.Errorf("centian binary path is required")
+	}
+	if opts.Stdout == nil {
+		opts.Stdout = io.Discard
+	}
+	if opts.Stderr == nil {
+		opts.Stderr = io.Discard
+	}
+	if !opts.OpenBrowser && runtime.GOOS == darwinOS {
+		opts.OpenBrowser = true
+	}
+	opts.ScenarioFilePath = strings.TrimSpace(opts.ScenarioFilePath)
+	return opts, nil
+}
+
+func demoResultFromLayout(layout *demoLayout, pid int) *DemoResult {
+	return &DemoResult{
+		RootPath:      layout.RootPath,
+		WorkspacePath: layout.WorkspacePath,
+		ConfigPath:    layout.ConfigPath,
+		PromptPath:    layout.PromptPath,
+		AgentStdout:   layout.AgentStdoutPath,
+		AgentStderr:   layout.AgentStderrPath,
+		UIPublicURL:   layout.BaseURL + "/ui/tasks",
+		MCPURL:        layout.MCPURL,
+		PID:           pid,
+		StopHint:      fmt.Sprintf("kill $(cat %s)", common.ShellQuote(layout.PIDPath)),
+	}
 }
 
 // prepareLayout creates the demo directory layout and allocates a loopback port.
@@ -246,6 +280,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 		LogsPath:        filepath.Join(root, "logs"),
 		ConfigPath:      filepath.Join(root, "config.json"),
 		PromptPath:      filepath.Join(root, "prompt.yaml"),
+		ScenarioPath:    filepath.Join(root, "demo_scenario.json"),
 		AgentStdoutPath: filepath.Join(root, "agent.stdout.log"),
 		AgentStderrPath: filepath.Join(root, "agent.stderr.log"),
 		InternalLogPath: filepath.Join(root, "logs", "internal.log"),
@@ -268,6 +303,57 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	layout.BaseURL = "http://127.0.0.1:" + port
 	layout.MCPURL = layout.BaseURL + "/mcp/taskverification"
 	return layout, nil
+}
+
+// RunSyntheticDemo creates the demo workspace, starts Centian, and replays a
+// JSON-defined synthetic timeline without launching an external agent.
+func (DemoRunner) RunSyntheticDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
+	options, err := normalizeSyntheticOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = fmt.Fprintln(options.Stdout, "Starting synthetic Centian demo...")
+	layout, err := prepareLayout(options)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderAssets(layout); err != nil {
+		return nil, err
+	}
+	scenario, scenarioBytes, err := loadSyntheticDemoScenario(options.ScenarioFilePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(layout.ScenarioPath, scenarioBytes, 0o600); err != nil {
+		return nil, fmt.Errorf("write demo scenario: %w", err)
+	}
+
+	centianCmd, errCh, err := startCentianProcess(layout, options)
+	if err != nil {
+		return nil, err
+	}
+	if err := common.WritePIDFile(layout.PIDPath, centianCmd.Process.Pid); err != nil {
+		_ = centianCmd.Process.Kill()
+		return nil, err
+	}
+	if err := waitForCentian(layout, errCh); err != nil {
+		_ = centianCmd.Process.Kill()
+		return nil, err
+	}
+
+	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
+	if options.OpenBrowser && runtime.GOOS == darwinOS {
+		//nolint:gosec // UI URL is generated locally from the bound loopback port.
+		_ = exec.Command("open", result.UIPublicURL).Start()
+	}
+	printDemoStatus(options.Stdout, result)
+
+	replayer := newSyntheticDemoReplayer()
+	_, _ = fmt.Fprintf(options.Stdout, "Replaying synthetic demo timeline from %s...\n", layout.ScenarioPath)
+	if err := replayer.replay(ctx, layout, scenario); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 // prepareDemoRoot validates or initializes the chosen demo root before assets are rendered.

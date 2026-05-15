@@ -107,6 +107,30 @@ check_dependencies() {
     fi
 }
 
+ensure_macos_signature() {
+    local binary_path="$1"
+    local sudo_prefix="${2:-}"
+
+    if ! command -v "codesign" &> /dev/null; then
+        error "codesign is required to install ${BINARY_NAME} on macOS"
+    fi
+
+    if codesign --verify --strict --verbose=2 "$binary_path" &> /dev/null; then
+        return 0
+    fi
+
+    warn "macOS code signature is missing or invalid; applying an ad-hoc signature"
+    if [ "$sudo_prefix" = "sudo" ]; then
+        sudo codesign --force --sign - "$binary_path"
+    else
+        codesign --force --sign - "$binary_path"
+    fi
+
+    if ! codesign --verify --strict --verbose=2 "$binary_path" &> /dev/null; then
+        error "Failed to verify macOS code signature for ${binary_path}"
+    fi
+}
+
 # Get latest release version from GitHub
 get_latest_version() {
     local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
@@ -200,16 +224,24 @@ install_binary() {
         fi
     fi
 
+    local installed_path="${INSTALL_DIR}/${dest_binary}"
+
     # Check if we need sudo (not on Windows)
     if [ "$os" = "windows" ] || [ -w "$INSTALL_DIR" ]; then
-        cp "$binary_path" "${INSTALL_DIR}/${dest_binary}"
+        cp "$binary_path" "$installed_path"
         if [ "$os" != "windows" ]; then
-            chmod +x "${INSTALL_DIR}/${dest_binary}"
+            chmod +x "$installed_path"
+        fi
+        if [ "$os" = "darwin" ]; then
+            ensure_macos_signature "$installed_path"
         fi
     else
         info "Elevated privileges required for installation to ${INSTALL_DIR}"
-        sudo cp "$binary_path" "${INSTALL_DIR}/${dest_binary}"
-        sudo chmod +x "${INSTALL_DIR}/${dest_binary}"
+        sudo cp "$binary_path" "$installed_path"
+        sudo chmod +x "$installed_path"
+        if [ "$os" = "darwin" ]; then
+            ensure_macos_signature "$installed_path" "sudo"
+        fi
     fi
 
     # Cleanup
@@ -224,6 +256,9 @@ verify_installation() {
         binary_cmd="${BINARY_NAME}.exe"
     fi
 
+    local installed_path="${INSTALL_DIR}/${binary_cmd}"
+    local version_cmd="$binary_cmd"
+
     if ! command -v "$binary_cmd" &> /dev/null; then
         warn "${binary_cmd} is installed but not in PATH"
         warn "Make sure ${INSTALL_DIR} is in your PATH"
@@ -234,15 +269,21 @@ verify_installation() {
             echo "Add this to your shell configuration (~/.bashrc, ~/.zshrc, etc.):"
             echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
         fi
-        return 1
+        if [ -x "$installed_path" ]; then
+            version_cmd="$installed_path"
+        else
+            return 1
+        fi
+    elif [ -x "$installed_path" ]; then
+        version_cmd="$installed_path"
     fi
 
     local installed_version
-    installed_version=$("$binary_cmd" --version 2>/dev/null || echo "unknown")
+    installed_version=$("$version_cmd" --version 2>/dev/null || echo "unknown")
 
     success "${binary_cmd} installed successfully!"
     info "Version: $installed_version"
-    info "Location: $(command -v $binary_cmd)"
+    info "Location: ${installed_path}"
 
     return 0
 }

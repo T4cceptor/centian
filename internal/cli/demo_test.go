@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +27,7 @@ func TestDemoCommandStructure(t *testing.T) {
 			flagNames[typed.Name] = true
 		}
 	}
-	for _, expected := range []string{"agent", "model", "profile", "path", "codex-config"} {
+	for _, expected := range []string{"agent", "file", "model", "profile", "path", "codex-config"} {
 		if !flagNames[expected] {
 			t.Fatalf("expected %q flag on DemoCommand", expected)
 		}
@@ -65,14 +64,6 @@ func normalizeDarwinPath(value string) string {
 	return strings.TrimPrefix(value, "/private")
 }
 
-func TestHandleDemoCommandRequiresAgent(t *testing.T) {
-	cmd := &urfavecli.Command{}
-	err := handleDemoCommand(context.Background(), cmd)
-	if err == nil {
-		t.Fatal("expected error for missing agent")
-	}
-}
-
 func TestShouldShutdownDemo(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -90,6 +81,45 @@ func TestShouldShutdownDemo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if actual := shouldShutdownDemo(strings.NewReader(tt.input)); actual != tt.expected {
 				t.Fatalf("expected %v, got %v", tt.expected, actual)
+			}
+		})
+	}
+}
+
+func TestDemoScenarioFileFromFlagsAllowsDefaultSyntheticDemo(t *testing.T) {
+	cmd := newTestCLICommand(DemoCommand.Flags)
+
+	path, err := demoScenarioFileFromFlags(cmd)
+	if err != nil {
+		t.Fatalf("demoScenarioFileFromFlags: %v", err)
+	}
+	if path != "" {
+		t.Fatalf("expected embedded scenario, got %q", path)
+	}
+}
+
+func TestDemoScenarioFileFromFlagsResolvesFile(t *testing.T) {
+	cmd := newTestCLICommand(DemoCommand.Flags)
+	cmd.Set("file", "scenario.json")
+
+	path, err := demoScenarioFileFromFlags(cmd)
+	if err != nil {
+		t.Fatalf("demoScenarioFileFromFlags: %v", err)
+	}
+	if !filepath.IsAbs(path) {
+		t.Fatalf("expected absolute file path, got %q", path)
+	}
+}
+
+func TestDemoScenarioFileFromFlagsRejectsAgentOnlyFlags(t *testing.T) {
+	for _, flagName := range []string{"model", "profile", "codex-config"} {
+		t.Run(flagName, func(t *testing.T) {
+			cmd := newTestCLICommand(DemoCommand.Flags)
+			cmd.Set(flagName, "value")
+
+			_, err := demoScenarioFileFromFlags(cmd)
+			if err == nil || err.Error() != "--"+flagName+" can only be used with --agent" {
+				t.Fatalf("expected %s rejection, got %v", flagName, err)
 			}
 		})
 	}

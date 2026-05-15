@@ -19,10 +19,13 @@ import (
 var DemoCommand = &cli.Command{
 	Name:  "demo",
 	Usage: "Start a self-contained Centian demo workspace",
-	Description: `Create a local Centian demo workspace, start Centian, launch a supported
-coding agent against it, and print the live UI URL.
+	Description: `Create a local Centian demo workspace, start Centian, and print the
+live UI URL. By default, the demo replays a synthetic event timeline without
+launching an agent. Pass --agent to run a supported coding agent instead.
 
 Examples:
+  centian demo
+  centian demo --file ./demo_scenario.json
   centian demo --agent claude
   centian demo --agent gemini
   centian demo --agent codex --model gpt-5.4-mini
@@ -32,10 +35,14 @@ Examples:
 	Action: handleDemoCommand,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name:     "agent",
-			Aliases:  []string{"a"},
-			Usage:    "Agent to run for the demo (v1 supports: claude, gemini, codex, codex-ollama)",
-			Required: true,
+			Name:    "agent",
+			Aliases: []string{"a"},
+			Usage:   "Agent to run instead of the synthetic demo (v1 supports: claude, gemini, codex, codex-ollama)",
+		},
+		&cli.StringFlag{
+			Name:    "file",
+			Aliases: []string{"f"},
+			Usage:   "Synthetic demo scenario JSON file to replay",
 		},
 		&cli.StringFlag{
 			Name:    "path",
@@ -60,9 +67,6 @@ Examples:
 
 // handleDemoCommand resolves demo inputs and runs one local demo session.
 func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
-	if cmd.String("agent") == "" {
-		return fmt.Errorf("--agent is required")
-	}
 	rootPath, err := resolveDemoRoot(cmd.String("path"))
 	if err != nil {
 		return err
@@ -71,22 +75,37 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("resolve centian executable: %w", err)
 	}
-	execution, err := demoExecutionFromFlags(cmd)
-	if err != nil {
-		return err
-	}
-
 	runner := agentrunner.DemoRunner{}
-	result, err := runner.RunDemo(ctx, &agentrunner.DemoOptions{
-		Execution:         execution,
+	options := &agentrunner.DemoOptions{
 		RootPath:          rootPath,
 		CentianBinaryPath: binaryPath,
 		Timeout:           5 * time.Minute,
 		Stdout:            os.Stdout,
 		Stderr:            os.Stderr,
-	})
+	}
+
+	var result *agentrunner.DemoResult
+	agent := strings.TrimSpace(cmd.String("agent"))
+	if agent == "" {
+		scenarioPath, scenarioErr := demoScenarioFileFromFlags(cmd)
+		if scenarioErr != nil {
+			return scenarioErr
+		}
+		options.ScenarioFilePath = scenarioPath
+		result, err = runner.RunSyntheticDemo(ctx, options)
+	} else {
+		if strings.TrimSpace(cmd.String("file")) != "" {
+			return fmt.Errorf("--file cannot be used with --agent")
+		}
+		execution, executionErr := demoExecutionFromFlags(cmd)
+		if executionErr != nil {
+			return executionErr
+		}
+		options.Execution = execution
+		result, err = runner.RunDemo(ctx, options)
+	}
 	if result != nil {
-		fmt.Printf("Agent run finished. UI: %s\n", result.UIPublicURL)
+		fmt.Printf("Demo finished. UI: %s\n", result.UIPublicURL)
 		shutdownErr := promptDemoShutdown(os.Stdin, os.Stdout, result)
 		if err != nil {
 			return errors.Join(err, shutdownErr)
@@ -97,6 +116,15 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	return nil
+}
+
+func demoScenarioFileFromFlags(cmd *cli.Command) (string, error) {
+	for _, flagName := range []string{"model", "profile", "codex-config"} {
+		if strings.TrimSpace(cmd.String(flagName)) != "" {
+			return "", fmt.Errorf("--%s can only be used with --agent", flagName)
+		}
+	}
+	return resolveOptionalPath(cmd.String("file"))
 }
 
 // demoExecutionFromFlags converts demo agent flags into one normalized execution config.

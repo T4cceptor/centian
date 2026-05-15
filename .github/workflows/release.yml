@@ -15,28 +15,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build binaries
+  test:
+    name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            name: linux_amd64
-          - goos: linux
-            goarch: arm64
-            name: linux_arm64
-          - goos: darwin
-            goarch: amd64
-            name: darwin_amd64
-          - goos: darwin
-            goarch: arm64
-            name: darwin_arm64
-          - goos: windows
-            goarch: amd64
-            name: windows_amd64
-            ext: .exe
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,6 +52,60 @@ jobs:
       - name: Run all tests (unit + integration)
         run: make test-all
 
+  build:
+    name: Build binaries
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            name: linux_amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            name: linux_arm64
+            runner: ubuntu-latest
+          - goos: darwin
+            goarch: amd64
+            name: darwin_amd64
+            runner: macos-15-intel
+          - goos: darwin
+            goarch: arm64
+            name: darwin_arm64
+            runner: macos-15
+          - goos: windows
+            goarch: amd64
+            name: windows_amd64
+            ext: .exe
+            runner: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Get dependencies
+        run: go mod download
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Stage frontend assets
+        run: make web-stage
+
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
@@ -87,6 +122,11 @@ jobs:
           # Build binary
           BINARY_NAME="centian${{ matrix.ext }}"
           go build -ldflags "-s -w -X main.version=${VERSION}" -o "${BINARY_NAME}" ./main.go
+
+          if [ "${{ matrix.goos }}" = "darwin" ]; then
+            codesign --force --sign - "${BINARY_NAME}"
+            codesign --verify --strict --verbose=4 "${BINARY_NAME}"
+          fi
 
           # Create archive
           ARCHIVE_NAME="centian_${VERSION}_${{ matrix.name }}"

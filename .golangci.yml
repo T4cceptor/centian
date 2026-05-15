@@ -34,7 +34,6 @@ linters:
     - copyloopvar
     - wastedassign
     - predeclared
-    - goconst
   exclusions:
     paths:
       - internal/discovery
@@ -43,7 +42,6 @@ linters:
       - path: '(.+)_test\.go'
         linters:
           - gosec # we have quite a few file operations during testing, thus deactivating gosec for these
-          - goconst # makes no sense to flag const usage in test cases where a lot of hardcoded values are used
           - errcheck # due to the file operations we are potentially not dealing with errors during test setup, this will fail the tests anyway
           - nilnil # tests sometimes use nil sentinel returns for not-found cases
           - gocritic # test helper signatures are optimized for readability, not tiny copies
@@ -95,9 +93,6 @@ linters:
           arguments:
             - checkPrivateReceivers
             - sayRepetitiveInsteadOfStutters
-    goconst:
-      min-len: 3
-      min-occurrences: 3
     gosec:
       excludes:
         - G104  # Audit errors not checked (we use errcheck for this)
