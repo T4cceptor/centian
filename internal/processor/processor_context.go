@@ -16,10 +16,11 @@ type DataContext struct {
 	Version string `json:"version"` // "1.0" - for evolution
 
 	// Parts - only populated based on processor config
-	Event   *common.MetaContext `json:"event,omitempty"`   // Contains event metadata
-	Payload *PayloadPart        `json:"payload,omitempty"` // Payload of the request and result
-	Routing *RoutingPart        `json:"routing,omitempty"`
-	Auth    *common.AuthContext `json:"auth,omitempty"` // Auth identity and principal context
+	Event       *common.MetaContext `json:"event,omitempty"`   // Contains event metadata
+	Payload     *PayloadPart        `json:"payload,omitempty"` // Payload of the request and result
+	Routing     *RoutingPart        `json:"routing,omitempty"`
+	Auth        *common.AuthContext `json:"auth,omitempty"` // Auth identity and principal context
+	Annotations *AnnotationPart     `json:"annotations,omitempty"`
 	// Future: Headers, etc.
 }
 
@@ -37,6 +38,26 @@ type RoutingPart struct {
 	ToolName           string `json:"tool_name"`
 	OriginalServerName string `json:"original_server_name"`
 	OriginalToolname   string `json:"original_tool_name"`
+}
+
+// AnnotationPart lets processors report findings about an event without modifying the MCP call.
+type AnnotationPart struct {
+	Reports []ProcessorReport `json:"reports,omitempty"`
+}
+
+// ProcessorReport describes a processor observation or policy action.
+type ProcessorReport struct {
+	Processor string             `json:"processor,omitempty"`
+	Action    string             `json:"action,omitempty"`
+	Severity  string             `json:"severity,omitempty"`
+	Message   string             `json:"message,omitempty"`
+	Findings  []ProcessorFinding `json:"findings,omitempty"`
+}
+
+// ProcessorFinding identifies a specific processor finding.
+type ProcessorFinding struct {
+	Rule string `json:"rule,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 
 // TODO: add headers part

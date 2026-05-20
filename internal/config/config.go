@@ -655,7 +655,7 @@ type ProcessorConfig struct {
 	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
 	Enabled bool                   `json:"enabled"`           // Whether processor is active
 	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
-	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing", "auth" (default: ["payload","meta"])
+	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing", "auth", "annotations" (default: ["payload","meta"])
 	Config  map[string]interface{} `json:"config"`            // Type-specific configuration
 
 	// Determines if processor is required to run, "false" by default,
@@ -678,10 +678,11 @@ type WebhookProcessorSettings struct {
 }
 
 var allowedProcessorParts = map[string]bool{
-	"payload": true,
-	"meta":    true,
-	"routing": true,
-	"auth":    true,
+	"payload":     true,
+	"meta":        true,
+	"routing":     true,
+	"auth":        true,
+	"annotations": true,
 }
 
 var allowedWebhookConfigKeys = map[string]bool{
@@ -1324,7 +1325,7 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 func validateProcessorParts(processor *ProcessorConfig) error {
 	for _, part := range processor.GetParts() {
 		if !allowedProcessorParts[part] {
-			return fmt.Errorf("processor '%s': unsupported part '%s' (allowed: payload, meta, routing, auth)", processor.Name, part)
+			return fmt.Errorf("processor '%s': unsupported part '%s' (allowed: payload, meta, routing, auth, annotations)", processor.Name, part)
 		}
 	}
 	return nil

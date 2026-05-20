@@ -14,8 +14,8 @@ func TestProcessorConfigGetParts(t *testing.T) {
 	})
 
 	t.Run("returns configured parts when provided", func(t *testing.T) {
-		cfg := &ProcessorConfig{Parts: []string{"payload", "meta", "routing"}}
-		assert.DeepEqual(t, cfg.GetParts(), []string{"payload", "meta", "routing"})
+		cfg := &ProcessorConfig{Parts: []string{"payload", "meta", "routing", "annotations"}}
+		assert.DeepEqual(t, cfg.GetParts(), []string{"payload", "meta", "routing", "annotations"})
 	})
 }
 

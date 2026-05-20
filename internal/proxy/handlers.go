@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -196,6 +197,71 @@ func (h *DefaultAuthHandler) buildAuthContext(callCtx CallContext) *common.AuthC
 // Apply ignores auth modifications from processors to keep auth context read-only.
 func (h *DefaultAuthHandler) Apply(_ CallContext, _ *processor.DataContext) error {
 	return nil
+}
+
+// =============================================================================
+// AnnotationHandler - stores processor findings in event metadata
+// =============================================================================
+
+const processorAnnotationsMetadataKey = "processor_annotations"
+
+// DefaultAnnotationHandler lets processors report findings without modifying MCP payloads.
+type DefaultAnnotationHandler struct{}
+
+// AttachPart attaches existing processor annotations from event metadata, when present.
+func (h *DefaultAnnotationHandler) AttachPart(callCtx CallContext, input *processor.DataContext) {
+	if input == nil || callCtx == nil || callCtx.GetMetaContext() == nil {
+		return
+	}
+
+	raw := callCtx.GetMetaContext().Metadata[processorAnnotationsMetadataKey]
+	if raw == "" {
+		input.Annotations = &processor.AnnotationPart{}
+		return
+	}
+
+	var reports []processor.ProcessorReport
+	if err := json.Unmarshal([]byte(raw), &reports); err != nil {
+		input.Annotations = &processor.AnnotationPart{}
+		return
+	}
+	input.Annotations = &processor.AnnotationPart{Reports: reports}
+}
+
+// Apply appends processor annotations to event metadata.
+func (h *DefaultAnnotationHandler) Apply(callCtx CallContext, output *processor.DataContext) error {
+	if callCtx == nil || output == nil || output.Annotations == nil || len(output.Annotations.Reports) == 0 {
+		return nil
+	}
+
+	meta := callCtx.GetMetaContext()
+	if meta == nil {
+		meta = common.NewMetaContext("", common.DirectionUnknown, common.MessageTypeUnknown)
+		callCtx.SetMetaContext(meta)
+	}
+	if meta.Metadata == nil {
+		meta.Metadata = map[string]string{}
+	}
+
+	reports := existingProcessorReports(meta.Metadata[processorAnnotationsMetadataKey])
+	reports = append(reports, output.Annotations.Reports...)
+	raw, err := json.Marshal(reports)
+	if err != nil {
+		return fmt.Errorf("failed to marshal processor annotations: %w", err)
+	}
+	meta.Metadata[processorAnnotationsMetadataKey] = string(raw)
+	return nil
+}
+
+func existingProcessorReports(raw string) []processor.ProcessorReport {
+	if raw == "" {
+		return nil
+	}
+	var reports []processor.ProcessorReport
+	if err := json.Unmarshal([]byte(raw), &reports); err != nil {
+		return nil
+	}
+	return reports
 }
 
 // =============================================================================

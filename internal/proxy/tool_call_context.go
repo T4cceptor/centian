@@ -100,6 +100,7 @@ func NewToolCallContext(
 	toolCallCtx.SetHandler("meta", &DefaultMetaHandler{})
 	toolCallCtx.SetHandler("routing", &DefaultRoutingHandler{})
 	toolCallCtx.SetHandler("auth", &DefaultAuthHandler{})
+	toolCallCtx.SetHandler("annotations", &DefaultAnnotationHandler{})
 
 	// Set default log handler - proxy.server nil check was done above
 	if proxy.server.Logger == nil {

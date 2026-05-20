@@ -126,6 +126,9 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
     "authenticated": true,
     "principal_type": "api_key",
     "gateway": "default"
+  },
+  "annotations": {
+    "reports": []
   }
 }
 ```
@@ -142,6 +145,7 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
 | `payload.original_result` | object | Original downstream result snapshot. |
 | `routing` | object | Current and original server/tool routing data. |
 | `auth` | object | Read-only auth context. |
+| `annotations` | object | Processor-supplied reports about the event. Applied to Centian event metadata, not the MCP request or result payload. |
 
 Notes:
 
@@ -173,11 +177,31 @@ Processors must return a JSON object with the same `DataContext` shape. CLI proc
         }
       ]
     }
+  },
+  "annotations": {
+    "reports": [
+      {
+        "processor": "security-policy",
+        "action": "redacted",
+        "severity": "high",
+        "message": "Suspicious tool result content was redacted.",
+        "findings": [
+          {
+            "rule": "ignore_previous_instructions",
+            "path": "payload.result.content[0].text"
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
 Fields you return are applied back into the current call context according to the configured `parts`.
+
+### Processor annotations
+
+Use the `annotations` part when a processor needs to tell Centian what it found without changing the MCP call itself. Returned annotation reports are appended to the event metadata under `processor_annotations` as JSON. This keeps policy telemetry in Centian's logs while allowing `payload` to remain unchanged for observe-only processors.
 
 ## Configuration in Centian
 
@@ -284,7 +308,7 @@ Edit `~/.centian/config.json`:
 Important runtime notes:
 
 - supported processor types are only `cli` and `webhook`
-- supported parts are only `payload`, `meta`, `routing`, and `auth`
+- supported parts are only `payload`, `meta`, `routing`, `auth`, and `annotations`
 - webhook `config` only supports `url` and `headers`
 
 ### Timeout behavior
