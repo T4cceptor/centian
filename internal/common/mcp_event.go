@@ -26,6 +26,7 @@ type EventAnnotation struct {
 	Severity  string                   `json:"severity,omitempty"`
 	Message   string                   `json:"message,omitempty"`
 	Findings  []EventAnnotationFinding `json:"findings,omitempty"`
+	Details   map[string]any           `json:"details,omitempty"`
 }
 
 // EventAnnotationFinding identifies a specific annotation finding.

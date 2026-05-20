@@ -53,6 +53,7 @@ export type ProcessorAnnotation = {
   severity?: string;
   message?: string;
   findings?: ProcessorAnnotationFinding[];
+  details?: Record<string, unknown>;
 };
 
 export type TaskRunEvent = {

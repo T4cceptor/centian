@@ -15,11 +15,12 @@ It is intentionally small. StackOne Defender uses a richer two-tier design with 
   - `<system>` and `[INST]` tags
   - requests to reveal hidden instructions, system prompts, secrets, tokens, or API keys
   - simple URL-encoded or Base64-encoded variants
-- Supports three actions through `--mode`:
+- Supports four actions through `--mode`:
+  - `annotate`: add an annotation only and leave the MCP payload/status unchanged
   - `error`: replace the call with an MCP `isError: true` result
   - `redact`: replace suspicious strings with `[PROMPT_INJECTION_REDACTED]`
   - `remove`: remove suspicious strings or text content items
-- Emits detection reports through Centian's `annotations` processor part
+- Emits detection reports through Centian's `annotations` processor part with evidence count, severity, affected paths, matched rules, source, and flagged text ratio
 
 This is not production-grade prompt injection protection. It is meant to make the Centian processor path easy to evaluate with simple and obvious attacks.
 
@@ -28,7 +29,7 @@ This is not production-grade prompt injection protection. It is meant to make th
 From the repository root:
 
 ```bash
-go build -o build/prompt-injection-guard ./demo/processors/prompt_injection_guard
+go build -o build/prompt-injection-guard ./demo/it_ops/prompt_injection_guard
 ```
 
 ## Configure
@@ -54,7 +55,7 @@ Add the compiled binary as a CLI processor. Use `required: true` if a processor 
 }
 ```
 
-Use `--mode=redact` or `--mode=remove` to keep the tool call flowing with suspicious content modified instead of returning an immediate error.
+Use `--mode=annotate` to observe only, or `--mode=redact` / `--mode=remove` to keep the tool call flowing with suspicious content modified instead of returning an immediate error.
 
 ## Test Manually
 

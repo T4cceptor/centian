@@ -5,7 +5,7 @@ This folder provides two local demos with a single Centian config and container:
 - Logging gateway (`/mcp/logging-demo`): emits OpenTelemetry tool-call spans to Jaeger.
 - Redaction gateway (`/mcp/modification-demo`): masks sensitive patterns in MCP response text.
 
-It also includes `prompt_injection_guard/`, a standalone Go CLI processor that demonstrates blocking obvious prompt injection markers in tool requests and results.
+It also reuses `../it_ops/prompt_injection_guard/`, a standalone Go CLI processor that demonstrates blocking obvious prompt injection markers in tool requests and results.
 
 ## Structure
 
@@ -13,7 +13,7 @@ Run commands from `demo/processors`.
 
 - `configs/demo_config.json`: Centian config with 2 demo gateways and gateway-level processors.
 - `src/`: Python processors and shared helpers.
-- `prompt_injection_guard/`: dependency-free compiled prompt injection guard processor.
+- `../it_ops/prompt_injection_guard/`: dependency-free compiled prompt injection guard processor.
 - `scripts/setup.sh`: local setup helper.
 - `scripts/smoke_demo.sh`: smoke checks for both demo modes.
 - `docker-compose.yml`: shared infrastructure and demo services.

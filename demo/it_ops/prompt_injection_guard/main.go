@@ -16,6 +16,7 @@ import (
 type detection struct {
 	Pattern string
 	Path    string
+	Length  int
 }
 
 type config struct {
@@ -28,9 +29,10 @@ type scanPattern struct {
 }
 
 const (
-	modeError  = "error"
-	modeRedact = "redact"
-	modeRemove = "remove"
+	modeAnnotate = "annotate"
+	modeError    = "error"
+	modeRedact   = "redact"
+	modeRemove   = "remove"
 )
 
 var patterns = []scanPattern{
@@ -74,12 +76,12 @@ func run(input io.Reader, output io.Writer) error {
 
 func parseConfig(args []string) config {
 	flags := flag.NewFlagSet("prompt-injection-guard", flag.ExitOnError)
-	mode := flags.String("mode", modeError, "action for detections: error, redact, or remove")
+	mode := flags.String("mode", modeError, "action for detections: annotate, error, redact, or remove")
 	_ = flags.Parse(args)
 
 	cfg := config{Mode: strings.ToLower(strings.TrimSpace(*mode))}
 	switch cfg.Mode {
-	case modeError, modeRedact, modeRemove:
+	case modeAnnotate, modeError, modeRedact, modeRemove:
 	default:
 		cfg.Mode = modeError
 	}
@@ -103,14 +105,16 @@ func runWithConfig(input io.Reader, output io.Writer, cfg config) error {
 }
 
 func applyAction(ctx map[string]any, detections []detection, mode string) {
+	addAnnotation(ctx, detections, mode)
 	switch mode {
+	case modeAnnotate:
+		// Observe-only mode intentionally leaves the MCP payload and event status unchanged.
 	case modeRedact, modeRemove:
 		mutatePayload(ctx, mode)
 		markModified(ctx)
 	default:
 		block(ctx, detections)
 	}
-	addAnnotation(ctx, detections, mode)
 }
 
 func scanContext(ctx map[string]any) []detection {
@@ -203,7 +207,7 @@ func scanText(text, path string) []detection {
 				continue
 			}
 			seen[key] = struct{}{}
-			detections = append(detections, detection{Pattern: pattern.name, Path: path})
+			detections = append(detections, detection{Pattern: pattern.name, Path: path, Length: len(text)})
 		}
 	}
 	return detections
@@ -395,18 +399,22 @@ func markModified(ctx map[string]any) {
 func addAnnotation(ctx map[string]any, detections []detection, mode string) {
 	annotations, _ := ensureMap(ctx, "annotations")
 	reports, _ := annotations["reports"].([]any)
+	details := annotationDetails(ctx, detections, mode)
 	reports = append(reports, map[string]any{
 		"processor": "prompt_injection_guard",
 		"action":    actionName(mode),
-		"severity":  "high",
-		"message":   "Obvious prompt injection markers were detected in tool data.",
+		"severity":  severityFor(detections, details),
+		"message":   annotationMessage(detections, details),
 		"findings":  findingSummary(detections),
+		"details":   details,
 	})
 	annotations["reports"] = reports
 }
 
 func actionName(mode string) string {
 	switch mode {
+	case modeAnnotate:
+		return "annotated"
 	case modeRedact:
 		return "redacted"
 	case modeRemove:
@@ -414,6 +422,25 @@ func actionName(mode string) string {
 	default:
 		return "blocked"
 	}
+}
+
+func severityFor(detections []detection, details map[string]any) string {
+	rules := uniqueDetectionRules(detections)
+	if rules["secret_exfiltration"] || (rules["role_marker"] && rules["ignore_previous_instructions"]) {
+		return "critical"
+	}
+	if len(detections) >= 3 || intFromDetails(details, "affected_path_count") >= 2 || floatFromDetails(details, "flagged_text_ratio") >= 0.25 {
+		return "high"
+	}
+	return "medium"
+}
+
+func annotationMessage(detections []detection, details map[string]any) string {
+	return fmt.Sprintf(
+		"Obvious prompt injection markers were detected: %d evidence item(s) across %d path(s).",
+		len(detections),
+		intFromDetails(details, "affected_path_count"),
+	)
 }
 
 func findingSummary(detections []detection) []map[string]string {
@@ -425,6 +452,164 @@ func findingSummary(detections []detection) []map[string]string {
 		})
 	}
 	return summary
+}
+
+func annotationDetails(ctx map[string]any, detections []detection, mode string) map[string]any {
+	totalBytes := totalScannedTextBytes(ctx)
+	flaggedBytes := flaggedTextBytes(detections)
+	ratio := 0.0
+	if totalBytes > 0 {
+		ratio = float64(flaggedBytes) / float64(totalBytes)
+	}
+
+	affectedPaths := uniqueDetectionPaths(detections)
+	rules := sortedRuleNames(uniqueDetectionRules(detections))
+	return map[string]any{
+		"mode":                     mode,
+		"evidence_count":           len(detections),
+		"unique_rule_count":        len(rules),
+		"rules":                    rules,
+		"affected_path_count":      len(affectedPaths),
+		"affected_paths":           affectedPaths,
+		"flagged_text_bytes":       flaggedBytes,
+		"total_scanned_text_bytes": totalBytes,
+		"flagged_text_ratio":       ratio,
+		"source":                   detectionSource(detections),
+	}
+}
+
+func totalScannedTextBytes(ctx map[string]any) int {
+	payload, ok := childMap(ctx, "payload")
+	if !ok {
+		return 0
+	}
+	if result, ok := childMap(payload, "result"); ok {
+		return resultTextBytes(result)
+	}
+	if request, ok := childMap(payload, "request"); ok {
+		params, ok := childMap(request, "Params")
+		if !ok {
+			return 0
+		}
+		return valueTextBytes(params["arguments"])
+	}
+	return 0
+}
+
+func resultTextBytes(result map[string]any) int {
+	total := 0
+	if content, ok := result["content"].([]any); ok {
+		for _, item := range content {
+			entry, ok := item.(map[string]any)
+			if !ok || entry["type"] != "text" {
+				continue
+			}
+			if text, ok := entry["text"].(string); ok {
+				total += len(text)
+			}
+		}
+	}
+	total += valueTextBytes(result["structuredContent"])
+	return total
+}
+
+func valueTextBytes(value any) int {
+	switch typed := value.(type) {
+	case string:
+		return len(typed)
+	case []any:
+		total := 0
+		for _, item := range typed {
+			total += valueTextBytes(item)
+		}
+		return total
+	case map[string]any:
+		total := 0
+		for _, item := range typed {
+			total += valueTextBytes(item)
+		}
+		return total
+	default:
+		return 0
+	}
+}
+
+func flaggedTextBytes(detections []detection) int {
+	byPath := map[string]int{}
+	for _, detection := range detections {
+		if detection.Length > byPath[detection.Path] {
+			byPath[detection.Path] = detection.Length
+		}
+	}
+	total := 0
+	for _, length := range byPath {
+		total += length
+	}
+	return total
+}
+
+func uniqueDetectionPaths(detections []detection) []string {
+	seen := map[string]struct{}{}
+	for _, detection := range detections {
+		seen[detection.Path] = struct{}{}
+	}
+	paths := make([]string, 0, len(seen))
+	for path := range seen {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func uniqueDetectionRules(detections []detection) map[string]bool {
+	rules := map[string]bool{}
+	for _, detection := range detections {
+		rules[detection.Pattern] = true
+	}
+	return rules
+}
+
+func sortedRuleNames(rules map[string]bool) []string {
+	names := make([]string, 0, len(rules))
+	for rule := range rules {
+		names = append(names, rule)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func detectionSource(detections []detection) string {
+	source := ""
+	for _, detection := range detections {
+		next := "unknown"
+		switch {
+		case strings.HasPrefix(detection.Path, "payload.request."):
+			next = "request"
+		case strings.HasPrefix(detection.Path, "payload.result."):
+			next = "result"
+		}
+		if source == "" {
+			source = next
+			continue
+		}
+		if source != next {
+			return "mixed"
+		}
+	}
+	if source == "" {
+		return "unknown"
+	}
+	return source
+}
+
+func intFromDetails(details map[string]any, key string) int {
+	value, _ := details[key].(int)
+	return value
+}
+
+func floatFromDetails(details map[string]any, key string) float64 {
+	value, _ := details[key].(float64)
+	return value
 }
 
 func detectionSummary(detections []detection) []map[string]string {
