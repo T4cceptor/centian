@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"gotest.tools/assert"
@@ -94,6 +95,10 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 						CreatedAtUnixMilli: 1_000,
 						ToolName:           "shell__exec",
 						Success:            true,
+						Annotations: []common.EventAnnotation{{
+							Processor: "prompt_injection_guard",
+							Action:    "blocked",
+						}},
 					}},
 					NextCursor: "cursor-2",
 				}, nil
@@ -113,6 +118,8 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 		assert.NilError(t, err)
 		assert.Equal(t, page.NextCursor, "cursor-2")
 		assert.Equal(t, len(page.Items), 1)
+		assert.Equal(t, page.Items[0].Annotations[0].Processor, "prompt_injection_guard")
+		assert.Equal(t, page.Items[0].Annotations[0].Action, "blocked")
 	})
 
 	t.Run("rejects invalid success values", func(t *testing.T) {

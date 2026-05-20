@@ -42,11 +42,25 @@ export type TaskRunDetailMetadata = {
   benchmarkLinks?: TaskRunBenchmarkLink[];
 };
 
+export type ProcessorAnnotationFinding = {
+  rule?: string;
+  path?: string;
+};
+
+export type ProcessorAnnotation = {
+  processor?: string;
+  action?: string;
+  severity?: string;
+  message?: string;
+  findings?: ProcessorAnnotationFinding[];
+};
+
 export type TaskRunEvent = {
   source: "task" | "action";
   id: string;
   createdAtUnixMilli: number;
   payloadJson?: unknown;
+  annotations?: ProcessorAnnotation[];
   eventType?: string;
   outcome?: string;
   relatedActionRequestId?: string;

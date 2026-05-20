@@ -266,7 +266,7 @@ func TestGetInput_WithAuthPart(t *testing.T) {
 	assert.Equal(t, 1, authHandler.getCalls)
 }
 
-func TestAnnotationHandler_AppendsReportsToMetadata(t *testing.T) {
+func TestAnnotationHandler_AppendsReportsToEventAnnotations(t *testing.T) {
 	callCtx := newMockCallContext()
 	callCtx.SetHandler("annotations", &DefaultAnnotationHandler{})
 
@@ -291,9 +291,7 @@ func TestAnnotationHandler_AppendsReportsToMetadata(t *testing.T) {
 	err := ApplyResult(processorConfig, result, callCtx)
 	assert.NilError(t, err)
 
-	raw := callCtx.GetMetaContext().Metadata[processorAnnotationsMetadataKey]
-	var reports []processor.ProcessorReport
-	assert.NilError(t, json.Unmarshal([]byte(raw), &reports))
+	reports := callCtx.GetMetaContext().Annotations
 	assert.Equal(t, len(reports), 1)
 	assert.Equal(t, reports[0].Processor, "prompt_injection_guard")
 	assert.Equal(t, reports[0].Action, "redacted")

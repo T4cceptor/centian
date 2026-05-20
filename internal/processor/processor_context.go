@@ -46,18 +46,9 @@ type AnnotationPart struct {
 }
 
 // ProcessorReport describes a processor observation or policy action.
-type ProcessorReport struct {
-	Processor string             `json:"processor,omitempty"`
-	Action    string             `json:"action,omitempty"`
-	Severity  string             `json:"severity,omitempty"`
-	Message   string             `json:"message,omitempty"`
-	Findings  []ProcessorFinding `json:"findings,omitempty"`
-}
+type ProcessorReport = common.EventAnnotation
 
 // ProcessorFinding identifies a specific processor finding.
-type ProcessorFinding struct {
-	Rule string `json:"rule,omitempty"`
-	Path string `json:"path,omitempty"`
-}
+type ProcessorFinding = common.EventAnnotationFinding
 
 // TODO: add headers part

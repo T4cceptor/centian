@@ -185,6 +185,7 @@ func (c *ToolCallContext) ToLogEntry() *common.LogEntry {
 
 	entry := &common.LogEntry{
 		BaseMcpEvent: c.meta.BaseMcpEvent,
+		Annotations:  c.meta.Annotations,
 	}
 	entry.Timestamp = time.Now()
 	entry.Success = c.GetStatus() < 400

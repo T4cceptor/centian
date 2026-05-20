@@ -145,7 +145,7 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
 | `payload.original_result` | object | Original downstream result snapshot. |
 | `routing` | object | Current and original server/tool routing data. |
 | `auth` | object | Read-only auth context. |
-| `annotations` | object | Processor-supplied reports about the event. Applied to Centian event metadata, not the MCP request or result payload. |
+| `annotations` | object | Processor-supplied reports about the event. Persisted as Centian event annotations, not applied to the MCP request or result payload. |
 
 Notes:
 
@@ -201,7 +201,7 @@ Fields you return are applied back into the current call context according to th
 
 ### Processor annotations
 
-Use the `annotations` part when a processor needs to tell Centian what it found without changing the MCP call itself. Returned annotation reports are appended to the event metadata under `processor_annotations` as JSON. This keeps policy telemetry in Centian's logs while allowing `payload` to remain unchanged for observe-only processors.
+Use the `annotations` part when a processor needs to tell Centian what it found without changing the MCP call itself. Returned annotation reports are persisted as event annotations and exposed in event APIs, while allowing `payload` to remain unchanged for observe-only processors.
 
 ## Configuration in Centian
 

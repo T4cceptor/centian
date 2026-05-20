@@ -1,5 +1,5 @@
 import { loadStoredApiAuth, unauthorizedAuthHeaderHint } from "./api-auth";
-import { ApiError } from "./task-runs";
+import { ApiError, type ProcessorAnnotation } from "./task-runs";
 
 export type EventListFilters = {
   gateway?: string;
@@ -30,6 +30,7 @@ export type EventListItem = {
   success: boolean;
   isError: boolean;
   payloadJson?: unknown;
+  annotations?: ProcessorAnnotation[];
   taskRunId?: string;
   invocationPhasePath?: string;
   invocationNodeKind?: string;

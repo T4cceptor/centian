@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/persistence"
 	"gotest.tools/assert"
@@ -193,6 +194,16 @@ func TestHandler_GetTaskRunEvents(t *testing.T) {
 					ID:                 identifiers.New(identifiers.KindTaskEvent),
 					CreatedAtUnixMilli: 1234,
 					EventType:          "task_started",
+				}, {
+					Source:             persistence.TaskRunEventSourceAction,
+					ID:                 identifiers.New(identifiers.KindActionEvent),
+					CreatedAtUnixMilli: 1235,
+					RequestID:          identifiers.New(identifiers.KindRequest),
+					Annotations: []common.EventAnnotation{{
+						Processor: "prompt_injection_guard",
+						Action:    "redacted",
+						Severity:  "high",
+					}},
 				}}, nil
 			},
 		})
@@ -211,8 +222,10 @@ func TestHandler_GetTaskRunEvents(t *testing.T) {
 		var events []persistence.TaskRunEvent
 		err := json.Unmarshal(rec.Body.Bytes(), &events)
 		assert.NilError(t, err)
-		assert.Equal(t, len(events), 1)
+		assert.Equal(t, len(events), 2)
 		assert.Equal(t, events[0].EventType, "task_started")
+		assert.Equal(t, events[1].Annotations[0].Processor, "prompt_injection_guard")
+		assert.Equal(t, events[1].Annotations[0].Action, "redacted")
 	})
 
 	t.Run("rejects invalid run ids before store lookup", func(t *testing.T) {

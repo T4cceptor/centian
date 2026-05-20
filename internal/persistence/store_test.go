@@ -20,7 +20,8 @@ import (
 )
 
 func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
-	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+	store, err := NewSQLiteStore(path)
 	assert.NilError(t, err)
 	t.Cleanup(func() {
 		_ = store.Close()
@@ -126,6 +127,109 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 	assert.Equal(t, actionEvents[0].MessageType, string(common.MessageTypeRequest))
 	assert.Equal(t, actionEvents[1].Direction, string(common.DirectionServerToClient))
 	assert.Equal(t, actionEvents[1].MessageType, string(common.MessageTypeResponse))
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	annotationColumns, err := tableColumns(db, "event_annotations")
+	assert.NilError(t, err)
+	assert.Assert(t, annotationColumns["action_event_id"])
+	assert.Assert(t, annotationColumns["raw_json"])
+}
+
+func TestAppendActionEventPersistsAnnotationsSeparately(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	err = store.AppendActionEventTaskContext(taskverification.ActionEventTaskContext{
+		RequestID:           "annotated-1",
+		TaskRunID:           "run-annotated",
+		InvocationPhasePath: taskverification.TaskPhaseExecution,
+		InvocationNodeKind:  taskverification.WorkflowNodeKindExecution,
+		CreatedAtUnixMilli:  1000,
+	})
+	assert.NilError(t, err)
+
+	entry := &common.LogEntry{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:   time.UnixMilli(1000).UTC(),
+			RequestID:   "annotated-1",
+			SessionID:   "session-1",
+			Transport:   "http",
+			MessageType: common.MessageTypeResponse,
+			Direction:   common.DirectionServerToClient,
+			Success:     true,
+			Metadata: map[string]string{
+				"principal_id":          "principal-1",
+				"processor_annotations": "legacy-value",
+			},
+		},
+		Routing: common.RoutingContext{
+			Gateway:    "gw",
+			ServerName: "server-a",
+			Endpoint:   "/mcp/gw",
+		},
+		Annotations: []common.EventAnnotation{
+			{
+				Processor: "prompt_injection_guard",
+				Action:    "redacted",
+				Severity:  "high",
+				Message:   "Suspicious tool result content was redacted.",
+				Findings: []common.EventAnnotationFinding{
+					{Rule: "role_marker", Path: "payload.result.content[0].text"},
+					{Rule: "secret_exfiltration", Path: "payload.result.content[1].text"},
+				},
+			},
+		},
+	}
+	entry.WithToolRequest("search", "search", json.RawMessage(`{"query":"test"}`))
+	entry.WithToolResult(json.RawMessage(`{"content":[{"type":"text","text":"ok"}]}`), false)
+
+	err = store.AppendActionEvent(entry)
+	assert.NilError(t, err)
+
+	actionEvents, err := store.ActionEventsByRequestID("annotated-1")
+	assert.NilError(t, err)
+	assert.Equal(t, len(actionEvents), 1)
+
+	var payload map[string]any
+	assert.NilError(t, json.Unmarshal(actionEvents[0].PayloadJSON, &payload))
+	_, topLevelAnnotations := payload["annotations"]
+	assert.Assert(t, !topLevelAnnotations)
+	metadata := payload["metadata"].(map[string]any)
+	assert.Equal(t, metadata["principal_id"], "principal-1")
+	_, legacyAnnotations := metadata["processor_annotations"]
+	assert.Assert(t, !legacyAnnotations)
+
+	rows := make([]eventAnnotationRow, 0)
+	err = store.DB().NewSelect().
+		Model(&rows).
+		Where("action_event_id = ?", actionEvents[0].ID).
+		Order("path ASC").
+		Scan(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(rows), 2)
+	assert.Equal(t, rows[0].Processor, "prompt_injection_guard")
+	assert.Equal(t, rows[0].Action, "redacted")
+	assert.Equal(t, rows[0].Severity, "high")
+	assert.Assert(t, rows[0].Rule != "")
+	assert.Assert(t, rows[0].RawJSON != nil)
+
+	eventPage, err := store.ListEvents(context.Background(), &EventListFilter{RequestID: "annotated-1"})
+	assert.NilError(t, err)
+	assert.Equal(t, len(eventPage.Items), 1)
+	assert.Equal(t, len(eventPage.Items[0].Annotations), 2)
+	assert.Equal(t, eventPage.Items[0].Annotations[0].Processor, "prompt_injection_guard")
+	assert.Equal(t, len(eventPage.Items[0].Annotations[0].Findings), 1)
+
+	taskEvents, err := store.GetTaskRunEvents(context.Background(), "run-annotated")
+	assert.NilError(t, err)
+	assert.Equal(t, len(taskEvents), 1)
+	assert.Equal(t, len(taskEvents[0].Annotations), 2)
+	assert.Equal(t, taskEvents[0].Annotations[0].Action, "redacted")
 }
 
 func TestNewSQLiteStoreBootstrapIsIdempotent(t *testing.T) {
@@ -229,6 +333,34 @@ func TestNewSQLiteStoreMigratesBenchmarkLinksV5ToV6(t *testing.T) {
 	linkCount, err := sqliteMasterCount(db, "table", "benchmark_run_task_runs")
 	assert.NilError(t, err)
 	assert.Equal(t, linkCount, 1)
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, schemaVersion)
+}
+
+func TestNewSQLiteStoreMigratesAnnotationsV6ToV7(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	seedSchemaVersion6Store(t, db)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.NilError(t, err)
+	assert.NilError(t, store.Close())
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	columns, err := tableColumns(db, "event_annotations")
+	assert.NilError(t, err)
+	assert.Assert(t, columns["action_event_id"])
+	assert.Assert(t, columns["request_id"])
+	assert.Assert(t, columns["raw_json"])
 
 	var version int
 	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
@@ -1350,6 +1482,43 @@ INSERT INTO benchmark_run_scores (
 		1,
 	)
 	assert.NilError(t, err)
+}
+
+func seedSchemaVersion6Store(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	_, err := db.Exec(`CREATE TABLE event_store_schema (name TEXT PRIMARY KEY, version INTEGER NOT NULL)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_store_schema(name, version) VALUES ('event_storage', 6)`)
+	assert.NilError(t, err)
+
+	stmts := []string{
+		`CREATE TABLE action_events (
+			id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			created_at_unix_milli INTEGER NOT NULL,
+			request_id TEXT NOT NULL,
+			session_id TEXT,
+			principal_id TEXT,
+			transport TEXT,
+			direction TEXT,
+			message_type TEXT,
+			gateway TEXT,
+			server_name TEXT,
+			endpoint TEXT,
+			tool_name TEXT,
+			original_tool_name TEXT,
+			success BOOLEAN NOT NULL,
+			is_error BOOLEAN NOT NULL,
+			payload_json BLOB
+		)`,
+		`CREATE INDEX idx_action_events_request_id ON action_events(request_id)`,
+		`CREATE INDEX idx_action_events_created_at ON action_events(created_at_unix_milli)`,
+	}
+	for _, stmt := range stmts {
+		_, err = db.Exec(stmt)
+		assert.NilError(t, err)
+	}
 }
 
 func insertTaskRunSnapshotRow(t *testing.T, db *sql.DB, runID string, status string) {
