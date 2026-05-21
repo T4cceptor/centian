@@ -575,6 +575,11 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 		byName[tool.Name] = tool
 	}
 
+	registerSchema := byName[taskRegisterTool].InputSchema.(map[string]any)
+	registerProps := registerSchema["properties"].(map[string]any)
+	assert.Assert(t, registerProps["task_description"] != nil)
+	assert.Assert(t, registerProps["annotations"] != nil)
+
 	onboardingSchema := byName[taskCompleteOnboardingTool].InputSchema.(map[string]any)
 	onboardingProps := onboardingSchema["properties"].(map[string]any)["onboarding"].(map[string]any)["properties"].(map[string]any)
 	assert.Assert(t, onboardingProps["taskSummary"] != nil)
@@ -598,6 +603,24 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	assert.Equal(t, listTool.Annotations.IdempotentHint, true)
 	assert.Assert(t, listTool.Annotations.OpenWorldHint != nil)
 	assert.Equal(t, *listTool.Annotations.OpenWorldHint, false)
+
+	for _, toolName := range []string{
+		taskListTemplatesTool,
+		taskRegisterTool,
+		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
+		taskStartStepTool,
+		taskCompleteStepTool,
+		taskResumeTool,
+		taskRestartTool,
+		taskFailTool,
+	} {
+		tool := byName[toolName]
+		assert.Assert(t, tool != nil)
+		schema := tool.InputSchema.(map[string]any)
+		props := schema["properties"].(map[string]any)
+		assert.Assert(t, props["annotations"] != nil, "missing annotations schema on %s", toolName)
+	}
 
 	for _, toolName := range []string{
 		taskRegisterTool,
@@ -1056,7 +1079,11 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
-			"templateId": "task",
+			"templateId":       "task",
+			"task_description": "Resolve the incident using the governed workflow.",
+			"annotations": []any{
+				map[string]any{"phase": "registration", "note": "human context"},
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -1064,6 +1091,9 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{"taskSummary": "Stored summary"},
+			"annotations": []any{
+				"onboarding context captured",
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -1080,6 +1110,16 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	assert.Equal(t, len(taskEvents), 2)
 	assert.Equal(t, taskEvents[0].EventType, taskverification.TaskEventTypeRegistered)
 	assert.Equal(t, taskEvents[1].EventType, taskverification.TaskEventTypeOnboardingCompleted)
+	var registerPayload map[string]any
+	assert.NilError(t, json.Unmarshal(taskEvents[0].Payload, &registerPayload))
+	assert.Equal(t, registerPayload["taskDescription"], "Resolve the incident using the governed workflow.")
+	registerAnnotations := registerPayload["annotations"].([]any)
+	assert.Equal(t, len(registerAnnotations), 1)
+	assert.Equal(t, registerAnnotations[0].(map[string]any)["note"], "human context")
+	var onboardingPayload map[string]any
+	assert.NilError(t, json.Unmarshal(taskEvents[1].Payload, &onboardingPayload))
+	onboardingAnnotations := onboardingPayload["annotations"].([]any)
+	assert.Equal(t, onboardingAnnotations[0], "onboarding context captured")
 
 	contexts, err := store.ActionEventTaskContexts()
 	assert.NilError(t, err)

@@ -55,9 +55,11 @@ workflow:
 
 	key := testRunStoreContextKey{}
 	ctx := context.WithValue(context.Background(), key, "request-scope")
-	run, err := service.RegisterTask(ctx, "simple_tdd")
+	run, err := service.RegisterTaskWithDescription(ctx, "simple_tdd", "Resolve payment incident")
 	assert.NilError(t, err)
 	assert.Equal(t, run.TemplateID, "simple_tdd")
+	assert.Equal(t, run.TaskDescription, "Resolve payment incident")
+	assert.Equal(t, store.latest().TaskDescription, "Resolve payment incident")
 	assert.Assert(t, store.lastCtx != nil)
 	assert.Equal(t, store.lastCtx.Value(key), "request-scope")
 }

@@ -56,6 +56,71 @@ func TestLoadSyntheticDemoScenarioFile(t *testing.T) {
 	}
 }
 
+func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
+	path := filepath.Join("..", "..", "demo", "it_ops", "synthetic_demo.json")
+	scenario, data, err := loadSyntheticDemoScenario(path)
+	if err != nil {
+		t.Fatalf("loadSyntheticDemoScenario: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected ops demo scenario bytes")
+	}
+	if scenario.Defaults.TemplateID != "it_incident_resolution" {
+		t.Fatalf("expected it_incident_resolution template, got %q", scenario.Defaults.TemplateID)
+	}
+
+	var sawPromptInjectionAnnotation bool
+	var sawAllowlistDenial bool
+	var sawPreconditionFailure bool
+	var sawFrozenChecksComplete bool
+	for _, item := range scenario.Timeline {
+		if item.ActionEvent != nil {
+			event := item.ActionEvent
+			for _, annotation := range event.Annotations {
+				if annotation.Processor == "prompt_injection_guard" && annotation.Action == "redacted" {
+					sawPromptInjectionAnnotation = true
+				}
+			}
+			if event.Error == "restart_service is not permitted in step root_cause_analysis." {
+				sawAllowlistDenial = true
+			}
+			if event.Error == "Cannot start step `resolution`: precondition `rca_documented` not met." {
+				sawPreconditionFailure = true
+			}
+			if event.ToolCall != nil && event.ToolCall.Name == "centian.task_complete_step" &&
+				strings.Contains(string(event.ToolCall.Result), "latency_within_target") &&
+				strings.Contains(string(event.ToolCall.Result), "service_healthy") {
+				sawFrozenChecksComplete = true
+			}
+		}
+	}
+	if !sawPromptInjectionAnnotation {
+		t.Fatal("expected prompt injection annotation beat")
+	}
+	if !sawAllowlistDenial {
+		t.Fatal("expected allowlist denial beat")
+	}
+	if !sawPreconditionFailure {
+		t.Fatal("expected precondition failure beat")
+	}
+	if !sawFrozenChecksComplete {
+		t.Fatal("expected frozen verification completion beat")
+	}
+
+	replayer := syntheticDemoReplayer{
+		now: func() time.Time {
+			return time.UnixMilli(1_779_318_000_000).UTC()
+		},
+		sleep: func(context.Context, time.Duration) error {
+			return nil
+		},
+	}
+	layout := &demoLayout{EventStorePath: filepath.Join(t.TempDir(), "events.sqlite")}
+	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
+		t.Fatalf("replay ops scenario: %v", err)
+	}
+}
+
 func TestValidateSyntheticDemoScenarioRejectsInvalidInputs(t *testing.T) {
 	tests := []struct {
 		name     string

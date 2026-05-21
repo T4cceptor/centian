@@ -81,6 +81,11 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 
 // RegisterTask creates a shell task run from the selected template.
 func (s *Service) RegisterTask(ctx context.Context, templateID string) (*RunState, error) {
+	return s.RegisterTaskWithDescription(ctx, templateID, "")
+}
+
+// RegisterTaskWithDescription creates a task run with an optional human-facing task description.
+func (s *Service) RegisterTaskWithDescription(ctx context.Context, templateID, taskDescription string) (*RunState, error) {
 	template, err := s.loadTemplateByID(templateID)
 	if err != nil {
 		return nil, err
@@ -89,6 +94,7 @@ func (s *Service) RegisterTask(ctx context.Context, templateID string) (*RunStat
 	run := &RunState{
 		RunID:            newTaskRunID(),
 		TemplateID:       template.Task.ID,
+		TaskDescription:  strings.TrimSpace(taskDescription),
 		SelectedTemplate: *template,
 		Status:           TaskStatusActive,
 		Phase:            template.CompiledWorkflow.OnboardingPath,

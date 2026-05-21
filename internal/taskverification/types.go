@@ -398,6 +398,8 @@ type RunState struct {
 	RunID string `json:"taskRunId"`
 	// TemplateID is the identifier of the template this run was registered from.
 	TemplateID string `json:"templateId"`
+	// TaskDescription is the user/agent supplied description of this specific task run.
+	TaskDescription string `json:"taskDescription,omitempty"`
 	// SelectedTemplate is the original unresolved template chosen at registration time and is not serialized.
 	SelectedTemplate Template `json:"-"`
 	// Status is the overall lifecycle status of the task run.

@@ -5,6 +5,7 @@ type PersistedRunSnapshot struct {
 	RunID                   string                       `json:"runId"`
 	TemplateID              string                       `json:"templateId"`
 	TemplateName            string                       `json:"templateName"`
+	TaskDescription         string                       `json:"taskDescription,omitempty"`
 	Status                  string                       `json:"status"`
 	Phase                   string                       `json:"phase"`
 	WorkflowReady           bool                         `json:"workflowReady"`

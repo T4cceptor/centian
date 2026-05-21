@@ -63,6 +63,7 @@ func snapshotRunState(run *RunState) (*taskruns.PersistedRunSnapshot, error) {
 		RunID:                   run.RunID,
 		TemplateID:              run.TemplateID,
 		TemplateName:            run.SelectedTemplate.Task.Name,
+		TaskDescription:         run.TaskDescription,
 		Status:                  string(run.Status),
 		Phase:                   string(run.Phase),
 		WorkflowReady:           run.WorkflowReady,

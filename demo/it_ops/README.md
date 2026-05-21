@@ -52,3 +52,20 @@ Stop Postgres with:
 ```bash
 make postgres-down
 ```
+
+## Synthetic Timeline
+
+The synthetic ops incident timeline is available at `demo/it_ops/synthetic_demo.json`.
+
+Run it with:
+
+```bash
+go run . demo --file demo/it_ops/synthetic_demo.json
+```
+
+It demonstrates four beats:
+
+- Prompt injection stripped from a Splunk result before delivery to the agent.
+- A restart blocked by the root-cause-analysis tool allowlist.
+- A resolution start blocked by the `rca_documented` precondition.
+- Final completion only after `service_healthy` and `latency_within_target` pass.
