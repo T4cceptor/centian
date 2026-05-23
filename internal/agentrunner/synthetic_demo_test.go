@@ -121,6 +121,22 @@ func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
 	}
 }
 
+func TestLoadRegisteredSyntheticDemo(t *testing.T) {
+	definition, scenario, err := loadRegisteredSyntheticDemo("it_ops")
+	if err != nil {
+		t.Fatalf("loadRegisteredSyntheticDemo: %v", err)
+	}
+	if definition.ID != "it_ops" {
+		t.Fatalf("expected it_ops definition, got %q", definition.ID)
+	}
+	if scenario.Defaults.TemplateID != "it_incident_resolution" {
+		t.Fatalf("expected it_incident_resolution template, got %q", scenario.Defaults.TemplateID)
+	}
+	if scenario.DurationMS != 72_000 {
+		t.Fatalf("expected 72000ms duration, got %d", scenario.DurationMS)
+	}
+}
+
 func TestValidateSyntheticDemoScenarioRejectsInvalidInputs(t *testing.T) {
 	tests := []struct {
 		name     string

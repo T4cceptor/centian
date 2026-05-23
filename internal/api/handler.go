@@ -16,6 +16,7 @@ import (
 type Store interface {
 	ListTaskRuns(ctx context.Context, filter persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error)
 	GetTaskRun(ctx context.Context, runID string) (*persistence.TaskRunSummary, error)
+	GetTaskRunSnapshot(ctx context.Context, runID string) (*persistence.TaskRunSnapshotRecord, error)
 	ListTaskRunBenchmarkLinks(ctx context.Context, runID string) ([]persistence.TaskRunBenchmarkLink, error)
 	GetTaskRunEvents(ctx context.Context, runID string) ([]persistence.TaskRunEvent, error)
 }
@@ -93,10 +94,21 @@ func (h *Handler) handleGetTaskRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get task run")
 		return
 	}
-	writeJSON(w, http.StatusOK, persistence.TaskRunDetailMetadata{
+	detail := persistence.TaskRunDetailMetadata{
 		RunID:          summary.RunID,
+		Summary:        summary,
 		BenchmarkLinks: links,
-	})
+	}
+	snapshot, err := h.store.GetTaskRunSnapshot(r.Context(), runID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "failed to get task run")
+			return
+		}
+	} else if snapshot != nil {
+		detail.Snapshot = snapshot.Payload
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *Handler) handleGetTaskRunEvents(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +124,20 @@ func (h *Handler) handleGetTaskRunEvents(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if len(events) == 0 {
-		writeError(w, http.StatusNotFound, "task run not found")
+		summary, err := h.store.GetTaskRun(r.Context(), runID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "task run not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to get task run events")
+			return
+		}
+		if summary == nil {
+			writeError(w, http.StatusNotFound, "task run not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, []persistence.TaskRunEvent{})
 		return
 	}
 	writeJSON(w, http.StatusOK, events)

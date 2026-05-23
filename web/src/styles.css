@@ -180,6 +180,38 @@ code,
   text-transform: uppercase;
 }
 
+.task-run-list__toolbar-actions,
+.demo-launcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.demo-launcher {
+  margin-top: 14px;
+}
+
+.task-run-list__toolbar-actions .demo-launcher {
+  margin-top: 0;
+}
+
+.demo-launcher__error {
+  color: var(--accent-danger);
+  font-size: 0.86rem;
+}
+
+.demo-launcher__spinner {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid rgba(140, 230, 216, 0.22);
+  border-top-color: var(--accent-strong);
+  border-radius: 50%;
+  animation: centian-spin 0.8s linear infinite;
+}
+
 .task-run-filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1171,6 +1203,13 @@ code,
   cursor: pointer;
 }
 
+.action-button--with-spinner {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
 .action-button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
@@ -1184,6 +1223,12 @@ code,
 .task-run-detail {
   display: grid;
   gap: 14px;
+}
+
+@keyframes centian-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .task-run-detail__workspace {
@@ -1201,28 +1246,79 @@ code,
 }
 
 .task-run-detail__header {
-  justify-content: space-between;
-  align-items: start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto minmax(72px, 1fr);
+  align-items: center;
+  gap: 18px;
 }
 
 .task-run-detail__title-block {
   display: grid;
-  gap: 4px;
+  gap: 8px;
+  justify-items: start;
 }
 
+.task-run-detail__nav-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-self: start;
+}
+
+.task-run-detail__back-link,
 .task-run-detail__benchmark-link {
-  margin-left: auto;
-  padding: 14px 24px;
-  border: 1px solid rgba(116, 204, 194, 0.24);
-  border-radius: 999px;
+  justify-self: start;
+  gap: 6px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.task-run-detail__title {
+  justify-self: center;
+  margin: 0;
   color: var(--accent-strong);
-  background: linear-gradient(180deg, rgba(10, 20, 30, 0.76), rgba(8, 16, 24, 0.9));
-  box-shadow: inset 0 1px 0 rgba(140, 230, 216, 0.12);
-  text-decoration: none;
-  font-size: 0.98rem;
+  font-size: 1.72rem;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.task-progress-donut {
+  --task-progress: 0%;
+  --task-progress-color: #7eb3ff;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  justify-self: end;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(8, 20, 31, 0.95) 0 56%, transparent 57%),
+    conic-gradient(var(--task-progress-color) var(--task-progress), rgba(116, 144, 152, 0.22) 0);
+  box-shadow:
+    inset 0 0 0 1px rgba(140, 230, 216, 0.1),
+    0 0 0 1px rgba(140, 230, 216, 0.14);
+}
+
+.task-progress-donut--success {
+  --task-progress-color: var(--accent-success);
+}
+
+.task-progress-donut--active {
+  --task-progress-color: #7eb3ff;
+}
+
+.task-progress-donut--failed {
+  --task-progress-color: var(--accent-danger);
+}
+
+.task-progress-donut__value {
+  color: var(--accent-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
   line-height: 1;
-  align-self: center;
 }
 
 .task-run-detail__benchmark-link:hover {

@@ -19,8 +19,12 @@ function createFetchResponse(body: unknown, status: number = 200): Response {
   } as Response;
 }
 
-function createTaskRunDetailResponse(runId: string, benchmarkLinks: unknown[] = []): Response {
-  return createFetchResponse({ runId, benchmarkLinks });
+function createTaskRunDetailResponse(
+  runId: string,
+  benchmarkLinks: unknown[] = [],
+  extra: Record<string, unknown> = {},
+): Response {
+  return createFetchResponse({ runId, benchmarkLinks, ...extra });
 }
 
 function deferred<T>() {
@@ -115,6 +119,54 @@ describe("task run list", () => {
     renderApp();
 
     expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
+  });
+
+  it("starts the IT ops demo and navigates to the new run", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(createFetchResponse([]))
+      .mockResolvedValueOnce(
+        createFetchResponse(
+          {
+            runId: "tr_1742947200123_0000000001",
+            demoId: "it_ops",
+            durationMs: 72000,
+          },
+          202,
+        ),
+      )
+      .mockResolvedValueOnce(createFetchResponse([]))
+      .mockResolvedValueOnce(createTaskRunDetailResponse("tr_1742947200123_0000000001")) as typeof fetch;
+
+    renderApp();
+    await user.click(await screen.findByRole("button", { name: "Run IT Ops Demo" }));
+
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/demos/it_ops/runs",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.any(Headers),
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Starting IT Ops Demo" })).toHaveAttribute("aria-busy", "true");
+    expect(await screen.findByText("Agent Task Details", undefined, { timeout: 2500 })).toBeInTheDocument();
+    expect(screen.getByLabelText("Task progress: 0% complete")).toBeInTheDocument();
+  }, 7000);
+
+  it("shows a concise message when the IT ops demo cannot start", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(createFetchResponse([]))
+      .mockResolvedValueOnce(createFetchResponse({ error: "failed" }, 500)) as typeof fetch;
+
+    renderApp();
+
+    await user.click(await screen.findByRole("button", { name: "Run IT Ops Demo" }));
+
+    expect(await screen.findByText("Unable to start the IT ops demo right now.")).toBeInTheDocument();
   });
 
   it("polls the task run list and refreshes new runs in place", async () => {
@@ -339,8 +391,10 @@ describe("task run list", () => {
 
     await user.click(await screen.findByRole("link", { name: /tr_1742947200123_0000000001/i }));
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
-    expect(screen.getByText(/TR · 0000000001/)).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task progress: 0% complete")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Task Runs" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Centian Monitor")).not.toBeInTheDocument();
   });
 
   it("applies the benchmark suite filter from the url", async () => {
@@ -601,8 +655,99 @@ describe("task run detail", () => {
     expect(screen.getByTestId("task-run-detail-loading")).toBeInTheDocument();
     pending.resolve(createFetchResponse([]));
     await waitFor(() => {
-      expect(screen.getByText("Run Detail")).toBeInTheDocument();
+      expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
     });
+  });
+
+  it("shows step completion progress in the detail header", async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947198123_0000000000",
+            createdAtUnixMilli: 1742947198123,
+            eventType: "onboarding_completed",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "planning",
+            nodeKind: "onboarding",
+          },
+          {
+            source: "task",
+            id: "te_1742947199123_0000000001",
+            createdAtUnixMilli: 1742947199123,
+            eventType: "planning_completed",
+            outcome: "succeeded",
+            phasePath: "planning",
+            resultingPhasePath: "execution.root_cause_analysis",
+            nodeKind: "planning",
+          },
+          {
+            source: "task",
+            id: "te_1742947200123_0000000002",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "execution.root_cause_analysis",
+            resultingPhasePath: "execution.root_cause_analysis",
+            nodeKind: "execution",
+          },
+          {
+            source: "task",
+            id: "te_1742947201123_0000000003",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_completed",
+            outcome: "succeeded",
+            phasePath: "execution.root_cause_analysis",
+            resultingPhasePath: "execution.root_cause_documentation",
+            nodeKind: "execution",
+          },
+          {
+            source: "task",
+            id: "te_1742947202123_0000000004",
+            createdAtUnixMilli: 1742947202123,
+            eventType: "step_started",
+            outcome: "succeeded",
+            phasePath: "execution.root_cause_documentation",
+            resultingPhasePath: "execution.root_cause_documentation",
+            nodeKind: "execution",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        createTaskRunDetailResponse("tr_1742947200123_0000000001", [], {
+          snapshot: {
+            runId: "tr_1742947200123_0000000001",
+            templateId: "it_incident_resolution",
+            templateName: "IT Incident Resolution",
+            status: "active",
+            phase: "execution.root_cause_documentation",
+            workflowReady: true,
+            selectedTemplate: {
+              version: "0.1",
+              task: {
+                id: "it_incident_resolution",
+                name: "IT Incident Resolution",
+                description: "Resolve an unhealthy payment service incident.",
+              },
+              compiledWorkflow: {
+                workflowSteps: [
+                  { id: "root_cause_analysis", path: "execution.root_cause_analysis" },
+                  { id: "root_cause_documentation", path: "execution.root_cause_documentation" },
+                  { id: "resolution", path: "execution.resolution" },
+                ],
+              },
+            },
+          },
+        }),
+      ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task progress: 63% complete")).toHaveClass("task-progress-donut--active");
   });
 
   it("polls the detail timeline once per second while the run is active", async () => {
@@ -650,7 +795,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
@@ -695,7 +840,7 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     await act(async () => {});
-    expect(screen.getByText("Run Detail")).toBeInTheDocument();
+    expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByText("5s")).toBeInTheDocument();
 
     await act(async () => {
@@ -739,7 +884,7 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     await act(async () => {});
-    expect(screen.getByText("Run Detail")).toBeInTheDocument();
+    expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByText("3s")).toBeInTheDocument();
 
     await act(async () => {
@@ -770,7 +915,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     await new Promise((resolve) => window.setTimeout(resolve, 2200));
 
@@ -821,8 +966,8 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
-    expect(screen.getByText("active")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task progress: 25% complete")).toHaveClass("task-progress-donut--active");
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -884,7 +1029,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByRole("link", { name: "Benchmark Run" })).toHaveAttribute(
+    expect(await screen.findByRole("link", { name: "See Benchmark" })).toHaveAttribute(
       "href",
       "/benchmarks/simple_tdd_v1/runs/ba_score",
     );
@@ -988,7 +1133,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByLabelText("Onboarding")).toBeInTheDocument();
     expect(screen.getByText("300ms")).toBeInTheDocument();
 
@@ -1068,7 +1213,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual([
@@ -1121,7 +1266,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
     expect(screen.getByText("error")).toBeInTheDocument();
@@ -1187,7 +1332,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "filesystem - create_directory"]);
     expect(screen.getByText("300ms")).toBeInTheDocument();
@@ -1226,7 +1371,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered"]);
   });
@@ -1264,7 +1409,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.queryByText("Inspector")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for task registered/i }));
@@ -1314,7 +1459,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Onboarding Completed")).toBeInTheDocument();
@@ -1357,7 +1502,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for planning completed/i }));
     expect(screen.getAllByText("success").length).toBeGreaterThan(0);
@@ -1396,7 +1541,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for planning completed/i }));
     const inspector = screen.getByText("Inspector").closest(".task-detail-panel__surface");
@@ -1440,7 +1585,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for step started/i }));
     const inspector = screen.getByText("Inspector").closest(".task-detail-panel__surface");
@@ -1480,7 +1625,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
 
@@ -1542,7 +1687,7 @@ describe("task run detail", () => {
 
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
-    expect(await screen.findByText("Run Detail")).toBeInTheDocument();
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     const planningSections = screen.getAllByLabelText("Planning");
     expect(planningSections).toHaveLength(2);

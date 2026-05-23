@@ -49,6 +49,15 @@ type syntheticDemoReplayer struct {
 	sleep func(context.Context, time.Duration) error
 }
 
+type syntheticDemoReplayState struct {
+	defaults       *syntheticDemoDefaults
+	start          time.Time
+	previousOffset int64
+	seenContexts   map[string]struct{}
+	requestIDs     map[string]string
+	nextIndex      int
+}
+
 func newSyntheticDemoReplayer() syntheticDemoReplayer {
 	return syntheticDemoReplayer{
 		now: time.Now,
@@ -180,25 +189,51 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 		_ = store.Close()
 	}()
 
-	defaults := resolveSyntheticDemoDefaults(&scenario.Defaults)
-	start := r.now().UTC()
-	var previousOffset int64
-	seenContexts := make(map[string]struct{})
-	requestIDs := make(map[string]string)
-	for idx := range scenario.Timeline {
+	return r.replayToStore(ctx, store, scenario)
+}
+
+func (r syntheticDemoReplayer) replayToStore(ctx context.Context, store *persistence.Store, scenario *syntheticDemoScenario) error {
+	if store == nil {
+		return fmt.Errorf("demo event store is required")
+	}
+	if scenario == nil {
+		return fmt.Errorf("demo scenario is required")
+	}
+	if r.now == nil {
+		r.now = time.Now
+	}
+	if r.sleep == nil {
+		r.sleep = newSyntheticDemoReplayer().sleep
+	}
+
+	state := r.newReplayState(scenario)
+	return r.replayToStoreFromState(ctx, store, scenario, state)
+}
+
+func (r syntheticDemoReplayer) newReplayState(scenario *syntheticDemoScenario) syntheticDemoReplayState {
+	return syntheticDemoReplayState{
+		defaults:     resolveSyntheticDemoDefaults(&scenario.Defaults),
+		start:        r.now().UTC(),
+		seenContexts: make(map[string]struct{}),
+		requestIDs:   make(map[string]string),
+	}
+}
+
+func (r syntheticDemoReplayer) replayToStoreFromState(ctx context.Context, store *persistence.Store, scenario *syntheticDemoScenario, state syntheticDemoReplayState) error {
+	for idx := state.nextIndex; idx < len(scenario.Timeline); idx++ {
 		item := scenario.Timeline[idx]
-		delay := time.Duration(item.OffsetMS-previousOffset) * time.Millisecond
+		delay := time.Duration(item.OffsetMS-state.previousOffset) * time.Millisecond
 		if err := r.sleep(ctx, delay); err != nil {
 			return fmt.Errorf("replay demo item %d: %w", idx, err)
 		}
-		previousOffset = item.OffsetMS
-		if err := applySyntheticDemoItem(ctx, store, defaults, start.Add(time.Duration(item.OffsetMS)*time.Millisecond), item, seenContexts, requestIDs); err != nil {
+		state.previousOffset = item.OffsetMS
+		if err := applySyntheticDemoItem(ctx, store, state.defaults, state.start.Add(time.Duration(item.OffsetMS)*time.Millisecond), item, state.seenContexts, state.requestIDs); err != nil {
 			return fmt.Errorf("replay demo item %d: %w", idx, err)
 		}
 	}
 
-	if scenario.DurationMS > 0 && int64(scenario.DurationMS) > previousOffset {
-		if err := r.sleep(ctx, time.Duration(int64(scenario.DurationMS)-previousOffset)*time.Millisecond); err != nil {
+	if scenario.DurationMS > 0 && int64(scenario.DurationMS) > state.previousOffset {
+		if err := r.sleep(ctx, time.Duration(int64(scenario.DurationMS)-state.previousOffset)*time.Millisecond); err != nil {
 			return fmt.Errorf("finish demo replay: %w", err)
 		}
 	}

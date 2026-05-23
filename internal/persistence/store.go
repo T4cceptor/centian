@@ -15,6 +15,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
+	"github.com/T4cceptor/centian/internal/taskruns"
 
 	// TODO: refactor this out of here so persistence only deals with database access.
 	"github.com/T4cceptor/centian/internal/taskverification"
@@ -85,8 +86,10 @@ type TaskRunBenchmarkLink struct {
 
 // TaskRunDetailMetadata is the non-event metadata used by the task-run detail view.
 type TaskRunDetailMetadata struct {
-	RunID          string                 `json:"runId"`
-	BenchmarkLinks []TaskRunBenchmarkLink `json:"benchmarkLinks,omitempty"`
+	RunID          string                         `json:"runId"`
+	Summary        *TaskRunSummary                `json:"summary,omitempty"`
+	Snapshot       *taskruns.PersistedRunSnapshot `json:"snapshot,omitempty"`
+	BenchmarkLinks []TaskRunBenchmarkLink         `json:"benchmarkLinks,omitempty"`
 }
 
 // TaskRunEventSource identifies where one timeline row originated.

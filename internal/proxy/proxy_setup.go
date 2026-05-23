@@ -383,6 +383,10 @@ func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
 	centapi.NewBenchmarkHandler(benchmarks.NewReadService(project.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 		return wrapWithAPIKeyAuth(c, project.Slug, next)
 	})
+
+	centapi.NewDemoHandler(project.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, project.Slug, next)
+	})
 	if project.Config != nil && project.Config.UIEnabled() {
 		centui.NewHandler().RegisterRoutes(c.Mux)
 	}

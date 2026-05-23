@@ -22,6 +22,19 @@ export type TaskRunFilters = {
   benchmarkSuite?: string;
 };
 
+export type SyntheticDemoDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  durationMs: number;
+};
+
+export type SyntheticDemoRun = {
+  runId: string;
+  demoId: string;
+  durationMs: number;
+};
+
 export type TaskRunBenchmarkLink = {
   benchmarkRunId: string;
   sessionId: string;
@@ -37,8 +50,149 @@ export type TaskRunBenchmarkLink = {
   startedAtUnixMilli: number;
 };
 
+export type TaskRunSnapshot = {
+  runId: string;
+  templateId: string;
+  templateName: string;
+  taskDescription?: string;
+  status: string;
+  phase: string;
+  workflowReady: boolean;
+  lastFailureMessage?: string;
+  explicitFailReason?: string;
+  lastActivityAtUnixMilli?: number;
+  expiresAtUnixMilli?: number;
+  onboarding?: Record<string, unknown>;
+  planning?: Record<string, unknown>;
+  selectedTemplate: TaskRunTemplateSnapshot;
+  runnableTemplate?: TaskRunTemplateSnapshot;
+  steps?: TaskRunStepStateSnapshot[];
+};
+
+export type TaskRunTemplateSnapshot = {
+  version: string;
+  task: TaskRunTemplateTaskSnapshot;
+  parameters?: TaskRunTemplateParameter[];
+  workflow?: TaskRunWorkflowSnapshot;
+  compiledWorkflow?: TaskRunCompiledWorkflowSnapshot;
+};
+
+export type TaskRunTemplateTaskSnapshot = {
+  id: string;
+  name: string;
+  description: string;
+  instructions?: string;
+};
+
+export type TaskRunTemplateParameter = {
+  name: string;
+  description?: string;
+};
+
+export type TaskRunWorkflowSnapshot = {
+  onboarding?: TaskRunLifecycleNodeSpec;
+  planning?: TaskRunPlanningNodeSpec;
+  scaffolding?: TaskRunExecutionNodeSpec[];
+  execution?: TaskRunExecutionNodeSpec[];
+};
+
+export type TaskRunLifecycleNodeSpec = {
+  instructions?: string;
+  toolsAllowed?: string[];
+  checkpoint?: TaskRunCheckpointHint;
+};
+
+export type TaskRunPlanningNodeSpec = TaskRunLifecycleNodeSpec & {
+  editableFields?: string[];
+  requiredInputs?: string[];
+  next?: string;
+};
+
+export type TaskRunExecutionNodeSpec = TaskRunLifecycleNodeSpec & {
+  id: string;
+  kind?: string;
+  name?: string;
+  description?: string;
+  checks?: TaskRunCheck[];
+  invariants?: TaskRunInvariant[];
+  next?: string;
+  subSteps?: TaskRunExecutionNodeSpec[];
+};
+
+export type TaskRunCheckpointHint = {
+  enabled?: boolean;
+};
+
+export type TaskRunCheck = {
+  id: string;
+  description?: string;
+  command: string;
+  pre_conditions?: TaskRunCondition[];
+  post_conditions?: TaskRunCondition[];
+};
+
+export type TaskRunInvariant = {
+  id: string;
+  description?: string;
+  command: string;
+};
+
+export type TaskRunCondition = {
+  type: string;
+  value?: unknown;
+  values?: unknown[];
+  path?: string;
+};
+
+export type TaskRunCompiledWorkflowSnapshot = {
+  nodes?: Record<string, TaskRunWorkflowNodeSnapshot>;
+  onboardingPath?: string;
+  planningPath?: string;
+  firstExecutablePath?: string;
+  workflowSteps?: TaskRunCompiledStepSnapshot[];
+};
+
+export type TaskRunWorkflowNodeSnapshot = {
+  path: string;
+  kind: string;
+  parentPath?: string;
+  nextPath?: string;
+  stepNumber?: number;
+  stepId?: string;
+  name?: string;
+  description?: string;
+  instructions?: string;
+  allowedTools?: string[];
+  checkpoint?: TaskRunCheckpointHint;
+  editableFields?: string[];
+  requiredPlanningInputs?: string[];
+};
+
+export type TaskRunCompiledStepSnapshot = {
+  id: string;
+  path: string;
+  parentPath?: string;
+  nextPath?: string;
+  name?: string;
+  description?: string;
+  instructions?: string;
+  allowedTools?: string[];
+  checkpoint?: TaskRunCheckpointHint;
+  checks?: TaskRunCheck[];
+  invariants?: TaskRunInvariant[];
+};
+
+export type TaskRunStepStateSnapshot = {
+  id: string;
+  path: string;
+  status: string;
+  invariantBaselines?: Record<string, string>;
+};
+
 export type TaskRunDetailMetadata = {
   runId: string;
+  summary?: TaskRunSummary;
+  snapshot?: TaskRunSnapshot;
   benchmarkLinks?: TaskRunBenchmarkLink[];
 };
 
@@ -94,14 +248,17 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
+async function requestJSON<T>(url: string, signal?: AbortSignal, init: RequestInit = {}): Promise<T> {
   const headers = new Headers();
+  if (init.headers) {
+    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+  }
   const storedAuth = loadStoredApiAuth();
   if (storedAuth) {
     headers.set(storedAuth.headerName, storedAuth.apiKey);
   }
 
-  const response = await fetch(url, { signal, headers });
+  const response = await fetch(url, { ...init, signal, headers });
   if (!response.ok) {
     const authHeaderName =
       response.headers && typeof response.headers.get === "function"
@@ -133,4 +290,13 @@ export async function fetchTaskRunDetail(runID: string, signal?: AbortSignal): P
 export async function fetchTaskRunEvents(runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {
   const events = await requestJSON<TaskRunEvent[]>(`/api/task-runs/${encodeURIComponent(runID)}/events`, signal);
   return Array.isArray(events) ? events : [];
+}
+
+export async function fetchSyntheticDemos(signal?: AbortSignal): Promise<SyntheticDemoDefinition[]> {
+  const demos = await requestJSON<SyntheticDemoDefinition[]>("/api/demos", signal);
+  return Array.isArray(demos) ? demos : [];
+}
+
+export async function startSyntheticDemoRun(demoID: string, signal?: AbortSignal): Promise<SyntheticDemoRun> {
+  return requestJSON<SyntheticDemoRun>(`/api/demos/${encodeURIComponent(demoID)}/runs`, signal, { method: "POST" });
 }

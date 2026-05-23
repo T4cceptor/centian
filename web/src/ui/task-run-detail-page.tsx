@@ -1,9 +1,9 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot, type TaskRunTemplateSnapshot } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
-import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
+import { formatTimestamp, formatDuration, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
@@ -55,6 +55,10 @@ export function TaskRunDetailPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
+  const progress = useMemo(
+    () => deriveTaskRunProgress(events, detailStatus, detailMetadata?.snapshot),
+    [detailMetadata?.snapshot, detailStatus, events],
+  );
   const benchmarkLink = detailMetadata?.benchmarkLinks?.[0];
 
   useEffect(() => {
@@ -292,23 +296,25 @@ export function TaskRunDetailPage() {
   return (
     <div className="task-run-detail">
       <header className="task-run-detail__header">
-        <div className="task-run-detail__title-block">
-          <p className="state-card__eyebrow">
-            <span>Run Detail</span>
-            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
-            {formatTaskRunId(runID ?? "")}
-            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
-            <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
-          </p>
-        </div>
-        <div className="task-run-detail__header-actions">
-          <Link className="back-link" style={{fontFamily:"inter"}} to={`/tasks${location.search || ""}`}>
-            Back to task runs
+        <div className="task-run-detail__nav-actions">
+          <Link className="back-link task-run-detail__back-link" aria-label="Back to task runs" to={`/tasks${location.search || ""}`}>
+            <span aria-hidden="true">←</span>
+            <span>All Agent Tasks</span>
           </Link>
+          {benchmarkLink ? (
+            <Link
+              className="back-link task-run-detail__benchmark-link"
+              to={`/benchmarks/${benchmarkLink.suiteId}/runs/${benchmarkLink.benchmarkRunId}`}
+            >
+              See Benchmark
+            </Link>
+          ) : null}
         </div>
+        <h1 className="task-run-detail__title">Agent Task Details</h1>
+        <TaskProgressDonut progress={progress} status={detailStatus} />
       </header>
 
-      <RunMetadataBar stats={runStats} now={now} benchmarkLink={benchmarkLink} />
+      <RunMetadataBar stats={runStats} now={now} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -525,7 +531,32 @@ function DetailStateCard({
   );
 }
 
-type BenchmarkLinkTarget = NonNullable<TaskRunDetailMetadata["benchmarkLinks"]>[number];
+type TaskRunProgress = {
+  completedEvents: number;
+  totalEvents: number;
+  percent: number;
+};
+
+function TaskProgressDonut({
+  progress,
+  status,
+}: {
+  progress: TaskRunProgress;
+  status: TaskRunUIStatus;
+}) {
+  const displayPercent = status === "success" ? 100 : Math.round(progress.percent * 100);
+  const progressLabel = `${displayPercent}% complete`;
+  return (
+    <div
+      className={`task-progress-donut task-progress-donut--${getTaskProgressTone(status)}`}
+      style={{ "--task-progress": `${progress.percent * 100}%` } as CSSProperties}
+      aria-label={`Task progress: ${progressLabel}`}
+      title={`Task progress: ${progress.completedEvents} of ${progress.totalEvents} expected events complete`}
+    >
+      <span className="task-progress-donut__value">{displayPercent}%</span>
+    </div>
+  );
+}
 
 // Summary numbers shown above the timeline.
 type RunStats = {
@@ -539,11 +570,9 @@ type RunStats = {
 function RunMetadataBar({
   stats,
   now,
-  benchmarkLink,
 }: {
   stats: RunStats;
   now: number;
-  benchmarkLink?: BenchmarkLinkTarget;
 }) {
   // Shared inline styles keep the compact metadata row visually consistent.
   const cellStyle: CSSProperties = {
@@ -604,15 +633,6 @@ function RunMetadataBar({
           <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
         </div>
       )}
-
-      {benchmarkLink ? (
-        <Link
-          className="task-run-detail__benchmark-link"
-          to={`/benchmarks/${benchmarkLink.suiteId}/runs/${benchmarkLink.benchmarkRunId}`}
-        >
-          Benchmark Run
-        </Link>
-      ) : null}
     </div>
   );
 }
@@ -1012,6 +1032,98 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
 
   const latestActionFailed = events.some((event) => event.source === "action" && getEventTone(event) === "failed");
   return latestActionFailed ? "failed" : "active";
+}
+
+function deriveTaskRunProgress(events: TaskRunEvent[], status: TaskRunUIStatus, snapshot?: TaskRunSnapshot): TaskRunProgress {
+  const completedEvents = new Set<string>();
+  const expectedEvents = new Set<string>(["onboarding_completed", "planning_completed"]);
+
+  for (const stepPath of getTemplateWorkflowStepPaths(snapshot)) {
+    expectedEvents.add(`step_started:${stepPath}`);
+    expectedEvents.add(`step_completed:${stepPath}`);
+  }
+  for (const step of snapshot?.steps ?? []) {
+    if (step.path) {
+      expectedEvents.add(`step_started:${step.path}`);
+      expectedEvents.add(`step_completed:${step.path}`);
+      if (step.status === "passed") {
+        completedEvents.add(`step_started:${step.path}`);
+        completedEvents.add(`step_completed:${step.path}`);
+      } else if (step.status === "active" || step.status === "failed") {
+        completedEvents.add(`step_started:${step.path}`);
+      }
+    }
+  }
+
+  for (const event of events) {
+    if (event.source !== "task") {
+      continue;
+    }
+    if (event.eventType === "onboarding_completed" || event.eventType === "planning_completed") {
+      completedEvents.add(event.eventType);
+    } else if (event.eventType === "step_started" || event.eventType === "step_completed") {
+      const stepPath = getTaskStepPath(event);
+      if (!stepPath) {
+        continue;
+      }
+      expectedEvents.add(`step_started:${stepPath}`);
+      expectedEvents.add(`step_completed:${stepPath}`);
+      completedEvents.add(`${event.eventType}:${stepPath}`);
+    }
+  }
+
+  let totalSteps = Math.max(expectedEvents.size, completedEvents.size);
+  let completedCount = completedEvents.size;
+
+  if (status === "success" && totalSteps > 0) {
+    completedCount = totalSteps;
+  }
+  if (status === "failed") {
+    totalSteps = Math.max(totalSteps, completedCount + 1, 1);
+    completedCount = Math.min(completedCount, totalSteps - 1);
+  }
+
+  const rawPercent = totalSteps > 0 ? completedCount / totalSteps : 0;
+  const percent =
+    status === "success"
+      ? 1
+      : status === "failed"
+        ? Math.min(0.99, Math.max(rawPercent, 0.08))
+        : Math.min(0.99, Math.max(rawPercent, 0));
+
+  return {
+    completedEvents: completedCount,
+    totalEvents: totalSteps,
+    percent,
+  };
+}
+
+function getTemplateWorkflowStepPaths(snapshot?: TaskRunSnapshot): string[] {
+  const runnableSteps = getCompiledWorkflowStepPaths(snapshot?.runnableTemplate);
+  if (runnableSteps.length > 0) {
+    return runnableSteps;
+  }
+  return getCompiledWorkflowStepPaths(snapshot?.selectedTemplate);
+}
+
+function getCompiledWorkflowStepPaths(template?: TaskRunTemplateSnapshot): string[] {
+  const steps = template?.compiledWorkflow?.workflowSteps ?? [];
+  return steps.map((step) => step.path).filter((path) => path.startsWith("execution."));
+}
+
+function getTaskProgressTone(status: TaskRunUIStatus): "success" | "failed" | "active" {
+  if (status === "success") {
+    return "success";
+  }
+  if (status === "failed") {
+    return "failed";
+  }
+  return "active";
+}
+
+function getTaskStepPath(event: TaskRunEvent): string {
+  const candidate = event.phasePath ?? event.resultingPhasePath ?? "";
+  return candidate.startsWith("execution.") ? candidate : "";
 }
 
 // Reads a best-effort status field from arbitrary payload objects.
