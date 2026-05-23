@@ -185,6 +185,7 @@ export function TaskRunDetailPage() {
     return {
       startedAt,
       durationEndedAt: detailStatus === "active" ? undefined : lastSeenAt,
+      lastSeenAt,
       errorCount,
       totalEvents: events.length,
     };
@@ -314,7 +315,7 @@ export function TaskRunDetailPage() {
         <TaskProgressDonut progress={progress} status={detailStatus} />
       </header>
 
-      <RunMetadataBar stats={runStats} now={now} />
+      <RunMetadataBar stats={runStats} status={detailStatus} now={now} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -562,16 +563,21 @@ function TaskProgressDonut({
 type RunStats = {
   startedAt: number | undefined;
   durationEndedAt: number | undefined;
+  lastSeenAt: number | undefined;
   errorCount: number;
   totalEvents: number;
 };
 
+const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+
 // Displays the headline metrics for the selected run.
 function RunMetadataBar({
   stats,
+  status,
   now,
 }: {
   stats: RunStats;
+  status: TaskRunUIStatus;
   now: number;
 }) {
   // Shared inline styles keep the compact metadata row visually consistent.
@@ -592,6 +598,8 @@ function RunMetadataBar({
     color: "#c8daf0",
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
   };
+  const durationValueStyle: CSSProperties = { ...valueStyle, color: undefined };
+  const durationMetric = getDurationMetric(stats, status, now);
 
   return (
     <div
@@ -616,8 +624,11 @@ function RunMetadataBar({
       {stats.startedAt != null && (
         <div style={cellStyle}>
           <span style={labelStyle}>Duration</span>
-          <span style={valueStyle}>
-            {formatDuration(stats.startedAt, stats.durationEndedAt, now)}
+          <span
+            className={`task-run-detail__duration-value task-run-detail__duration-value--${durationMetric.tone}`}
+            style={durationValueStyle}
+          >
+            {durationMetric.label}
           </span>
         </div>
       )}
@@ -635,6 +646,31 @@ function RunMetadataBar({
       )}
     </div>
   );
+}
+
+function getDurationMetric(
+  stats: RunStats,
+  status: TaskRunUIStatus,
+  now: number,
+): { label: string; tone: "active" | "success" | "failed" } {
+  if (status === "timed_out" || isStaleActiveRun(stats, status, now)) {
+    return { label: "timeout", tone: "failed" };
+  }
+
+  const label =
+    stats.startedAt != null ? formatDuration(stats.startedAt, stats.durationEndedAt, now) : "";
+
+  if (status === "success") {
+    return { label, tone: "success" };
+  }
+  if (status === "failed") {
+    return { label, tone: "failed" };
+  }
+  return { label, tone: "active" };
+}
+
+function isStaleActiveRun(stats: RunStats, status: TaskRunUIStatus, now: number): boolean {
+  return status === "active" && stats.lastSeenAt != null && now - stats.lastSeenAt >= STALE_TASK_RUN_TIMEOUT_MS;
 }
 
 // Converts the raw event stream into timeline rows, merging request/response pairs where possible.
@@ -1115,7 +1151,7 @@ function getTaskProgressTone(status: TaskRunUIStatus): "success" | "failed" | "a
   if (status === "success") {
     return "success";
   }
-  if (status === "failed") {
+  if (status === "failed" || status === "timed_out") {
     return "failed";
   }
   return "active";

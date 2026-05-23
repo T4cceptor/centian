@@ -1347,6 +1347,18 @@ code,
   flex-wrap: wrap;
 }
 
+.task-run-detail__duration-value--active {
+  color: #7eb3ff;
+}
+
+.task-run-detail__duration-value--success {
+  color: var(--accent-success);
+}
+
+.task-run-detail__duration-value--failed {
+  color: var(--accent-danger);
+}
+
 .task-run-summary-card {
   min-width: 148px;
   padding: 10px 12px;

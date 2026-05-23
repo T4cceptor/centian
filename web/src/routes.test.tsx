@@ -841,16 +841,44 @@ describe("task run detail", () => {
 
     await act(async () => {});
     expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
-    expect(screen.getByText("5s")).toBeInTheDocument();
+    expect(screen.getByText("5s")).toHaveClass("task-run-detail__duration-value--active");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(screen.getByText("7s")).toBeInTheDocument();
+    expect(screen.getByText("7s")).toHaveClass("task-run-detail__duration-value--active");
   });
 
-  it("freezes the detail duration counter once the run times out", async () => {
+  it("shows timeout once an active run has not received events for 15 minutes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(15 * 60 * 1000 + 1);
+
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 0,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    await act(async () => {});
+    expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByText("timeout")).toHaveClass("task-run-detail__duration-value--failed");
+  });
+
+  it("shows timeout once the run times out", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(10_000);
 
@@ -885,13 +913,13 @@ describe("task run detail", () => {
 
     await act(async () => {});
     expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
-    expect(screen.getByText("3s")).toBeInTheDocument();
+    expect(screen.getByText("timeout")).toHaveClass("task-run-detail__duration-value--failed");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(screen.getByText("3s")).toBeInTheDocument();
+    expect(screen.getByText("timeout")).toHaveClass("task-run-detail__duration-value--failed");
   });
 
   it("stops polling the detail timeline after the run reaches a terminal state", async () => {
