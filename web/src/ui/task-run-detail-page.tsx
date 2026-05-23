@@ -167,17 +167,36 @@ export function TaskRunDetailPage() {
     const startedAt = events[0]?.createdAtUnixMilli;
     const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
 
-    let errorCount = 0;
+    let processEventCount = 0;
+    let mcpEventCount = 0;
+    let processErrorCount = 0;
+    let mcpErrorCount = 0;
+    let restartCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
-      if (item.kind === "exchange") {
-        const resp = item.exchange.response;
-        if (resp && (resp.isError === true || resp.success === false)) {
-          errorCount++;
+      if (item.kind === "task") {
+        processEventCount++;
+        if (isProcessTimelineItemError(item)) {
+          processErrorCount++;
         }
-      } else if (item.kind === "task") {
-        if (item.task.outcome === "failed" || item.task.eventType === "task_failed") {
-          errorCount++;
+        if (isProcessTimelineItemRestart(item)) {
+          restartCount++;
+        }
+        continue;
+      }
+
+      if (isProcessExchange(item.exchange)) {
+        processEventCount++;
+        if (isExchangeError(item.exchange)) {
+          processErrorCount++;
+        }
+        if (isRestartExchange(item.exchange)) {
+          restartCount++;
+        }
+      } else {
+        mcpEventCount++;
+        if (isExchangeError(item.exchange)) {
+          mcpErrorCount++;
         }
       }
     }
@@ -186,8 +205,11 @@ export function TaskRunDetailPage() {
       startedAt,
       durationEndedAt: detailStatus === "active" ? undefined : lastSeenAt,
       lastSeenAt,
-      errorCount,
-      totalEvents: events.length,
+      processEventCount,
+      mcpEventCount,
+      processErrorCount,
+      mcpErrorCount,
+      restartCount,
     };
   }, [detailStatus, events, flatTimelineItems]);
 
@@ -564,8 +586,11 @@ type RunStats = {
   startedAt: number | undefined;
   durationEndedAt: number | undefined;
   lastSeenAt: number | undefined;
-  errorCount: number;
-  totalEvents: number;
+  processEventCount: number;
+  mcpEventCount: number;
+  processErrorCount: number;
+  mcpErrorCount: number;
+  restartCount: number;
 };
 
 const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
@@ -581,18 +606,6 @@ function RunMetadataBar({
   now: number;
 }) {
   // Shared inline styles keep the compact metadata row visually consistent.
-  const cellStyle: CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-  };
-  const labelStyle: CSSProperties = {
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: "0.05em",
-    textTransform: "uppercase",
-    color: "#5a7a9a",
-  };
   const valueStyle: CSSProperties = {
     fontSize: 13,
     color: "#c8daf0",
@@ -600,6 +613,7 @@ function RunMetadataBar({
   };
   const durationValueStyle: CSSProperties = { ...valueStyle, color: undefined };
   const durationMetric = getDurationMetric(stats, status, now);
+  const runQuality = getRunQuality(stats);
 
   return (
     <div
@@ -615,15 +629,15 @@ function RunMetadataBar({
       }}
     >
       {stats.startedAt != null && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Started</span>
+        <div className="task-run-detail__metric">
+          <MetricLabel label="Started" />
           <span style={valueStyle}>{formatTimestamp(stats.startedAt)}</span>
         </div>
       )}
 
       {stats.startedAt != null && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Duration</span>
+        <div className="task-run-detail__metric">
+          <MetricLabel label="Duration" />
           <span
             className={`task-run-detail__duration-value task-run-detail__duration-value--${durationMetric.tone}`}
             style={durationValueStyle}
@@ -633,18 +647,82 @@ function RunMetadataBar({
         </div>
       )}
 
-      <div style={cellStyle}>
-        <span style={labelStyle}>Events</span>
-        <span style={valueStyle}>{stats.totalEvents}</span>
-      </div>
+      <RunQualityMetric value={runQuality} valueStyle={valueStyle} />
 
-      {stats.errorCount > 0 && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Errors</span>
-          <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
-        </div>
-      )}
+      <SplitMetric
+        label="Events"
+        labelDetail="(Process/MCP)"
+        processCount={stats.processEventCount}
+        mcpCount={stats.mcpEventCount}
+        valueStyle={valueStyle}
+        valueKind="event"
+      />
+
+      <SplitMetric
+        label="Errors"
+        labelDetail="(Process/MCP)"
+        processCount={stats.processErrorCount}
+        mcpCount={stats.mcpErrorCount}
+        valueStyle={valueStyle}
+        valueKind="error"
+      />
     </div>
+  );
+}
+
+function RunQualityMetric({ value, valueStyle }: { value: number; valueStyle: CSSProperties }) {
+  const tone = getRunQualityTone(value);
+  return (
+    <div className="task-run-detail__metric" aria-label={`Run Quality: ${value}%`}>
+      <MetricLabel label="Run Quality" />
+      <span
+        className={`task-run-detail__quality-value task-run-detail__quality-value--${tone}`}
+        style={{ ...valueStyle, color: undefined }}
+      >
+        {value}%
+      </span>
+    </div>
+  );
+}
+
+function SplitMetric({
+  label,
+  labelDetail,
+  processCount,
+  mcpCount,
+  valueStyle,
+  valueKind,
+}: {
+  label: string;
+  labelDetail: string;
+  processCount: number;
+  mcpCount: number;
+  valueStyle: CSSProperties;
+  valueKind: "event" | "error";
+}) {
+  const accessibleLabel = `${label} ${labelDetail}`;
+  return (
+    <div className="task-run-detail__metric" aria-label={`${accessibleLabel}: Process ${processCount}, MCP ${mcpCount}`}>
+      <MetricLabel label={label} labelDetail={labelDetail} />
+      <span className="task-run-detail__split-value" style={{ ...valueStyle, color: undefined }}>
+        <span className={`task-run-detail__split-process task-run-detail__split-process--${valueKind}`}>
+          {processCount}
+        </span>
+        <span className="task-run-detail__split-separator">/</span>
+        <span className={`task-run-detail__split-mcp task-run-detail__split-mcp--${valueKind}`}>
+          {mcpCount}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function MetricLabel({ label, labelDetail }: { label: string; labelDetail?: string }) {
+  return (
+    <span className="task-run-detail__metric-label" aria-hidden="true">
+      <span>{label}</span>
+      <span className="task-run-detail__metric-label-detail">{labelDetail ?? "\u00a0"}</span>
+    </span>
   );
 }
 
@@ -671,6 +749,59 @@ function getDurationMetric(
 
 function isStaleActiveRun(stats: RunStats, status: TaskRunUIStatus, now: number): boolean {
   return status === "active" && stats.lastSeenAt != null && now - stats.lastSeenAt >= STALE_TASK_RUN_TIMEOUT_MS;
+}
+
+function isProcessTimelineItemError(item: Extract<TimelineItem, { kind: "task" }>): boolean {
+  return isTaskEventError(item.task) || (item.correlatedExchange != null && isExchangeError(item.correlatedExchange));
+}
+
+function isProcessTimelineItemRestart(item: Extract<TimelineItem, { kind: "task" }>): boolean {
+  return isTaskRestartEvent(item.task) || (item.correlatedExchange != null && isRestartExchange(item.correlatedExchange));
+}
+
+function isTaskEventError(event: TaskRunEvent): boolean {
+  const payloadStatus = readPayloadStatus(event.payloadJson);
+  return (
+    event.outcome === "failed" ||
+    event.eventType === "task_failed" ||
+    event.eventType === "task_timed_out" ||
+    payloadStatus === "failed" ||
+    payloadStatus === "timed_out"
+  );
+}
+
+function isTaskRestartEvent(event: TaskRunEvent): boolean {
+  return event.eventType === "task_restarted" || event.eventType === "restarted";
+}
+
+function isExchangeError(exchange: TimelineExchange): boolean {
+  return [exchange.request, exchange.response].some((event) => event?.isError === true || event?.success === false);
+}
+
+function isRestartExchange(exchange: TimelineExchange): boolean {
+  return [exchange.request, exchange.response].some((event) => event?.toolName === "centian.task_restart");
+}
+
+function isProcessExchange(exchange: TimelineExchange): boolean {
+  return getExchangeServerName(exchange) === "centian";
+}
+
+function getRunQuality(stats: RunStats): number {
+  let score = 100 - stats.processErrorCount * 5 - stats.mcpErrorCount * 2;
+  for (let index = 0; index < stats.restartCount; index += 1) {
+    score *= 0.5;
+  }
+  return Math.max(0, Math.round(score));
+}
+
+function getRunQualityTone(value: number): "success" | "warning" | "failed" {
+  if (value >= 75) {
+    return "success";
+  }
+  if (value >= 40) {
+    return "warning";
+  }
+  return "failed";
 }
 
 // Converts the raw event stream into timeline rows, merging request/response pairs where possible.

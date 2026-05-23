@@ -1347,6 +1347,29 @@ code,
   flex-wrap: wrap;
 }
 
+.task-run-detail__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-run-detail__metric-label {
+  display: flex;
+  min-height: 32px;
+  flex-direction: column;
+  justify-content: flex-start;
+  color: #5a7a9a;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.task-run-detail__metric-label-detail {
+  color: #6f8fad;
+}
+
 .task-run-detail__duration-value--active {
   color: #7eb3ff;
 }
@@ -1357,6 +1380,45 @@ code,
 
 .task-run-detail__duration-value--failed {
   color: var(--accent-danger);
+}
+
+.task-run-detail__quality-value--success {
+  color: var(--accent-success);
+}
+
+.task-run-detail__quality-value--warning {
+  color: var(--accent-warning);
+}
+
+.task-run-detail__quality-value--failed {
+  color: var(--accent-danger);
+}
+
+.task-run-detail__split-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-run-detail__split-process--event {
+  color: rgb(167, 139, 250);
+}
+
+.task-run-detail__split-process--error {
+  color: var(--accent-danger);
+}
+
+.task-run-detail__split-mcp--event {
+  color: rgb(50, 210, 250);
+}
+
+.task-run-detail__split-mcp--error {
+  color: var(--accent-warning);
+}
+
+.task-run-detail__split-separator {
+  color: var(--text-muted);
 }
 
 .task-run-summary-card {

@@ -1172,6 +1172,9 @@ describe("task run detail", () => {
       "Step Completed · Onboarding",
       "filesystem - edit_file",
     ]);
+    expect(screen.getByLabelText("Run Quality: 100%")).toHaveTextContent("100%");
+    expect(screen.getByLabelText("Events (Process/MCP): Process 2, MCP 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Errors (Process/MCP): Process 0, MCP 0")).toBeInTheDocument();
     expect(screen.queryByText("Request · execute_command")).not.toBeInTheDocument();
     expect(screen.queryByText("centian.task_complete_step")).not.toBeInTheDocument();
 
@@ -1297,6 +1300,9 @@ describe("task run detail", () => {
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
+    expect(screen.getByLabelText("Run Quality: 98%")).toHaveClass("task-run-detail__metric");
+    expect(screen.getByLabelText("Events (Process/MCP): Process 1, MCP 2")).toBeInTheDocument();
+    expect(screen.getByLabelText("Errors (Process/MCP): Process 0, MCP 1")).toBeInTheDocument();
     expect(screen.getByText("error")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for execute_command/i }));
@@ -1716,6 +1722,7 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Run Quality: 50%")).toBeInTheDocument();
 
     const planningSections = screen.getAllByLabelText("Planning");
     expect(planningSections).toHaveLength(2);
