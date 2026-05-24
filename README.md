@@ -12,7 +12,7 @@
 Keep your systems safe from what your agents might do. Keep your agents safe from what the world throws at them. Built for the engineers who put agents into production and answer for what they do.
 
 <p align="center">
-  <img src="./docs/images/centian_simple_diag3.jpeg" width="100%" />
+  <img src="./docs/images/centian_simple_diag3.png" width="100%" />
 </p>
 
 ## Why Centian exists
