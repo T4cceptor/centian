@@ -1129,6 +1129,47 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	assert.Equal(t, contexts[1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
 }
 
+func TestTaskToolEventPayloadAddsCentianGovernanceAnnotationForFailedChecks(t *testing.T) {
+	payload := taskToolEventPayload(TaskToolMetadata{}, map[string]any{
+		"passed":        false,
+		"failureKind":   "check",
+		"failedCheckId": "rca_documented",
+		"summary":       "Resolution could not start before the root-cause comment existed.",
+	})
+
+	annotations := payload["annotations"].([]any)
+	assert.Equal(t, len(annotations), 1)
+	annotation := annotations[0].(map[string]any)
+	assert.Equal(t, annotation["type"], "governance_events")
+	assert.Equal(t, annotation["processor"], "centian")
+	assert.Equal(t, annotation["action"], "stopped")
+	assert.Equal(t, annotation["category"], "compliance")
+	assert.Equal(t, annotation["severity"], "medium")
+	assert.Equal(t, annotation["message"], "Resolution could not start before the root-cause comment existed.")
+}
+
+func TestTaskToolEventPayloadDoesNotDuplicateUserGovernanceAnnotation(t *testing.T) {
+	payload := taskToolEventPayload(TaskToolMetadata{
+		Annotations: []any{
+			map[string]any{
+				"type":     "governance_events",
+				"action":   "stopped",
+				"category": "compliance",
+				"severity": "high",
+				"message":  "custom process annotation",
+			},
+		},
+	}, map[string]any{
+		"passed":        false,
+		"failedCheckId": "rca_documented",
+	})
+
+	annotations := payload["annotations"].([]any)
+	assert.Equal(t, len(annotations), 1)
+	annotation := annotations[0].(map[string]any)
+	assert.Equal(t, annotation["message"], "custom process annotation")
+}
+
 func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
 	endpoint, session, store := newPersistentTaskToolTestProxy(t, basicTaskTemplate())
 	attachTaskToolDownstream(t, endpoint, session, "shell__exec")
@@ -1778,6 +1819,32 @@ func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
 	assert.DeepEqual(t, structured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, structured["nextAction"], "Follow the current Centian workflow state before retrying this tool.")
 	assert.Assert(t, downstream.CapturedRequest == nil)
+}
+
+func TestGovernanceDeniedResultAnnotatesBlockedToolCall(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.originalRequest.Params.Name = "database__query"
+	callCtx.request.Params.Name = "query"
+
+	result := governanceDeniedResult(
+		callCtx,
+		taskverification.TaskPhaseOnboarding,
+		taskverification.TaskStatusActive,
+		taskverification.WorkflowNodeKindOnboarding,
+		[]string{"shell__*"},
+		governanceDeniedNoPatternMatch,
+		"",
+	)
+
+	assert.Assert(t, result.IsError)
+	annotations := callCtx.GetMetaContext().Annotations
+	assert.Equal(t, len(annotations), 1)
+	assert.Equal(t, annotations[0].Type, "governance_events")
+	assert.Equal(t, annotations[0].Processor, "centian")
+	assert.Equal(t, annotations[0].Action, "blocked")
+	assert.Equal(t, annotations[0].Category, "risk")
+	assert.Equal(t, annotations[0].Severity, "high")
+	assert.Equal(t, annotations[0].Message, "tool not allowed in phase onboarding")
 }
 
 func TestWorkflowNodeToolGovernanceDeniesWithoutAllowlist(t *testing.T) {

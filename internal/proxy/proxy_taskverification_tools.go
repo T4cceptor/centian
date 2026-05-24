@@ -678,14 +678,89 @@ func rawTaskToolArguments(req *mcp.CallToolRequest) map[string]json.RawMessage {
 }
 
 func taskToolEventPayload(metadata TaskToolMetadata, payload map[string]any) map[string]any {
-	if len(metadata.Annotations) == 0 {
+	annotations := append([]any{}, metadata.Annotations...)
+	if generated, ok := centianTaskGovernanceAnnotation(payload); ok && !hasGovernanceEventAnnotation(annotations) {
+		annotations = append(annotations, generated)
+	}
+	if len(annotations) == 0 {
 		return payload
 	}
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	payload["annotations"] = metadata.Annotations
+	payload["annotations"] = annotations
 	return payload
+}
+
+func centianTaskGovernanceAnnotation(payload map[string]any) (map[string]any, bool) {
+	if payload == nil || !isGovernanceTaskFailurePayload(payload) {
+		return nil, false
+	}
+	return map[string]any{
+		"type":      "governance_events",
+		"processor": "centian",
+		"action":    "stopped",
+		"category":  "compliance",
+		"severity":  centianTaskGovernanceSeverity(payload),
+		"message":   centianTaskGovernanceMessage(payload),
+	}, true
+}
+
+func isGovernanceTaskFailurePayload(payload map[string]any) bool {
+	if passed, ok := payload["passed"].(bool); ok && !passed {
+		return true
+	}
+	if value, ok := payload["failureKind"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	if value, ok := payload["failedCheckId"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	if value, ok := payload["failedInvariantId"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	if value, ok := payload["error"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	return false
+}
+
+func centianTaskGovernanceMessage(payload map[string]any) string {
+	for _, key := range []string{"summary", "error", "message"} {
+		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	if value, ok := payload["failedCheckId"].(string); ok && strings.TrimSpace(value) != "" {
+		return fmt.Sprintf("expected `%s`", strings.TrimSpace(value))
+	}
+	if value, ok := payload["failedInvariantId"].(string); ok && strings.TrimSpace(value) != "" {
+		return fmt.Sprintf("expected invariant `%s`", strings.TrimSpace(value))
+	}
+	return "process requirement failed"
+}
+
+func centianTaskGovernanceSeverity(payload map[string]any) string {
+	if value, ok := payload["failureKind"].(string); ok && strings.TrimSpace(value) == "check" {
+		return "medium"
+	}
+	if _, ok := payload["failedCheckId"].(string); ok {
+		return "medium"
+	}
+	return "high"
+}
+
+func hasGovernanceEventAnnotation(annotations []any) bool {
+	for _, annotation := range annotations {
+		values, ok := annotation.(map[string]any)
+		if !ok {
+			continue
+		}
+		if values["type"] == "governance_events" {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {

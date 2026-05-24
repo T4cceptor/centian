@@ -202,8 +202,10 @@ export type ProcessorAnnotationFinding = {
 };
 
 export type ProcessorAnnotation = {
+  type?: string;
   processor?: string;
   action?: string;
+  category?: string;
   severity?: string;
   message?: string;
   findings?: ProcessorAnnotationFinding[];

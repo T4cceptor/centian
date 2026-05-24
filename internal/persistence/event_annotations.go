@@ -22,16 +22,15 @@ type eventAnnotationRow struct {
 	RequestID          string
 	CreatedAtUnixMilli int64
 
-	Processor string          // Suggestion: move this into "metadata" field
-	Action    string          // leave as it is
+	Type      string
+	Processor string // Suggestion: move this into "metadata" field
+	Action    string // leave as it is
+	Category  string
 	Severity  string          // leave as it is
 	Message   string          // leave as it is, make this nullable tho
 	Rule      string          // not sure what that is
 	Path      string          // not sure what that is
 	RawJSON   json.RawMessage // leave as it is
-	// add:
-	// type - string, required - type of the annotation, example: "governance_event", "comment", "system_tag", "processor_message"
-	// category - string, optional/nullable - related topic for the annotation, example: "security", "risk", "user_info"
 }
 
 type sqlExecutor interface {
@@ -46,8 +45,10 @@ func createEventAnnotationTables(ctx context.Context, exec sqlExecutor) error {
 			action_event_id TEXT NOT NULL,
 			request_id TEXT NOT NULL,
 			created_at_unix_milli INTEGER NOT NULL,
+			type TEXT,
 			processor TEXT,
 			action TEXT,
+			category TEXT,
 			severity TEXT,
 			message TEXT,
 			rule TEXT,
@@ -126,8 +127,10 @@ func eventAnnotationRowFromReport(
 		ActionEventID:      actionEventID,
 		RequestID:          requestID,
 		CreatedAtUnixMilli: createdAtUnixMilli,
+		Type:               report.Type,
 		Processor:          report.Processor,
 		Action:             report.Action,
+		Category:           report.Category,
 		Severity:           report.Severity,
 		Message:            report.Message,
 		Rule:               rule,
@@ -142,8 +145,10 @@ func eventAnnotationFromRow(row *eventAnnotationRow) common.EventAnnotation {
 		return annotation
 	}
 	annotation = common.EventAnnotation{
+		Type:      row.Type,
 		Processor: row.Processor,
 		Action:    row.Action,
+		Category:  row.Category,
 		Severity:  row.Severity,
 		Message:   row.Message,
 	}

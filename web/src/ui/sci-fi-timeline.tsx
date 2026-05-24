@@ -12,6 +12,8 @@ import {
   getTimelineItemTone,
   type TimelineGroup,
   type TimelineItem,
+  GovernanceCategoryIcon,
+  getEventAnnotations,
 } from "./task-run-detail-page";
 
 // Injected stylesheet for the self-contained sci-fi timeline treatment.
@@ -120,7 +122,7 @@ function deriveGroupStatus(group: TimelineGroup, governanceEventItemIDs: Readonl
     if (item.kind === "task") {
       const tone = getTimelineItemTone(item);
       if (tone === "failed") return "failed";
-      if (tone === "completed") return hasGovernanceEvent ? "passed (saved)" : "passed";
+      if (tone === "completed") return hasGovernanceEvent ? "saved" : "passed";
       if (tone === "active") return "active";
     }
   }
@@ -151,10 +153,29 @@ function SciFiSectorDivider({
       ? "#34d399"
       : status === "failed"
         ? "#f87171"
-        : "#a78bfa";
-  const stepColors = ["#a78bfa", "#34d399", "#fbbf24", "#60a5fa", "#fb7185", "#22d3ee"];
+        : "#f8c171";
+  const stepColors = ["#a78bfa", "#34d399", "#fbbf24", "#60a5fa", "#f87171", "#22d3ee"];
   const accentColor = stepColors[groupIndex % stepColors.length];
 
+  const governanceEvents = group.items.filter(item =>governanceEventItemIDs.has(item.id));
+  if (governanceEvents.length > 0 ){
+    // TODO: getEventAnnotations
+  }
+
+  // stores the governance events related to this divider
+  const allAnnotations = group.items.map((item) => {
+    if (item.kind == "task") {
+      if(item.task.annotations) {
+        console.log("Found annotations: ", item.task.annotations)
+      }
+      return getEventAnnotations(item.task)
+    }
+  })
+  console.log("All allAnnotations: ", allAnnotations)
+
+  const annotationCategories = [...new Set(
+    allAnnotations.flat().map(item => item?.category).filter((category): category is string => category !== undefined)
+  )];
   return (
     <button
       type="button"
@@ -195,7 +216,10 @@ function SciFiSectorDivider({
           padding: "2px 8px", border: `1px solid ${statusColor}40`,
           borderRadius: 2, background: `${statusColor}0d`,
         }}>
-          {collapsed ? "+" : "−"} {status}
+          {collapsed ? "+" : "−"} {status} 
+          {annotationCategories.map(category => {
+            return (<GovernanceCategoryIcon category={category} />)
+          })}
         </span>
 
         <div style={{

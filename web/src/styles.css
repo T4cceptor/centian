@@ -1475,6 +1475,21 @@ code,
   overflow-wrap: anywhere;
 }
 
+.task-run-detail__governance-category-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-strong);
+}
+
+.task-run-detail__governance-category-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+}
+
 .task-run-detail__governance-event-action {
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.78rem;
@@ -1495,7 +1510,7 @@ code,
 
 .task-run-detail__governance-severity {
   display: inline-flex;
-  min-width: 22px;
+  min-width: 54px;
   height: 18px;
   align-items: center;
   justify-content: center;
@@ -1510,26 +1525,35 @@ code,
 .task-run-detail__governance-severity--critical {
   color: var(--accent-danger);
   background: rgba(255, 140, 140, 0.1);
+  animation: governance-critical-pulse 1.2s ease-in-out infinite;
 }
 
 .task-run-detail__governance-severity--high {
-  color: #ffb86b;
-  background: rgba(255, 184, 107, 0.1);
+  color: var(--accent-danger);
+  background: rgba(255, 140, 140, 0.08);
 }
 
 .task-run-detail__governance-severity--medium {
+  color: #ff9f43;
+  background: rgba(255, 159, 67, 0.1);
+}
+
+.task-run-detail__governance-severity--low {
   color: var(--accent-warning);
   background: rgba(244, 210, 122, 0.1);
 }
 
-.task-run-detail__governance-severity--low {
-  color: var(--text-dim);
-  background: rgba(155, 183, 188, 0.08);
-}
+@keyframes governance-critical-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 rgba(255, 140, 140, 0);
+  }
 
-.task-run-detail__governance-severity--info {
-  color: rgb(50, 210, 250);
-  background: rgba(50, 210, 250, 0.08);
+  50% {
+    opacity: 0.58;
+    box-shadow: 0 0 12px rgba(255, 140, 140, 0.38);
+  }
 }
 
 .task-run-detail__governance-separator,

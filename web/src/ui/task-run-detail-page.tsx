@@ -1,7 +1,8 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { Eye, ListChecks, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type ProcessorAnnotation, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatDuration, formatTemplateLabel, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
@@ -569,10 +570,13 @@ type GovernanceEventDescription = {
   id: string;
   itemId: string;
   action: GovernanceEventAction;
+  category: string;
   event: string;
   reason: string;
-  severity: string;
+  severity: GovernanceSeverity;
 };
+
+type GovernanceSeverity = "low" | "medium" | "high" | "critical";
 
 const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -678,15 +682,16 @@ function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[
               {events.map((event) => (
                 <li
                   key={event.id}
-                  className="task-run-detail__governance-item"
+                  className={`task-run-detail__governance-item task-run-detail__governance-item--${event.severity}`}
                   aria-label={`${event.action} ${event.event} - ${event.reason}`}
                 >
+                  <GovernanceCategoryIcon category={event.category} />
                   <span
-                    className={`task-run-detail__governance-severity task-run-detail__governance-severity--${normalizeGovernanceSeverity(event.severity)}`}
+                    className={`task-run-detail__governance-severity task-run-detail__governance-severity--${event.severity}`}
                     aria-hidden="true"
                     title={`Severity: ${event.severity}`}
                   >
-                    {getGovernanceSeverityIcon(event.severity)}
+                    {event.severity}
                   </span>
                   <span
                     className={`task-run-detail__governance-event-action task-run-detail__governance-event-action--${event.action.toLowerCase()}`}
@@ -705,6 +710,18 @@ function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[
         </div>
       ) : null}
     </section>
+  );
+}
+
+export function GovernanceCategoryIcon({ category }: { category: string }) {
+  const Icon = getGovernanceCategoryIcon(category);
+  if (!Icon) {
+    return null;
+  }
+  return (
+    <span className="task-run-detail__governance-category-icon" title={`Category: ${category}`}>
+      <Icon aria-hidden="true" />
+    </span>
   );
 }
 
@@ -838,48 +855,35 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
     id: string,
     itemId: string,
     action: GovernanceEventAction,
+    category: string,
     event: string,
     reason: string,
-    severity: string,
+    severity: GovernanceSeverity,
   ) => {
-    const key = `${action}:${event}:${reason}`;
+    const key = `${action}:${category}:${event}:${reason}:${severity}`;
     if (seen.has(key)) {
       return;
     }
     seen.add(key);
-    descriptions.push({ id, itemId, action, event, reason, severity });
+    descriptions.push({ id, itemId, action, category, event, reason, severity });
   };
 
   for (const item of items) {
     if (item.kind === "task") {
-      const correlatedExchangeHasControlIssue =
-        item.correlatedExchange != null && isExchangeControlIssue(item.correlatedExchange);
-      if (isTaskCheckFailure(item.task) || (isTaskControlIssue(item.task) && !correlatedExchangeHasControlIssue)) {
-        addDescription(
-          `${item.task.id}:task`,
+      addAnnotationGovernanceDescriptions(item.id, getProcessActionLabel(item.task), [item.task], addDescription);
+      if (item.correlatedExchange) {
+        addAnnotationGovernanceDescriptions(
           item.id,
-          "Stopped",
-          getProcessActionLabel(item.task),
-          getTaskGovernanceReason(item.task),
-          getTaskGovernanceSeverity(item.task),
+          getGovernanceToolLabel(item.correlatedExchange),
+          [item.correlatedExchange.request, item.correlatedExchange.response],
+          addDescription,
         );
-      } else if (item.correlatedExchange && correlatedExchangeHasControlIssue) {
-        addExchangeGovernanceDescription(item.id, item.correlatedExchange, addDescription);
       }
-      addProcessorGovernanceDescriptions(
-        item.id,
-        `${item.id}:processor`,
-        getProcessActionLabel(item.task),
-        [item.task, item.correlatedExchange?.request, item.correlatedExchange?.response],
-        addDescription,
-      );
       continue;
     }
 
-    addExchangeGovernanceDescription(item.id, item.exchange, addDescription);
-    addProcessorGovernanceDescriptions(
+    addAnnotationGovernanceDescriptions(
       item.id,
-      `${item.id}:processor`,
       getGovernanceToolLabel(item.exchange),
       [item.exchange.request, item.exchange.response],
       addDescription,
@@ -894,81 +898,77 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
   return descriptions.sort((left, right) => actionOrder[left.action] - actionOrder[right.action]);
 }
 
-function addExchangeGovernanceDescription(
+function addAnnotationGovernanceDescriptions(
   itemId: string,
-  exchange: TimelineExchange,
-  addDescription: (
-    id: string,
-    itemId: string,
-    action: GovernanceEventAction,
-    event: string,
-    reason: string,
-    severity: string,
-  ) => void,
-) {
-  const eventID = exchange.response?.id ?? exchange.request?.id ?? exchange.requestId ?? getGovernanceToolLabel(exchange);
-  if (isBlockedExchange(exchange)) {
-    addDescription(
-      `${eventID}:blocked`,
-      itemId,
-      "Blocked",
-      getGovernanceToolLabel(exchange),
-      getExchangeGovernanceReason(exchange),
-      getExchangeGovernanceSeverity(exchange, "blocked"),
-    );
-    return;
-  }
-
-  if (isProcessExchange(exchange) && isExchangeError(exchange) && !isTechnicalErrorExchange(exchange)) {
-    addDescription(
-      `${eventID}:stopped`,
-      itemId,
-      "Stopped",
-      getProcessActionLabelForToolName(exchange.request?.toolName ?? exchange.response?.toolName),
-      getExchangeGovernanceReason(exchange),
-      getExchangeGovernanceSeverity(exchange, "stopped"),
-    );
-  }
-}
-
-function addProcessorGovernanceDescriptions(
-  itemId: string,
-  idPrefix: string,
   eventLabel: string,
   events: Array<TaskRunEvent | undefined>,
   addDescription: (
     id: string,
     itemId: string,
     action: GovernanceEventAction,
+    category: string,
     event: string,
     reason: string,
-    severity: string,
+    severity: GovernanceSeverity,
   ) => void,
 ) {
   let index = 0;
   for (const event of events) {
-    for (const annotation of event?.annotations ?? []) {
+    for (const annotation of getEventAnnotations(event)) {
+      if (annotation.type !== "governance_events") {
+        continue;
+      }
       const action = annotation.action?.trim().toLowerCase();
       const governanceAction = getProcessorGovernanceAction(action);
-      if (!governanceAction) {
+      const category = annotation.category?.trim();
+      const severity = normalizeGovernanceSeverity(annotation.severity);
+      if (!governanceAction || !category || !severity) {
         continue;
       }
       addDescription(
-        `${idPrefix}:${event?.id ?? "event"}:${index}`,
+        `${itemId}:${event?.id ?? "event"}:${index}`,
         itemId,
         governanceAction,
+        category,
         eventLabel,
         getProcessorGovernanceReason(annotation),
-        annotation.severity?.trim() || getDefaultGovernanceSeverity(governanceAction),
+        severity,
       );
       index += 1;
     }
   }
 }
 
+export function getEventAnnotations(event: TaskRunEvent | undefined): ProcessorAnnotation[] {
+  if (!event) {
+    return [];
+  }
+
+  const payloadAnnotations = readPayloadAnnotations(event.payloadJson);
+  if (!event.annotations || event.annotations.length === 0) {
+    return payloadAnnotations;
+  }
+  return [...event.annotations, ...payloadAnnotations];
+}
+
+function readPayloadAnnotations(payload: unknown): ProcessorAnnotation[] {
+  const annotations = readPayloadPath(payload, ["annotations"]);
+  if (!Array.isArray(annotations)) {
+    return [];
+  }
+  return annotations.filter((annotation): annotation is ProcessorAnnotation => (
+    annotation != null &&
+    typeof annotation === "object" &&
+    !Array.isArray(annotation)
+  ));
+}
+
 function getProcessorGovernanceAction(action?: string): GovernanceEventAction | undefined {
   if (action === "blocked") {
     return "Blocked";
+  }
+  if (action === "stopped") {
+    return "Stopped";
   }
   if (action && ["redacted", "removed", "modified", "escalated"].includes(action)) {
     return "Modified";
@@ -985,6 +985,8 @@ function getProcessorGovernanceReason(annotation: NonNullable<TaskRunEvent["anno
   switch (annotation.action?.trim().toLowerCase()) {
     case "blocked":
       return "processor blocked content";
+    case "stopped":
+      return "process action stopped";
     case "redacted":
       return "processor redacted content";
     case "removed":
@@ -1045,129 +1047,29 @@ function getProcessActionLabelForToolName(toolName?: string): string {
   }
 }
 
-function getTaskGovernanceReason(event: TaskRunEvent): string {
-  const summary = readPayloadString(event.payloadJson, [
-    ["summary"],
-    ["message"],
-    ["error"],
-    ["reason"],
-  ]);
-  if (summary) {
-    return summary;
-  }
-
-  const failedCheckId = readPayloadString(event.payloadJson, [["failedCheckId"], ["failed_check_id"]]);
-  if (failedCheckId) {
-    return `expected \`${failedCheckId}\``;
-  }
-
-  const failureKind = readPayloadString(event.payloadJson, [["failureKind"], ["failure_kind"]]);
-  if (failureKind === "check" || readPayloadPath(event.payloadJson, ["passed"]) === false) {
-    return "checks failed";
-  }
-
-  return "process requirement failed";
-}
-
-function getTaskGovernanceSeverity(event: TaskRunEvent): string {
-  const severity = readPayloadString(event.payloadJson, [["severity"], ["level"]]);
-  if (severity) {
-    return severity;
-  }
-  return isTaskCheckFailure(event) ? "medium" : "high";
-}
-
-function getExchangeGovernanceReason(exchange: TimelineExchange): string {
-  const events = [exchange.response, exchange.request];
-  const reason = readFirstEventPayloadString(events, [
-    ["tool_call", "result", "structuredContent", "reason"],
-    ["toolCall", "result", "structuredContent", "reason"],
-    ["result", "structuredContent", "reason"],
-    ["reason"],
-  ]);
-  const phase = readFirstEventPayloadString(events, [
-    ["tool_call", "result", "structuredContent", "phase"],
-    ["toolCall", "result", "structuredContent", "phase"],
-    ["result", "structuredContent", "phase"],
-    ["phase"],
-  ]);
-
-  if (reason === "tool_not_allowed") {
-    return phase ? `tool not allowed in phase "${humanizePhase(phase)}"` : "tool not allowed in current phase";
-  }
-
-  const summary = readFirstEventPayloadString(events, [
-    ["tool_call", "result", "structuredContent", "summary"],
-    ["toolCall", "result", "structuredContent", "summary"],
-    ["result", "structuredContent", "summary"],
-    ["summary"],
-    ["message"],
-    ["error"],
-  ]);
-  if (summary) {
-    return summary;
-  }
-
-  return isBlockedExchange(exchange) ? "tool call was blocked" : "process requirement failed";
-}
-
-function getExchangeGovernanceSeverity(exchange: TimelineExchange, fallbackAction: "blocked" | "stopped"): string {
-  const severity = readFirstEventPayloadString([exchange.response, exchange.request], [
-    ["tool_call", "result", "structuredContent", "severity"],
-    ["toolCall", "result", "structuredContent", "severity"],
-    ["result", "structuredContent", "severity"],
-    ["severity"],
-  ]);
-  if (severity) {
-    return severity;
-  }
-  return fallbackAction === "blocked" ? "high" : "medium";
-}
-
-function getDefaultGovernanceSeverity(action: GovernanceEventAction): string {
-  switch (action) {
-    case "Blocked":
-      return "high";
-    case "Modified":
-      return "medium";
-    case "Stopped":
-      return "medium";
-    default:
-      return "info";
-  }
-}
-
-function normalizeGovernanceSeverity(severity: string): "critical" | "high" | "medium" | "low" | "info" {
-  const normalized = severity.trim().toLowerCase();
+function normalizeGovernanceSeverity(severity?: string): GovernanceSeverity | undefined {
+  const normalized = severity?.trim().toLowerCase();
   if (normalized === "critical" || normalized === "high" || normalized === "medium" || normalized === "low") {
     return normalized;
   }
-  return "info";
-}
-
-function getGovernanceSeverityIcon(severity: string): string {
-  switch (normalizeGovernanceSeverity(severity)) {
-    case "critical":
-      return "!!!";
-    case "high":
-      return "!!";
-    case "medium":
-      return "!";
-    case "low":
-      return "-";
-    default:
-      return "i";
-  }
-}
-
-function readFirstEventPayloadString(events: Array<TaskRunEvent | undefined>, paths: string[][]): string | undefined {
-  for (const event of events) {
-    const value = readPayloadString(event?.payloadJson, paths);
-    if (value) {
-      return value;
-    }
-  }
   return undefined;
+}
+
+function getGovernanceCategoryIcon(category: string): LucideIcon | undefined {
+  switch (category.trim().toLowerCase()) {
+    case "security":
+      return ShieldCheck;
+    case "observability":
+      return Eye;
+    case "compliance":
+      return ListChecks;
+    case "risk":
+      return TriangleAlert;
+    case "quality":
+      return SearchCheck;
+    default:
+      return undefined;
+  }
 }
 
 function getGovernanceToolLabel(exchange: TimelineExchange): string {
@@ -1196,59 +1098,6 @@ function parseNamespacedToolName(value: string): { server: string; tool: string 
     return undefined;
   }
   return { server: match[1], tool: match[2] };
-}
-
-function isTaskControlIssue(event: TaskRunEvent): boolean {
-  if (event.source !== "task") {
-    return false;
-  }
-  return isTaskCheckFailure(event) || (event.outcome === "failed" && event.eventType !== "task_timed_out");
-}
-
-function isTaskCheckFailure(event: TaskRunEvent): boolean {
-  const failureKind = readPayloadString(event.payloadJson, [["failureKind"], ["failure_kind"]]);
-  const failedCheckId = readPayloadString(event.payloadJson, [["failedCheckId"], ["failed_check_id"]]);
-  const passed = readPayloadPath(event.payloadJson, ["passed"]);
-  return failureKind === "check" || failedCheckId != null || passed === false;
-}
-
-function isExchangeControlIssue(exchange: TimelineExchange): boolean {
-  return isBlockedExchange(exchange) || (isProcessExchange(exchange) && isExchangeError(exchange) && !isTechnicalErrorExchange(exchange));
-}
-
-function isBlockedExchange(exchange: TimelineExchange): boolean {
-  return [exchange.request, exchange.response].some((event) => {
-    if (!event) {
-      return false;
-    }
-    const reason = readPayloadString(event.payloadJson, [
-      ["tool_call", "result", "structuredContent", "reason"],
-      ["toolCall", "result", "structuredContent", "reason"],
-      ["result", "structuredContent", "reason"],
-    ]);
-    const blocked = readPayloadPath(event.payloadJson, ["tool_call", "result", "structuredContent", "blocked"]);
-    return reason === "tool_not_allowed" || blocked === true || eventPayloadText(event).includes("blocked until task registration");
-  });
-}
-
-function isTechnicalErrorExchange(exchange: TimelineExchange): boolean {
-  const text = [exchange.request, exchange.response].map((event) => eventPayloadText(event)).join(" ");
-  return /malformed\s+json|invalid\s+json|parse\s+tool\s+arguments|failed\s+to\s+parse|missing\s+(required\s+)?(parameter|argument)|invalid\s+(parameter|argument)/i.test(text);
-}
-
-function eventPayloadText(event: TaskRunEvent | undefined): string {
-  if (!event?.payloadJson) {
-    return "";
-  }
-  try {
-    return JSON.stringify(event.payloadJson).toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-function isExchangeError(exchange: TimelineExchange): boolean {
-  return [exchange.request, exchange.response].some((event) => event?.isError === true || event?.success === false);
 }
 
 function isProcessExchange(exchange: TimelineExchange): boolean {

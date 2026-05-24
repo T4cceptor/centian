@@ -139,12 +139,50 @@ func governanceDeniedResult(
 		callCtx.SetResult(result)
 		callCtx.SetDirection(common.DirectionServerToClient)
 		callCtx.SetMessageType(common.MessageTypeResponse)
+		addCentianToolGovernanceAnnotation(callCtx, phase, reason)
 		if logHandler := callCtx.GetLogHandler(); logHandler != nil {
 			_ = logHandler.Log(callCtx)
 		}
 	}
 
 	return result
+}
+
+func addCentianToolGovernanceAnnotation(callCtx CallContext, phase taskverification.TaskPhase, reason string) {
+	meta := callCtx.GetMetaContext()
+	if meta == nil {
+		meta = common.NewMetaContext("", common.DirectionUnknown, common.MessageTypeUnknown)
+		callCtx.SetMetaContext(meta)
+	}
+	meta.Annotations = append(meta.Annotations, common.EventAnnotation{
+		Type:      "governance_events",
+		Processor: "centian",
+		Action:    "blocked",
+		Category:  "risk",
+		Severity:  "high",
+		Message:   centianToolGovernanceAnnotationMessage(phase, reason),
+	})
+}
+
+func centianToolGovernanceAnnotationMessage(phase taskverification.TaskPhase, reason string) string {
+	switch reason {
+	case governanceDeniedRegistrationNeeded:
+		return "task registration required before tool use"
+	case governanceDeniedWaitingForApproval:
+		return "tool use blocked while waiting for approval"
+	case governanceDeniedNoAllowlist:
+		return fmt.Sprintf("no tools allowed in phase %s", phase)
+	case governanceDeniedNoPatternMatch:
+		return fmt.Sprintf("tool not allowed in phase %s", phase)
+	case governanceDeniedTaskCompleted:
+		return "task already completed"
+	case governanceDeniedTaskFailed:
+		return "task is failed"
+	case governanceDeniedTaskTimedOut:
+		return "task is timed out"
+	default:
+		return fmt.Sprintf("tool blocked by centian governance: %s", reason)
+	}
 }
 
 func governanceNextAction(reason string) string {

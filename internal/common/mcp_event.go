@@ -21,8 +21,10 @@ type LogEntry struct {
 
 // EventAnnotation describes a processor observation or policy action for an event.
 type EventAnnotation struct {
+	Type      string                   `json:"type,omitempty"`
 	Processor string                   `json:"processor,omitempty"`
 	Action    string                   `json:"action,omitempty"`
+	Category  string                   `json:"category,omitempty"`
 	Severity  string                   `json:"severity,omitempty"`
 	Message   string                   `json:"message,omitempty"`
 	Findings  []EventAnnotationFinding `json:"findings,omitempty"`

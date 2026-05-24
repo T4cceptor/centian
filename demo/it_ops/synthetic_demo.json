@@ -711,8 +711,10 @@
         },
         "annotations": [
           {
+            "type": "governance_events",
             "processor": "prompt_injection_guard",
             "action": "redacted",
+            "category": "security",
             "severity": "critical",
             "message": "Prompt injection markers were detected: 2 evidence item(s) across 1 path(s).",
             "findings": [
@@ -818,7 +820,17 @@
               "nextAction": "Continue diagnosis with read-only tools or complete root_cause_analysis."
             }
           }
-        }
+        },
+        "annotations": [
+          {
+            "type": "governance_events",
+            "processor": "centian",
+            "action": "blocked",
+            "category": "risk",
+            "severity": "high",
+            "message": "tool not allowed in phase root_cause_analysis"
+          }
+        ]
       }
     },
     {
@@ -1016,7 +1028,17 @@
           "failureKind": "check",
           "failurePhase": "precondition",
           "failedCheckId": "rca_documented",
-          "summary": "Resolution could not start before the root-cause comment existed."
+          "summary": "Resolution could not start before the root-cause comment existed.",
+          "annotations": [
+            {
+              "type": "governance_events",
+              "processor": "centian",
+              "action": "stopped",
+              "category": "compliance",
+              "severity": "medium",
+              "message": "expected root-cause documentation before resolution"
+            }
+          ]
         }
       }
     },

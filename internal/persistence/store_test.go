@@ -134,6 +134,8 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 	annotationColumns, err := tableColumns(db, "event_annotations")
 	assert.NilError(t, err)
 	assert.Assert(t, annotationColumns["action_event_id"])
+	assert.Assert(t, annotationColumns["type"])
+	assert.Assert(t, annotationColumns["category"])
 	assert.Assert(t, annotationColumns["raw_json"])
 }
 
@@ -174,8 +176,10 @@ func TestAppendActionEventPersistsAnnotationsSeparately(t *testing.T) {
 		},
 		Annotations: []common.EventAnnotation{
 			{
+				Type:      "governance_events",
 				Processor: "prompt_injection_guard",
 				Action:    "redacted",
+				Category:  "security",
 				Severity:  "high",
 				Message:   "Suspicious tool result content was redacted.",
 				Findings: []common.EventAnnotationFinding{
@@ -213,7 +217,9 @@ func TestAppendActionEventPersistsAnnotationsSeparately(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(rows), 2)
 	assert.Equal(t, rows[0].Processor, "prompt_injection_guard")
+	assert.Equal(t, rows[0].Type, "governance_events")
 	assert.Equal(t, rows[0].Action, "redacted")
+	assert.Equal(t, rows[0].Category, "security")
 	assert.Equal(t, rows[0].Severity, "high")
 	assert.Assert(t, rows[0].Rule != "")
 	assert.Assert(t, rows[0].RawJSON != nil)
@@ -222,6 +228,8 @@ func TestAppendActionEventPersistsAnnotationsSeparately(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(eventPage.Items), 1)
 	assert.Equal(t, len(eventPage.Items[0].Annotations), 2)
+	assert.Equal(t, eventPage.Items[0].Annotations[0].Type, "governance_events")
+	assert.Equal(t, eventPage.Items[0].Annotations[0].Category, "security")
 	assert.Equal(t, eventPage.Items[0].Annotations[0].Processor, "prompt_injection_guard")
 	assert.Equal(t, len(eventPage.Items[0].Annotations[0].Findings), 1)
 
@@ -229,6 +237,8 @@ func TestAppendActionEventPersistsAnnotationsSeparately(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, len(taskEvents), 1)
 	assert.Equal(t, len(taskEvents[0].Annotations), 2)
+	assert.Equal(t, taskEvents[0].Annotations[0].Type, "governance_events")
+	assert.Equal(t, taskEvents[0].Annotations[0].Category, "security")
 	assert.Equal(t, taskEvents[0].Annotations[0].Action, "redacted")
 }
 
@@ -340,7 +350,7 @@ func TestNewSQLiteStoreMigratesBenchmarkLinksV5ToV6(t *testing.T) {
 	assert.Equal(t, version, schemaVersion)
 }
 
-func TestNewSQLiteStoreMigratesAnnotationsV6ToV7(t *testing.T) {
+func TestNewSQLiteStoreMigratesAnnotationsV6ToCurrentSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.sqlite")
 
 	db, err := sql.Open(sqliteshim.ShimName, path)
@@ -360,7 +370,41 @@ func TestNewSQLiteStoreMigratesAnnotationsV6ToV7(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Assert(t, columns["action_event_id"])
 	assert.Assert(t, columns["request_id"])
+	assert.Assert(t, columns["type"])
+	assert.Assert(t, columns["category"])
 	assert.Assert(t, columns["raw_json"])
+
+	var version int
+	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
+	assert.NilError(t, err)
+	assert.Equal(t, version, schemaVersion)
+}
+
+func TestNewSQLiteStoreMigratesAnnotationsV7ToV8(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.sqlite")
+
+	db, err := sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	seedSchemaVersion7Store(t, db)
+	assert.NilError(t, db.Close())
+
+	store, err := NewSQLiteStore(path)
+	assert.NilError(t, err)
+	assert.NilError(t, store.Close())
+
+	db, err = sql.Open(sqliteshim.ShimName, path)
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	columns, err := tableColumns(db, "event_annotations")
+	assert.NilError(t, err)
+	assert.Assert(t, columns["type"])
+	assert.Assert(t, columns["category"])
+
+	var annotationCount int
+	err = db.QueryRow(`SELECT COUNT(*) FROM event_annotations WHERE action_event_id = 'ae_v7'`).Scan(&annotationCount)
+	assert.NilError(t, err)
+	assert.Equal(t, annotationCount, 1)
 
 	var version int
 	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
@@ -1519,6 +1563,52 @@ func seedSchemaVersion6Store(t *testing.T, db *sql.DB) {
 		_, err = db.Exec(stmt)
 		assert.NilError(t, err)
 	}
+}
+
+func seedSchemaVersion7Store(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	seedSchemaVersion6Store(t, db)
+	_, err := db.Exec(`UPDATE event_store_schema SET version = 7 WHERE name = 'event_storage'`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`CREATE TABLE event_annotations (
+		id TEXT PRIMARY KEY,
+		schema_version INTEGER NOT NULL,
+		action_event_id TEXT NOT NULL,
+		request_id TEXT NOT NULL,
+		created_at_unix_milli INTEGER NOT NULL,
+		processor TEXT,
+		action TEXT,
+		severity TEXT,
+		message TEXT,
+		rule TEXT,
+		path TEXT,
+		raw_json BLOB,
+		FOREIGN KEY(action_event_id) REFERENCES action_events(id) ON DELETE CASCADE
+	)`)
+	assert.NilError(t, err)
+	_, err = db.Exec(`INSERT INTO event_annotations (
+		id,
+		schema_version,
+		action_event_id,
+		request_id,
+		created_at_unix_milli,
+		processor,
+		action,
+		severity,
+		message
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"ann_v7",
+		7,
+		"ae_v7",
+		"req_v7",
+		1000,
+		"legacy_processor",
+		"annotated",
+		"low",
+		"legacy annotation",
+	)
+	assert.NilError(t, err)
 }
 
 func insertTaskRunSnapshotRow(t *testing.T, db *sql.DB, runID string, status string) {

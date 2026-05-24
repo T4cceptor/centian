@@ -401,8 +401,10 @@ func addAnnotation(ctx map[string]any, detections []detection, mode string) {
 	reports, _ := annotations["reports"].([]any)
 	details := annotationDetails(ctx, detections, mode)
 	reports = append(reports, map[string]any{
+		"type":      "governance_events",
 		"processor": "prompt_injection_guard",
 		"action":    actionName(mode),
+		"category":  "security",
 		"severity":  severityFor(detections, details),
 		"message":   annotationMessage(detections, details),
 		"findings":  findingSummary(detections),
