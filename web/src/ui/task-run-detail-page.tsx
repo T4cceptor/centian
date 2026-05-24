@@ -175,8 +175,10 @@ export function TaskRunDetailPage() {
     let mcpEventCount = 0;
     let processErrorCount = 0;
     let mcpErrorCount = 0;
+    let controlInterventionCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
+      controlInterventionCount += getTimelineItemControlInterventionCount(item);
       if (item.kind === "task") {
         processEventCount++;
         if (isProcessTimelineItemError(item)) {
@@ -206,6 +208,7 @@ export function TaskRunDetailPage() {
       mcpEventCount,
       processErrorCount,
       mcpErrorCount,
+      controlInterventionCount,
     };
   }, [detailStatus, events, flatTimelineItems]);
   const templateLabel = useMemo(() => getTaskTemplateLabel(detailMetadata), [detailMetadata]);
@@ -594,6 +597,7 @@ type RunStats = {
   mcpEventCount: number;
   processErrorCount: number;
   mcpErrorCount: number;
+  controlInterventionCount: number;
 };
 
 type TaskRunDetailSubtitle = {
@@ -664,6 +668,20 @@ function RunMetadataBar({
           </span>
         </div>
       )}
+
+      <div className="task-run-detail__metric" aria-label={`Governance Events: ${stats.controlInterventionCount}`}>
+        <MetricLabel label="Governance Events" />
+        <span
+          className={`task-run-detail__controls-value ${
+            stats.controlInterventionCount > 0
+              ? "task-run-detail__controls-value--intervened"
+              : "task-run-detail__controls-value--clean"
+          }`}
+          style={{ ...valueStyle, color: undefined }}
+        >
+          {stats.controlInterventionCount}
+        </span>
+      </div>
 
       <button
         type="button"
@@ -829,6 +847,83 @@ function readPayloadPath(payload: unknown, path: string[]): unknown {
 
 function isProcessTimelineItemError(item: Extract<TimelineItem, { kind: "task" }>): boolean {
   return isTaskEventError(item.task) || (item.correlatedExchange != null && isExchangeError(item.correlatedExchange));
+}
+
+function getTimelineItemControlInterventionCount(item: TimelineItem): number {
+  if (item.kind === "task") {
+    const hasControlIssue =
+      isTaskControlIssue(item.task) ||
+      (item.correlatedExchange != null && isExchangeControlIssue(item.correlatedExchange));
+    return (hasControlIssue ? 1 : 0) + countProcessorInterventions([item.task, item.correlatedExchange?.request, item.correlatedExchange?.response]);
+  }
+
+  const hasControlIssue = isExchangeControlIssue(item.exchange);
+  return (hasControlIssue ? 1 : 0) + countProcessorInterventions([item.exchange.request, item.exchange.response]);
+}
+
+function isTaskControlIssue(event: TaskRunEvent): boolean {
+  if (event.source !== "task") {
+    return false;
+  }
+  return isTaskCheckFailure(event) || (event.outcome === "failed" && event.eventType !== "task_timed_out");
+}
+
+function isTaskCheckFailure(event: TaskRunEvent): boolean {
+  const failureKind = readPayloadString(event.payloadJson, [["failureKind"], ["failure_kind"]]);
+  const failedCheckId = readPayloadString(event.payloadJson, [["failedCheckId"], ["failed_check_id"]]);
+  const passed = readPayloadPath(event.payloadJson, ["passed"]);
+  return failureKind === "check" || failedCheckId != null || passed === false;
+}
+
+function isExchangeControlIssue(exchange: TimelineExchange): boolean {
+  return isBlockedExchange(exchange) || (isProcessExchange(exchange) && isExchangeError(exchange) && !isTechnicalErrorExchange(exchange));
+}
+
+function isBlockedExchange(exchange: TimelineExchange): boolean {
+  return [exchange.request, exchange.response].some((event) => {
+    if (!event) {
+      return false;
+    }
+    const reason = readPayloadString(event.payloadJson, [
+      ["tool_call", "result", "structuredContent", "reason"],
+      ["toolCall", "result", "structuredContent", "reason"],
+      ["result", "structuredContent", "reason"],
+    ]);
+    const blocked = readPayloadPath(event.payloadJson, ["tool_call", "result", "structuredContent", "blocked"]);
+    return reason === "tool_not_allowed" || blocked === true || eventPayloadText(event).includes("blocked until task registration");
+  });
+}
+
+function isTechnicalErrorExchange(exchange: TimelineExchange): boolean {
+  const text = [exchange.request, exchange.response].map((event) => eventPayloadText(event)).join(" ");
+  return /malformed\s+json|invalid\s+json|parse\s+tool\s+arguments|failed\s+to\s+parse|missing\s+(required\s+)?(parameter|argument)|invalid\s+(parameter|argument)/i.test(text);
+}
+
+function countProcessorInterventions(events: Array<TaskRunEvent | undefined>): number {
+  const interventions = new Set<string>();
+  for (const event of events) {
+    for (const annotation of event?.annotations ?? []) {
+      const action = annotation.action?.trim().toLowerCase();
+      if (!action || action === "annotated") {
+        continue;
+      }
+      if (["blocked", "redacted", "removed", "modified", "escalated"].includes(action)) {
+        interventions.add(`${annotation.processor ?? ""}:${action}:${annotation.message ?? ""}`);
+      }
+    }
+  }
+  return interventions.size;
+}
+
+function eventPayloadText(event: TaskRunEvent | undefined): string {
+  if (!event?.payloadJson) {
+    return "";
+  }
+  try {
+    return JSON.stringify(event.payloadJson).toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function isTaskEventError(event: TaskRunEvent): boolean {

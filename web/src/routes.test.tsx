@@ -1016,6 +1016,7 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByLabelText("Task progress: 25% complete")).toHaveClass("task-progress-donut--active");
+    expect(screen.getByLabelText("Controls: 1")).toHaveTextContent("1");
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -1174,6 +1175,14 @@ describe("task run detail", () => {
             serverName: "filesystem",
             transport: "http",
             payloadJson: { nested: true },
+            annotations: [
+              {
+                processor: "prompt_injection_guard",
+                action: "redacted",
+                severity: "critical",
+                message: "Prompt injection content was redacted.",
+              },
+            ],
           },
         ]),
       ),
@@ -1192,6 +1201,7 @@ describe("task run detail", () => {
       "Step Completed · Onboarding",
       "filesystem - edit_file",
     ]);
+    expect(screen.getByLabelText("Controls: 1")).toHaveTextContent("1");
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Events (Process/MCP): Process 2, MCP 2")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 0")).not.toBeInTheDocument();
@@ -1326,6 +1336,7 @@ describe("task run detail", () => {
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
+    expect(screen.getByLabelText("Controls: 0")).toHaveTextContent("0");
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Events (Process/MCP): Process 1, MCP 2")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 1")).not.toBeInTheDocument();

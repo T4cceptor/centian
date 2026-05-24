@@ -1420,6 +1420,14 @@ code,
   color: var(--accent-danger);
 }
 
+.task-run-detail__controls-value--clean {
+  color: var(--accent-success);
+}
+
+.task-run-detail__controls-value--intervened {
+  color: var(--accent-warning);
+}
+
 .task-run-detail__split-value {
   display: inline-flex;
   align-items: baseline;
