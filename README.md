@@ -1,109 +1,52 @@
-# Centian
+<h1 align="center">Centian</h1>
+<div align="center">
 
 [![Release](https://img.shields.io/github/v/release/T4cceptor/centian)](https://github.com/T4cceptor/centian/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/T4cceptor/centian/ci.yml?branch=main)](https://github.com/T4cceptor/centian/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/T4cceptor/centian)](./LICENSE)
 
-
-Control and verify what your AI agents actually do — in real time.   
-AI agents are not aligned on what “success” actually means.
-
-Centian lets you define success — and enforces it.
-
-→ See every tool call your agent makes.  
-→ Block unsafe actions instantly.  
-→ Verify tasks actually succeeded (not just executed).  
-
-<div align="center">
-  <img src="docs/images/readme_hq.gif" alt="Centian Demo — AI agent completing a TDD task under Centian governance">
 </div>
-<br>
 
-## See it in action (2-min demo)
-```bash
-centian demo -a claude
-```
+### *Trust your AI Agents.*: See what your AI agents do. Control what they're allowed to do. Verify they did what you approved — before, during, and after every task.
 
-During execution, you may observe:
+Keep your systems safe from what your agents might do. Keep your agents safe from what the world throws at them. Built for the engineers who put agents into production and answer for what they do.
 
-✔ Agent tries to bypass tests → blocked  
-✔ Task fails verification → flagged immediately  
-✔ Workflow violation → agent skipped planning phase  
+<p align="center">
+  <img src="./docs/images/centian_simple_diag3.jpeg" width="100%" />
+</p>
 
-→ Centian catches it in real time
+## Why Centian exists
+Your AI Agents touch the filesystem, your APIs, your databases. They make decisions you can't always predict and take actions you can't always undo. And any new agent adds another thing to worry about at 2 am.
 
-Don’t have it installed yet?
-```bash
-curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
-```
+You're probably in the right place if any of these thoughts sound familiar:
+- "I want to deploy agents in production but I can't justify the risk yet."
+- "I have agents running and I'm not sure I'd notice if one of them did something wrong."
+- "Compliance asked how we audit AI decisions and I don't have a clean answer."
+- "Our automation already deleted a production database once. I'm not letting an agent near it without something in the way."
 
-Or see [Getting started](#getting-started) for more options.
+Centian is the layer that sits between your agents and the systems they touch — capturing every action, enforcing what they're allowed to do, and verifying they did what they committed to do.
 
----
+## How Centian helps you
+Centian gives you four things out of the box:
 
-## The Problem
+### 🔍 Audit trail & observability
+Understand what your agents did — and why.
+Every tool call, every parameter, every result is captured and correlated to the task that produced it. Inspect any session, replay any decision, answer "what happened?" without guessing.
 
-AI agents are not aligned on what “success” actually means.
+### 🛡️ Realtime context & action guard
+Secure both your agents and the systems they access.
+Centian governs **what enters** the agent's context (untrusted inputs, prompt injection vectors) and **what leaves** it (destructive calls, sensitive data, unapproved tools) - **bidirectional, at runtime**.
 
-### Example: Your agent fixes a failing test.
+### ✅ Verified execution
+Confirm your agents are doing what you actually approved.
+You define the workflow upfront. The agent commits to it as a frozen execution contract. Centian verifies each step against that contract — and handles deviations in real time.
 
-What you see: `✔ “Task completed - Tests green”`
+### 💥 Blast radius management
+Exclude catastrophic scenarios by design.
+Per-phase tool allowlists, irreversible-action gating, and approval-wait phases mean dangerous tools are simply unavailable when they're not needed — not just "we hope the agent won't call them."
 
-But:  
-- the agent modified the test instead of the code.  
-- the failure condition never existed.  
-- the code is still broken.  
+Centian gives you the runtime visibility and enforcement you need to catch failures fast, prove what happened, and constrain what's possible.
 
-→ Without verification, this looks like success.
-
-### What is Centian?
-
-It sits between your agent and the tools it uses:
-```
-Agent (Claude / Codex / Gemini) -- the brain
-↓
-Centian -- the control layer
-↓
-MCP Tools (filesystem, APIs, DB) -- the actions
-```
-
-All tool calls flow through Centian's proxy — giving you:
-- full control over what agents can do  
-- visibility into every action  
-- verification that tasks actually succeeded  
-
----
-
-
-## Agent Process Verification — define success upfront
-
-Centian verifies that agents do what they committed to do - why this is a problem is described in detail in our benchmark where we tested 9 agents on a test-driven development task using centian: ["Done!" — But Did Your Agent Actually Do the Work?](https://t4cceptor.github.io/centian-benchmarks/).
-
-Before execution, you define what success looks like — and Centian enforces it step by step.
-
-![Centian Demo — AI agent trying to cheat its way around TDD](docs/images/agent_modifying_test_script.jpeg)
-
-Without verification, agents can appear correct while being wrong.  
-Centian lets you define success — and enforces it.
-
-Process verification lets you define **declarative workflow templates** in YAML. Each template describes a structured lifecycle — onboarding, planning, scaffolding, execution — with preconditions, postconditions, invariants, and per-phase tool permissions.
-
-When an agent registers a task from a template:
-
-1. **Onboarding** — the agent gathers project context and constraints
-2. **Planning** — the agent proposes an approach, which gets **frozen into an execution contract**
-3. **Execution** — the agent works through defined steps, with Centian verifying correctness at each gate
-4. **Completion** — postconditions confirm the task was done right
-
-The frozen execution contract is key: once planning completes, the agent reads from an immutable contract rather than mutable prompt context. You can prove what the agent committed to doing, and verify whether it actually did it.
-
-**Per-phase tool governance:** each workflow node can declare which MCP tools the agent is allowed to call. During an approval-wait phase, all downstream tools are blocked. During scaffolding, you might allow filesystem access but block shell commands.
-
-Example templates for TDD workflows are included in the repository under `task-templates/`.
-
-The template schema is documented and designed for extensibility. Community contributions of templates for common workflows are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
 
 ## Getting started
 
@@ -115,78 +58,41 @@ curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/inst
 
 For all install methods see [Installation Options](#installation-options).
 
-### Local Demo
-
-The demo showcases centian as the agent control plane within a familiar setting: test-driven development.
-The agent is given a task to implement `score_paranthesis` - see [prompt](internal/agentrunner/assets/prompt.md) - and is then guided through the task using centian.
-
-What you'll see:
-
-✔ Agent tries to bypass tests → blocked  
-✔ Task fails verification → flagged immediately  
-✔ Workflow violation → agent skipped planning phase  
-
-→ Centian catches it in real time
-
-**Prerequisites**: Before running `centian demo`, make sure you have:
-
-- `node` (tested with `v24.2.0`) and `npx` (tested with `11.3.0`) available on your `PATH` - required to launch filesystem and shell MCP servers, and run tests
-- Claude Code, Gemini CLI, or OpenAI Codex installed and authenticated - Centian launches the selected agent in headless mode through its local CLI, so the demo will fail if that agent binary is missing or it's not signed in.
-- For `codex-ollama`, make sure local Ollama is running at `http://localhost:11434/v1` and pass `--codex-config` pointing to a valid Codex config that already defines the local OSS profile you want to use. Centian only patches the run-local MCP URL and trusted project path; it does not create Ollama profiles for you. The current local setup has been tested on a MacBook Pro M4 with 48 GB RAM using `gemma4:26b` and `wqen3.5` profile, but actual model viability depends on the host machine and Ollama setup.
-
-**Claude Code** (sonnet)
+### Demo
 ```bash
-centian demo -a claude
+centian demo
 ```
 
-**Gemini CLI** (gemini-2.5-flash)
-```bash
-centian demo -a gemini
-```
+During the demo you'll see:
 
-**Codex:** (using default option)
-```bash
-centian demo -a codex
-```
-Note: for the codex demo centian will copy (and later cleanup) existing auth material for the OpenAI API.
+✔ Agent tries to shortcut the process → blocked  
+✔ Agent unknowingly retrieves context with a prompt injection → flagged and removed immediately, before it hits the agent
+✔ Compliance violation → agent tries to call `restart_service` without verifying root cause
 
-**Codex OSS via Ollama** (explicit Codex profile required)
-```bash
-centian demo -a codex-ollama --codex-config ~/.codex/config.toml --profile local-oss
-```
+→ Centian catches everything in real time
 
-Use `-m` / `--model` to override the selected agent model, for example `centian demo -a codex -m gpt-5.4-mini`. Supported shorthand values are: Codex `gpt-5.4`, `gpt-5.4-mini`; Claude `haiku`, `sonnet`, `opus`; Gemini `pro`, `flash`, `2.5-flash`. For `codex-ollama`, use `--profile` instead of `--model`.
+For more infos about demos see: demo/README.md
 
-**What the demo does**
-- Setup environment: create a local folder `.centian/demo`, copying required artifacts there (see [here](internal/agentrunner/assets)), adjusting configs.
-- Start Centian server locally at an available port (selected automatically).
-- Start selected coding agent in headless mode with [prompt](internal/agentrunner/assets/prompt.md).
-- The Centian UI is opened in a new browser window showing the task overview page UI - once the agent registers the task at Centian you can check what the agent is doing by clicking on it and observing the MCP events.
-- After the agent is done the CLI will prompt you if you want to close the server. Feel free to do so, you can run the demo multiple times, also with different agents - previous runs will be preserved.
+---
 
-**Note:** the demo is intended to showcase Centian's capabilities and get a first impression, it is NOT a production-grade setup (e.g. `auth = false`, using `127.0.0.1`). If you want to use Centian do NOT copy-paste or reference the created config, check out [Configuration](#configuration) for how to setup your own centian proxy.
-
-### Using `init` for basic proxy setup (no task verification)
+### Using `init` for basic proxy setup (without process verification)
 
 ```bash
-# 1. Install
-curl -fsSL https://raw.githubusercontent.com/T4cceptor/centian/main/scripts/install.sh | bash
-
-# 2. Initialize with a starter MCP server
+# 1. Initialize with a starter MCP server
 centian init -q
 # Optional: check created config at ~/.centian/config.json
 
-# 3. Add your own MCP servers
+# 2. Add your own MCP servers
 centian server add --name "filesystem" --command "npx" --args "-y,@modelcontextprotocol/server-filesystem,/path/to/project"
 centian server add --name "deepwiki" --url "https://mcp.deepwiki.com/mcp"
 
-# 4. Start the proxy
+# 3. Start the proxy
 centian start
 
-# 5. Point your MCP client at Centian (use the config shown during init)
+# 4. Point your MCP client at Centian (use the config shown during init)
 ```
 
-### With task verification
+### With process verification
 
 Add capabilities to your config at `~/.centian/config.json`. In the flat layout, capabilities go under `proxy`; in the project-based layout, they go on each project:
 
@@ -219,78 +125,6 @@ centian start
 # UI available at http://localhost:9666/ui/tasks
 ```
 
----
-
-## How Centian enables this
-
-### 1. Proxy layer: One gateway, all your MCP servers
-
-Configure your MCP servers once in Centian. Point every client at `localhost:9666`. Tool namespacing (`<server>_<tool>`) eliminates collisions automatically.
-
-```json
-{
-  "gateways": {
-    "default": {
-      "mcpServers": {
-        "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/project"] },
-        "github": { "url": "https://api.github.com/mcp", "headers": { "Authorization": "Bearer <token>" } }
-      }
-    }
-  }
-}
-```
-
-Every client connects to one endpoint:
-
-```json
-{
-  "mcpServers": {
-    "centian": {
-      "url": "http://127.0.0.1:9666/mcp/default",
-      "headers": { "X-Centian-Auth": "<your-api-key>" }
-    }
-  }
-}
-```
-
-### 2. Governance layer: Programmable middleware for tool calls
-
-Processors intercept every tool call before and after execution. They receive the full request/response context, can modify payloads, and can abort the chain.
-
-Use cases:
-- Audit logging every tool call to a database
-- Rate limiting calls that exceed thresholds
-- Stripping secrets or environment variables from tool arguments
-- Redacting PII from responses
-- Enforcing allow-lists for which tools an agent can call
-
-Scaffold a new processor:
-
-```bash
-centian processor new
-```
-
-### 3. Execution visibility
-
-Every MCP tool call is captured with timestamps, session IDs, request/response payloads, and — when task verification is active — the workflow context that produced it.
-
-Without task verification, Centian logs events via structured JSONL and a queryable SQLite event store. With task verification enabled, Centian serves an embedded UI that shows agent activity **in the context of what the agent was supposed to be doing**:
-
-- Timeline grouped by workflow phase
-- Tool calls correlated to task steps
-- Failed postcondition checks with detailed failure metadata
-- Full request/response inspection
-
-```bash
-# CLI log access
-centian logs
-
-# Embedded UI (when task verification + UI are enabled)
-# http://localhost:9666/ui/tasks
-```
-
----
-
 ## Documentation
 
 The deep documentation lives under [`docs/`](docs/README.md).
@@ -301,108 +135,6 @@ The deep documentation lives under [`docs/`](docs/README.md).
 - [Task Template Authoring](docs/task-template-authoring.md)
 - [Taskverification Runtime](docs/TASKVERIFICATION.md)
 - [MCP Proxy Best Practices](docs/mcp_proxy_best_practices.md)
-
-
-## Configuration
-
-Centian uses a single JSON config at `~/.centian/config.json`. The config supports two layouts:
-
-**Flat layout** (default from `centian init`) — gateways, auth, and capabilities live at the top level:
-
-```json
-{
-  "name": "Centian Server",
-  "version": "1.0.0",
-  "auth": true,
-  "authHeader": "X-Centian-Auth",
-  "proxy": {
-    "host": "127.0.0.1",
-    "port": "9666",
-    "timeout": 30,
-    "logLevel": "info",
-    "capabilities": {
-      "taskVerification": { "enabled": false },
-      "eventStorage": { "enabled": true, "driver": "sqlite" },
-      "ui": { "enabled": false }
-    }
-  },
-  "gateways": {
-    "default": {
-      "mcpServers": {
-        "my-server": {
-          "url": "https://example.com/mcp",
-          "headers": { "Authorization": "Bearer <token>" },
-          "enabled": true
-        }
-      }
-    }
-  },
-  "processors": []
-}
-```
-
-**Project-based layout** — for isolating multiple workloads with separate databases, feature flags, and route prefixes:
-
-```json
-{
-  "name": "Centian Server",
-  "version": "1.0.0",
-  "proxy": {
-    "host": "127.0.0.1",
-    "port": "9666",
-    "timeout": 30
-  },
-  "projects": {
-    "team-alpha": {
-      "auth": true,
-      "capabilities": {
-        "taskVerification": { "enabled": true },
-        "eventStorage": { "enabled": true },
-        "ui": { "enabled": true }
-      },
-      "gateways": {
-        "workbench": {
-          "mcpServers": {
-            "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"] }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-Each project gets its own SQLite database (`~/.centian/projects/<slug>/events.sqlite`) and its own route prefix. The flat layout is auto-migrated to a `"default"` project at runtime, so existing configs continue to work unchanged.
-
-### Endpoints
-
-- Aggregated gateway: `http://127.0.0.1:9666/mcp/<gateway>`
-- Individual server: `http://127.0.0.1:9666/mcp/<gateway>/<server>`
-- Project-scoped gateway: `http://127.0.0.1:9666/<project>/<mcp>/<gateway>`
-- Project-scoped UI: `http://127.0.0.1:9666/<project>/ui`
-
-In aggregated mode, tools are namespaced to avoid collisions. The `"default"` project uses unprefixed routes for backwards compatibility.
-
-### Security
-
-Binding to `0.0.0.0` is only allowed if `auth` is explicitly configured in every project. This prevents accidental exposure.
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `centian init` | Initialize config (use `-q` for quickstart) |
-| `centian start` | Start the proxy |
-| `centian auth new-key` | Generate a new API key |
-| `centian server add` | Add an MCP server |
-| `centian server ...` | Manage MCP servers |
-| `centian config ...` | Manage configuration |
-| `centian processor new` | Scaffold a new processor |
-| `centian logs` | View recent MCP logs |
-
----
 
 ## Installation Options
 
@@ -458,7 +190,7 @@ Centian is usable and actively developed, but it's pre-1.0 with deliberate gaps.
 - MCP proxy with gateway aggregation and tool namespacing
 - Project-based isolation: per-project databases, route prefixes, capabilities, and auth (multi-tenancy preparation)
 - Programmable processor chain (CLI and webhook)
-- Task verification with template-based workflows, frozen execution contracts, and per-phase tool governance
+- Process verification with template-based workflows, frozen execution contracts, and per-phase tool governance
 - SQLite event persistence with task/action correlation
 - Embedded read-only UI for task run inspection
 - Structured JSONL request logging
@@ -487,16 +219,6 @@ make test-coverage  # Test coverage report
 make lint           # Run linting
 make dev            # Clean, fmt, vet, test, build
 ```
-
----
-
-## Why "Control Plane"?
-
-MCP proxies route traffic. Centian governs it.
-
-The proxy is the mechanism — it's how Centian sees and controls every tool call. But the point isn't routing. The point is knowing what your agent is doing, constraining what it's allowed to do, and verifying that it did what you asked.
-
-If you're using AI agents in environments where process matters — regulated industries, mission-critical workflows, or anywhere you need to answer "what did the agent do and why?" — that's what Centian is for.
 
 ---
 
