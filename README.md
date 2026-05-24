@@ -7,7 +7,11 @@
 
 </div>
 
-### *Trust your AI Agents.*: See what your AI agents do. Control what they're allowed to do. Verify they did what you approved — before, during, and after every task.
+<div style="font-size: 12pt">
+
+**Trust your AI Agents**: See what your AI agents do. Control what they're allowed to do. Verify they did what you approved — before, during, and after every task.
+
+</div>
 
 Keep your systems safe from what your agents might do. Keep your agents safe from what the world throws at them. Built for the engineers who put agents into production and answer for what they do.
 
