@@ -1420,14 +1420,6 @@ code,
   color: var(--accent-danger);
 }
 
-.task-run-detail__controls-value--clean {
-  color: var(--accent-success);
-}
-
-.task-run-detail__controls-value--intervened {
-  color: var(--accent-warning);
-}
-
 .task-run-detail__split-value {
   display: inline-flex;
   align-items: baseline;
@@ -1483,6 +1475,107 @@ code,
   gap: 24px;
   padding-top: 8px;
   border-top: 1px solid rgba(100, 140, 200, 0.1);
+}
+
+.task-run-detail__governance {
+  border-bottom: 1px solid rgba(100, 140, 200, 0.1);
+  background: linear-gradient(135deg, rgba(7, 17, 28, 0.66), rgba(10, 18, 32, 0.46));
+}
+
+.task-run-detail__governance-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: 600 0.86rem system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+}
+
+.task-run-detail__governance-toggle:hover {
+  background: rgba(140, 230, 216, 0.04);
+}
+
+.task-run-detail__governance-toggle:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: -2px;
+}
+
+.task-run-detail__governance-title {
+  color: var(--accent-strong);
+  letter-spacing: 0.01em;
+}
+
+.task-run-detail__governance-title span {
+  color: var(--accent-warning);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.task-run-detail__governance-action {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.task-run-detail__governance-body {
+  padding: 0 20px 12px;
+}
+
+.task-run-detail__governance-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-run-detail__governance-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+.task-run-detail__governance-item code {
+  color: #d6e2ff;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.task-run-detail__governance-event-action {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.task-run-detail__governance-event-action--stopped {
+  color: var(--accent-danger);
+}
+
+.task-run-detail__governance-event-action--blocked {
+  color: var(--accent-warning);
+}
+
+.task-run-detail__governance-event-action--modified {
+  color: rgb(50, 210, 250);
+}
+
+.task-run-detail__governance-separator,
+.task-run-detail__governance-empty {
+  color: var(--text-muted);
+}
+
+.task-run-detail__governance-empty {
+  margin: 0;
+  font-size: 0.84rem;
 }
 
 .task-run-summary-card {

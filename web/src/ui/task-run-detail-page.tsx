@@ -164,6 +164,10 @@ export function TaskRunDetailPage() {
     () => groupedEvents.flatMap((group) => group.items),
     [groupedEvents],
   );
+  const governanceEvents = useMemo(
+    () => deriveGovernanceEvents(flatTimelineItems),
+    [flatTimelineItems],
+  );
   const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
   const inspectorVisible = selectedItemID !== "" && selectedItem != null;
 
@@ -175,10 +179,8 @@ export function TaskRunDetailPage() {
     let mcpEventCount = 0;
     let processErrorCount = 0;
     let mcpErrorCount = 0;
-    let controlInterventionCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
-      controlInterventionCount += getTimelineItemControlInterventionCount(item);
       if (item.kind === "task") {
         processEventCount++;
         if (isProcessTimelineItemError(item)) {
@@ -208,7 +210,6 @@ export function TaskRunDetailPage() {
       mcpEventCount,
       processErrorCount,
       mcpErrorCount,
-      controlInterventionCount,
     };
   }, [detailStatus, events, flatTimelineItems]);
   const templateLabel = useMemo(() => getTaskTemplateLabel(detailMetadata), [detailMetadata]);
@@ -345,6 +346,7 @@ export function TaskRunDetailPage() {
       </header>
 
       <RunMetadataBar stats={runStats} status={detailStatus} now={now} templateLabel={templateLabel} />
+      <GovernanceEventsPanel events={governanceEvents} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -597,11 +599,19 @@ type RunStats = {
   mcpEventCount: number;
   processErrorCount: number;
   mcpErrorCount: number;
-  controlInterventionCount: number;
 };
 
 type TaskRunDetailSubtitle = {
   text: string;
+};
+
+type GovernanceEventAction = "Stopped" | "Blocked" | "Modified";
+
+type GovernanceEventDescription = {
+  id: string;
+  action: GovernanceEventAction;
+  event: string;
+  reason: string;
 };
 
 const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
@@ -669,20 +679,6 @@ function RunMetadataBar({
         </div>
       )}
 
-      <div className="task-run-detail__metric" aria-label={`Governance Events: ${stats.controlInterventionCount}`}>
-        <MetricLabel label="Governance Events" />
-        <span
-          className={`task-run-detail__controls-value ${
-            stats.controlInterventionCount > 0
-              ? "task-run-detail__controls-value--intervened"
-              : "task-run-detail__controls-value--clean"
-          }`}
-          style={{ ...valueStyle, color: undefined }}
-        >
-          {stats.controlInterventionCount}
-        </span>
-      </div>
-
       <button
         type="button"
         className="task-run-detail__details-toggle"
@@ -714,6 +710,58 @@ function RunMetadataBar({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const eventCount = events.length;
+  const panelID = "task-run-governance-events";
+
+  return (
+    <section className="task-run-detail__governance" aria-label={`Governance Events: ${eventCount}`}>
+      <button
+        type="button"
+        className="task-run-detail__governance-toggle"
+        aria-expanded={expanded}
+        aria-controls={panelID}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="task-run-detail__governance-title">
+          Governance Events: <span>{eventCount}</span>
+        </span>
+        <span className="task-run-detail__governance-action">
+          {expanded ? "Hide" : "Show"}
+        </span>
+      </button>
+
+      {expanded ? (
+        <div id={panelID} className="task-run-detail__governance-body">
+          {events.length > 0 ? (
+            <ul className="task-run-detail__governance-list">
+              {events.map((event) => (
+                <li
+                  key={event.id}
+                  className="task-run-detail__governance-item"
+                  aria-label={`${event.action} ${event.event} - ${event.reason}`}
+                >
+                  <span
+                    className={`task-run-detail__governance-event-action task-run-detail__governance-event-action--${event.action.toLowerCase()}`}
+                  >
+                    {event.action}
+                  </span>
+                  <code>{event.event}</code>
+                  <span className="task-run-detail__governance-separator">-</span>
+                  <span>{event.reason}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="task-run-detail__governance-empty">No governance events recorded.</p>
+          )}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -849,16 +897,301 @@ function isProcessTimelineItemError(item: Extract<TimelineItem, { kind: "task" }
   return isTaskEventError(item.task) || (item.correlatedExchange != null && isExchangeError(item.correlatedExchange));
 }
 
-function getTimelineItemControlInterventionCount(item: TimelineItem): number {
-  if (item.kind === "task") {
-    const hasControlIssue =
-      isTaskControlIssue(item.task) ||
-      (item.correlatedExchange != null && isExchangeControlIssue(item.correlatedExchange));
-    return (hasControlIssue ? 1 : 0) + countProcessorInterventions([item.task, item.correlatedExchange?.request, item.correlatedExchange?.response]);
+function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescription[] {
+  const descriptions: GovernanceEventDescription[] = [];
+  const seen = new Set<string>();
+
+  const addDescription = (
+    id: string,
+    action: GovernanceEventAction,
+    event: string,
+    reason: string,
+  ) => {
+    const key = `${action}:${event}:${reason}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    descriptions.push({ id, action, event, reason });
+  };
+
+  for (const item of items) {
+    if (item.kind === "task") {
+      const correlatedExchangeHasControlIssue =
+        item.correlatedExchange != null && isExchangeControlIssue(item.correlatedExchange);
+      if (isTaskCheckFailure(item.task) || (isTaskControlIssue(item.task) && !correlatedExchangeHasControlIssue)) {
+        addDescription(
+          `${item.task.id}:task`,
+          "Stopped",
+          getProcessActionLabel(item.task),
+          getTaskGovernanceReason(item.task),
+        );
+      } else if (item.correlatedExchange && correlatedExchangeHasControlIssue) {
+        addExchangeGovernanceDescription(item.correlatedExchange, addDescription);
+      }
+      addProcessorGovernanceDescriptions(
+        `${item.id}:processor`,
+        getProcessActionLabel(item.task),
+        [item.task, item.correlatedExchange?.request, item.correlatedExchange?.response],
+        addDescription,
+      );
+      continue;
+    }
+
+    addExchangeGovernanceDescription(item.exchange, addDescription);
+    addProcessorGovernanceDescriptions(
+      `${item.id}:processor`,
+      getGovernanceToolLabel(item.exchange),
+      [item.exchange.request, item.exchange.response],
+      addDescription,
+    );
   }
 
-  const hasControlIssue = isExchangeControlIssue(item.exchange);
-  return (hasControlIssue ? 1 : 0) + countProcessorInterventions([item.exchange.request, item.exchange.response]);
+  return descriptions;
+}
+
+function addExchangeGovernanceDescription(
+  exchange: TimelineExchange,
+  addDescription: (
+    id: string,
+    action: GovernanceEventAction,
+    event: string,
+    reason: string,
+  ) => void,
+) {
+  const eventID = exchange.response?.id ?? exchange.request?.id ?? exchange.requestId ?? getGovernanceToolLabel(exchange);
+  if (isBlockedExchange(exchange)) {
+    addDescription(
+      `${eventID}:blocked`,
+      "Blocked",
+      getGovernanceToolLabel(exchange),
+      getExchangeGovernanceReason(exchange),
+    );
+    return;
+  }
+
+  if (isProcessExchange(exchange) && isExchangeError(exchange) && !isTechnicalErrorExchange(exchange)) {
+    addDescription(
+      `${eventID}:stopped`,
+      "Stopped",
+      getProcessActionLabelForToolName(exchange.request?.toolName ?? exchange.response?.toolName),
+      getExchangeGovernanceReason(exchange),
+    );
+  }
+}
+
+function addProcessorGovernanceDescriptions(
+  idPrefix: string,
+  eventLabel: string,
+  events: Array<TaskRunEvent | undefined>,
+  addDescription: (
+    id: string,
+    action: GovernanceEventAction,
+    event: string,
+    reason: string,
+  ) => void,
+) {
+  let index = 0;
+  for (const event of events) {
+    for (const annotation of event?.annotations ?? []) {
+      const action = annotation.action?.trim().toLowerCase();
+      const governanceAction = getProcessorGovernanceAction(action);
+      if (!governanceAction) {
+        continue;
+      }
+      addDescription(
+        `${idPrefix}:${event?.id ?? "event"}:${index}`,
+        governanceAction,
+        eventLabel,
+        getProcessorGovernanceReason(annotation),
+      );
+      index += 1;
+    }
+  }
+}
+
+function getProcessorGovernanceAction(action?: string): GovernanceEventAction | undefined {
+  if (action === "blocked") {
+    return "Blocked";
+  }
+  if (action && ["redacted", "removed", "modified", "escalated"].includes(action)) {
+    return "Modified";
+  }
+  return undefined;
+}
+
+function getProcessorGovernanceReason(annotation: NonNullable<TaskRunEvent["annotations"]>[number]): string {
+  const message = annotation.message?.trim();
+  if (message) {
+    return message;
+  }
+
+  switch (annotation.action?.trim().toLowerCase()) {
+    case "blocked":
+      return "processor blocked content";
+    case "redacted":
+      return "processor redacted content";
+    case "removed":
+      return "processor removed content";
+    case "escalated":
+      return "processor escalated event";
+    default:
+      return "processor modified content";
+  }
+}
+
+function getProcessActionLabel(event: TaskRunEvent): string {
+  switch (event.eventType) {
+    case "task_registered":
+      return "Register Task";
+    case "onboarding_completed":
+      return "Complete Onboarding";
+    case "planning_completed":
+      return "Complete Planning";
+    case "step_started":
+      return formatStepProcessAction("Start", event);
+    case "step_completed":
+      return formatStepProcessAction("Complete", event);
+    case "task_completed":
+      return "Complete Task";
+    case "task_failed":
+      return "Fail Task";
+    case "task_timed_out":
+      return "Timeout Task";
+    case "restarted":
+      return "Restart Task";
+    case "resumed":
+      return "Resume Task";
+    default:
+      return humanizeIdentifier(event.eventType ?? "Process Action");
+  }
+}
+
+function formatStepProcessAction(action: "Start" | "Complete", event: TaskRunEvent): string {
+  const step = readPayloadPath(event.payloadJson, ["step"]);
+  const stepLabel = typeof step === "number" ? `Step ${step}` : "";
+  const stepName = getTaskStepDisplayName(event).replace(/^Execution\s*\/\s*/i, "");
+  const parts = [`${action} Execution`, stepLabel, stepName].filter(Boolean);
+  return parts.join(" / ");
+}
+
+function getProcessActionLabelForToolName(toolName?: string): string {
+  switch (toolName) {
+    case "centian.task_register":
+      return "Register Task";
+    case "centian.task_complete_onboarding":
+      return "Complete Onboarding";
+    case "centian.task_complete_planning":
+      return "Complete Planning";
+    case "centian.task_start_step":
+      return "Start Execution";
+    case "centian.task_complete_step":
+      return "Complete Execution";
+    case "centian.task_resume":
+      return "Resume Task";
+    case "centian.task_restart":
+      return "Restart Task";
+    case "centian.task_fail":
+      return "Fail Task";
+    default:
+      return humanizeIdentifier(toolName ?? "Process Action");
+  }
+}
+
+function getTaskGovernanceReason(event: TaskRunEvent): string {
+  const summary = readPayloadString(event.payloadJson, [
+    ["summary"],
+    ["message"],
+    ["error"],
+    ["reason"],
+  ]);
+  if (summary) {
+    return summary;
+  }
+
+  const failedCheckId = readPayloadString(event.payloadJson, [["failedCheckId"], ["failed_check_id"]]);
+  if (failedCheckId) {
+    return `expected \`${failedCheckId}\``;
+  }
+
+  const failureKind = readPayloadString(event.payloadJson, [["failureKind"], ["failure_kind"]]);
+  if (failureKind === "check" || readPayloadPath(event.payloadJson, ["passed"]) === false) {
+    return "checks failed";
+  }
+
+  return "process requirement failed";
+}
+
+function getExchangeGovernanceReason(exchange: TimelineExchange): string {
+  const events = [exchange.response, exchange.request];
+  const reason = readFirstEventPayloadString(events, [
+    ["tool_call", "result", "structuredContent", "reason"],
+    ["toolCall", "result", "structuredContent", "reason"],
+    ["result", "structuredContent", "reason"],
+    ["reason"],
+  ]);
+  const phase = readFirstEventPayloadString(events, [
+    ["tool_call", "result", "structuredContent", "phase"],
+    ["toolCall", "result", "structuredContent", "phase"],
+    ["result", "structuredContent", "phase"],
+    ["phase"],
+  ]);
+
+  if (reason === "tool_not_allowed") {
+    return phase ? `tool not allowed in phase "${humanizePhase(phase)}"` : "tool not allowed in current phase";
+  }
+
+  const summary = readFirstEventPayloadString(events, [
+    ["tool_call", "result", "structuredContent", "summary"],
+    ["toolCall", "result", "structuredContent", "summary"],
+    ["result", "structuredContent", "summary"],
+    ["summary"],
+    ["message"],
+    ["error"],
+  ]);
+  if (summary) {
+    return summary;
+  }
+
+  return isBlockedExchange(exchange) ? "tool call was blocked" : "process requirement failed";
+}
+
+function readFirstEventPayloadString(events: Array<TaskRunEvent | undefined>, paths: string[][]): string | undefined {
+  for (const event of events) {
+    const value = readPayloadString(event?.payloadJson, paths);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function getGovernanceToolLabel(exchange: TimelineExchange): string {
+  const event = exchange.request ?? exchange.response;
+  const originalToolName = event?.originalToolName?.trim();
+  const parsedOriginalToolName = originalToolName ? parseNamespacedToolName(originalToolName) : undefined;
+  if (parsedOriginalToolName) {
+    return `${parsedOriginalToolName.server} - ${parsedOriginalToolName.tool}`;
+  }
+
+  const toolName = event?.toolName?.trim();
+  if (toolName?.startsWith("centian.task_")) {
+    return getProcessActionLabelForToolName(toolName);
+  }
+
+  const serverName = getExchangeServerName(exchange);
+  if (toolName) {
+    return `${serverName} - ${toolName}`;
+  }
+  return getExchangeTitle(exchange);
+}
+
+function parseNamespacedToolName(value: string): { server: string; tool: string } | undefined {
+  const match = value.match(/^([A-Za-z0-9-]+)_{2,3}(.+)$/);
+  if (!match) {
+    return undefined;
+  }
+  return { server: match[1], tool: match[2] };
 }
 
 function isTaskControlIssue(event: TaskRunEvent): boolean {
@@ -897,22 +1230,6 @@ function isBlockedExchange(exchange: TimelineExchange): boolean {
 function isTechnicalErrorExchange(exchange: TimelineExchange): boolean {
   const text = [exchange.request, exchange.response].map((event) => eventPayloadText(event)).join(" ");
   return /malformed\s+json|invalid\s+json|parse\s+tool\s+arguments|failed\s+to\s+parse|missing\s+(required\s+)?(parameter|argument)|invalid\s+(parameter|argument)/i.test(text);
-}
-
-function countProcessorInterventions(events: Array<TaskRunEvent | undefined>): number {
-  const interventions = new Set<string>();
-  for (const event of events) {
-    for (const annotation of event?.annotations ?? []) {
-      const action = annotation.action?.trim().toLowerCase();
-      if (!action || action === "annotated") {
-        continue;
-      }
-      if (["blocked", "redacted", "removed", "modified", "escalated"].includes(action)) {
-        interventions.add(`${annotation.processor ?? ""}:${action}:${annotation.message ?? ""}`);
-      }
-    }
-  }
-  return interventions.size;
 }
 
 function eventPayloadText(event: TaskRunEvent | undefined): string {

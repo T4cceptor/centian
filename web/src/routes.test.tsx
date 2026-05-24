@@ -971,6 +971,7 @@ describe("task run detail", () => {
   }, 8000);
 
   it("keeps polling after a failed step event while the task run remains active", async () => {
+    const user = userEvent.setup();
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
@@ -1016,7 +1017,10 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByLabelText("Task progress: 25% complete")).toHaveClass("task-progress-donut--active");
-    expect(screen.getByLabelText("Controls: 1")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Stopped Complete Execution / Step 3 / Establish Failing Baseline - checks failed")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
+    expect(screen.getByLabelText("Stopped Complete Execution / Step 3 / Establish Failing Baseline - checks failed")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -1201,7 +1205,12 @@ describe("task run detail", () => {
       "Step Completed · Onboarding",
       "filesystem - edit_file",
     ]);
-    expect(screen.getByLabelText("Controls: 1")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
+    expect(screen.getByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
+    expect(screen.queryByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Events (Process/MCP): Process 2, MCP 2")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 0")).not.toBeInTheDocument();
@@ -1336,7 +1345,7 @@ describe("task run detail", () => {
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
-    expect(screen.getByLabelText("Controls: 0")).toHaveTextContent("0");
+    expect(screen.getByLabelText("Governance Events: 0")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Events (Process/MCP): Process 1, MCP 2")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 1")).not.toBeInTheDocument();
@@ -1350,6 +1359,55 @@ describe("task run detail", () => {
 
     await user.click(screen.getByRole("button", { name: /show event details for edit_file/i }));
     expect(screen.getAllByText("failed")).toHaveLength(2);
+  });
+
+  it("renders blocked tool calls as governance events", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse([
+          {
+            source: "task",
+            id: "te_1742947200123_0000000001",
+            createdAtUnixMilli: 1742947200123,
+            eventType: "task_registered",
+            outcome: "succeeded",
+            phasePath: "onboarding",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "action",
+            id: "ae_1742947200125_0000000003",
+            createdAtUnixMilli: 1742947202123,
+            requestId: "req_1742947202123_0000000003",
+            direction: "response",
+            toolName: "restart_service",
+            originalToolName: "kubectl___restart_service",
+            success: false,
+            isError: true,
+            serverName: "centian",
+            payloadJson: {
+              result: {
+                structuredContent: {
+                  blocked: true,
+                  reason: "tool_not_allowed",
+                  phase: "onboarding",
+                },
+              },
+            },
+          },
+        ]),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/tasks/tr_1742947200123_0000000001"]);
+
+    expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
+    expect(screen.getByLabelText("Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).toBeInTheDocument();
   });
 
   it("pairs persisted MCP direction values into one exchange card", async () => {
