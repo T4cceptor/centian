@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot, type TaskRunTemplateSnapshot } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
-import { formatTimestamp, formatDuration, humanizeIdentifier, humanizePhase } from "./format";
+import { formatTimestamp, formatDuration, formatTemplateLabel, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
@@ -60,6 +60,10 @@ export function TaskRunDetailPage() {
     [detailMetadata?.snapshot, detailStatus, events],
   );
   const benchmarkLink = detailMetadata?.benchmarkLinks?.[0];
+  const detailSubtitle = useMemo(
+    () => deriveTaskRunSubtitle(events, detailMetadata?.snapshot),
+    [detailMetadata?.snapshot, events],
+  );
 
   useEffect(() => {
     if (!runID) {
@@ -171,16 +175,12 @@ export function TaskRunDetailPage() {
     let mcpEventCount = 0;
     let processErrorCount = 0;
     let mcpErrorCount = 0;
-    let restartCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
       if (item.kind === "task") {
         processEventCount++;
         if (isProcessTimelineItemError(item)) {
           processErrorCount++;
-        }
-        if (isProcessTimelineItemRestart(item)) {
-          restartCount++;
         }
         continue;
       }
@@ -189,9 +189,6 @@ export function TaskRunDetailPage() {
         processEventCount++;
         if (isExchangeError(item.exchange)) {
           processErrorCount++;
-        }
-        if (isRestartExchange(item.exchange)) {
-          restartCount++;
         }
       } else {
         mcpEventCount++;
@@ -209,9 +206,9 @@ export function TaskRunDetailPage() {
       mcpEventCount,
       processErrorCount,
       mcpErrorCount,
-      restartCount,
     };
   }, [detailStatus, events, flatTimelineItems]);
+  const templateLabel = useMemo(() => getTaskTemplateLabel(detailMetadata), [detailMetadata]);
 
   useEffect(() => {
     if (detailStatus !== "active") {
@@ -333,11 +330,18 @@ export function TaskRunDetailPage() {
             </Link>
           ) : null}
         </div>
-        <h1 className="task-run-detail__title">Agent Task Details</h1>
+        <div className="task-run-detail__title-group">
+          <h1 className="task-run-detail__title">Agent Task Details</h1>
+          {detailSubtitle ? (
+            <div className="task-run-detail__subtitle" aria-label="Task detail summary">
+              <p>{detailSubtitle.text}</p>
+            </div>
+          ) : null}
+        </div>
         <TaskProgressDonut progress={progress} status={detailStatus} />
       </header>
 
-      <RunMetadataBar stats={runStats} status={detailStatus} now={now} />
+      <RunMetadataBar stats={runStats} status={detailStatus} now={now} templateLabel={templateLabel} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -590,7 +594,10 @@ type RunStats = {
   mcpEventCount: number;
   processErrorCount: number;
   mcpErrorCount: number;
-  restartCount: number;
+};
+
+type TaskRunDetailSubtitle = {
+  text: string;
 };
 
 const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
@@ -600,10 +607,12 @@ function RunMetadataBar({
   stats,
   status,
   now,
+  templateLabel,
 }: {
   stats: RunStats;
   status: TaskRunUIStatus;
   now: number;
+  templateLabel?: string;
 }) {
   // Shared inline styles keep the compact metadata row visually consistent.
   const valueStyle: CSSProperties = {
@@ -613,7 +622,7 @@ function RunMetadataBar({
   };
   const durationValueStyle: CSSProperties = { ...valueStyle, color: undefined };
   const durationMetric = getDurationMetric(stats, status, now);
-  const runQuality = getRunQuality(stats);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   return (
     <div
@@ -628,6 +637,15 @@ function RunMetadataBar({
         alignItems: "flex-start",
       }}
     >
+      {templateLabel ? (
+        <div className="task-run-detail__metric task-run-detail__template-metric" aria-label={`Template: ${templateLabel}`}>
+          <MetricLabel label="Template" />
+          <span className="task-run-detail__template-value" style={valueStyle} title={templateLabel}>
+            {templateLabel}
+          </span>
+        </div>
+      ) : null}
+
       {stats.startedAt != null && (
         <div className="task-run-detail__metric">
           <MetricLabel label="Started" />
@@ -647,40 +665,36 @@ function RunMetadataBar({
         </div>
       )}
 
-      <RunQualityMetric value={runQuality} valueStyle={valueStyle} />
-
-      <SplitMetric
-        label="Events"
-        labelDetail="(Process/MCP)"
-        processCount={stats.processEventCount}
-        mcpCount={stats.mcpEventCount}
-        valueStyle={valueStyle}
-        valueKind="event"
-      />
-
-      <SplitMetric
-        label="Errors"
-        labelDetail="(Process/MCP)"
-        processCount={stats.processErrorCount}
-        mcpCount={stats.mcpErrorCount}
-        valueStyle={valueStyle}
-        valueKind="error"
-      />
-    </div>
-  );
-}
-
-function RunQualityMetric({ value, valueStyle }: { value: number; valueStyle: CSSProperties }) {
-  const tone = getRunQualityTone(value);
-  return (
-    <div className="task-run-detail__metric" aria-label={`Run Quality: ${value}%`}>
-      <MetricLabel label="Run Quality" />
-      <span
-        className={`task-run-detail__quality-value task-run-detail__quality-value--${tone}`}
-        style={{ ...valueStyle, color: undefined }}
+      <button
+        type="button"
+        className="task-run-detail__details-toggle"
+        aria-expanded={detailsExpanded}
+        onClick={() => setDetailsExpanded((current) => !current)}
       >
-        {value}%
-      </span>
+        {detailsExpanded ? "Hide details" : "Show details"}
+      </button>
+
+      {detailsExpanded ? (
+        <div className="task-run-detail__metric-details" aria-label="Task run metric details">
+          <SplitMetric
+            label="Events"
+            labelDetail="(Process/MCP)"
+            processCount={stats.processEventCount}
+            mcpCount={stats.mcpEventCount}
+            valueStyle={valueStyle}
+            valueKind="event"
+          />
+
+          <SplitMetric
+            label="Errors"
+            labelDetail="(Process/MCP)"
+            processCount={stats.processErrorCount}
+            mcpCount={stats.mcpErrorCount}
+            valueStyle={valueStyle}
+            valueKind="error"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -751,12 +765,70 @@ function isStaleActiveRun(stats: RunStats, status: TaskRunUIStatus, now: number)
   return status === "active" && stats.lastSeenAt != null && now - stats.lastSeenAt >= STALE_TASK_RUN_TIMEOUT_MS;
 }
 
-function isProcessTimelineItemError(item: Extract<TimelineItem, { kind: "task" }>): boolean {
-  return isTaskEventError(item.task) || (item.correlatedExchange != null && isExchangeError(item.correlatedExchange));
+function getTaskTemplateLabel(detailMetadata: TaskRunDetailMetadata | null): string | undefined {
+  const snapshot = detailMetadata?.snapshot;
+  if (snapshot) {
+    return formatTemplateLabel(
+      snapshot.templateId,
+      snapshot.templateName || snapshot.selectedTemplate?.task?.name,
+    );
+  }
+
+  const summary = detailMetadata?.summary;
+  if (summary) {
+    return formatTemplateLabel(summary.templateId, summary.templateName);
+  }
+
+  return undefined;
 }
 
-function isProcessTimelineItemRestart(item: Extract<TimelineItem, { kind: "task" }>): boolean {
-  return isTaskRestartEvent(item.task) || (item.correlatedExchange != null && isRestartExchange(item.correlatedExchange));
+function deriveTaskRunSubtitle(events: TaskRunEvent[], snapshot?: TaskRunSnapshot): TaskRunDetailSubtitle | undefined {
+  const taskDescription =
+    findLatestTaskPayloadString(events, "task_registered", [
+      ["taskDescription"],
+      ["task_description"],
+      ["prompt"],
+    ]) ?? snapshot?.taskDescription?.trim();
+  return taskDescription ? { text: taskDescription } : undefined;
+}
+
+function findLatestTaskPayloadString(events: TaskRunEvent[], eventType: string, paths: string[][]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.source !== "task" || event.eventType !== eventType) {
+      continue;
+    }
+    const value = readPayloadString(event.payloadJson, paths);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function readPayloadString(payload: unknown, paths: string[][]): string | undefined {
+  for (const path of paths) {
+    const value = readPayloadPath(payload, path);
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function readPayloadPath(payload: unknown, path: string[]): unknown {
+  let current = payload;
+  for (const segment of path) {
+    if (current == null || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function isProcessTimelineItemError(item: Extract<TimelineItem, { kind: "task" }>): boolean {
+  return isTaskEventError(item.task) || (item.correlatedExchange != null && isExchangeError(item.correlatedExchange));
 }
 
 function isTaskEventError(event: TaskRunEvent): boolean {
@@ -770,38 +842,12 @@ function isTaskEventError(event: TaskRunEvent): boolean {
   );
 }
 
-function isTaskRestartEvent(event: TaskRunEvent): boolean {
-  return event.eventType === "task_restarted" || event.eventType === "restarted";
-}
-
 function isExchangeError(exchange: TimelineExchange): boolean {
   return [exchange.request, exchange.response].some((event) => event?.isError === true || event?.success === false);
 }
 
-function isRestartExchange(exchange: TimelineExchange): boolean {
-  return [exchange.request, exchange.response].some((event) => event?.toolName === "centian.task_restart");
-}
-
 function isProcessExchange(exchange: TimelineExchange): boolean {
   return getExchangeServerName(exchange) === "centian";
-}
-
-function getRunQuality(stats: RunStats): number {
-  let score = 100 - stats.processErrorCount * 5 - stats.mcpErrorCount * 2;
-  for (let index = 0; index < stats.restartCount; index += 1) {
-    score *= 0.5;
-  }
-  return Math.max(0, Math.round(score));
-}
-
-function getRunQualityTone(value: number): "success" | "warning" | "failed" {
-  if (value >= 75) {
-    return "success";
-  }
-  if (value >= 40) {
-    return "warning";
-  }
-  return "failed";
 }
 
 // Converts the raw event stream into timeline rows, merging request/response pairs where possible.

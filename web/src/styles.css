@@ -1274,6 +1274,14 @@ code,
   letter-spacing: 0;
 }
 
+.task-run-detail__title-group {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  justify-self: center;
+  min-width: 0;
+}
+
 .task-run-detail__title {
   justify-self: center;
   margin: 0;
@@ -1282,6 +1290,26 @@ code,
   font-weight: 600;
   line-height: 1.1;
   text-align: center;
+}
+
+.task-run-detail__subtitle {
+  display: grid;
+  max-width: min(760px, 54vw);
+  gap: 4px;
+  color: rgba(207, 222, 238, 0.86);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.task-run-detail__subtitle p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .task-progress-donut {
@@ -1370,6 +1398,16 @@ code,
   color: #6f8fad;
 }
 
+.task-run-detail__template-metric {
+  max-width: 240px;
+}
+
+.task-run-detail__template-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .task-run-detail__duration-value--active {
   color: #7eb3ff;
 }
@@ -1379,18 +1417,6 @@ code,
 }
 
 .task-run-detail__duration-value--failed {
-  color: var(--accent-danger);
-}
-
-.task-run-detail__quality-value--success {
-  color: var(--accent-success);
-}
-
-.task-run-detail__quality-value--warning {
-  color: var(--accent-warning);
-}
-
-.task-run-detail__quality-value--failed {
   color: var(--accent-danger);
 }
 
@@ -1419,6 +1445,36 @@ code,
 
 .task-run-detail__split-separator {
   color: var(--text-muted);
+}
+
+.task-run-detail__details-toggle {
+  align-self: flex-end;
+  padding: 7px 12px;
+  border: 1px solid rgba(140, 230, 216, 0.22);
+  border-radius: 999px;
+  background: rgba(8, 18, 28, 0.72);
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: 600 0.82rem system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.task-run-detail__details-toggle:hover {
+  border-color: rgba(140, 230, 216, 0.42);
+  color: #b7fff6;
+}
+
+.task-run-detail__details-toggle:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: 2px;
+}
+
+.task-run-detail__metric-details {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(100, 140, 200, 0.1);
 }
 
 .task-run-summary-card {

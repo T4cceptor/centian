@@ -673,6 +673,7 @@ describe("task run detail", () => {
             phasePath: "onboarding",
             resultingPhasePath: "planning",
             nodeKind: "onboarding",
+            payloadJson: { taskSummary: "Resolve the payment service incident." },
           },
           {
             source: "task",
@@ -683,6 +684,7 @@ describe("task run detail", () => {
             phasePath: "planning",
             resultingPhasePath: "execution.root_cause_analysis",
             nodeKind: "planning",
+            payloadJson: { planSummary: "Diagnose logs, document the root cause, then remediate." },
           },
           {
             source: "task",
@@ -725,6 +727,8 @@ describe("task run detail", () => {
             status: "active",
             phase: "execution.root_cause_documentation",
             workflowReady: true,
+            taskDescription:
+              "Resolve the incident from the registered task description and keep the operator-oriented context concise.",
             selectedTemplate: {
               version: "0.1",
               task: {
@@ -747,6 +751,12 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
+    expect(
+      screen.getByText("Resolve the incident from the registered task description and keep the operator-oriented context concise."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Resolve the payment service incident.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Diagnose logs, document the root cause, then remediate.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Template: IT Incident Resolution")).toBeInTheDocument();
     expect(screen.getByLabelText("Task progress: 63% complete")).toHaveClass("task-progress-donut--active");
   });
 
@@ -763,7 +773,10 @@ describe("task run detail", () => {
             outcome: "succeeded",
             phasePath: "onboarding",
             resultingPhasePath: "onboarding",
-            payloadJson: { status: "active" },
+            payloadJson: {
+              status: "active",
+              taskDescription: "Resolve the incident by following the governed workflow.",
+            },
           },
         ]),
       )
@@ -778,7 +791,10 @@ describe("task run detail", () => {
             outcome: "succeeded",
             phasePath: "onboarding",
             resultingPhasePath: "onboarding",
-            payloadJson: { status: "active" },
+            payloadJson: {
+              status: "active",
+              taskDescription: "Resolve the incident by following the governed workflow.",
+            },
           },
           {
             source: "task",
@@ -821,7 +837,10 @@ describe("task run detail", () => {
             outcome: "succeeded",
             phasePath: "onboarding",
             resultingPhasePath: "onboarding",
-            payloadJson: { status: "active" },
+            payloadJson: {
+              status: "active",
+              taskDescription: "Resolve the incident by following the governed workflow.",
+            },
           },
           {
             source: "task",
@@ -841,6 +860,7 @@ describe("task run detail", () => {
 
     await act(async () => {});
     expect(screen.getByText("Agent Task Details")).toBeInTheDocument();
+    expect(screen.getByText("Resolve the incident by following the governed workflow.")).toBeInTheDocument();
     expect(screen.getByText("5s")).toHaveClass("task-run-detail__duration-value--active");
 
     await act(async () => {
@@ -1172,9 +1192,15 @@ describe("task run detail", () => {
       "Step Completed · Onboarding",
       "filesystem - edit_file",
     ]);
-    expect(screen.getByLabelText("Run Quality: 100%")).toHaveTextContent("100%");
+    expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Events (Process/MCP): Process 2, MCP 2")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 0")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show details" }));
     expect(screen.getByLabelText("Events (Process/MCP): Process 2, MCP 2")).toBeInTheDocument();
     expect(screen.getByLabelText("Errors (Process/MCP): Process 0, MCP 0")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide details" }));
+    expect(screen.queryByLabelText("Events (Process/MCP): Process 2, MCP 2")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 0")).not.toBeInTheDocument();
     expect(screen.queryByText("Request · execute_command")).not.toBeInTheDocument();
     expect(screen.queryByText("centian.task_complete_step")).not.toBeInTheDocument();
 
@@ -1300,7 +1326,10 @@ describe("task run detail", () => {
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent);
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
-    expect(screen.getByLabelText("Run Quality: 98%")).toHaveClass("task-run-detail__metric");
+    expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Events (Process/MCP): Process 1, MCP 2")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 1")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Show details" }));
     expect(screen.getByLabelText("Events (Process/MCP): Process 1, MCP 2")).toBeInTheDocument();
     expect(screen.getByLabelText("Errors (Process/MCP): Process 0, MCP 1")).toBeInTheDocument();
     expect(screen.getByText("error")).toBeInTheDocument();
@@ -1709,6 +1738,16 @@ describe("task run detail", () => {
             source: "task",
             id: "te_1742947200123_0000000004",
             createdAtUnixMilli: 1742947203123,
+            eventType: "restarted",
+            outcome: "succeeded",
+            phasePath: "execution.step_1",
+            resultingPhasePath: "onboarding",
+            payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947200123_0000000005",
+            createdAtUnixMilli: 1742947204123,
             eventType: "planning_completed",
             outcome: "succeeded",
             phasePath: "planning",
@@ -1722,7 +1761,7 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Run Quality: 50%")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
 
     const planningSections = screen.getAllByLabelText("Planning");
     expect(planningSections).toHaveLength(2);
