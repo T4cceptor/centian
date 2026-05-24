@@ -437,7 +437,7 @@ func severityFor(detections []detection, details map[string]any) string {
 
 func annotationMessage(detections []detection, details map[string]any) string {
 	return fmt.Sprintf(
-		"Obvious prompt injection markers were detected: %d evidence item(s) across %d path(s).",
+		"Prompt injection markers were detected: %d evidence item(s) across %d path(s).",
 		len(detections),
 		intFromDetails(details, "affected_path_count"),
 	)

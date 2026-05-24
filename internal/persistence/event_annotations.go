@@ -21,13 +21,17 @@ type eventAnnotationRow struct {
 	ActionEventID      string
 	RequestID          string
 	CreatedAtUnixMilli int64
-	Processor          string
-	Action             string
-	Severity           string
-	Message            string
-	Rule               string
-	Path               string
-	RawJSON            json.RawMessage
+
+	Processor string          // Suggestion: move this into "metadata" field
+	Action    string          // leave as it is
+	Severity  string          // leave as it is
+	Message   string          // leave as it is, make this nullable tho
+	Rule      string          // not sure what that is
+	Path      string          // not sure what that is
+	RawJSON   json.RawMessage // leave as it is
+	// add:
+	// type - string, required - type of the annotation, example: "governance_event", "comment", "system_tag", "processor_message"
+	// category - string, optional/nullable - related topic for the annotation, example: "security", "risk", "user_info"
 }
 
 type sqlExecutor interface {

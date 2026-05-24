@@ -1,7 +1,7 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot, type TaskRunTemplateSnapshot } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatDuration, formatTemplateLabel, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
@@ -55,10 +55,6 @@ export function TaskRunDetailPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
-  const progress = useMemo(
-    () => deriveTaskRunProgress(events, detailStatus, detailMetadata?.snapshot),
-    [detailMetadata?.snapshot, detailStatus, events],
-  );
   const benchmarkLink = detailMetadata?.benchmarkLinks?.[0];
   const detailSubtitle = useMemo(
     () => deriveTaskRunSubtitle(events, detailMetadata?.snapshot),
@@ -168,6 +164,10 @@ export function TaskRunDetailPage() {
     () => deriveGovernanceEvents(flatTimelineItems),
     [flatTimelineItems],
   );
+  const governanceEventItemIDs = useMemo(
+    () => new Set(governanceEvents.map((event) => event.itemId)),
+    [governanceEvents],
+  );
   const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
   const inspectorVisible = selectedItemID !== "" && selectedItem != null;
 
@@ -177,28 +177,17 @@ export function TaskRunDetailPage() {
 
     let processEventCount = 0;
     let mcpEventCount = 0;
-    let processErrorCount = 0;
-    let mcpErrorCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
       if (item.kind === "task") {
         processEventCount++;
-        if (isProcessTimelineItemError(item)) {
-          processErrorCount++;
-        }
         continue;
       }
 
       if (isProcessExchange(item.exchange)) {
         processEventCount++;
-        if (isExchangeError(item.exchange)) {
-          processErrorCount++;
-        }
       } else {
         mcpEventCount++;
-        if (isExchangeError(item.exchange)) {
-          mcpErrorCount++;
-        }
       }
     }
 
@@ -208,8 +197,6 @@ export function TaskRunDetailPage() {
       lastSeenAt,
       processEventCount,
       mcpEventCount,
-      processErrorCount,
-      mcpErrorCount,
     };
   }, [detailStatus, events, flatTimelineItems]);
   const templateLabel = useMemo(() => getTaskTemplateLabel(detailMetadata), [detailMetadata]);
@@ -342,7 +329,6 @@ export function TaskRunDetailPage() {
             </div>
           ) : null}
         </div>
-        <TaskProgressDonut progress={progress} status={detailStatus} />
       </header>
 
       <RunMetadataBar stats={runStats} status={detailStatus} now={now} templateLabel={templateLabel} />
@@ -361,6 +347,7 @@ export function TaskRunDetailPage() {
           onSelectItem={setSelectedItemID}
           selectedItemId={selectedItemID}
           events={events}
+          governanceEventItemIDs={governanceEventItemIDs}
         />
 
         {inspectorVisible ? (
@@ -563,33 +550,6 @@ function DetailStateCard({
   );
 }
 
-type TaskRunProgress = {
-  completedEvents: number;
-  totalEvents: number;
-  percent: number;
-};
-
-function TaskProgressDonut({
-  progress,
-  status,
-}: {
-  progress: TaskRunProgress;
-  status: TaskRunUIStatus;
-}) {
-  const displayPercent = status === "success" ? 100 : Math.round(progress.percent * 100);
-  const progressLabel = `${displayPercent}% complete`;
-  return (
-    <div
-      className={`task-progress-donut task-progress-donut--${getTaskProgressTone(status)}`}
-      style={{ "--task-progress": `${progress.percent * 100}%` } as CSSProperties}
-      aria-label={`Task progress: ${progressLabel}`}
-      title={`Task progress: ${progress.completedEvents} of ${progress.totalEvents} expected events complete`}
-    >
-      <span className="task-progress-donut__value">{displayPercent}%</span>
-    </div>
-  );
-}
-
 // Summary numbers shown above the timeline.
 type RunStats = {
   startedAt: number | undefined;
@@ -597,8 +557,6 @@ type RunStats = {
   lastSeenAt: number | undefined;
   processEventCount: number;
   mcpEventCount: number;
-  processErrorCount: number;
-  mcpErrorCount: number;
 };
 
 type TaskRunDetailSubtitle = {
@@ -609,9 +567,11 @@ type GovernanceEventAction = "Stopped" | "Blocked" | "Modified";
 
 type GovernanceEventDescription = {
   id: string;
+  itemId: string;
   action: GovernanceEventAction;
   event: string;
   reason: string;
+  severity: string;
 };
 
 const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
@@ -636,7 +596,6 @@ function RunMetadataBar({
   };
   const durationValueStyle: CSSProperties = { ...valueStyle, color: undefined };
   const durationMetric = getDurationMetric(stats, status, now);
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   return (
     <div
@@ -679,36 +638,13 @@ function RunMetadataBar({
         </div>
       )}
 
-      <button
-        type="button"
-        className="task-run-detail__details-toggle"
-        aria-expanded={detailsExpanded}
-        onClick={() => setDetailsExpanded((current) => !current)}
-      >
-        {detailsExpanded ? "Hide details" : "Show details"}
-      </button>
-
-      {detailsExpanded ? (
-        <div className="task-run-detail__metric-details" aria-label="Task run metric details">
-          <SplitMetric
-            label="Events"
-            labelDetail="(Process/MCP)"
-            processCount={stats.processEventCount}
-            mcpCount={stats.mcpEventCount}
-            valueStyle={valueStyle}
-            valueKind="event"
-          />
-
-          <SplitMetric
-            label="Errors"
-            labelDetail="(Process/MCP)"
-            processCount={stats.processErrorCount}
-            mcpCount={stats.mcpErrorCount}
-            valueStyle={valueStyle}
-            valueKind="error"
-          />
-        </div>
-      ) : null}
+      <SplitMetric
+        label="Agent Actions"
+        labelDetail="(Process/MCP)"
+        processCount={stats.processEventCount}
+        mcpCount={stats.mcpEventCount}
+        valueStyle={valueStyle}
+      />
     </div>
   );
 }
@@ -746,6 +682,13 @@ function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[
                   aria-label={`${event.action} ${event.event} - ${event.reason}`}
                 >
                   <span
+                    className={`task-run-detail__governance-severity task-run-detail__governance-severity--${normalizeGovernanceSeverity(event.severity)}`}
+                    aria-hidden="true"
+                    title={`Severity: ${event.severity}`}
+                  >
+                    {getGovernanceSeverityIcon(event.severity)}
+                  </span>
+                  <span
                     className={`task-run-detail__governance-event-action task-run-detail__governance-event-action--${event.action.toLowerCase()}`}
                   >
                     {event.action}
@@ -771,27 +714,21 @@ function SplitMetric({
   processCount,
   mcpCount,
   valueStyle,
-  valueKind,
 }: {
   label: string;
   labelDetail: string;
   processCount: number;
   mcpCount: number;
   valueStyle: CSSProperties;
-  valueKind: "event" | "error";
 }) {
   const accessibleLabel = `${label} ${labelDetail}`;
   return (
     <div className="task-run-detail__metric" aria-label={`${accessibleLabel}: Process ${processCount}, MCP ${mcpCount}`}>
       <MetricLabel label={label} labelDetail={labelDetail} />
       <span className="task-run-detail__split-value" style={{ ...valueStyle, color: undefined }}>
-        <span className={`task-run-detail__split-process task-run-detail__split-process--${valueKind}`}>
-          {processCount}
-        </span>
+        <span className="task-run-detail__split-process">{processCount}</span>
         <span className="task-run-detail__split-separator">/</span>
-        <span className={`task-run-detail__split-mcp task-run-detail__split-mcp--${valueKind}`}>
-          {mcpCount}
-        </span>
+        <span className="task-run-detail__split-mcp">{mcpCount}</span>
       </span>
     </div>
   );
@@ -893,26 +830,24 @@ function readPayloadPath(payload: unknown, path: string[]): unknown {
   return current;
 }
 
-function isProcessTimelineItemError(item: Extract<TimelineItem, { kind: "task" }>): boolean {
-  return isTaskEventError(item.task) || (item.correlatedExchange != null && isExchangeError(item.correlatedExchange));
-}
-
 function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescription[] {
   const descriptions: GovernanceEventDescription[] = [];
   const seen = new Set<string>();
 
   const addDescription = (
     id: string,
+    itemId: string,
     action: GovernanceEventAction,
     event: string,
     reason: string,
+    severity: string,
   ) => {
     const key = `${action}:${event}:${reason}`;
     if (seen.has(key)) {
       return;
     }
     seen.add(key);
-    descriptions.push({ id, action, event, reason });
+    descriptions.push({ id, itemId, action, event, reason, severity });
   };
 
   for (const item of items) {
@@ -922,14 +857,17 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
       if (isTaskCheckFailure(item.task) || (isTaskControlIssue(item.task) && !correlatedExchangeHasControlIssue)) {
         addDescription(
           `${item.task.id}:task`,
+          item.id,
           "Stopped",
           getProcessActionLabel(item.task),
           getTaskGovernanceReason(item.task),
+          getTaskGovernanceSeverity(item.task),
         );
       } else if (item.correlatedExchange && correlatedExchangeHasControlIssue) {
-        addExchangeGovernanceDescription(item.correlatedExchange, addDescription);
+        addExchangeGovernanceDescription(item.id, item.correlatedExchange, addDescription);
       }
       addProcessorGovernanceDescriptions(
+        item.id,
         `${item.id}:processor`,
         getProcessActionLabel(item.task),
         [item.task, item.correlatedExchange?.request, item.correlatedExchange?.response],
@@ -938,8 +876,9 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
       continue;
     }
 
-    addExchangeGovernanceDescription(item.exchange, addDescription);
+    addExchangeGovernanceDescription(item.id, item.exchange, addDescription);
     addProcessorGovernanceDescriptions(
+      item.id,
       `${item.id}:processor`,
       getGovernanceToolLabel(item.exchange),
       [item.exchange.request, item.exchange.response],
@@ -947,25 +886,35 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
     );
   }
 
-  return descriptions;
+  const actionOrder: Record<GovernanceEventAction, number> = {
+    Modified: 0,
+    Blocked: 1,
+    Stopped: 2,
+  };
+  return descriptions.sort((left, right) => actionOrder[left.action] - actionOrder[right.action]);
 }
 
 function addExchangeGovernanceDescription(
+  itemId: string,
   exchange: TimelineExchange,
   addDescription: (
     id: string,
+    itemId: string,
     action: GovernanceEventAction,
     event: string,
     reason: string,
+    severity: string,
   ) => void,
 ) {
   const eventID = exchange.response?.id ?? exchange.request?.id ?? exchange.requestId ?? getGovernanceToolLabel(exchange);
   if (isBlockedExchange(exchange)) {
     addDescription(
       `${eventID}:blocked`,
+      itemId,
       "Blocked",
       getGovernanceToolLabel(exchange),
       getExchangeGovernanceReason(exchange),
+      getExchangeGovernanceSeverity(exchange, "blocked"),
     );
     return;
   }
@@ -973,22 +922,27 @@ function addExchangeGovernanceDescription(
   if (isProcessExchange(exchange) && isExchangeError(exchange) && !isTechnicalErrorExchange(exchange)) {
     addDescription(
       `${eventID}:stopped`,
+      itemId,
       "Stopped",
       getProcessActionLabelForToolName(exchange.request?.toolName ?? exchange.response?.toolName),
       getExchangeGovernanceReason(exchange),
+      getExchangeGovernanceSeverity(exchange, "stopped"),
     );
   }
 }
 
 function addProcessorGovernanceDescriptions(
+  itemId: string,
   idPrefix: string,
   eventLabel: string,
   events: Array<TaskRunEvent | undefined>,
   addDescription: (
     id: string,
+    itemId: string,
     action: GovernanceEventAction,
     event: string,
     reason: string,
+    severity: string,
   ) => void,
 ) {
   let index = 0;
@@ -1001,9 +955,11 @@ function addProcessorGovernanceDescriptions(
       }
       addDescription(
         `${idPrefix}:${event?.id ?? "event"}:${index}`,
+        itemId,
         governanceAction,
         eventLabel,
         getProcessorGovernanceReason(annotation),
+        annotation.severity?.trim() || getDefaultGovernanceSeverity(governanceAction),
       );
       index += 1;
     }
@@ -1049,9 +1005,8 @@ function getProcessActionLabel(event: TaskRunEvent): string {
     case "planning_completed":
       return "Complete Planning";
     case "step_started":
-      return formatStepProcessAction("Start", event);
     case "step_completed":
-      return formatStepProcessAction("Complete", event);
+      return getTaskStepDisplayName(event).replace(/^Execution\s*\/\s*/i, "") || "Execution Step";
     case "task_completed":
       return "Complete Task";
     case "task_failed":
@@ -1065,14 +1020,6 @@ function getProcessActionLabel(event: TaskRunEvent): string {
     default:
       return humanizeIdentifier(event.eventType ?? "Process Action");
   }
-}
-
-function formatStepProcessAction(action: "Start" | "Complete", event: TaskRunEvent): string {
-  const step = readPayloadPath(event.payloadJson, ["step"]);
-  const stepLabel = typeof step === "number" ? `Step ${step}` : "";
-  const stepName = getTaskStepDisplayName(event).replace(/^Execution\s*\/\s*/i, "");
-  const parts = [`${action} Execution`, stepLabel, stepName].filter(Boolean);
-  return parts.join(" / ");
 }
 
 function getProcessActionLabelForToolName(toolName?: string): string {
@@ -1122,6 +1069,14 @@ function getTaskGovernanceReason(event: TaskRunEvent): string {
   return "process requirement failed";
 }
 
+function getTaskGovernanceSeverity(event: TaskRunEvent): string {
+  const severity = readPayloadString(event.payloadJson, [["severity"], ["level"]]);
+  if (severity) {
+    return severity;
+  }
+  return isTaskCheckFailure(event) ? "medium" : "high";
+}
+
 function getExchangeGovernanceReason(exchange: TimelineExchange): string {
   const events = [exchange.response, exchange.request];
   const reason = readFirstEventPayloadString(events, [
@@ -1154,6 +1109,55 @@ function getExchangeGovernanceReason(exchange: TimelineExchange): string {
   }
 
   return isBlockedExchange(exchange) ? "tool call was blocked" : "process requirement failed";
+}
+
+function getExchangeGovernanceSeverity(exchange: TimelineExchange, fallbackAction: "blocked" | "stopped"): string {
+  const severity = readFirstEventPayloadString([exchange.response, exchange.request], [
+    ["tool_call", "result", "structuredContent", "severity"],
+    ["toolCall", "result", "structuredContent", "severity"],
+    ["result", "structuredContent", "severity"],
+    ["severity"],
+  ]);
+  if (severity) {
+    return severity;
+  }
+  return fallbackAction === "blocked" ? "high" : "medium";
+}
+
+function getDefaultGovernanceSeverity(action: GovernanceEventAction): string {
+  switch (action) {
+    case "Blocked":
+      return "high";
+    case "Modified":
+      return "medium";
+    case "Stopped":
+      return "medium";
+    default:
+      return "info";
+  }
+}
+
+function normalizeGovernanceSeverity(severity: string): "critical" | "high" | "medium" | "low" | "info" {
+  const normalized = severity.trim().toLowerCase();
+  if (normalized === "critical" || normalized === "high" || normalized === "medium" || normalized === "low") {
+    return normalized;
+  }
+  return "info";
+}
+
+function getGovernanceSeverityIcon(severity: string): string {
+  switch (normalizeGovernanceSeverity(severity)) {
+    case "critical":
+      return "!!!";
+    case "high":
+      return "!!";
+    case "medium":
+      return "!";
+    case "low":
+      return "-";
+    default:
+      return "i";
+  }
 }
 
 function readFirstEventPayloadString(events: Array<TaskRunEvent | undefined>, paths: string[][]): string | undefined {
@@ -1241,17 +1245,6 @@ function eventPayloadText(event: TaskRunEvent | undefined): string {
   } catch {
     return "";
   }
-}
-
-function isTaskEventError(event: TaskRunEvent): boolean {
-  const payloadStatus = readPayloadStatus(event.payloadJson);
-  return (
-    event.outcome === "failed" ||
-    event.eventType === "task_failed" ||
-    event.eventType === "task_timed_out" ||
-    payloadStatus === "failed" ||
-    payloadStatus === "timed_out"
-  );
 }
 
 function isExchangeError(exchange: TimelineExchange): boolean {
@@ -1657,98 +1650,6 @@ function deriveTaskRunDetailStatus(events: TaskRunEvent[]): TaskRunUIStatus {
 
   const latestActionFailed = events.some((event) => event.source === "action" && getEventTone(event) === "failed");
   return latestActionFailed ? "failed" : "active";
-}
-
-function deriveTaskRunProgress(events: TaskRunEvent[], status: TaskRunUIStatus, snapshot?: TaskRunSnapshot): TaskRunProgress {
-  const completedEvents = new Set<string>();
-  const expectedEvents = new Set<string>(["onboarding_completed", "planning_completed"]);
-
-  for (const stepPath of getTemplateWorkflowStepPaths(snapshot)) {
-    expectedEvents.add(`step_started:${stepPath}`);
-    expectedEvents.add(`step_completed:${stepPath}`);
-  }
-  for (const step of snapshot?.steps ?? []) {
-    if (step.path) {
-      expectedEvents.add(`step_started:${step.path}`);
-      expectedEvents.add(`step_completed:${step.path}`);
-      if (step.status === "passed") {
-        completedEvents.add(`step_started:${step.path}`);
-        completedEvents.add(`step_completed:${step.path}`);
-      } else if (step.status === "active" || step.status === "failed") {
-        completedEvents.add(`step_started:${step.path}`);
-      }
-    }
-  }
-
-  for (const event of events) {
-    if (event.source !== "task") {
-      continue;
-    }
-    if (event.eventType === "onboarding_completed" || event.eventType === "planning_completed") {
-      completedEvents.add(event.eventType);
-    } else if (event.eventType === "step_started" || event.eventType === "step_completed") {
-      const stepPath = getTaskStepPath(event);
-      if (!stepPath) {
-        continue;
-      }
-      expectedEvents.add(`step_started:${stepPath}`);
-      expectedEvents.add(`step_completed:${stepPath}`);
-      completedEvents.add(`${event.eventType}:${stepPath}`);
-    }
-  }
-
-  let totalSteps = Math.max(expectedEvents.size, completedEvents.size);
-  let completedCount = completedEvents.size;
-
-  if (status === "success" && totalSteps > 0) {
-    completedCount = totalSteps;
-  }
-  if (status === "failed") {
-    totalSteps = Math.max(totalSteps, completedCount + 1, 1);
-    completedCount = Math.min(completedCount, totalSteps - 1);
-  }
-
-  const rawPercent = totalSteps > 0 ? completedCount / totalSteps : 0;
-  const percent =
-    status === "success"
-      ? 1
-      : status === "failed"
-        ? Math.min(0.99, Math.max(rawPercent, 0.08))
-        : Math.min(0.99, Math.max(rawPercent, 0));
-
-  return {
-    completedEvents: completedCount,
-    totalEvents: totalSteps,
-    percent,
-  };
-}
-
-function getTemplateWorkflowStepPaths(snapshot?: TaskRunSnapshot): string[] {
-  const runnableSteps = getCompiledWorkflowStepPaths(snapshot?.runnableTemplate);
-  if (runnableSteps.length > 0) {
-    return runnableSteps;
-  }
-  return getCompiledWorkflowStepPaths(snapshot?.selectedTemplate);
-}
-
-function getCompiledWorkflowStepPaths(template?: TaskRunTemplateSnapshot): string[] {
-  const steps = template?.compiledWorkflow?.workflowSteps ?? [];
-  return steps.map((step) => step.path).filter((path) => path.startsWith("execution."));
-}
-
-function getTaskProgressTone(status: TaskRunUIStatus): "success" | "failed" | "active" {
-  if (status === "success") {
-    return "success";
-  }
-  if (status === "failed" || status === "timed_out") {
-    return "failed";
-  }
-  return "active";
-}
-
-function getTaskStepPath(event: TaskRunEvent): string {
-  const candidate = event.phasePath ?? event.resultingPhasePath ?? "";
-  return candidate.startsWith("execution.") ? candidate : "";
 }
 
 // Reads a best-effort status field from arbitrary payload objects.

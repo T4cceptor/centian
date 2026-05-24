@@ -1312,43 +1312,6 @@ code,
   -webkit-line-clamp: 2;
 }
 
-.task-progress-donut {
-  --task-progress: 0%;
-  --task-progress-color: #7eb3ff;
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  justify-self: end;
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(8, 20, 31, 0.95) 0 56%, transparent 57%),
-    conic-gradient(var(--task-progress-color) var(--task-progress), rgba(116, 144, 152, 0.22) 0);
-  box-shadow:
-    inset 0 0 0 1px rgba(140, 230, 216, 0.1),
-    0 0 0 1px rgba(140, 230, 216, 0.14);
-}
-
-.task-progress-donut--success {
-  --task-progress-color: var(--accent-success);
-}
-
-.task-progress-donut--active {
-  --task-progress-color: #7eb3ff;
-}
-
-.task-progress-donut--failed {
-  --task-progress-color: var(--accent-danger);
-}
-
-.task-progress-donut__value {
-  color: var(--accent-strong);
-  font-size: 0.78rem;
-  font-weight: 700;
-  line-height: 1;
-}
-
 .task-run-detail__benchmark-link:hover {
   border-color: rgba(140, 230, 216, 0.38);
   color: #b7fff6;
@@ -1427,54 +1390,16 @@ code,
   font-variant-numeric: tabular-nums;
 }
 
-.task-run-detail__split-process--event {
+.task-run-detail__split-process {
   color: rgb(167, 139, 250);
 }
 
-.task-run-detail__split-process--error {
-  color: var(--accent-danger);
-}
-
-.task-run-detail__split-mcp--event {
+.task-run-detail__split-mcp {
   color: rgb(50, 210, 250);
-}
-
-.task-run-detail__split-mcp--error {
-  color: var(--accent-warning);
 }
 
 .task-run-detail__split-separator {
   color: var(--text-muted);
-}
-
-.task-run-detail__details-toggle {
-  align-self: flex-end;
-  padding: 7px 12px;
-  border: 1px solid rgba(140, 230, 216, 0.22);
-  border-radius: 999px;
-  background: rgba(8, 18, 28, 0.72);
-  color: var(--accent-strong);
-  cursor: pointer;
-  font: 600 0.82rem system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.task-run-detail__details-toggle:hover {
-  border-color: rgba(140, 230, 216, 0.42);
-  color: #b7fff6;
-}
-
-.task-run-detail__details-toggle:focus-visible {
-  outline: 1px solid rgba(140, 230, 216, 0.5);
-  outline-offset: 2px;
-}
-
-.task-run-detail__metric-details {
-  display: flex;
-  flex-basis: 100%;
-  flex-wrap: wrap;
-  gap: 24px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(100, 140, 200, 0.1);
 }
 
 .task-run-detail__governance {
@@ -1537,7 +1462,7 @@ code,
 .task-run-detail__governance-item {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 7px;
   min-width: 0;
   color: var(--text-dim);
@@ -1557,7 +1482,7 @@ code,
 }
 
 .task-run-detail__governance-event-action--stopped {
-  color: var(--accent-danger);
+  color: rgb(167, 139, 250);
 }
 
 .task-run-detail__governance-event-action--blocked {
@@ -1565,7 +1490,46 @@ code,
 }
 
 .task-run-detail__governance-event-action--modified {
+  color: var(--accent-danger);
+}
+
+.task-run-detail__governance-severity {
+  display: inline-flex;
+  min-width: 22px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.task-run-detail__governance-severity--critical {
+  color: var(--accent-danger);
+  background: rgba(255, 140, 140, 0.1);
+}
+
+.task-run-detail__governance-severity--high {
+  color: #ffb86b;
+  background: rgba(255, 184, 107, 0.1);
+}
+
+.task-run-detail__governance-severity--medium {
+  color: var(--accent-warning);
+  background: rgba(244, 210, 122, 0.1);
+}
+
+.task-run-detail__governance-severity--low {
+  color: var(--text-dim);
+  background: rgba(155, 183, 188, 0.08);
+}
+
+.task-run-detail__governance-severity--info {
   color: rgb(50, 210, 250);
+  background: rgba(50, 210, 250, 0.08);
 }
 
 .task-run-detail__governance-separator,

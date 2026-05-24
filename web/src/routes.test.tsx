@@ -152,7 +152,7 @@ describe("task run list", () => {
     );
     expect(screen.getByRole("button", { name: "Starting IT Ops Demo" })).toHaveAttribute("aria-busy", "true");
     expect(await screen.findByText("Agent Task Details", undefined, { timeout: 2500 })).toBeInTheDocument();
-    expect(screen.getByLabelText("Task progress: 0% complete")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Task progress:/)).not.toBeInTheDocument();
   }, 7000);
 
   it("shows a concise message when the IT ops demo cannot start", async () => {
@@ -392,7 +392,7 @@ describe("task run list", () => {
     await user.click(await screen.findByRole("link", { name: /tr_1742947200123_0000000001/i }));
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Task progress: 0% complete")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Task progress:/)).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Task Runs" })).not.toBeInTheDocument();
     expect(screen.queryByText("Centian Monitor")).not.toBeInTheDocument();
   });
@@ -659,7 +659,7 @@ describe("task run detail", () => {
     });
   });
 
-  it("shows step completion progress in the detail header", async () => {
+  it("shows task template metadata and description in the detail header", async () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
@@ -757,7 +757,7 @@ describe("task run detail", () => {
     expect(screen.queryByText("Resolve the payment service incident.")).not.toBeInTheDocument();
     expect(screen.queryByText("Diagnose logs, document the root cause, then remediate.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Template: IT Incident Resolution")).toBeInTheDocument();
-    expect(screen.getByLabelText("Task progress: 63% complete")).toHaveClass("task-progress-donut--active");
+    expect(screen.queryByLabelText(/Task progress:/)).not.toBeInTheDocument();
   });
 
   it("polls the detail timeline once per second while the run is active", async () => {
@@ -1016,11 +1016,11 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Task progress: 25% complete")).toHaveClass("task-progress-donut--active");
+    expect(screen.queryByLabelText(/Task progress:/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Stopped Complete Execution / Step 3 / Establish Failing Baseline - checks failed")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Stopped Establish Failing Baseline - checks failed")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
-    expect(screen.getByLabelText("Stopped Complete Execution / Step 3 / Establish Failing Baseline - checks failed")).toBeInTheDocument();
+    expect(screen.getByLabelText("Stopped Establish Failing Baseline - checks failed")).toBeInTheDocument();
 
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
@@ -1212,14 +1212,9 @@ describe("task run detail", () => {
     await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
     expect(screen.queryByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Events (Process/MCP): Process 2, MCP 2")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 0")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show details" }));
-    expect(screen.getByLabelText("Events (Process/MCP): Process 2, MCP 2")).toBeInTheDocument();
-    expect(screen.getByLabelText("Errors (Process/MCP): Process 0, MCP 0")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Hide details" }));
-    expect(screen.queryByLabelText("Events (Process/MCP): Process 2, MCP 2")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 0")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Agent Actions (Process/MCP): Process 2, MCP 2")).toBeInTheDocument();
+    expect(screen.queryByText("Show details")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Errors \(Process\/MCP\):/)).not.toBeInTheDocument();
     expect(screen.queryByText("Request · execute_command")).not.toBeInTheDocument();
     expect(screen.queryByText("centian.task_complete_step")).not.toBeInTheDocument();
 
@@ -1240,6 +1235,7 @@ describe("task run detail", () => {
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Step Completed · Onboarding")).toBeInTheDocument();
+    expect(within(onboardingSection).getByText("− passed (saved)")).toBeInTheDocument();
   });
 
   it("collapses request-only centian task tool events into matching task lifecycle rows", async () => {
@@ -1347,11 +1343,9 @@ describe("task run detail", () => {
     expect(titles).toEqual(["Task Registered", "shell - execute_command", "filesystem - edit_file"]);
     expect(screen.getByLabelText("Governance Events: 0")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Events (Process/MCP): Process 1, MCP 2")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Errors (Process/MCP): Process 0, MCP 1")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show details" }));
-    expect(screen.getByLabelText("Events (Process/MCP): Process 1, MCP 2")).toBeInTheDocument();
-    expect(screen.getByLabelText("Errors (Process/MCP): Process 0, MCP 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent Actions (Process/MCP): Process 1, MCP 2")).toBeInTheDocument();
+    expect(screen.queryByText("Show details")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Errors \(Process\/MCP\):/)).not.toBeInTheDocument();
     expect(screen.getByText("error")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /show event details for execute_command/i }));
@@ -1361,7 +1355,7 @@ describe("task run detail", () => {
     expect(screen.getAllByText("failed")).toHaveLength(2);
   });
 
-  it("renders blocked tool calls as governance events", async () => {
+  it("orders governance events by blocked, modified, then stopped", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -1375,6 +1369,34 @@ describe("task run detail", () => {
             phasePath: "onboarding",
             resultingPhasePath: "onboarding",
             payloadJson: { status: "active" },
+          },
+          {
+            source: "task",
+            id: "te_1742947201123_0000000002",
+            createdAtUnixMilli: 1742947201123,
+            eventType: "step_completed",
+            outcome: "failed",
+            phasePath: "execution.root_cause_documentation",
+            resultingPhasePath: "execution.root_cause_documentation",
+            payloadJson: { status: "active", step: 2, passed: false },
+          },
+          {
+            source: "action",
+            id: "ae_1742947201623_0000000004",
+            createdAtUnixMilli: 1742947201623,
+            direction: "response",
+            toolName: "query",
+            success: true,
+            serverName: "postgres",
+            payloadJson: { rows: [] },
+            annotations: [
+              {
+                processor: "pii_redactor",
+                action: "redacted",
+                severity: "medium",
+                message: "redacted PII content from result",
+              },
+            ],
           },
           {
             source: "action",
@@ -1404,10 +1426,18 @@ describe("task run detail", () => {
     renderApp(["/tasks/tr_1742947200123_0000000001"]);
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Governance Events: 3")).toBeInTheDocument();
     expect(screen.queryByLabelText("Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
+    await user.click(screen.getByRole("button", { name: /Governance Events: 3/i }));
     expect(screen.getByLabelText("Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).toBeInTheDocument();
+    const descriptions = within(screen.getByLabelText("Governance Events: 3"))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
+    expect(descriptions).toEqual([
+      "!Modifiedpostgres - query-redacted PII content from result",
+      "!!Blockedkubectl - restart_service-tool not allowed in phase \"Onboarding\"",
+      "!StoppedRoot Cause Documentation-checks failed",
+    ]);
   });
 
   it("pairs persisted MCP direction values into one exchange card", async () => {

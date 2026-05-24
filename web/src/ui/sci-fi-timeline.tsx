@@ -112,14 +112,15 @@ function NodeShape({ server, size, color }: { server: string; size: number; colo
 }
 
 // Summarizes a phase group into a single status badge for the sector header.
-function deriveGroupStatus(group: TimelineGroup): string {
+function deriveGroupStatus(group: TimelineGroup, governanceEventItemIDs: ReadonlySet<string>): string {
   const items = group.items;
+  const hasGovernanceEvent = items.some((item) => governanceEventItemIDs.has(item.id));
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item.kind === "task") {
       const tone = getTimelineItemTone(item);
       if (tone === "failed") return "failed";
-      if (tone === "completed") return "passed";
+      if (tone === "completed") return hasGovernanceEvent ? "passed (saved)" : "passed";
       if (tone === "active") return "active";
     }
   }
@@ -136,14 +137,21 @@ function SciFiSectorDivider({
   groupIndex,
   onToggle,
   collapsed,
+  governanceEventItemIDs,
 }: {
   group: TimelineGroup;
   groupIndex: number;
   onToggle: () => void;
   collapsed: boolean;
+  governanceEventItemIDs: ReadonlySet<string>;
 }) {
-  const status = deriveGroupStatus(group);
-  const statusColor = status === "passed" ? "#34d399" : status === "failed" ? "#f87171" : "#a78bfa";
+  const status = deriveGroupStatus(group, governanceEventItemIDs);
+  const statusColor =
+    status === "passed"
+      ? "#34d399"
+      : status === "failed"
+        ? "#f87171"
+        : "#a78bfa";
   const stepColors = ["#a78bfa", "#34d399", "#fbbf24", "#60a5fa", "#fb7185", "#22d3ee"];
   const accentColor = stepColors[groupIndex % stepColors.length];
 
@@ -360,6 +368,7 @@ export function SciFiTimeline({
   onSelectItem,
   selectedItemId,
   events,
+  governanceEventItemIDs,
 }: {
   groups: TimelineGroup[];
   collapsedGroups: Record<string, boolean>;
@@ -367,6 +376,7 @@ export function SciFiTimeline({
   onSelectItem: (id: string) => void;
   selectedItemId: string;
   events: TaskRunEvent[];
+  governanceEventItemIDs: ReadonlySet<string>;
 }) {
   const serverLegendEntries = getMCPServerLegendEntries(groups, events);
   // Show the end-cap only once the run has emitted a completed task event/status.
@@ -437,6 +447,7 @@ export function SciFiTimeline({
                 groupIndex={groupIndex}
                 onToggle={() => onToggleGroup(group.key)}
                 collapsed={!!collapsedGroups[group.key]}
+                governanceEventItemIDs={governanceEventItemIDs}
               />
               {!collapsedGroups[group.key] && group.items.map((item) => (
                 <SciFiEventNode

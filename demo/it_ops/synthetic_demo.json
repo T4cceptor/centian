@@ -714,7 +714,7 @@
             "processor": "prompt_injection_guard",
             "action": "redacted",
             "severity": "critical",
-            "message": "Obvious prompt injection markers were detected: 2 evidence item(s) across 1 path(s).",
+            "message": "Prompt injection markers were detected: 2 evidence item(s) across 1 path(s).",
             "findings": [
               {
                 "rule": "role_marker",
