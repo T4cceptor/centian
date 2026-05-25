@@ -415,7 +415,7 @@ func actionName(mode string) string {
 func severityFor(detections []detection, details map[string]any) string {
 	rules := uniqueDetectionRules(detections)
 	if rules["secret_exfiltration"] || (rules["role_marker"] && rules["ignore_previous_instructions"]) {
-		return "critical"
+		return "high"
 	}
 	if len(detections) >= 3 || intFromDetails(details, "affected_path_count") >= 2 || floatFromDetails(details, "flagged_text_ratio") >= 0.25 {
 		return "high"

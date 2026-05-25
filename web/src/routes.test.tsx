@@ -971,7 +971,6 @@ describe("task run detail", () => {
   }, 8000);
 
   it("keeps polling after a failed step event while the task run remains active", async () => {
-    const user = userEvent.setup();
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
@@ -1018,7 +1017,6 @@ describe("task run detail", () => {
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Task progress:/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Governance Events: 0")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Governance Events: 0/i }));
     expect(screen.getByText("No governance events recorded.")).toBeInTheDocument();
 
     await waitFor(() => {
@@ -1184,7 +1182,7 @@ describe("task run detail", () => {
                 processor: "prompt_injection_guard",
                 action: "redacted",
                 category: "security",
-                severity: "critical",
+                severity: "high",
                 message: "Prompt injection content was redacted.",
               },
             ],
@@ -1207,11 +1205,9 @@ describe("task run detail", () => {
       "filesystem - edit_file",
     ]);
     expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Security: Redacted filesystem - edit_file - Prompt injection content was redacted.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
-    expect(screen.getByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
-    expect(screen.queryByLabelText("Modified filesystem - edit_file - Prompt injection content was redacted.")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Security: Redacted filesystem - edit_file - Prompt injection content was redacted.")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Run Quality:/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Agent Actions (Process/MCP): Process 2, MCP 2")).toBeInTheDocument();
     expect(screen.queryByText("Show details")).not.toBeInTheDocument();
@@ -1236,7 +1232,7 @@ describe("task run detail", () => {
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Step Completed · Onboarding")).toBeInTheDocument();
-    expect(within(onboardingSection).getByText(/− saved/)).toBeInTheDocument();
+    expect(within(onboardingSection).getByText(/− Saved/)).toBeInTheDocument();
   });
 
   it("collapses request-only centian task tool events into matching task lifecycle rows", async () => {
@@ -1356,8 +1352,7 @@ describe("task run detail", () => {
     expect(screen.getAllByText("failed")).toHaveLength(2);
   });
 
-  it("orders governance events by modified, blocked, then stopped", async () => {
-    const user = userEvent.setup();
+  it("orders governance events by processor action, blocked, then stopped", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse([
@@ -1384,7 +1379,7 @@ describe("task run detail", () => {
               {
                 type: "governance_events",
                 action: "stopped",
-                category: "compliance",
+                category: "quality",
                 severity: "low",
                 message: "checks failed",
               },
@@ -1434,7 +1429,7 @@ describe("task run detail", () => {
               {
                 type: "governance_events",
                 action: "blocked",
-                category: "risk",
+                category: "policy",
                 severity: "high",
                 message: "tool not allowed in phase \"Onboarding\"",
               },
@@ -1448,21 +1443,18 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByLabelText("Governance Events: 3")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Governance Events: 3/i }));
-    expect(screen.getByLabelText("Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).toBeInTheDocument();
+    expect(screen.getByLabelText("Policy: Blocked kubectl - restart_service - tool not allowed in phase \"Onboarding\"")).toBeInTheDocument();
     const descriptions = within(screen.getByLabelText("Governance Events: 3"))
       .getAllByRole("listitem")
       .map((item) => item.textContent);
     expect(descriptions).toEqual([
-      "mediumModifiedpostgres - query-redacted PII content from result",
-      "highBlockedkubectl - restart_service-tool not allowed in phase \"Onboarding\"",
-      "lowStoppedRoot Cause Documentation-checks failed",
+      "Quality:Redactedpostgres - query-redacted PII content from result",
+      "Policy:Blockedkubectl - restart_service-tool not allowed in phase \"Onboarding\"",
+      "Quality:StoppedRoot Cause Documentation-checks failed",
     ]);
   });
 
   it("renders governance annotations from centian task event payloads", async () => {
-    const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse([
@@ -1481,7 +1473,7 @@ describe("task run detail", () => {
                 {
                   type: "governance_events",
                   action: "stopped",
-                  category: "compliance",
+                  category: "quality",
                   severity: "medium",
                   message: "expected root-cause documentation before resolution",
                 },
@@ -1496,20 +1488,18 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByLabelText("Governance Events: 1")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Governance Events: 1/i }));
 
     const governanceSection = screen.getByLabelText("Governance Events: 1");
     expect(
       within(governanceSection).getByLabelText(
-        "Stopped Root Cause Documentation - expected root-cause documentation before resolution",
+        "Quality: Stopped Root Cause Documentation - expected root-cause documentation before resolution",
       ),
     ).toBeInTheDocument();
-    expect(within(governanceSection).getByTitle("Category: compliance")).toBeInTheDocument();
-    expect(within(governanceSection).getByText("medium")).toBeInTheDocument();
+    expect(within(governanceSection).getByTitle("Category: quality")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("Quality")).toBeInTheDocument();
   });
 
   it("renders governance category icons and filters invalid annotations", async () => {
-    const user = userEvent.setup();
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse([
@@ -1525,13 +1515,13 @@ describe("task run detail", () => {
             annotations: [
               { type: "governance_events", action: "redacted", category: "security", severity: "low", message: "security event" },
               { type: "governance_events", action: "redacted", category: "observability", severity: "medium", message: "observability event" },
-              { type: "governance_events", action: "redacted", category: "compliance", severity: "high", message: "compliance event" },
-              { type: "governance_events", action: "redacted", category: "risk", severity: "critical", message: "risk event" },
+              { type: "governance_events", action: "redacted", category: "policy", severity: "high", message: "policy event" },
+              { type: "governance_events", action: "redacted", category: "quality", severity: "high", message: "quality high event" },
               { type: "governance_events", action: "redacted", category: "quality", severity: "low", message: "quality event" },
               { type: "governance_events", action: "redacted", category: "unknown", severity: "low", message: "unknown category event" },
               { type: "governance_events", action: "redacted", severity: "low", message: "missing category event" },
               { type: "governance_events", action: "redacted", category: "security", severity: "info", message: "invalid severity event" },
-              { action: "redacted", category: "security", severity: "critical", message: "missing type event" },
+              { action: "redacted", category: "security", severity: "high", message: "missing type event" },
             ],
           },
         ]),
@@ -1542,20 +1532,18 @@ describe("task run detail", () => {
 
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
     expect(screen.getByLabelText("Governance Events: 6")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Governance Events: 6/i }));
 
     const governanceSection = screen.getByLabelText("Governance Events: 6");
     expect(within(governanceSection).getAllByRole("listitem")).toHaveLength(6);
     expect(within(governanceSection).getByTitle("Category: security")).toBeInTheDocument();
     expect(within(governanceSection).getByTitle("Category: observability")).toBeInTheDocument();
-    expect(within(governanceSection).getByTitle("Category: compliance")).toBeInTheDocument();
-    expect(within(governanceSection).getByTitle("Category: risk")).toBeInTheDocument();
-    expect(within(governanceSection).getByTitle("Category: quality")).toBeInTheDocument();
+    expect(within(governanceSection).getByTitle("Category: policy")).toBeInTheDocument();
+    expect(within(governanceSection).getAllByTitle("Category: quality")).toHaveLength(2);
     expect(within(governanceSection).queryByTitle("Category: unknown")).not.toBeInTheDocument();
     expect(within(governanceSection).queryByText("missing category event")).not.toBeInTheDocument();
     expect(within(governanceSection).queryByText("invalid severity event")).not.toBeInTheDocument();
     expect(within(governanceSection).queryByText("missing type event")).not.toBeInTheDocument();
-    expect(within(governanceSection).getByText("critical")).toHaveClass("task-run-detail__governance-severity--critical");
+    expect(within(governanceSection).getByText("Policy")).toHaveClass("task-run-detail__governance-category--policy");
   });
 
   it("pairs persisted MCP direction values into one exchange card", async () => {
@@ -1909,10 +1897,10 @@ describe("task run detail", () => {
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /sector 01 onboarding 1 events/i }));
+    await user.click(screen.getByRole("button", { name: /01 onboarding 1 events/i }));
     expect(within(onboardingSection).queryByText("Task Registered")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /sector 01 onboarding 1 events/i }));
+    await user.click(screen.getByRole("button", { name: /01 onboarding 1 events/i }));
     expect(within(onboardingSection).getByText("Task Registered")).toBeInTheDocument();
   });
 

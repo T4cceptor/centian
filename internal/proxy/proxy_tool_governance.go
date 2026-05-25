@@ -158,7 +158,7 @@ func addCentianToolGovernanceAnnotation(callCtx CallContext, phase taskverificat
 		Type:      "governance_events",
 		Processor: "centian",
 		Action:    "blocked",
-		Category:  "risk",
+		Category:  "policy",
 		Severity:  "high",
 		Message:   centianToolGovernanceAnnotationMessage(phase, reason),
 	})

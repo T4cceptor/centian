@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, ListChecks, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
+import { Eye, ListChecks, ScrollText, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
 import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type ProcessorAnnotation, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
@@ -324,14 +324,10 @@ export function TaskRunDetailPage() {
         </div>
         <div className="task-run-detail__title-group">
           <h1 className="task-run-detail__title">Agent Task Details</h1>
-          {detailSubtitle ? (
-            <div className="task-run-detail__subtitle" aria-label="Task detail summary">
-              <p>{detailSubtitle.text}</p>
-            </div>
-          ) : null}
         </div>
       </header>
 
+      {detailSubtitle ? <TaskDescriptionRow text={detailSubtitle.text} /> : null}
       <RunMetadataBar stats={runStats} status={detailStatus} now={now} templateLabel={templateLabel} />
       <GovernanceEventsPanel events={governanceEvents} />
 
@@ -564,21 +560,28 @@ type TaskRunDetailSubtitle = {
   text: string;
 };
 
-type GovernanceEventAction = "Stopped" | "Blocked" | "Modified";
-
 type GovernanceEventDescription = {
   id: string;
   itemId: string;
-  action: GovernanceEventAction;
+  action: string;
   category: string;
   event: string;
   reason: string;
   severity: GovernanceSeverity;
 };
 
-type GovernanceSeverity = "low" | "medium" | "high" | "critical";
+type GovernanceSeverity = "low" | "medium" | "high";
 
 const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+
+function TaskDescriptionRow({ text }: { text: string }) {
+  return (
+    <div className="task-run-detail__task-row" aria-label="Task detail summary">
+      <span className="task-run-detail__task-row-label">Task</span>
+      <p>{text}</p>
+    </div>
+  );
+}
 
 // Displays the headline metrics for the selected run.
 function RunMetadataBar({
@@ -607,8 +610,8 @@ function RunMetadataBar({
         display: "flex",
         flexWrap: "wrap",
         gap: 24,
-        padding: "10px 20px",
-        background: "linear-gradient(135deg, rgba(10,14,30,0.7), rgba(15,22,42,0.5))",
+        padding: "8px 20px",
+        background: "rgba(10, 14, 30, 0.38)",
         borderBottom: "1px solid rgba(100,140,200,0.1)",
         fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         alignItems: "flex-start",
@@ -654,9 +657,10 @@ function RunMetadataBar({
 }
 
 function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[] }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const eventCount = events.length;
   const panelID = "task-run-governance-events";
+  const titleSignals = getGovernanceTitleSignals(events);
 
   return (
     <section className="task-run-detail__governance" aria-label={`Governance Events: ${eventCount}`}>
@@ -668,7 +672,22 @@ function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[
         onClick={() => setExpanded((current) => !current)}
       >
         <span className="task-run-detail__governance-title">
-          Governance Events: <span>{eventCount}</span>
+          Governance Events: <span className="task-run-detail__governance-title-count">{eventCount}</span>
+          {titleSignals.length > 0 ? (
+            <span className="task-run-detail__governance-title-signals" aria-hidden="true">
+              <span className="task-run-detail__governance-title-paren">(</span>
+              {titleSignals.map((signal) => (
+                <span
+                  key={signal.category}
+                  className={`task-run-detail__governance-title-signal task-run-detail__governance-category--${getGovernanceCategoryTone(signal.category)}`}
+                  title={`${signal.category} · ${signal.severity}`}
+                >
+                  <GovernanceCategoryIcon category={signal.category} decorative />
+                </span>
+              ))}
+              <span className="task-run-detail__governance-title-paren">)</span>
+            </span>
+          ) : null}
         </span>
         <span className="task-run-detail__governance-action">
           {expanded ? "Hide" : "Show"}
@@ -683,19 +702,14 @@ function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[
                 <li
                   key={event.id}
                   className={`task-run-detail__governance-item task-run-detail__governance-item--${event.severity}`}
-                  aria-label={`${event.action} ${event.event} - ${event.reason}`}
+                  aria-label={`${formatGovernanceCategory(event.category)}: ${event.action} ${event.event} - ${event.reason}`}
                 >
                   <GovernanceCategoryIcon category={event.category} />
-                  <span
-                    className={`task-run-detail__governance-severity task-run-detail__governance-severity--${event.severity}`}
-                    aria-hidden="true"
-                    title={`Severity: ${event.severity}`}
-                  >
-                    {event.severity}
+                  <span className={`task-run-detail__governance-category-label task-run-detail__governance-category--${getGovernanceCategoryTone(event.category)}`}>
+                    {formatGovernanceCategory(event.category)}
                   </span>
-                  <span
-                    className={`task-run-detail__governance-event-action task-run-detail__governance-event-action--${event.action.toLowerCase()}`}
-                  >
+                  <span className="task-run-detail__governance-separator">:</span>
+                  <span className="task-run-detail__governance-event-action">
                     {event.action}
                   </span>
                   <code>{event.event}</code>
@@ -713,16 +727,60 @@ function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[
   );
 }
 
-export function GovernanceCategoryIcon({ category }: { category: string }) {
+type GovernanceTitleSignal = {
+  category: string;
+  severity: GovernanceSeverity;
+};
+
+function getGovernanceTitleSignals(events: GovernanceEventDescription[]): GovernanceTitleSignal[] {
+  const byCategory = new Map<string, GovernanceTitleSignal>();
+  for (const event of events) {
+    const category = event.category.trim();
+    if (!category || !getGovernanceCategoryIcon(category)) {
+      continue;
+    }
+    const key = category.toLowerCase();
+    const current = byCategory.get(key);
+    if (!current || governanceSeverityRank(event.severity) < governanceSeverityRank(current.severity)) {
+      byCategory.set(key, { category, severity: event.severity });
+    }
+  }
+  return [...byCategory.values()].sort((left, right) => governanceSeverityRank(left.severity) - governanceSeverityRank(right.severity));
+}
+
+function governanceSeverityRank(severity: GovernanceSeverity): number {
+  switch (severity) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+  }
+}
+
+export function GovernanceCategoryIcon({ category, decorative = false }: { category: string; decorative?: boolean }) {
   const Icon = getGovernanceCategoryIcon(category);
+  const tone = getGovernanceCategoryTone(category);
   if (!Icon) {
     return null;
   }
   return (
-    <span className="task-run-detail__governance-category-icon" title={`Category: ${category}`}>
+    <span
+      className={`task-run-detail__governance-category-icon task-run-detail__governance-category--${tone}`}
+      title={decorative ? undefined : `Category: ${category}`}
+    >
       <Icon aria-hidden="true" />
     </span>
   );
+}
+
+function formatGovernanceCategory(category: string): string {
+  const normalized = category.trim();
+  if (!normalized) {
+    return "Governance";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
 }
 
 function SplitMetric({
@@ -755,7 +813,7 @@ function MetricLabel({ label, labelDetail }: { label: string; labelDetail?: stri
   return (
     <span className="task-run-detail__metric-label" aria-hidden="true">
       <span>{label}</span>
-      <span className="task-run-detail__metric-label-detail">{labelDetail ?? "\u00a0"}</span>
+      {labelDetail ? <span className="task-run-detail__metric-label-detail">{labelDetail}</span> : null}
     </span>
   );
 }
@@ -854,7 +912,7 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
   const addDescription = (
     id: string,
     itemId: string,
-    action: GovernanceEventAction,
+    action: string,
     category: string,
     event: string,
     reason: string,
@@ -890,12 +948,15 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
     );
   }
 
-  const actionOrder: Record<GovernanceEventAction, number> = {
+  const actionOrder: Record<string, number> = {
+    Redacted: 0,
+    Removed: 0,
     Modified: 0,
+    Escalated: 0,
     Blocked: 1,
     Stopped: 2,
   };
-  return descriptions.sort((left, right) => actionOrder[left.action] - actionOrder[right.action]);
+  return descriptions.sort((left, right) => (actionOrder[left.action] ?? 3) - (actionOrder[right.action] ?? 3));
 }
 
 function addAnnotationGovernanceDescriptions(
@@ -905,7 +966,7 @@ function addAnnotationGovernanceDescriptions(
   addDescription: (
     id: string,
     itemId: string,
-    action: GovernanceEventAction,
+    action: string,
     category: string,
     event: string,
     reason: string,
@@ -918,17 +979,16 @@ function addAnnotationGovernanceDescriptions(
       if (annotation.type !== "governance_events") {
         continue;
       }
-      const action = annotation.action?.trim().toLowerCase();
-      const governanceAction = getProcessorGovernanceAction(action);
+      const action = getProcessorGovernanceAction(annotation.action);
       const category = annotation.category?.trim();
       const severity = normalizeGovernanceSeverity(annotation.severity);
-      if (!governanceAction || !category || !severity) {
+      if (!action || !category || !severity) {
         continue;
       }
       addDescription(
         `${itemId}:${event?.id ?? "event"}:${index}`,
         itemId,
-        governanceAction,
+        action,
         category,
         eventLabel,
         getProcessorGovernanceReason(annotation),
@@ -963,17 +1023,12 @@ function readPayloadAnnotations(payload: unknown): ProcessorAnnotation[] {
   ));
 }
 
-function getProcessorGovernanceAction(action?: string): GovernanceEventAction | undefined {
-  if (action === "blocked") {
-    return "Blocked";
+function getProcessorGovernanceAction(action?: string): string | undefined {
+  const normalized = action?.trim();
+  if (!normalized) {
+    return undefined;
   }
-  if (action === "stopped") {
-    return "Stopped";
-  }
-  if (action && ["redacted", "removed", "modified", "escalated"].includes(action)) {
-    return "Modified";
-  }
-  return undefined;
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
 }
 
 function getProcessorGovernanceReason(annotation: NonNullable<TaskRunEvent["annotations"]>[number]): string {
@@ -1049,16 +1104,35 @@ function getProcessActionLabelForToolName(toolName?: string): string {
 
 function normalizeGovernanceSeverity(severity?: string): GovernanceSeverity | undefined {
   const normalized = severity?.trim().toLowerCase();
-  if (normalized === "critical" || normalized === "high" || normalized === "medium" || normalized === "low") {
+  if (normalized === "critical" || normalized === "high") {
+    return "high";
+  }
+  if (normalized === "medium" || normalized === "low") {
     return normalized;
   }
   return undefined;
+}
+
+export function getGovernanceCategoryTone(category: string): string | undefined {
+  switch (category.trim().toLowerCase()) {
+    case "security":
+    case "policy":
+    case "quality":
+    case "observability":
+    case "compliance":
+    case "risk":
+      return category.trim().toLowerCase();
+    default:
+      return undefined;
+  }
 }
 
 function getGovernanceCategoryIcon(category: string): LucideIcon | undefined {
   switch (category.trim().toLowerCase()) {
     case "security":
       return ShieldCheck;
+    case "policy":
+      return ScrollText;
     case "observability":
       return Eye;
     case "compliance":

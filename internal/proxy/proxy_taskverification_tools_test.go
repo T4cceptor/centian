@@ -1144,7 +1144,7 @@ func TestTaskToolEventPayloadAddsCentianGovernanceAnnotationForFailedChecks(t *t
 	assert.Equal(t, annotation["type"], "governance_events")
 	assert.Equal(t, annotation["processor"], "centian")
 	assert.Equal(t, annotation["action"], "stopped")
-	assert.Equal(t, annotation["category"], "compliance")
+	assert.Equal(t, annotation["category"], "quality")
 	assert.Equal(t, annotation["severity"], "medium")
 	assert.Equal(t, annotation["message"], "Root cause must be documented before resolution starts.")
 }
@@ -1155,7 +1155,7 @@ func TestTaskToolEventPayloadDoesNotDuplicateUserGovernanceAnnotation(t *testing
 			map[string]any{
 				"type":     "governance_events",
 				"action":   "stopped",
-				"category": "compliance",
+				"category": "quality",
 				"severity": "high",
 				"message":  "custom process annotation",
 			},
@@ -1845,7 +1845,7 @@ func TestGovernanceDeniedResultAnnotatesBlockedToolCall(t *testing.T) {
 	assert.Equal(t, annotations[0].Type, "governance_events")
 	assert.Equal(t, annotations[0].Processor, "centian")
 	assert.Equal(t, annotations[0].Action, "blocked")
-	assert.Equal(t, annotations[0].Category, "risk")
+	assert.Equal(t, annotations[0].Category, "policy")
 	assert.Equal(t, annotations[0].Severity, "high")
 	assert.Equal(t, annotations[0].Message, "tool not allowed in phase onboarding")
 }

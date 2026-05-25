@@ -38,8 +38,8 @@ func TestRunBlocksObviousResultInjection(t *testing.T) {
 	if report["action"] != "blocked" {
 		t.Fatalf("expected blocked annotation, got %#v", report)
 	}
-	if report["severity"] != "critical" {
-		t.Fatalf("expected critical severity, got %#v", report)
+	if report["severity"] != "high" {
+		t.Fatalf("expected high severity, got %#v", report)
 	}
 	details := report["details"].(map[string]any)
 	if details["evidence_count"].(float64) < 2 {

@@ -13,6 +13,7 @@ import {
   type TimelineGroup,
   type TimelineItem,
   GovernanceCategoryIcon,
+  getGovernanceCategoryTone,
   getEventAnnotations,
 } from "./task-run-detail-page";
 
@@ -37,6 +38,40 @@ const SCI_FI_STYLES = `
     background-image:
       radial-gradient(circle, rgba(30,40,80,0.35) 1px, transparent 1px);
     background-size: 28px 28px;
+  }
+
+  .sci-sector-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .sci-sector-governance-icons {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 2px;
+  }
+
+  .sci-sector-governance-icon {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+  }
+
+  .sci-sector-governance-icon .task-run-detail__governance-category-icon {
+    width: 14px;
+    height: 14px;
+    color: currentColor;
+  }
+
+  .sci-sector-governance-icon .task-run-detail__governance-category-icon svg {
+    width: 12px;
+    height: 12px;
   }
 `;
 
@@ -133,6 +168,98 @@ function deriveGroupStatus(group: TimelineGroup, governanceEventItemIDs: Readonl
   return "info";
 }
 
+type GovernanceSeverity = "low" | "medium" | "high";
+
+type GroupGovernanceSignal = {
+  category: string;
+  severity: GovernanceSeverity;
+};
+
+function getGroupGovernanceSignals(group: TimelineGroup): GroupGovernanceSignal[] {
+  const signals: GroupGovernanceSignal[] = [];
+  const seen = new Set<string>();
+
+  for (const item of group.items) {
+    for (const annotation of getTimelineItemGovernanceAnnotations(item)) {
+      if (annotation.type !== "governance_events") {
+        continue;
+      }
+      const category = annotation.category?.trim();
+      const severity = normalizeGovernanceSeverity(annotation.severity);
+      if (!category || !severity || !getGovernanceCategoryTone(category)) {
+        continue;
+      }
+      const key = `${category.toLowerCase()}:${severity}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      signals.push({ category, severity });
+    }
+  }
+
+  return signals.sort((left, right) => severityOrder(left.severity) - severityOrder(right.severity));
+}
+
+function getTimelineItemGovernanceAnnotations(item: TimelineItem) {
+  if (item.kind === "task") {
+    return [
+      ...getEventAnnotations(item.task),
+      ...getEventAnnotations(item.correlatedExchange?.request),
+      ...getEventAnnotations(item.correlatedExchange?.response),
+    ];
+  }
+
+  return [
+    ...getEventAnnotations(item.exchange.request),
+    ...getEventAnnotations(item.exchange.response),
+  ];
+}
+
+function normalizeGovernanceSeverity(severity?: string): GovernanceSeverity | undefined {
+  const normalized = severity?.trim().toLowerCase();
+  if (normalized === "critical" || normalized === "high") {
+    return "high";
+  }
+  if (normalized === "medium" || normalized === "low") {
+    return normalized;
+  }
+  return undefined;
+}
+
+function severityOrder(severity: GovernanceSeverity): number {
+  switch (severity) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+  }
+}
+
+function getGroupStatusLabel(status: string): string {
+  if (status === "saved") {
+    return "Saved";
+  }
+  return status;
+}
+
+function getGroupStatusColor(status: string): string {
+  switch (status) {
+    case "passed":
+      return "#34d399";
+    case "saved":
+      return "#a78bfa";
+    case "failed":
+      return "#f87171";
+    case "active":
+      return "#60a5fa";
+    default:
+      return "#f8c171";
+  }
+}
+
 // Renders the collapsible phase divider between groups of timeline items.
 function SciFiSectorDivider({
   group,
@@ -148,34 +275,9 @@ function SciFiSectorDivider({
   governanceEventItemIDs: ReadonlySet<string>;
 }) {
   const status = deriveGroupStatus(group, governanceEventItemIDs);
-  const statusColor =
-    status === "passed"
-      ? "#34d399"
-      : status === "failed"
-        ? "#f87171"
-        : "#f8c171";
-  const stepColors = ["#a78bfa", "#34d399", "#fbbf24", "#60a5fa", "#f87171", "#22d3ee"];
-  const accentColor = stepColors[groupIndex % stepColors.length];
-
-  const governanceEvents = group.items.filter(item =>governanceEventItemIDs.has(item.id));
-  if (governanceEvents.length > 0 ){
-    // TODO: getEventAnnotations
-  }
-
-  // stores the governance events related to this divider
-  const allAnnotations = group.items.map((item) => {
-    if (item.kind == "task") {
-      if(item.task.annotations) {
-        console.log("Found annotations: ", item.task.annotations)
-      }
-      return getEventAnnotations(item.task)
-    }
-  })
-  console.log("All allAnnotations: ", allAnnotations)
-
-  const annotationCategories = [...new Set(
-    allAnnotations.flat().map(item => item?.category).filter((category): category is string => category !== undefined)
-  )];
+  const statusColor = getGroupStatusColor(status);
+  const governanceSignals = getGroupGovernanceSignals(group);
+  const dividerColor = "#242b3a";
   return (
     <button
       type="button"
@@ -187,45 +289,54 @@ function SciFiSectorDivider({
       }}
     >
       {/* Full-width horizontal rule */}
-      <div style={{ position: "relative", height: 1, background: `linear-gradient(to right, transparent, ${accentColor}44, ${accentColor}22, transparent)`, marginBottom: 8 }}>
-        <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to right, transparent, ${accentColor}, transparent)`, opacity: 0.15 }} />
+      <div style={{ position: "relative", height: 1, background: `linear-gradient(to right, transparent, ${dividerColor}, ${dividerColor}99, transparent)`, marginBottom: 8 }}>
+        <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to right, transparent, ${dividerColor}, transparent)`, opacity: 0.2 }} />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         {/* Corner bracket */}
         <div style={{
           width: 10, height: 10, flexShrink: 0,
-          borderTop: `1px solid ${accentColor}`,
-          borderLeft: `1px solid ${accentColor}`,
+          borderTop: `1px solid ${dividerColor}`,
+          borderLeft: `1px solid ${dividerColor}`,
           opacity: 0.7,
         }} />
 
-        <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 11, color: accentColor, letterSpacing: "0.2em", textTransform: "uppercase", opacity: 0.8 }}>
-          SECTOR {String(groupIndex + 1).padStart(2, "0")}
-        </span>
-        <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 12, color: "#6a8ab0", letterSpacing: "0.08em" }}>
-          {group.label}
+        <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 12, color: "#5a6472", letterSpacing: "0.08em" }}>
+          {String(groupIndex + 1).padStart(2, "0")} {group.label}
         </span>
         <span style={{ fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 12, color: "#3d4a6a", opacity: 0.7 }}>
           {group.items.length} events
         </span>
-        <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${accentColor}20, transparent)` }} />
+        <div style={{ flex: 1, height: 1, background: `linear-gradient(to right, ${dividerColor}, transparent)` }} />
         <span style={{
           fontFamily: "'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace", fontSize: 10,
           color: statusColor, letterSpacing: "0.15em", textTransform: "uppercase",
           padding: "2px 8px", border: `1px solid ${statusColor}40`,
           borderRadius: 2, background: `${statusColor}0d`,
         }}>
-          {collapsed ? "+" : "−"} {status} 
-          {annotationCategories.map(category => {
-            return (<GovernanceCategoryIcon category={category} />)
-          })}
+          <span className="sci-sector-status">
+            {collapsed ? "+" : "−"} {getGroupStatusLabel(status)}
+            {governanceSignals.length > 0 ? (
+              <span className="sci-sector-governance-icons" aria-label={`${governanceSignals.length} governance event category icons`}>
+                {governanceSignals.map((signal) => (
+                  <span
+                    key={`${signal.category}:${signal.severity}`}
+                    className={`sci-sector-governance-icon task-run-detail__governance-category--${getGovernanceCategoryTone(signal.category)}`}
+                    title={`${signal.category} · ${signal.severity}`}
+                  >
+                    <GovernanceCategoryIcon category={signal.category} decorative />
+                  </span>
+                ))}
+              </span>
+            ) : null}
+          </span>
         </span>
 
         <div style={{
           width: 10, height: 10, flexShrink: 0,
-          borderTop: `1px solid ${accentColor}`,
-          borderRight: `1px solid ${accentColor}`,
+          borderTop: `1px solid ${dividerColor}`,
+          borderRight: `1px solid ${dividerColor}`,
           opacity: 0.7,
         }} />
       </div>

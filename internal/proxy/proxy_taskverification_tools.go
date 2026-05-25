@@ -701,7 +701,7 @@ func centianTaskGovernanceAnnotation(payload map[string]any) (map[string]any, bo
 		"type":      "governance_events",
 		"processor": "centian",
 		"action":    "stopped",
-		"category":  "compliance",
+		"category":  "quality",
 		"severity":  centianTaskGovernanceSeverity(payload),
 		"message":   centianTaskGovernanceMessage(payload),
 	}, true

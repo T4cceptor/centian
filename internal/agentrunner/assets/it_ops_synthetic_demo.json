@@ -715,7 +715,7 @@
             "processor": "prompt_injection_guard",
             "action": "redacted",
             "category": "security",
-            "severity": "critical",
+            "severity": "high",
             "message": "Redacted 2 prompt injection markers in result content.",
             "findings": [
               {
@@ -826,7 +826,7 @@
             "type": "governance_events",
             "processor": "centian",
             "action": "blocked",
-            "category": "risk",
+            "category": "policy",
             "severity": "high",
             "message": "tool not allowed in phase root_cause_analysis"
           }
@@ -1036,7 +1036,7 @@
               "type": "governance_events",
               "processor": "centian",
               "action": "stopped",
-              "category": "compliance",
+              "category": "quality",
               "severity": "medium",
               "message": "Root cause must be documented before resolution starts."
             }
