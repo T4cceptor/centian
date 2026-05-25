@@ -21,6 +21,8 @@ const (
 	CLIProcessor ProcessorType = "cli"
 	// WebhookProcessor represents the type of a webhook-based processor -> "webhook".
 	WebhookProcessor ProcessorType = "webhook"
+	// BuiltinProcessor represents an in-process processor shipped with Centian -> "builtin".
+	BuiltinProcessor ProcessorType = "builtin"
 	httpScheme       string        = "http"
 	httpsScheme      string        = "https"
 )
@@ -638,6 +640,10 @@ func (g *GatewayConfig) NormalizedVerificationRequirement() string {
 //   - "command" (string, required): Executable command to run (e.g., "python", "bash", "node").
 //   - "args" (array of strings, optional): Command-line arguments (e.g., ["script.py", "--flag"]).
 //
+// For BuiltinProcessor processors (see type BuiltinProcessorSettings):
+//   - "processor" (string, required): Built-in processor identifier (e.g., "prompt_injection_guard").
+//   - "mode" (string, optional): Built-in processor mode.
+//
 // Example CLI processor:
 //
 //	{.
@@ -652,7 +658,7 @@ func (g *GatewayConfig) NormalizedVerificationRequirement() string {
 //	}.
 type ProcessorConfig struct {
 	Name    string                 `json:"name"`              // Unique processor name
-	Type    string                 `json:"type"`              // Processor type: "cli" (future: "http", "builtin")
+	Type    string                 `json:"type"`              // Processor type: "cli", "webhook", or "builtin"
 	Enabled bool                   `json:"enabled"`           // Whether processor is active
 	Timeout int                    `json:"timeout,omitempty"` // Timeout in seconds (default: 15)
 	Parts   []string               `json:"parts,omitempty"`   // Which context parts to provide: "payload", "meta", "routing", "auth", "annotations" (default: ["payload","meta"])
@@ -675,6 +681,12 @@ type CLIProcessorSettings struct {
 type WebhookProcessorSettings struct {
 	URL     string
 	Headers map[string]string
+}
+
+// BuiltinProcessorSettings contains parsed runtime settings for a built-in processor.
+type BuiltinProcessorSettings struct {
+	Processor string
+	Mode      string
 }
 
 var allowedProcessorParts = map[string]bool{
@@ -1299,9 +1311,9 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 
 	// Validate type.
 	switch ProcessorType(processor.Type) {
-	case CLIProcessor, WebhookProcessor:
+	case CLIProcessor, WebhookProcessor, BuiltinProcessor:
 	default:
-		return fmt.Errorf("processor '%s': unsupported type '%s' (supported: 'cli', 'webhook')", processor.Name, processor.Type)
+		return fmt.Errorf("processor '%s': unsupported type '%s' (supported: 'cli', 'webhook', 'builtin')", processor.Name, processor.Type)
 	}
 
 	// Set default timeout if not specified.
@@ -1417,8 +1429,34 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 	case WebhookProcessor:
 		_, err := ParseWebhookProcessorSettings(processor)
 		return err
+	case BuiltinProcessor:
+		_, err := ParseBuiltinProcessorSettings(processor)
+		return err
 	}
 	return nil
+}
+
+// ParseBuiltinProcessorSettings validates and extracts built-in processor settings.
+func ParseBuiltinProcessorSettings(processor *ProcessorConfig) (*BuiltinProcessorSettings, error) {
+	value, ok := processor.Config["processor"]
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.processor is required for builtin type", processor.Name)
+	}
+	processorName, ok := value.(string)
+	if !ok || strings.TrimSpace(processorName) == "" {
+		return nil, fmt.Errorf("processor '%s': config.processor must be a non-empty string", processor.Name)
+	}
+	settings := &BuiltinProcessorSettings{
+		Processor: strings.TrimSpace(processorName),
+	}
+	if modeValue, exists := processor.Config["mode"]; exists {
+		mode, ok := modeValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("processor '%s': config.mode must be a string", processor.Name)
+		}
+		settings.Mode = strings.TrimSpace(mode)
+	}
+	return settings, nil
 }
 
 // ParseCLIProcessorSettings validates and extracts CLI processor settings.

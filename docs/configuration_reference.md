@@ -200,10 +200,10 @@ Processor names must be unique within a single processor list.
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `name` | string | Yes | none | Unique within the list being validated. |
-| `type` | string | Yes | none | Must be `cli` or `webhook`. |
+| `type` | string | Yes | none | Must be `cli`, `webhook`, or `builtin`. |
 | `enabled` | boolean | Yes | none | Disabled processors are skipped. |
 | `timeout` | integer | No | `15` | Per-invocation timeout in seconds. |
-| `parts` | array of strings | No | `["payload", "meta"]` | Allowed parts: `payload`, `meta`, `routing`, `auth`. |
+| `parts` | array of strings | No | `["payload", "meta"]` | Allowed parts: `payload`, `meta`, `routing`, `auth`, `annotations`. |
 | `config` | object | Yes | none | Type-specific processor config. |
 | `required` | boolean | No | `false` | Required processor failures stop the chain. |
 
@@ -241,6 +241,19 @@ Webhook runtime behavior:
 - The response must be a valid `DataContext` JSON document.
 - Non-2xx responses, invalid JSON, and timeouts are treated as failures.
 - `config.url` and `config.headers` are the only supported webhook config keys.
+
+### Built-in Processor `config`
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`. |
+| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. |
+
+Built-in runtime behavior:
+
+- Built-in processors are compiled into the Centian binary.
+- No additional executable, container build step, or runtime package install is required.
+- `timeout` is accepted for config consistency, but no subprocess or HTTP request is spawned.
 
 ## Minimal Example
 

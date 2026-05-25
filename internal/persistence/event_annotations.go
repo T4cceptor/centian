@@ -79,7 +79,8 @@ func eventAnnotationRowsFromReports(
 	reports []common.EventAnnotation,
 ) ([]eventAnnotationRow, error) {
 	rows := make([]eventAnnotationRow, 0, len(reports))
-	for _, report := range reports {
+	for idx := range reports {
+		report := &reports[idx]
 		if len(report.Findings) == 0 {
 			row, err := eventAnnotationRowFromReport(actionEventID, requestID, createdAtUnixMilli, report, nil)
 			if err != nil {
@@ -89,8 +90,7 @@ func eventAnnotationRowsFromReports(
 			continue
 		}
 		for idx := range report.Findings {
-			finding := report.Findings[idx]
-			row, err := eventAnnotationRowFromReport(actionEventID, requestID, createdAtUnixMilli, report, &finding)
+			row, err := eventAnnotationRowFromReport(actionEventID, requestID, createdAtUnixMilli, report, &report.Findings[idx])
 			if err != nil {
 				return nil, err
 			}
@@ -104,10 +104,10 @@ func eventAnnotationRowFromReport(
 	actionEventID string,
 	requestID string,
 	createdAtUnixMilli int64,
-	report common.EventAnnotation,
+	report *common.EventAnnotation,
 	finding *common.EventAnnotationFinding,
 ) (eventAnnotationRow, error) {
-	rowReport := report
+	rowReport := *report
 	rule := ""
 	path := ""
 	if finding != nil {
@@ -169,7 +169,7 @@ func (s *Store) annotationsByActionEventID(ctx context.Context, actionEventIDs [
 	rows := make([]eventAnnotationRow, 0)
 	if err := s.db.NewSelect().
 		Model(&rows).
-		Where("action_event_id IN (?)", bun.In(uniqueIDs)).
+		Where("action_event_id IN (?)", bun.List(uniqueIDs)).
 		Order("created_at_unix_milli ASC", "id ASC").
 		Scan(ctx); err != nil {
 		return nil, err
@@ -185,7 +185,8 @@ func (s *Store) annotationsByActionEventID(ctx context.Context, actionEventIDs [
 
 func sortedActionEventIDsFromTaskEvents(events []TaskRunEvent) []string {
 	ids := make([]string, 0, len(events))
-	for _, event := range events {
+	for idx := range events {
+		event := &events[idx]
 		if event.Source == TaskRunEventSourceAction && event.ID != "" {
 			ids = append(ids, event.ID)
 		}
@@ -196,7 +197,8 @@ func sortedActionEventIDsFromTaskEvents(events []TaskRunEvent) []string {
 
 func sortedActionEventIDsFromListItems(items []EventListItem) []string {
 	ids := make([]string, 0, len(items))
-	for _, item := range items {
+	for idx := range items {
+		item := &items[idx]
 		if item.ID != "" {
 			ids = append(ids, item.ID)
 		}

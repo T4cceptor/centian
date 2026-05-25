@@ -76,8 +76,9 @@ func StartSyntheticDemoRun(ctx context.Context, store *persistence.Store, demoID
 		state.nextIndex = 1
 	}
 
+	replayCtx := context.WithoutCancel(ctx)
 	go func() {
-		if err := replayer.replayToStoreFromState(context.Background(), store, scenario, state); err != nil {
+		if err := replayer.replayToStoreFromState(replayCtx, store, scenario, state); err != nil {
 			common.LogWarn("Synthetic demo %s failed for run %s: %v", definition.ID, run.RunID, err)
 			recordSyntheticDemoFailure(store, state.defaults, err)
 		}

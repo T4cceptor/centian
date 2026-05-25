@@ -19,7 +19,7 @@ type stubDemoStarter struct {
 	id  string
 }
 
-func (s *stubDemoStarter) StartSyntheticDemoRun(_ context.Context, demoID string) (*agentrunner.SyntheticDemoRun, error) {
+func (s *stubDemoStarter) startSyntheticDemoRun(_ context.Context, demoID string) (*agentrunner.SyntheticDemoRun, error) {
 	s.id = demoID
 	if s.err != nil {
 		return nil, s.err

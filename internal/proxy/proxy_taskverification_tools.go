@@ -56,6 +56,7 @@ type taskMetadataArgs struct {
 	TaskToolMetadata
 }
 
+// TaskToolMetadata contains optional metadata accepted by all Centian task tools.
 type TaskToolMetadata struct {
 	Annotations []any `json:"annotations,omitempty"`
 }
@@ -726,6 +727,9 @@ func isGovernanceTaskFailurePayload(payload map[string]any) bool {
 }
 
 func centianTaskGovernanceMessage(payload map[string]any) string {
+	if value, ok := payload["failedCheckDescription"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
 	for _, key := range []string{"summary", "error", "message"} {
 		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
@@ -937,6 +941,9 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	}
 	if result.FailedCheckID != "" {
 		structured["failedCheckId"] = result.FailedCheckID
+	}
+	if result.FailedCheckDescription != "" {
+		structured["failedCheckDescription"] = result.FailedCheckDescription
 	}
 	if result.FailedInvariantID != "" {
 		structured["failedInvariantId"] = result.FailedInvariantID

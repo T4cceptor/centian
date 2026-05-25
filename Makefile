@@ -31,7 +31,7 @@ endif
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build build-go processor clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-lint web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-lint web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -42,9 +42,6 @@ build: web-stage ## Build the MCP proxy binary
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
 	@echo "Binary built: $(BUILD_DIR)/$(BINARY_NAME)"
-
-processor:
-	go build -o build/prompt-injection-guard ./demo/it_ops/prompt_injection_guard
 
 build-go: ## Build the MCP proxy binary without staging the frontend
 	@echo "Building $(BINARY_NAME) without rebuilding the frontend..."

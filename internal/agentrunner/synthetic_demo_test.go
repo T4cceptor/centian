@@ -57,10 +57,13 @@ func TestLoadSyntheticDemoScenarioFile(t *testing.T) {
 }
 
 func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
-	path := filepath.Join("..", "..", "demo", "it_ops", "synthetic_demo.json")
-	scenario, data, err := loadSyntheticDemoScenario(path)
+	data, err := asset(itOpsSyntheticDemoAsset)
 	if err != nil {
-		t.Fatalf("loadSyntheticDemoScenario: %v", err)
+		t.Fatalf("load ops demo asset: %v", err)
+	}
+	scenario, err := loadEmbeddedSyntheticDemoScenario(itOpsSyntheticDemoAsset)
+	if err != nil {
+		t.Fatalf("loadEmbeddedSyntheticDemoScenario: %v", err)
 	}
 	if len(data) == 0 {
 		t.Fatal("expected ops demo scenario bytes")

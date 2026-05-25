@@ -16,7 +16,6 @@ clean:
 	@echo "Removed demo local artifacts."
 
 demo-up:
-	go build -o build/prompt-injection-guard ../it_ops/prompt_injection_guard
 	@$(MAKE) -C "$(CURDIR)/../.." build
 	@$(COMPOSE) up -d --build
 	@echo "Demo gateways are up:"

@@ -1,7 +1,6 @@
-package main
+package promptinjectionguard
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -114,7 +113,7 @@ func TestRunRedactsInjectionWhenConfigured(t *testing.T) {
 		}
 	}`
 
-	output := runProcessorWithConfig(t, input, config{Mode: modeRedact})
+	output := runProcessorWithMode(t, input, modeRedact)
 	result := output["payload"].(map[string]any)["result"].(map[string]any)
 	content := result["content"].([]any)
 
@@ -147,7 +146,7 @@ func TestRunRemovesInjectionWhenConfigured(t *testing.T) {
 		}
 	}`
 
-	output := runProcessorWithConfig(t, input, config{Mode: modeRemove})
+	output := runProcessorWithMode(t, input, modeRemove)
 	result := output["payload"].(map[string]any)["result"].(map[string]any)
 	content := result["content"].([]any)
 
@@ -180,7 +179,7 @@ func TestRunAnnotatesOnlyWhenConfigured(t *testing.T) {
 		}
 	}`
 
-	output := runProcessorWithConfig(t, input, config{Mode: modeAnnotate})
+	output := runProcessorWithMode(t, input, modeAnnotate)
 	result := output["payload"].(map[string]any)["result"].(map[string]any)
 	content := result["content"].([]any)
 	first := content[0].(map[string]any)["text"]
@@ -213,20 +212,20 @@ func TestRunAnnotatesOnlyWhenConfigured(t *testing.T) {
 
 func runProcessor(t *testing.T, input string) map[string]any {
 	t.Helper()
-	return runProcessorWithConfig(t, input, config{Mode: modeError})
+	return runProcessorWithMode(t, input, modeError)
 }
 
-func runProcessorWithConfig(t *testing.T, input string, cfg config) map[string]any {
+func runProcessorWithMode(t *testing.T, input string, mode string) map[string]any {
 	t.Helper()
 
-	var output bytes.Buffer
-	if err := runWithConfig(strings.NewReader(input), &output, cfg); err != nil {
+	output, err := ProcessJSON([]byte(input), mode)
+	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}
 
 	var decoded map[string]any
-	if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
-		t.Fatalf("invalid JSON output: %v\n%s", err, output.String())
+	if err := json.Unmarshal(output, &decoded); err != nil {
+		t.Fatalf("invalid JSON output: %v\n%s", err, string(output))
 	}
 	return decoded
 }

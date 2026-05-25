@@ -1131,10 +1131,11 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 
 func TestTaskToolEventPayloadAddsCentianGovernanceAnnotationForFailedChecks(t *testing.T) {
 	payload := taskToolEventPayload(TaskToolMetadata{}, map[string]any{
-		"passed":        false,
-		"failureKind":   "check",
-		"failedCheckId": "rca_documented",
-		"summary":       "Resolution could not start before the root-cause comment existed.",
+		"passed":                 false,
+		"failureKind":            "check",
+		"failedCheckId":          "rca_documented",
+		"failedCheckDescription": "Root cause must be documented before resolution starts.",
+		"summary":                "Resolution could not start before the root-cause comment existed.",
 	})
 
 	annotations := payload["annotations"].([]any)
@@ -1145,7 +1146,7 @@ func TestTaskToolEventPayloadAddsCentianGovernanceAnnotationForFailedChecks(t *t
 	assert.Equal(t, annotation["action"], "stopped")
 	assert.Equal(t, annotation["category"], "compliance")
 	assert.Equal(t, annotation["severity"], "medium")
-	assert.Equal(t, annotation["message"], "Resolution could not start before the root-cause comment existed.")
+	assert.Equal(t, annotation["message"], "Root cause must be documented before resolution starts.")
 }
 
 func TestTaskToolEventPayloadDoesNotDuplicateUserGovernanceAnnotation(t *testing.T) {
@@ -1341,6 +1342,7 @@ workflow:
       tools_allowed: ["shell__*", "filesystem__*"]
       checks:
         - id: "check_one"
+          description: "The verification output must include the completion marker."
           command: "printf 'unexpected output for verification'"
           pre_conditions:
             - type: stdout_contains
@@ -1392,6 +1394,7 @@ workflow:
 	assert.Equal(t, structured["failureKind"], string(taskverification.StepFailureKindCheck))
 	assert.Equal(t, structured["failurePhase"], string(taskverification.StepFailurePhasePostcondition))
 	assert.Equal(t, structured["failedCheckId"], "check_one")
+	assert.Equal(t, structured["failedCheckDescription"], "The verification output must include the completion marker.")
 	assert.Assert(t, structured["stdoutSnippet"] != nil)
 	assert.Assert(t, structured["summary"] != nil)
 	assert.Equal(t, structured["retryable"], true)

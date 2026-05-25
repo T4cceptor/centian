@@ -74,4 +74,24 @@ func TestNewProcessor(t *testing.T) {
 		assert.Assert(t, ok, "expected *CLIProcessor")
 		assert.Equal(t, processor.GetConfig(), cfg)
 	})
+
+	t.Run("creates builtin processor when enabled and type is builtin", func(t *testing.T) {
+		cfg := &config.ProcessorConfig{
+			Name:    "prompt-injection",
+			Type:    string(config.BuiltinProcessor),
+			Enabled: true,
+			Config: map[string]interface{}{
+				"processor": "prompt_injection_guard",
+				"mode":      "annotate",
+			},
+		}
+
+		processor, err := NewProcessor(cfg)
+
+		assert.NilError(t, err)
+		assert.Assert(t, processor != nil)
+		_, ok := processor.(*BuiltinProcessor)
+		assert.Assert(t, ok, "expected *BuiltinProcessor")
+		assert.Equal(t, processor.GetConfig(), cfg)
+	})
 }

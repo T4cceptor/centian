@@ -997,6 +997,7 @@
               "failureKind": "check",
               "failurePhase": "precondition",
               "failedCheckId": "rca_documented",
+              "failedCheckDescription": "Root cause must be documented before resolution starts.",
               "passed": false,
               "retryable": true,
               "nextAction": "Fix the failed check by completing root_cause_documentation, then retry."
@@ -1028,6 +1029,7 @@
           "failureKind": "check",
           "failurePhase": "precondition",
           "failedCheckId": "rca_documented",
+          "failedCheckDescription": "Root cause must be documented before resolution starts.",
           "summary": "Resolution could not start before the root-cause comment existed.",
           "annotations": [
             {
@@ -1036,7 +1038,7 @@
               "action": "stopped",
               "category": "compliance",
               "severity": "medium",
-              "message": "expected root-cause documentation before resolution"
+              "message": "Root cause must be documented before resolution starts."
             }
           ]
         }

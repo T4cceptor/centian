@@ -119,6 +119,9 @@ func stepEventPayload(result *taskverification.StepResult) map[string]any {
 	if result.FailedCheckID != "" {
 		payload["failedCheckId"] = result.FailedCheckID
 	}
+	if result.FailedCheckDescription != "" {
+		payload["failedCheckDescription"] = result.FailedCheckDescription
+	}
 	if result.FailedInvariantID != "" {
 		payload["failedInvariantId"] = result.FailedInvariantID
 	}

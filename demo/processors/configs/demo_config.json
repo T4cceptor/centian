@@ -81,14 +81,14 @@
         },
         {
           "name": "prompt_injection_guard",
-          "type": "cli",
+          "type": "builtin",
           "enabled": true,
           "required": true,
           "timeout": 15,
           "parts": ["payload", "meta", "annotations"],
           "config": {
-            "command": "/opt/centian/processors/prompt-injection-guard",
-            "args": ["--mode=redact"]
+            "processor": "prompt_injection_guard",
+            "mode": "redact"
           }
         }
       ]

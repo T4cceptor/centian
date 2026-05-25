@@ -33,12 +33,14 @@ type sqlQueryExecutor interface {
 	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
 }
 
-func sqliteColumnExists(ctx context.Context, db sqlQueryExecutor, tableName string, columnName string) (bool, error) {
+func sqliteColumnExists(ctx context.Context, db sqlQueryExecutor, tableName, columnName string) (bool, error) {
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	for rows.Next() {
 		var cid int

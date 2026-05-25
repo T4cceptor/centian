@@ -273,6 +273,18 @@ Edit `~/.centian/config.json`:
       }
     },
     {
+      "name": "prompt_injection_guard",
+      "type": "builtin",
+      "enabled": true,
+      "parts": ["payload", "meta", "annotations"],
+      "timeout": 15,
+      "required": true,
+      "config": {
+        "processor": "prompt_injection_guard",
+        "mode": "redact"
+      }
+    },
+    {
       "name": "audit-webhook",
       "type": "webhook",
       "enabled": true,
@@ -295,7 +307,7 @@ Edit `~/.centian/config.json`:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | Yes | Unique processor identifier within the processor list. |
-| `type` | string | Yes | `"cli"` or `"webhook"`. |
+| `type` | string | Yes | `"cli"`, `"webhook"`, or `"builtin"`. |
 | `enabled` | boolean | Yes | Whether the processor is active. |
 | `parts` | array | No | Context parts to provide. Defaults to `["payload","meta"]`. |
 | `timeout` | number | No | Per-invocation timeout in seconds. Defaults to `15`. |
@@ -304,12 +316,15 @@ Edit `~/.centian/config.json`:
 | `config.args` | array | CLI only | Arguments including script path. |
 | `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST`. |
 | `config.headers` | object | Webhook only | Optional string headers. |
+| `config.processor` | string | Built-in only | Built-in processor identifier, for example `prompt_injection_guard`. |
+| `config.mode` | string | Built-in optional | Built-in processor mode. The prompt injection guard supports `annotate`, `error`, `redact`, and `remove`. |
 
 Important runtime notes:
 
-- supported processor types are only `cli` and `webhook`
+- supported processor types are `cli`, `webhook`, and `builtin`
 - supported parts are only `payload`, `meta`, `routing`, `auth`, and `annotations`
 - webhook `config` only supports `url` and `headers`
+- built-in processors are compiled into Centian and do not require a separate executable
 
 ### Timeout behavior
 
@@ -554,6 +569,8 @@ It demonstrates:
 - OpenTelemetry span export for MCP tool calls
 - response redaction with a gateway-level processor
 - a local Docker Compose flow that builds the demo image and bundles the demo processor code
+
+The dependency-free built-in prompt injection guard lives in [internal/processor/prompt_injection_guard](../internal/processor/prompt_injection_guard).
 
 ## Further Reading
 

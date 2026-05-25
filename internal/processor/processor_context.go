@@ -42,13 +42,13 @@ type RoutingPart struct {
 
 // AnnotationPart lets processors report findings about an event without modifying the MCP call.
 type AnnotationPart struct {
-	Reports []ProcessorReport `json:"reports,omitempty"`
+	Reports []Report `json:"reports,omitempty"`
 }
 
-// ProcessorReport describes a processor observation or policy action.
-type ProcessorReport = common.EventAnnotation
+// Report describes a processor observation or policy action.
+type Report = common.EventAnnotation
 
-// ProcessorFinding identifies a specific processor finding.
-type ProcessorFinding = common.EventAnnotationFinding
+// Finding identifies a specific processor finding.
+type Finding = common.EventAnnotationFinding
 
 // TODO: add headers part

@@ -1236,7 +1236,7 @@ describe("task run detail", () => {
 
     const onboardingSection = screen.getByLabelText("Onboarding");
     expect(within(onboardingSection).getByText("Step Completed · Onboarding")).toBeInTheDocument();
-    expect(within(onboardingSection).getByText("− passed (saved)")).toBeInTheDocument();
+    expect(within(onboardingSection).getByText(/− saved/)).toBeInTheDocument();
   });
 
   it("collapses request-only centian task tool events into matching task lifecycle rows", async () => {

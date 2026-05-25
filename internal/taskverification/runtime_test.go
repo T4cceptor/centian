@@ -166,6 +166,7 @@ workflow:
     - id: "step_one"
       checks:
         - id: "check_one"
+          description: "The setup check must emit the expected marker."
           command: "printf 'ok'"
           pre_conditions:
             - type: stdout_contains
@@ -178,6 +179,7 @@ workflow:
 	assert.Equal(t, result.FailureKind, StepFailureKindCheck)
 	assert.Equal(t, result.FailurePhase, StepFailurePhasePrecondition)
 	assert.Equal(t, result.FailedCheckID, "check_one")
+	assert.Equal(t, result.FailedCheckDescription, "The setup check must emit the expected marker.")
 	assert.Equal(t, result.Summary, result.Message)
 	assert.Assert(t, result.Retryable)
 	assert.Equal(t, result.RecoveryActions[0].Tool, startStepRecoveryTool)
@@ -372,6 +374,7 @@ workflow:
     - id: "step_one"
       checks:
         - id: "check_one"
+          description: "The verification output must include the completion marker."
           command: "printf 'unexpected output for verification'"
           pre_conditions:
             - type: stdout_contains
@@ -390,6 +393,7 @@ workflow:
 	assert.Equal(t, result.FailureKind, StepFailureKindCheck)
 	assert.Equal(t, result.FailurePhase, StepFailurePhasePostcondition)
 	assert.Equal(t, result.FailedCheckID, "check_one")
+	assert.Equal(t, result.FailedCheckDescription, "The verification output must include the completion marker.")
 	assert.Assert(t, result.Retryable)
 	assert.Equal(t, result.RecoveryActions[0].Tool, completeStepRecoveryTool)
 	assert.Assert(t, strings.Contains(result.StdoutSnippet, "unexpected output"))

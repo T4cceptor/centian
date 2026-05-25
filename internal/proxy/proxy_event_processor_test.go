@@ -275,12 +275,12 @@ func TestAnnotationHandler_AppendsReportsToEventAnnotations(t *testing.T) {
 	}
 	result := &processor.DataContext{
 		Annotations: &processor.AnnotationPart{
-			Reports: []processor.ProcessorReport{
+			Reports: []processor.Report{
 				{
 					Processor: "prompt_injection_guard",
 					Action:    "redacted",
 					Severity:  "high",
-					Findings: []processor.ProcessorFinding{
+					Findings: []processor.Finding{
 						{Rule: "ignore_previous_instructions", Path: "payload.result.content[0].text"},
 					},
 				},

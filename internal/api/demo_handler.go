@@ -10,14 +10,14 @@ import (
 )
 
 type demoRunStarter interface {
-	StartSyntheticDemoRun(ctx context.Context, demoID string) (*agentrunner.SyntheticDemoRun, error)
+	startSyntheticDemoRun(ctx context.Context, demoID string) (*agentrunner.SyntheticDemoRun, error)
 }
 
 type storeDemoRunStarter struct {
 	store *persistence.Store
 }
 
-func (s storeDemoRunStarter) StartSyntheticDemoRun(ctx context.Context, demoID string) (*agentrunner.SyntheticDemoRun, error) {
+func (s storeDemoRunStarter) startSyntheticDemoRun(ctx context.Context, demoID string) (*agentrunner.SyntheticDemoRun, error) {
 	return agentrunner.StartSyntheticDemoRun(ctx, s.store, demoID)
 }
 
@@ -59,7 +59,7 @@ func (h *DemoHandler) handleListDemos(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *DemoHandler) handleStartDemoRun(w http.ResponseWriter, r *http.Request) {
-	run, err := h.starter.StartSyntheticDemoRun(r.Context(), r.PathValue("demoID"))
+	run, err := h.starter.startSyntheticDemoRun(r.Context(), r.PathValue("demoID"))
 	if err != nil {
 		if errors.Is(err, agentrunner.ErrSyntheticDemoNotFound) {
 			writeError(w, http.StatusNotFound, "demo not found")

@@ -1,13 +1,10 @@
-package main
+package promptinjectionguard
 
 import (
 	"encoding/base64"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"io"
 	"net/url"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,10 +14,6 @@ type detection struct {
 	Pattern string
 	Path    string
 	Length  int
-}
-
-type config struct {
-	Mode string
 }
 
 type scanPattern struct {
@@ -62,46 +55,35 @@ var patterns = []scanPattern{
 	},
 }
 
-func main() {
-	cfg := parseConfig(os.Args[1:])
-	if err := runWithConfig(os.Stdin, os.Stdout, cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "prompt injection guard failed: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func run(input io.Reader, output io.Writer) error {
-	return runWithConfig(input, output, config{Mode: modeError})
-}
-
-func parseConfig(args []string) config {
-	flags := flag.NewFlagSet("prompt-injection-guard", flag.ExitOnError)
-	mode := flags.String("mode", modeError, "action for detections: annotate, error, redact, or remove")
-	_ = flags.Parse(args)
-
-	cfg := config{Mode: strings.ToLower(strings.TrimSpace(*mode))}
-	switch cfg.Mode {
-	case modeAnnotate, modeError, modeRedact, modeRemove:
-	default:
-		cfg.Mode = modeError
-	}
-	return cfg
-}
-
-func runWithConfig(input io.Reader, output io.Writer, cfg config) error {
+// ProcessJSON processes one serialized Centian processor DataContext.
+func ProcessJSON(input []byte, mode string) ([]byte, error) {
 	var ctx map[string]any
-	if err := json.NewDecoder(input).Decode(&ctx); err != nil {
-		return fmt.Errorf("decode processor input: %w", err)
+	if err := json.Unmarshal(input, &ctx); err != nil {
+		return nil, fmt.Errorf("decode processor input: %w", err)
 	}
 
+	mode = NormalizeMode(mode)
 	detections := scanContext(ctx)
 	if len(detections) > 0 {
-		applyAction(ctx, detections, cfg.Mode)
+		applyAction(ctx, detections, mode)
 	}
 
-	encoder := json.NewEncoder(output)
-	encoder.SetEscapeHTML(false)
-	return encoder.Encode(ctx)
+	output, err := json.Marshal(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("encode processor output: %w", err)
+	}
+	return output, nil
+}
+
+// NormalizeMode returns a supported processor mode, defaulting to error.
+func NormalizeMode(mode string) string {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case modeAnnotate, modeError, modeRedact, modeRemove:
+		return mode
+	default:
+		return modeError
+	}
 }
 
 func applyAction(ctx map[string]any, detections []detection, mode string) {
@@ -323,10 +305,7 @@ func urlDecode(text string) (string, bool) {
 
 func base64Candidates(text string) []string {
 	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return !(r >= 'A' && r <= 'Z') &&
-			!(r >= 'a' && r <= 'z') &&
-			!(r >= '0' && r <= '9') &&
-			r != '+' && r != '/' && r != '=' && r != '-' && r != '_'
+		return !isBase64TokenRune(r)
 	})
 
 	var candidates []string
@@ -339,6 +318,13 @@ func base64Candidates(text string) []string {
 		}
 	}
 	return candidates
+}
+
+func isBase64TokenRune(r rune) bool {
+	return (r >= 'A' && r <= 'Z') ||
+		(r >= 'a' && r <= 'z') ||
+		(r >= '0' && r <= '9') ||
+		r == '+' || r == '/' || r == '=' || r == '-' || r == '_'
 }
 
 func decodeBase64(value string) (string, bool) {
@@ -369,7 +355,7 @@ func mostlyPrintable(value []byte) bool {
 }
 
 func block(ctx map[string]any, detections []detection) {
-	payload, _ := ensureMap(ctx, "payload")
+	payload := ensureMap(ctx, "payload")
 	payload["result"] = map[string]any{
 		"content": []any{
 			map[string]any{
@@ -385,19 +371,19 @@ func block(ctx map[string]any, detections []detection) {
 		},
 	}
 
-	event, _ := ensureMap(ctx, "event")
+	event := ensureMap(ctx, "event")
 	event["status"] = float64(403)
 	event["success"] = false
 	event["modified"] = true
 }
 
 func markModified(ctx map[string]any) {
-	event, _ := ensureMap(ctx, "event")
+	event := ensureMap(ctx, "event")
 	event["modified"] = true
 }
 
 func addAnnotation(ctx map[string]any, detections []detection, mode string) {
-	annotations, _ := ensureMap(ctx, "annotations")
+	annotations := ensureMap(ctx, "annotations")
 	reports, _ := annotations["reports"].([]any)
 	details := annotationDetails(ctx, detections, mode)
 	reports = append(reports, map[string]any{
@@ -641,11 +627,11 @@ func childMap(parent map[string]any, key string) (map[string]any, bool) {
 	return child, ok
 }
 
-func ensureMap(parent map[string]any, key string) (map[string]any, bool) {
+func ensureMap(parent map[string]any, key string) map[string]any {
 	if child, ok := childMap(parent, key); ok {
-		return child, true
+		return child
 	}
 	child := map[string]any{}
 	parent[key] = child
-	return child, false
+	return child
 }
