@@ -963,91 +963,6 @@
       "offsetMs": 32400,
       "actionEvent": {
         "status": 200,
-        "request_id": "start_step_3_early",
-        "direction": "[SERVER -> CLIENT]",
-        "message_type": "response",
-        "success": false,
-        "error": "Cannot start step `resolution`: precondition `rca_documented` not met.",
-        "routing": {
-          "transport": "http",
-          "gateway": "taskverification",
-          "server_name": "centian",
-          "endpoint": "/mcp/taskverification"
-        },
-        "tool_call": {
-          "name": "centian.task_start_step",
-          "original_name": "centian.task_start_step",
-          "arguments": {
-            "step": 3
-          },
-          "is_error": true,
-          "result": {
-            "content": [
-              {
-                "type": "text",
-                "text": "Cannot start step `resolution`: precondition `rca_documented` not met — no root-cause comment found on ticket 14435. Complete step `root_cause_documentation` first."
-              }
-            ],
-            "structuredContent": {
-              "phase": "execution.root_cause_documentation",
-              "status": "active",
-              "requestedStep": 3,
-              "requestedStepId": "resolution",
-              "stepStatus": "pending",
-              "failureKind": "check",
-              "failurePhase": "precondition",
-              "failedCheckId": "rca_documented",
-              "failedCheckDescription": "Root cause must be documented before resolution starts.",
-              "passed": false,
-              "retryable": true,
-              "nextAction": "Fix the failed check by completing root_cause_documentation, then retry."
-            }
-          }
-        }
-      },
-      "actionContext": {
-        "requestId": "start_step_3_early",
-        "invocationPhasePath": "execution.root_cause_documentation",
-        "invocationNodeKind": "execution"
-      }
-    },
-    {
-      "offsetMs": 32800,
-      "taskEvent": {
-        "phasePath": "execution.root_cause_documentation",
-        "nodeKind": "execution",
-        "resultingPhasePath": "execution.root_cause_documentation",
-        "resultingNodeKind": "execution",
-        "eventType": "step_started",
-        "outcome": "failed",
-        "relatedActionRequestId": "start_step_3_early",
-        "payload": {
-          "status": "active",
-          "requestedStep": 3,
-          "requestedStepId": "resolution",
-          "stepStatus": "pending",
-          "failureKind": "check",
-          "failurePhase": "precondition",
-          "failedCheckId": "rca_documented",
-          "failedCheckDescription": "Root cause must be documented before resolution starts.",
-          "summary": "Resolution could not start before the root-cause comment existed.",
-          "annotations": [
-            {
-              "type": "governance_events",
-              "processor": "centian",
-              "action": "stopped",
-              "category": "quality",
-              "severity": "medium",
-              "message": "Root cause must be documented before resolution starts."
-            }
-          ]
-        }
-      }
-    },
-    {
-      "offsetMs": 35200,
-      "actionEvent": {
-        "status": 200,
         "request_id": "start_step_2",
         "direction": "[CLIENT -> SERVER]",
         "message_type": "request",
@@ -1081,7 +996,7 @@
       }
     },
     {
-      "offsetMs": 35600,
+      "offsetMs": 32800,
       "taskEvent": {
         "phasePath": "execution.root_cause_documentation",
         "nodeKind": "execution",
@@ -1095,6 +1010,91 @@
           "step": 2,
           "stepId": "root_cause_documentation",
           "stepStatus": "active"
+        }
+      }
+    },
+    {
+      "offsetMs": 35200,
+      "actionEvent": {
+        "status": 200,
+        "request_id": "complete_step_2_early",
+        "direction": "[SERVER -> CLIENT]",
+        "message_type": "response",
+        "success": false,
+        "error": "Cannot complete step `root_cause_documentation`: postcondition `rca_documented` not met.",
+        "routing": {
+          "transport": "http",
+          "gateway": "taskverification",
+          "server_name": "centian",
+          "endpoint": "/mcp/taskverification"
+        },
+        "tool_call": {
+          "name": "centian.task_complete_step",
+          "original_name": "centian.task_complete_step",
+          "arguments": {
+            "step": 2
+          },
+          "is_error": true,
+          "result": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Cannot complete step `root_cause_documentation`: postcondition `rca_documented` not met — no root-cause comment found on ticket 14435."
+              }
+            ],
+            "structuredContent": {
+              "phase": "execution.root_cause_documentation",
+              "status": "active",
+              "step": 2,
+              "stepId": "root_cause_documentation",
+              "stepStatus": "active",
+              "failureKind": "check",
+              "failurePhase": "postcondition",
+              "failedCheckId": "rca_documented",
+              "failedCheckDescription": "Ticket includes the root-cause comment.",
+              "passed": false,
+              "retryable": true,
+              "nextAction": "Update ticket 14435 with the root cause, then retry completing Root Cause Documentation."
+            }
+          }
+        }
+      },
+      "actionContext": {
+        "requestId": "complete_step_2_early",
+        "invocationPhasePath": "execution.root_cause_documentation",
+        "invocationNodeKind": "execution"
+      }
+    },
+    {
+      "offsetMs": 35600,
+      "taskEvent": {
+        "phasePath": "execution.root_cause_documentation",
+        "nodeKind": "execution",
+        "resultingPhasePath": "execution.root_cause_documentation",
+        "resultingNodeKind": "execution",
+        "eventType": "step_completed",
+        "outcome": "failed",
+        "relatedActionRequestId": "complete_step_2_early",
+        "payload": {
+          "status": "active",
+          "step": 2,
+          "stepId": "root_cause_documentation",
+          "stepStatus": "active",
+          "failureKind": "check",
+          "failurePhase": "postcondition",
+          "failedCheckId": "rca_documented",
+          "failedCheckDescription": "Ticket includes the root-cause comment.",
+          "summary": "Root Cause Documentation could not complete before the ticket was updated.",
+          "annotations": [
+            {
+              "type": "governance_events",
+              "processor": "centian",
+              "action": "stopped",
+              "category": "quality",
+              "severity": "medium",
+              "message": "Ticket was not updated, unable to complete Root Cause Documentation."
+            }
+          ]
         }
       }
     },

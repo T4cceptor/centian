@@ -345,6 +345,7 @@ export function TaskRunDetailPage() {
           selectedItemId={selectedItemID}
           events={events}
           governanceEventItemIDs={governanceEventItemIDs}
+          governanceEvents={governanceEvents}
         />
 
         {inspectorVisible ? (

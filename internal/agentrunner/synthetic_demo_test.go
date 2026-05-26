@@ -74,7 +74,7 @@ func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
 
 	var sawPromptInjectionAnnotation bool
 	var sawAllowlistDenial bool
-	var sawPreconditionFailure bool
+	var sawDocumentationCheckFailure bool
 	var sawFrozenChecksComplete bool
 	for _, item := range scenario.Timeline {
 		if item.ActionEvent != nil {
@@ -87,8 +87,8 @@ func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
 			if event.Error == "restart_service is not permitted in step root_cause_analysis." {
 				sawAllowlistDenial = true
 			}
-			if event.Error == "Cannot start step `resolution`: precondition `rca_documented` not met." {
-				sawPreconditionFailure = true
+			if event.Error == "Cannot complete step `root_cause_documentation`: postcondition `rca_documented` not met." {
+				sawDocumentationCheckFailure = true
 			}
 			if event.ToolCall != nil && event.ToolCall.Name == "centian.task_complete_step" &&
 				strings.Contains(string(event.ToolCall.Result), "latency_within_target") &&
@@ -103,8 +103,8 @@ func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
 	if !sawAllowlistDenial {
 		t.Fatal("expected allowlist denial beat")
 	}
-	if !sawPreconditionFailure {
-		t.Fatal("expected precondition failure beat")
+	if !sawDocumentationCheckFailure {
+		t.Fatal("expected documentation check failure beat")
 	}
 	if !sawFrozenChecksComplete {
 		t.Fatal("expected frozen verification completion beat")

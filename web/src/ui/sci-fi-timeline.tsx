@@ -73,6 +73,95 @@ const SCI_FI_STYLES = `
     width: 12px;
     height: 12px;
   }
+
+  .sci-node-governance {
+    display: inline-grid;
+    gap: 4px;
+    align-self: center;
+    flex: 0 1 360px;
+    margin-left: 10px;
+    min-width: 0;
+    max-width: min(360px, 30vw);
+  }
+
+  .sci-node-governance-row {
+    display: grid;
+    grid-template-columns: 20px 92px minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    color: #d6e2ff;
+    font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .sci-node-governance-icon {
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+  }
+
+  .sci-node-governance-icon .task-run-detail__governance-category-icon {
+    width: 14px;
+    height: 14px;
+    color: currentColor;
+  }
+
+  .sci-node-governance-icon .task-run-detail__governance-category-icon svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .sci-node-governance-category {
+    flex: 0 0 auto;
+    font-weight: 700;
+  }
+
+  .sci-node-governance-text {
+    display: none;
+    min-width: 0;
+    max-width: 100%;
+    padding: 6px 8px;
+    border: 1px solid rgba(207, 222, 238, 0.14);
+    border-radius: 5px;
+    background: rgba(4, 7, 18, 0.82);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+    color: #f2f6ff;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+
+  .sci-node:hover .sci-node-governance-text,
+  .sci-node:focus-visible .sci-node-governance-text {
+    display: block;
+  }
+
+  @media (max-width: 980px) {
+    .sci-node-governance {
+      flex-basis: 280px;
+      max-width: min(280px, 28vw);
+    }
+
+    .sci-node-governance-text {
+      font-size: 11px;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .sci-node-governance-text {
+      display: none !important;
+    }
+  }
 `;
 
 // Chooses the node color from its tone first, then from the owning server.
@@ -175,6 +264,16 @@ type GroupGovernanceSignal = {
   severity: GovernanceSeverity;
 };
 
+type TimelineGovernanceEvent = {
+  id: string;
+  itemId: string;
+  action: string;
+  category: string;
+  event: string;
+  reason: string;
+  severity: GovernanceSeverity;
+};
+
 function getGroupGovernanceSignals(group: TimelineGroup): GroupGovernanceSignal[] {
   const signals: GroupGovernanceSignal[] = [];
   const seen = new Set<string>();
@@ -236,6 +335,31 @@ function severityOrder(severity: GovernanceSeverity): number {
     case "low":
       return 2;
   }
+}
+
+function getTimelineGovernanceEventsByItemID(events: readonly TimelineGovernanceEvent[]): Map<string, TimelineGovernanceEvent[]> {
+  const byItemID = new Map<string, TimelineGovernanceEvent[]>();
+  for (const event of events) {
+    if (!getGovernanceCategoryTone(event.category)) {
+      continue;
+    }
+    const itemEvents = byItemID.get(event.itemId) ?? [];
+    itemEvents.push(event);
+    byItemID.set(event.itemId, itemEvents);
+  }
+  return byItemID;
+}
+
+function formatGovernanceCategory(category: string): string {
+  const normalized = category.trim();
+  if (!normalized) {
+    return "Governance";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+}
+
+function formatTimelineGovernanceText(event: TimelineGovernanceEvent): string {
+  return `${event.action} ${event.event} - ${event.reason}`;
 }
 
 function getGroupStatusLabel(status: string): string {
@@ -349,10 +473,12 @@ function SciFiEventNode({
   item,
   onSelect,
   selected,
+  governanceEvents,
 }: {
   item: TimelineItem;
   onSelect: (id: string) => void;
   selected: boolean;
+  governanceEvents: readonly TimelineGovernanceEvent[];
 }) {
   const serverName = item.kind === "task" ? "centian" : getExchangeServerName(item.exchange);
   const vc = getItemColorToken(item);
@@ -436,7 +562,8 @@ function SciFiEventNode({
           padding: "6px 14px 6px 12px",
           background: "transparent",
           transition: "all 0.18s",
-          flex: 1,
+          flex: "0 0 520px",
+          width: 520,
           maxWidth: 520,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
@@ -490,6 +617,32 @@ function SciFiEventNode({
             </div>
           ) : null}
         </div>
+
+        {governanceEvents.length > 0 ? (
+          <div className="sci-node-governance" aria-label={`${governanceEvents.length} governance event annotations`}>
+            {governanceEvents.map((event) => {
+              const tone = getGovernanceCategoryTone(event.category);
+              return (
+                <span
+                  key={event.id}
+                  className="sci-node-governance-row"
+                  aria-label={`Timeline governance: ${formatGovernanceCategory(event.category)}: ${formatTimelineGovernanceText(event)}`}
+                >
+                  <span
+                    className={`sci-node-governance-icon task-run-detail__governance-category--${tone}`}
+                    title={`${formatGovernanceCategory(event.category)} · ${event.severity}`}
+                  >
+                    <GovernanceCategoryIcon category={event.category} decorative />
+                  </span>
+                  <span className={`sci-node-governance-category task-run-detail__governance-category-label task-run-detail__governance-category--${tone}`}>
+                    {formatGovernanceCategory(event.category)}
+                  </span>
+                  <span className="sci-node-governance-text">{formatTimelineGovernanceText(event)}</span>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
       </div>
     </button>
   );
@@ -504,6 +657,7 @@ export function SciFiTimeline({
   selectedItemId,
   events,
   governanceEventItemIDs,
+  governanceEvents,
 }: {
   groups: TimelineGroup[];
   collapsedGroups: Record<string, boolean>;
@@ -512,8 +666,10 @@ export function SciFiTimeline({
   selectedItemId: string;
   events: TaskRunEvent[];
   governanceEventItemIDs: ReadonlySet<string>;
+  governanceEvents: readonly TimelineGovernanceEvent[];
 }) {
   const serverLegendEntries = getMCPServerLegendEntries(groups, events);
+  const governanceEventsByItemID = getTimelineGovernanceEventsByItemID(governanceEvents);
   // Show the end-cap only once the run has emitted a completed task event/status.
   const hasCompleted = events.length > 0 && events.some(
     (e) => e.source === "task" && (e.eventType === "task_completed" || (e.payloadJson as { status?: string } | null)?.status === "completed")
@@ -590,6 +746,7 @@ export function SciFiTimeline({
                   item={item}
                   onSelect={onSelectItem}
                   selected={selectedItemId === item.id}
+                  governanceEvents={governanceEventsByItemID.get(item.id) ?? []}
                 />
               ))}
             </section>
