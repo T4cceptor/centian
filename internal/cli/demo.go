@@ -19,12 +19,16 @@ import (
 var DemoCommand = &cli.Command{
 	Name:  "demo",
 	Usage: "Start a self-contained Centian demo workspace",
-	Description: `Create a local Centian demo workspace, start Centian, and print the
-live UI URL. By default, the demo replays a synthetic event timeline without
-launching an agent. Pass --agent to run a supported coding agent instead.
+	Description: `Create a local Centian demo workspace, seed the bundled IT Ops
+demo into the event database, start Centian, and open the task run list for
+post-hoc inspection.
+
+The --file and --agent flows are deprecated and will likely be moved or removed
+in a future release. They remain available for now for legacy demo runs.
 
 Examples:
   centian demo
+Deprecated:
   centian demo --file ./demo_scenario.json
   centian demo --agent claude
   centian demo --agent gemini
@@ -37,12 +41,12 @@ Examples:
 		&cli.StringFlag{
 			Name:    "agent",
 			Aliases: []string{"a"},
-			Usage:   "Agent to run instead of the synthetic demo (v1 supports: claude, gemini, codex, codex-ollama)",
+			Usage:   "Deprecated: agent to run instead of the static IT Ops demo (v1 supports: claude, gemini, codex, codex-ollama)",
 		},
 		&cli.StringFlag{
 			Name:    "file",
 			Aliases: []string{"f"},
-			Usage:   "Synthetic demo scenario JSON file to replay",
+			Usage:   "Deprecated: synthetic demo scenario JSON file to seed immediately",
 		},
 		&cli.StringFlag{
 			Name:    "path",
@@ -91,12 +95,18 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		if scenarioErr != nil {
 			return scenarioErr
 		}
-		options.ScenarioFilePath = scenarioPath
-		result, err = runner.RunSyntheticDemo(ctx, options)
+		if scenarioPath == "" {
+			result, err = runner.RunStaticDemo(ctx, options)
+		} else {
+			_, _ = fmt.Fprintln(options.Stderr, "warning: centian demo --file is deprecated and will likely be moved or removed in a future release")
+			options.ScenarioFilePath = scenarioPath
+			result, err = runner.RunSyntheticDemo(ctx, options)
+		}
 	} else {
 		if strings.TrimSpace(cmd.String("file")) != "" {
 			return fmt.Errorf("--file cannot be used with --agent")
 		}
+		_, _ = fmt.Fprintln(options.Stderr, "warning: centian demo --agent is deprecated and will likely be moved or removed in a future release")
 		execution, executionErr := demoExecutionFromFlags(cmd)
 		if executionErr != nil {
 			return executionErr
@@ -105,7 +115,13 @@ func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
 		result, err = runner.RunDemo(ctx, options)
 	}
 	if result != nil {
-		fmt.Printf("Demo finished. UI: %s\n", result.UIPublicURL)
+		fmt.Printf("Demo ready. UI: %s\n", result.UIPublicURL)
+		if agent == "" && strings.TrimSpace(cmd.String("file")) == "" {
+			if err != nil {
+				return err
+			}
+			return nil
+		}
 		shutdownErr := promptDemoShutdown(os.Stdin, os.Stdout, result)
 		if err != nil {
 			return errors.Join(err, shutdownErr)

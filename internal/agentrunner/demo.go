@@ -305,7 +305,7 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	return layout, nil
 }
 
-// RunSyntheticDemo creates the demo workspace, starts Centian, and replays a
+// RunSyntheticDemo creates the demo workspace, starts Centian, and seeds a
 // JSON-defined synthetic timeline without launching an external agent.
 func (DemoRunner) RunSyntheticDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
 	options, err := normalizeSyntheticOptions(opts)
@@ -349,10 +349,64 @@ func (DemoRunner) RunSyntheticDemo(ctx context.Context, opts *DemoOptions) (*Dem
 	printDemoStatus(options.Stdout, result)
 
 	replayer := newSyntheticDemoReplayer()
-	_, _ = fmt.Fprintf(options.Stdout, "Replaying synthetic demo timeline from %s...\n", layout.ScenarioPath)
+	_, _ = fmt.Fprintf(options.Stdout, "Seeding synthetic demo timeline from %s...\n", layout.ScenarioPath)
 	if err := replayer.replay(ctx, layout, scenario); err != nil {
 		return result, err
 	}
+	return result, nil
+}
+
+// RunStaticDemo creates the demo workspace, seeds the bundled IT Ops scenario
+// into the event store without playback delays, starts Centian, and opens the
+// task list for post-hoc inspection.
+func (DemoRunner) RunStaticDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
+	options, err := normalizeSyntheticOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	_, _ = fmt.Fprintln(options.Stdout, "Preparing static IT Ops Centian demo...")
+	layout, err := prepareLayout(options)
+	if err != nil {
+		return nil, err
+	}
+	if err := renderAssets(layout); err != nil {
+		return nil, err
+	}
+	scenario, scenarioBytes, err := loadEmbeddedSyntheticDemoScenarioWithBytes(itOpsSyntheticDemoAsset)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(layout.ScenarioPath, scenarioBytes, 0o600); err != nil {
+		return nil, fmt.Errorf("write demo scenario: %w", err)
+	}
+
+	replayer := syntheticDemoReplayer{
+		now: time.Now,
+	}
+	if err := replayer.replay(ctx, layout, scenario); err != nil {
+		return nil, err
+	}
+	_, _ = fmt.Fprintf(options.Stdout, "Seeded IT Ops demo timeline into %s.\n", layout.EventStorePath)
+
+	centianCmd, errCh, err := startCentianProcess(layout, options)
+	if err != nil {
+		return nil, err
+	}
+	if err := common.WritePIDFile(layout.PIDPath, centianCmd.Process.Pid); err != nil {
+		_ = centianCmd.Process.Kill()
+		return nil, err
+	}
+	if err := waitForCentian(layout, errCh); err != nil {
+		_ = centianCmd.Process.Kill()
+		return nil, err
+	}
+
+	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
+	if options.OpenBrowser && runtime.GOOS == darwinOS {
+		//nolint:gosec // UI URL is generated locally from the bound loopback port.
+		_ = exec.Command("open", result.UIPublicURL).Start()
+	}
+	printStaticDemoStatus(options.Stdout, result, layout.EventStorePath)
 	return result, nil
 }
 
@@ -639,6 +693,18 @@ func printDemoStatus(w io.Writer, result *DemoResult) {
 	_, _ = fmt.Fprintf(w, "UI: %s\n", result.UIPublicURL)
 	_, _ = fmt.Fprintf(w, "Agent stdout: %s\n", result.AgentStdout)
 	_, _ = fmt.Fprintf(w, "Agent stderr: %s\n", result.AgentStderr)
+	_, _ = fmt.Fprintf(w, "Centian PID: %d\n", result.PID)
+	_, _ = fmt.Fprintf(w, "Stop: %s\n", result.StopHint)
+}
+
+func printStaticDemoStatus(w io.Writer, result *DemoResult, eventStorePath string) {
+	if w == nil || result == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Demo root: %s\n", result.RootPath)
+	_, _ = fmt.Fprintf(w, "Workspace: %s\n", result.WorkspacePath)
+	_, _ = fmt.Fprintf(w, "Event store: %s\n", eventStorePath)
+	_, _ = fmt.Fprintf(w, "UI: %s\n", result.UIPublicURL)
 	_, _ = fmt.Fprintf(w, "Centian PID: %d\n", result.PID)
 	_, _ = fmt.Fprintf(w, "Stop: %s\n", result.StopHint)
 }

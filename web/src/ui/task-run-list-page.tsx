@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRuns, startSyntheticDemoRun, type TaskRunSummary } from "../api/task-runs";
+import { ApiError, fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import {
   formatDuration,
@@ -15,8 +15,6 @@ import { getTaskRunUIStatus } from "./task-run-status";
 
 // Tracks the high-level fetch state for the list view.
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
-
-const demoNavigationDelayMS = 1500;
 
 // Prefers a final "Completed" label once a run has fully succeeded.
 function getTaskRunDisplayPhase(run: TaskRunSummary): string {
@@ -33,14 +31,10 @@ function getTaskRunDisplayPhase(run: TaskRunSummary): string {
 
 // Shows the live task run index, including loading, empty, and error states.
 export function TaskRunListPage() {
-  const navigate = useNavigate();
-  const demoNavigationTimerRef = useRef<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
-  const [demoErrorMessage, setDemoErrorMessage] = useState<string>("");
-  const [demoStarting, setDemoStarting] = useState(false);
   const [authHeaderName, setAuthHeaderName] = useState<string>();
   const [now, setNow] = useState(() => Date.now());
   const [reloadToken, setReloadToken] = useState(0);
@@ -48,57 +42,6 @@ export function TaskRunListPage() {
   const activeFilters = benchmarkSuite ? [{ key: "benchmarkSuite", label: `Benchmark suite: ${benchmarkSuite}` }] : [];
   const listSearch = searchParams.toString();
   const detailSuffix = listSearch ? `?${listSearch}` : "";
-
-  const startItOpsDemo = () => {
-    setDemoStarting(true);
-    setDemoErrorMessage("");
-
-    void startSyntheticDemoRun("it_ops")
-      .then((run) => {
-        demoNavigationTimerRef.current = window.setTimeout(() => {
-          demoNavigationTimerRef.current = null;
-          navigate(`/tasks/${run.runId}`);
-        }, demoNavigationDelayMS);
-      })
-      .catch((error: unknown) => {
-        if (error instanceof ApiError && error.status === 401) {
-          setAuthHeaderName(error.authHeaderName);
-          setErrorMessage("Enter a Centian API key to start demos.");
-          setLoadState("unauthorized");
-          return;
-        }
-        setDemoErrorMessage("Unable to start the IT ops demo right now.");
-        setDemoStarting(false);
-      });
-  };
-
-  const demoLauncher = (
-    <div className="demo-launcher" aria-label="Synthetic demos">
-      <button
-        type="button"
-        className="action-button action-button--with-spinner"
-        onClick={startItOpsDemo}
-        disabled={demoStarting}
-        aria-busy={demoStarting}
-      >
-        {demoStarting ? <span className="demo-launcher__spinner" aria-hidden="true" /> : null}
-        {demoStarting ? "Starting IT Ops Demo" : "Run IT Ops Demo"}
-      </button>
-      {demoErrorMessage ? (
-        <span className="demo-launcher__error" role="alert">
-          {demoErrorMessage}
-        </span>
-      ) : null}
-    </div>
-  );
-
-  useEffect(() => {
-    return () => {
-      if (demoNavigationTimerRef.current != null) {
-        window.clearTimeout(demoNavigationTimerRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -230,7 +173,6 @@ export function TaskRunListPage() {
             ? "No persisted task runs match the active benchmark filters."
             : "Registered task workflows will appear here once the event store has data."}
         </p>
-        {activeFilters.length > 0 ? null : demoLauncher}
       </div>
     );
   }
@@ -259,7 +201,6 @@ export function TaskRunListPage() {
           ) : null}
         </div>
         <div className="task-run-list__toolbar-actions">
-          {demoLauncher}
           <p className="task-run-list__count">{runs.length} tracked runs</p>
         </div>
       </div>

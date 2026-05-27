@@ -119,54 +119,7 @@ describe("task run list", () => {
     renderApp();
 
     expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
-  });
-
-  it("starts the IT ops demo and navigates to the new run", async () => {
-    const user = userEvent.setup();
-    globalThis.fetch = vi
-      .fn()
-      .mockResolvedValueOnce(createFetchResponse([]))
-      .mockResolvedValueOnce(
-        createFetchResponse(
-          {
-            runId: "tr_1742947200123_0000000001",
-            demoId: "it_ops",
-            durationMs: 72000,
-          },
-          202,
-        ),
-      )
-      .mockResolvedValueOnce(createFetchResponse([]))
-      .mockResolvedValueOnce(createTaskRunDetailResponse("tr_1742947200123_0000000001")) as typeof fetch;
-
-    renderApp();
-    await user.click(await screen.findByRole("button", { name: "Run IT Ops Demo" }));
-
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(
-      2,
-      "/api/demos/it_ops/runs",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.any(Headers),
-      }),
-    );
-    expect(screen.getByRole("button", { name: "Starting IT Ops Demo" })).toHaveAttribute("aria-busy", "true");
-    expect(await screen.findByText("Agent Task Details", undefined, { timeout: 2500 })).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Task progress:/)).not.toBeInTheDocument();
-  }, 7000);
-
-  it("shows a concise message when the IT ops demo cannot start", async () => {
-    const user = userEvent.setup();
-    globalThis.fetch = vi
-      .fn()
-      .mockResolvedValueOnce(createFetchResponse([]))
-      .mockResolvedValueOnce(createFetchResponse({ error: "failed" }, 500)) as typeof fetch;
-
-    renderApp();
-
-    await user.click(await screen.findByRole("button", { name: "Run IT Ops Demo" }));
-
-    expect(await screen.findByText("Unable to start the IT ops demo right now.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run IT Ops Demo" })).not.toBeInTheDocument();
   });
 
   it("polls the task run list and refreshes new runs in place", async () => {

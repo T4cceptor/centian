@@ -67,15 +67,18 @@ For all install methods see [Installation Options](#installation-options).
 centian demo
 ```
 
-During the demo you'll see:
+This starts a local Centian server, loads the bundled IT Ops incident demo into
+the event database immediately, and opens the task run list at `/ui/tasks`.
 
-✔ Agent tries to shortcut the process → blocked  
-✔ Agent unknowingly retrieves context with a prompt injection → flagged and removed immediately, before it hits the agent
-✔ Compliance violation → agent tries to call `restart_service` without verifying root cause
+Use the demo for post-hoc analysis of a completed governed run:
 
-→ Centian catches everything in real time
+✔ Prompt injection evidence is detected and redacted
+✔ A disallowed operational tool call is blocked by process policy
+✔ A failed quality gate is saved as a governance event
+✔ The final run remains inspectable through the task detail UI
 
-For more infos about demos see: demo/README.md
+For more information about demos, including deprecated custom replay and
+agent-based runs, see [`demo/README.md`](demo/README.md).
 
 ---
 

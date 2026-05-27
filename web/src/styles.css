@@ -180,36 +180,12 @@ code,
   text-transform: uppercase;
 }
 
-.task-run-list__toolbar-actions,
-.demo-launcher {
+.task-run-list__toolbar-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
   justify-content: flex-end;
-}
-
-.demo-launcher {
-  margin-top: 14px;
-}
-
-.task-run-list__toolbar-actions .demo-launcher {
-  margin-top: 0;
-}
-
-.demo-launcher__error {
-  color: var(--accent-danger);
-  font-size: 0.86rem;
-}
-
-.demo-launcher__spinner {
-  display: inline-block;
-  width: 0.85rem;
-  height: 0.85rem;
-  border: 2px solid rgba(140, 230, 216, 0.22);
-  border-top-color: var(--accent-strong);
-  border-radius: 50%;
-  animation: centian-spin 0.8s linear infinite;
 }
 
 .task-run-filter-bar {

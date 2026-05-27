@@ -34,6 +34,34 @@ func TestDemoCommandStructure(t *testing.T) {
 	}
 }
 
+func TestDemoCommandDocumentsStaticDefaultAndDeprecatedLegacyFlags(t *testing.T) {
+	if !strings.Contains(DemoCommand.Description, "seed the bundled IT Ops") {
+		t.Fatalf("expected static IT Ops demo description, got %q", DemoCommand.Description)
+	}
+	if !strings.Contains(strings.ToLower(DemoCommand.Description), "deprecated") {
+		t.Fatalf("expected deprecated legacy flow note, got %q", DemoCommand.Description)
+	}
+	legacyFlags := map[string]bool{"agent": false, "file": false}
+	for _, flag := range DemoCommand.Flags {
+		typed, ok := flag.(*urfavecli.StringFlag)
+		if !ok {
+			continue
+		}
+		if _, tracked := legacyFlags[typed.Name]; !tracked {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(typed.Usage), "deprecated") {
+			t.Fatalf("expected deprecated %s flag usage, got %q", typed.Name, typed.Usage)
+		}
+		legacyFlags[typed.Name] = true
+	}
+	for flagName, found := range legacyFlags {
+		if !found {
+			t.Fatalf("expected %s flag", flagName)
+		}
+	}
+}
+
 func TestResolveDemoRootDefault(t *testing.T) {
 	cwd := t.TempDir()
 	original, err := os.Getwd()
@@ -86,7 +114,7 @@ func TestShouldShutdownDemo(t *testing.T) {
 	}
 }
 
-func TestDemoScenarioFileFromFlagsAllowsDefaultSyntheticDemo(t *testing.T) {
+func TestDemoScenarioFileFromFlagsAllowsStaticDefaultDemo(t *testing.T) {
 	cmd := newTestCLICommand(DemoCommand.Flags)
 
 	path, err := demoScenarioFileFromFlags(cmd)

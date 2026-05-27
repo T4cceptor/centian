@@ -114,9 +114,6 @@ func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
 		now: func() time.Time {
 			return time.UnixMilli(1_779_318_000_000).UTC()
 		},
-		sleep: func(context.Context, time.Duration) error {
-			return nil
-		},
 	}
 	layout := &demoLayout{EventStorePath: filepath.Join(t.TempDir(), "events.sqlite")}
 	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
@@ -237,27 +234,14 @@ func TestSyntheticDemoReplayPersistsTimelineWithoutWaiting(t *testing.T) {
 			},
 		},
 	}
-	var sleeps []time.Duration
 	replayer := syntheticDemoReplayer{
 		now: func() time.Time {
 			return time.UnixMilli(1_742_947_200_000).UTC()
-		},
-		sleep: func(_ context.Context, duration time.Duration) error {
-			sleeps = append(sleeps, duration)
-			return nil
 		},
 	}
 
 	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
 		t.Fatalf("replay: %v", err)
-	}
-
-	var totalSleep time.Duration
-	for _, duration := range sleeps {
-		totalSleep += duration
-	}
-	if totalSleep != 300*time.Millisecond {
-		t.Fatalf("expected replay sleeps to span 300ms, got %s from %#v", totalSleep, sleeps)
 	}
 
 	store, err := persistence.NewSQLiteStore(layout.EventStorePath)
@@ -341,9 +325,6 @@ func TestSyntheticDemoReplayRemapsLogicalRequestIDsPerRun(t *testing.T) {
 	}
 	replayer := syntheticDemoReplayer{
 		now: func() time.Time { return time.UnixMilli(1_742_947_200_000).UTC() },
-		sleep: func(context.Context, time.Duration) error {
-			return nil
-		},
 	}
 
 	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
