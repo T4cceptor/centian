@@ -175,6 +175,24 @@ func TestGetLogPath_ReturnsCorrectPath(t *testing.T) {
 	}
 }
 
+func TestNewLoggerInDir(t *testing.T) {
+	logDir := t.TempDir()
+	logger, err := NewLoggerInDir(logDir)
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
+	defer logger.Close()
+
+	logPath := logger.GetLogPath()
+	if !strings.HasPrefix(logPath, logDir) {
+		t.Fatalf("expected log path %q to be under %q", logPath, logDir)
+	}
+	fileName := filepath.Base(logPath)
+	if !strings.HasPrefix(fileName, "requests_") || !strings.HasSuffix(fileName, ".jsonl") {
+		t.Fatalf("expected request log filename, got %q", fileName)
+	}
+}
+
 func TestLogMcpEvent_BestEffortWhenActionStoreFails(t *testing.T) {
 	tempDir := t.TempDir()
 	originalHome := os.Getenv("HOME")

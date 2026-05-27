@@ -64,7 +64,7 @@ type TaskToolMetadata struct {
 type taskToolHandler func(context.Context, *UpstreamSession, *mcp.CallToolRequest) (*mcp.CallToolResult, error)
 
 func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession, server *mcp.Server) {
-	if session == nil || server == nil || p == nil || p.server == nil || p.server.TaskVerification == nil {
+	if session == nil || server == nil || p == nil || p.server == nil || p.taskVerificationService() == nil {
 		return
 	}
 	if _, exists := session.registeredStaticTools[taskListTemplatesTool]; exists {
@@ -244,7 +244,7 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 			err    error
 		)
 		if invocationSnapshot.RunID == "" && !taskToolAllowedBeforeRegistration(toolName) {
-			result = taskToolRegistrationRequiredResult(toolName, p.server.TaskVerification.WorkingDir)
+			result = taskToolRegistrationRequiredResult(toolName, p.taskVerificationService().WorkingDir)
 		} else {
 			result, err = handler(ctx, session, req)
 		}
@@ -317,7 +317,8 @@ func (p *CentianEndpoint) logTaskToolCall(
 	result *mcp.CallToolResult,
 	callErr error,
 ) {
-	if p == nil || p.server == nil || p.server.Logger == nil || session == nil {
+	logger := p.projectLogger()
+	if p == nil || p.server == nil || logger == nil || session == nil {
 		return
 	}
 
@@ -352,7 +353,7 @@ func (p *CentianEndpoint) logTaskToolCall(
 	}
 	entry.WithToolRequest(toolName, toolName, taskToolArguments(req))
 	entry.WithToolResult(taskToolResultJSON(result, callErr), callErr != nil || (result != nil && result.IsError))
-	if err := p.server.Logger.LogMcpEvent(entry); err != nil {
+	if err := logger.LogMcpEvent(entry); err != nil {
 		common.LogWarn("ProxyEndpoint[%s]: failed to log task tool call %s for session %s: %v", p.name, toolName, session.id, err)
 	}
 }
@@ -456,7 +457,7 @@ func taskCompletePlanningSchema() map[string]any {
 }
 
 func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	templates, err := p.server.TaskVerification.ListTemplates()
+	templates, err := p.taskVerificationService().ListTemplates()
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +480,7 @@ func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *Upst
 		"templates":  structured,
 		"nextAction": "Call centian.task_register with one templateId.",
 	}
-	addWorkspaceContext(response, p.server.TaskVerification.WorkingDir)
+	addWorkspaceContext(response, p.taskVerificationService().WorkingDir)
 	return toolResult(strings.Join(lines, "\n"), response), nil
 }
 
@@ -511,7 +512,7 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		return nil, fmt.Errorf("an active task is already registered for this session")
 	}
 
-	run, err := p.server.TaskVerification.RegisterTaskWithDescription(ctx, args.TemplateID, args.TaskDescription)
+	run, err := p.taskVerificationService().RegisterTaskWithDescription(ctx, args.TemplateID, args.TaskDescription)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +527,7 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 	}
 	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), registerPayload)
 
-	structured := lifecycleStructuredContent(run, p.server.TaskVerification.WorkingDir)
+	structured := lifecycleStructuredContent(run, p.taskVerificationService().WorkingDir)
 	stepCount := len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps)
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, stepCount), structured), nil
 }
@@ -542,7 +543,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.CompleteOnboarding(ctx, session.taskRun, &args.Onboarding); err != nil {
+	if err := p.taskVerificationService().CompleteOnboarding(ctx, session.taskRun, &args.Onboarding); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
 		}))
@@ -552,7 +553,7 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 		"taskSummary": args.Onboarding.TaskSummary,
 	}))
-	structured := onboardingStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
+	structured := onboardingStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)
 	return toolResult("Task onboarding completed; task moved to planning.", structured), nil
 }
 
@@ -568,13 +569,13 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.CompletePlanning(ctx, session.taskRun, &args.Planning); err != nil {
+	if err := p.taskVerificationService().CompletePlanning(ctx, session.taskRun, &args.Planning); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
 		}))
 		var validationErr *taskverification.PlanningValidationError
 		if errors.As(err, &validationErr) {
-			return planningValidationToolResult(validationErr, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+			return planningValidationToolResult(validationErr, session.taskRun, p.taskVerificationService().WorkingDir), nil
 		}
 		return nil, err
 	}
@@ -585,7 +586,7 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
 	}
-	structured := planningCompletionStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
+	structured := planningCompletionStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)
 	return toolResult(fmt.Sprintf("Task planning completed; task moved to %s.", session.taskRun.Phase), structured), nil
 }
 
@@ -778,7 +779,7 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	result, err := p.server.TaskVerification.StartStep(ctx, session.taskRun, args.Step)
+	result, err := p.taskVerificationService().StartStep(ctx, session.taskRun, args.Step)
 	if err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepStarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"step":  args.Step,
@@ -792,7 +793,7 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepStarted, outcome, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, stepEventPayload(result)))
-	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+	return stepToolResult(result, session.taskRun, p.taskVerificationService().WorkingDir), nil
 }
 
 func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -806,7 +807,7 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	result, err := p.server.TaskVerification.CompleteStep(ctx, session.taskRun, args.Step)
+	result, err := p.taskVerificationService().CompleteStep(ctx, session.taskRun, args.Step)
 	if err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"step":  args.Step,
@@ -825,7 +826,7 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 			p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
 		}
 	}
-	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+	return stepToolResult(result, session.taskRun, p.taskVerificationService().WorkingDir), nil
 }
 
 func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -839,7 +840,7 @@ func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *Ups
 	defer session.taskMu.Unlock()
 
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
-	if err := p.server.TaskVerification.ResumeTask(ctx, session.taskRun); err != nil {
+	if err := p.taskVerificationService().ResumeTask(ctx, session.taskRun); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
 		}))
@@ -847,7 +848,7 @@ func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *Ups
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
-	return toolResult("Task resumed.", lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult("Task resumed.", lifecycleStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -861,7 +862,7 @@ func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *Up
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.RestartTask(ctx, session.taskRun); err != nil {
+	if err := p.taskVerificationService().RestartTask(ctx, session.taskRun); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
 		}))
@@ -869,7 +870,7 @@ func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *Up
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
 	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
-	return toolResult("Task restarted.", lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult("Task restarted.", lifecycleStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -883,7 +884,7 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.FailTask(ctx, session.taskRun, args.Reason); err != nil {
+	if err := p.taskVerificationService().FailTask(ctx, session.taskRun, args.Reason); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"reason": args.Reason,
 			"error":  err.Error(),
@@ -898,7 +899,7 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 	if strings.TrimSpace(args.Reason) != "" {
 		message = fmt.Sprintf("Task failed: %s", strings.TrimSpace(args.Reason))
 	}
-	return toolResult(message, lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult(message, lifecycleStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)), nil
 }
 
 func decodeToolArguments(req *mcp.CallToolRequest, target any) error {

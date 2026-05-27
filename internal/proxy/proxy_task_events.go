@@ -66,10 +66,11 @@ func (p *CentianEndpoint) recordTaskEvent(
 	relatedActionRequestID string,
 	payload map[string]any,
 ) {
-	if p == nil || p.server == nil || p.server.TaskVerification == nil || session == nil || run == nil {
+	taskService := p.taskVerificationService()
+	if taskService == nil || session == nil || run == nil {
 		return
 	}
-	_ = p.server.TaskVerification.RecordTaskEvent(
+	_ = taskService.RecordTaskEvent(
 		run,
 		session.id,
 		session.identityKey,
@@ -92,10 +93,11 @@ func (p *CentianEndpoint) recordTaskActionContext(
 	invocationPhase taskverification.TaskPhase,
 	invocationNodeKind taskverification.WorkflowNodeKind,
 ) {
-	if p == nil || p.server == nil || p.server.TaskVerification == nil || runID == "" || requestID == "" {
+	taskService := p.taskVerificationService()
+	if taskService == nil || runID == "" || requestID == "" {
 		return
 	}
-	_ = p.server.TaskVerification.RecordActionEventTaskContextForRunID(runID, requestID, invocationPhase, invocationNodeKind)
+	_ = taskService.RecordActionEventTaskContextForRunID(runID, requestID, invocationPhase, invocationNodeKind)
 }
 
 func stepEventPayload(result *taskverification.StepResult) map[string]any {

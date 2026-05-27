@@ -28,6 +28,7 @@ type CentianProject struct {
 	Gateways         map[string]*CentianEndpoint
 	Endpoints        []*CentianEndpoint
 	OAuth            *centoauth.Manager
+	Logger           *logging.Logger
 	PersistenceStore *persistence.Store
 	TaskVerification *taskverification.Service
 	eventStoreCloser io.Closer

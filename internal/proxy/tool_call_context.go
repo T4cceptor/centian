@@ -103,10 +103,11 @@ func NewToolCallContext(
 	toolCallCtx.SetHandler("annotations", &DefaultAnnotationHandler{})
 
 	// Set default log handler - proxy.server nil check was done above
-	if proxy.server.Logger == nil {
+	logger := proxy.projectLogger()
+	if logger == nil {
 		return nil, fmt.Errorf("unable to get logger from centian server")
 	}
-	toolCallCtx.SetLogHandler(NewDefaultLogHandler(proxy.server.Logger))
+	toolCallCtx.SetLogHandler(NewDefaultLogHandler(logger))
 	return toolCallCtx, nil
 }
 

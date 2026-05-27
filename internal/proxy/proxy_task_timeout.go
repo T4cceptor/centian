@@ -79,7 +79,8 @@ func (p *CentianEndpoint) maybeExpireActiveTaskLocked(session *UpstreamSession, 
 }
 
 func (p *CentianEndpoint) timeoutActiveTaskLocked(session *UpstreamSession, relatedActionRequestID string) {
-	if session == nil || session.taskRun == nil || p == nil || p.server == nil || p.server.TaskVerification == nil {
+	taskService := p.taskVerificationService()
+	if session == nil || session.taskRun == nil || taskService == nil {
 		return
 	}
 	run := session.taskRun
@@ -88,7 +89,7 @@ func (p *CentianEndpoint) timeoutActiveTaskLocked(session *UpstreamSession, rela
 	}
 
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(run)
-	if err := p.server.TaskVerification.TimeoutTask(context.Background(), run); err != nil {
+	if err := taskService.TimeoutTask(context.Background(), run); err != nil {
 		return
 	}
 	session.taskTimeoutVersion++

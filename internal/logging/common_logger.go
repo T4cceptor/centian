@@ -29,7 +29,11 @@ func NewLogger() (*Logger, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewLoggerInDir(logsDir)
+}
 
+// NewLoggerInDir creates a logger that writes request JSONL files in logDir.
+func NewLoggerInDir(logsDir string) (*Logger, error) {
 	if err := os.MkdirAll(logsDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory: %w", err)
 	}

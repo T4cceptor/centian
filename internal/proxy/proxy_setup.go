@@ -101,6 +101,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		centianServer.Gateways = defaultProject.Gateways
 		centianServer.Endpoints = defaultProject.Endpoints
 		centianServer.OAuth = defaultProject.OAuth
+		centianServer.Logger = defaultProject.Logger
 		centianServer.PersistenceStore = defaultProject.PersistenceStore
 		centianServer.TaskVerification = defaultProject.TaskVerification
 		centianServer.eventStoreCloser = defaultProject.eventStoreCloser
@@ -121,21 +122,43 @@ func newCentianProject(
 	slug string,
 	projectConfig *config.ProjectConfig,
 	workingDir string,
-	logger *logging.Logger,
+	defaultLogger *logging.Logger,
 ) (*CentianProject, error) {
-	taskService, persistenceStore, eventStoreCloser, err := newProjectTaskVerificationService(projectConfig, slug, workingDir, logger)
+	projectLogger, err := newProjectLogger(slug, defaultLogger)
 	if err != nil {
 		return nil, err
+	}
+	taskService, persistenceStore, eventStoreCloser, err := newProjectTaskVerificationService(projectConfig, slug, workingDir)
+	if err != nil {
+		if projectLogger != nil && projectLogger != defaultLogger {
+			_ = projectLogger.Close()
+		}
+		return nil, err
+	}
+	if projectLogger != nil {
+		projectLogger.SetActionEventStore(persistenceStore)
 	}
 	return &CentianProject{
 		Slug:             slug,
 		Config:           projectConfig,
 		Gateways:         make(map[string]*CentianEndpoint),
 		Endpoints:        []*CentianEndpoint{},
+		Logger:           projectLogger,
 		PersistenceStore: persistenceStore,
 		TaskVerification: taskService,
 		eventStoreCloser: eventStoreCloser,
 	}, nil
+}
+
+func newProjectLogger(projectSlug string, defaultLogger *logging.Logger) (*logging.Logger, error) {
+	if projectSlug == config.DefaultProjectSlug {
+		return defaultLogger, nil
+	}
+	logDir, err := resolveProjectLogDir(projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	return logging.NewLoggerInDir(logDir)
 }
 
 // newProjectTaskVerificationService creates task verification and persistence services for a project.
@@ -143,14 +166,12 @@ func newProjectTaskVerificationService(
 	projectConfig *config.ProjectConfig,
 	projectSlug string,
 	workingDir string,
-	logger *logging.Logger,
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
 	templateDir := resolveProjectTaskTemplatesPath(projectConfig, workingDir)
 	eventStorage := projectConfig.EventStorageCapability()
 	return buildTaskVerificationService(
 		templateDir,
 		workingDir,
-		logger,
 		eventStorage == nil || eventStorage.IsEnabled(),
 		func() (string, error) {
 			return resolveProjectEventStorePath(eventStorage, projectSlug)
@@ -208,6 +229,17 @@ func resolveProjectEventStorePath(settings *config.EventStorageCapabilitySetting
 	return filepath.Join(projectDir, "events.sqlite"), nil
 }
 
+func resolveProjectLogDir(projectSlug string) (string, error) {
+	if projectSlug == config.DefaultProjectSlug {
+		return logging.GetLogsDirectory()
+	}
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine config directory: %w", err)
+	}
+	return filepath.Join(configDir, "projects", projectSlug, "logs"), nil
+}
+
 func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, error) {
 	// Check if any project has auth enabled.
 	anyAuthEnabled := false
@@ -254,7 +286,6 @@ func (noopCloser) Close() error {
 func buildTaskVerificationService(
 	templateDir string,
 	workingDir string,
-	logger *logging.Logger,
 	eventStorageEnabled bool,
 	resolveStorePath func() (string, error),
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
@@ -273,7 +304,6 @@ func buildTaskVerificationService(
 	}
 	taskService.EventStore = store
 	taskService.RunStore = store
-	logger.SetActionEventStore(store)
 	return taskService, store, store, nil
 }
 
@@ -290,6 +320,7 @@ func (c *CentianServer) Setup() error {
 		c.Gateways = defaultProject.Gateways
 		c.Endpoints = defaultProject.Endpoints
 		c.OAuth = defaultProject.OAuth
+		c.Logger = defaultProject.Logger
 		c.PersistenceStore = defaultProject.PersistenceStore
 		c.TaskVerification = defaultProject.TaskVerification
 	}
@@ -417,6 +448,11 @@ func closeProject(project *CentianProject) []error {
 	var errs []error
 	if project.eventStoreCloser != nil {
 		if err := project.eventStoreCloser.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if project.Logger != nil {
+		if err := project.Logger.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}

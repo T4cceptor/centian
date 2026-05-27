@@ -29,9 +29,10 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 	defer session.taskMu.Unlock()
 
 	run := session.taskRun
+	workingDir := p.taskWorkingDir()
 	if run == nil {
 		if policy.requiresRegistration() {
-			return governanceDeniedResult(callCtx, taskverification.TaskPhaseInitialization, "", "", nil, governanceDeniedRegistrationNeeded, p.server.TaskVerification.WorkingDir), true
+			return governanceDeniedResult(callCtx, taskverification.TaskPhaseInitialization, "", "", nil, governanceDeniedRegistrationNeeded, workingDir), true
 		}
 		return nil, false
 	}
@@ -39,23 +40,23 @@ func (p *CentianEndpoint) enforceWorkflowNodeToolGovernance(session *UpstreamSes
 		return nil, false
 	}
 	if run.Status != taskverification.TaskStatusActive {
-		return governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, governanceReasonForTaskStatus(run.Status), p.server.TaskVerification.WorkingDir), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, governanceReasonForTaskStatus(run.Status), workingDir), true
 	}
 
 	node, exists := run.CurrentNode()
 	if !exists {
-		return governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, "unknown_workflow_node", p.server.TaskVerification.WorkingDir), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, "", nil, "unknown_workflow_node", workingDir), true
 	}
 	if node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-		return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedWaitingForApproval, p.server.TaskVerification.WorkingDir), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedWaitingForApproval, workingDir), true
 	}
 	if len(node.AllowedTools) == 0 {
-		return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoAllowlist, p.server.TaskVerification.WorkingDir), true
+		return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoAllowlist, workingDir), true
 	}
 	if matchesAllowedTool(node.AllowedTools, callCtx.GetOriginalToolName(), callCtx.GetToolName()) {
 		return nil, false
 	}
-	return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoPatternMatch, p.server.TaskVerification.WorkingDir), true
+	return governanceDeniedResult(callCtx, run.Phase, run.Status, node.Kind, node.AllowedTools, governanceDeniedNoPatternMatch, workingDir), true
 }
 
 func matchesAllowedTool(patterns []string, upstreamName, canonicalName string) bool {
