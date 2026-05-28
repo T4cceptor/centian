@@ -118,7 +118,7 @@ export function BenchmarkRunDetailPage() {
         </div>
         <div className="benchmark-toolbar__actions">
           {primaryTaskRunID ? (
-            <Link className="benchmark-toolbar__link" to={`/tasks/${primaryTaskRunID}`}>
+            <Link className="benchmark-toolbar__link" to={`/default/tasks/${primaryTaskRunID}`}>
               To Task Run
             </Link>
           ) : null}

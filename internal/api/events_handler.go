@@ -32,8 +32,17 @@ func NewEventsHandler(store EventStore) *EventsHandler {
 
 // RegisterRoutesWithMiddleware registers event routes with optional middleware.
 func (h *EventsHandler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
+	h.RegisterRoutesWithPrefix(mux, "/api", middleware)
+}
+
+// RegisterRoutesWithPrefix registers event routes under prefix.
+func (h *EventsHandler) RegisterRoutesWithPrefix(mux *http.ServeMux, prefix string, middleware func(http.Handler) http.Handler) {
 	if h == nil || h.store == nil || mux == nil {
 		return
+	}
+	prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		prefix = "/api"
 	}
 
 	register := func(pattern string, handler http.HandlerFunc) {
@@ -44,7 +53,7 @@ func (h *EventsHandler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middlew
 		mux.Handle(pattern, wrapped)
 	}
 
-	register("GET /api/events", h.handleListEvents)
+	register(fmt.Sprintf("GET %s/events", prefix), h.handleListEvents)
 }
 
 func (h *EventsHandler) handleListEvents(w http.ResponseWriter, r *http.Request) {

@@ -22,6 +22,8 @@ export type TaskRunFilters = {
   benchmarkSuite?: string;
 };
 
+export const defaultProjectSlug = "default";
+
 export type SyntheticDemoDefinition = {
   id: string;
   name: string;
@@ -250,7 +252,16 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJSON<T>(url: string, signal?: AbortSignal, init: RequestInit = {}): Promise<T> {
+export function normalizeProjectSlug(projectSlug?: string): string {
+  const trimmed = projectSlug?.trim();
+  return trimmed || defaultProjectSlug;
+}
+
+export function projectApiPath(projectSlug: string | undefined, path: string): string {
+  return `/api/${encodeURIComponent(normalizeProjectSlug(projectSlug))}${path}`;
+}
+
+export async function requestJSON<T>(url: string, signal?: AbortSignal, init: RequestInit = {}): Promise<T> {
   const headers = new Headers();
   if (init.headers) {
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
@@ -280,17 +291,17 @@ function buildQuery(filters: TaskRunFilters = {}): string {
   return query ? `?${query}` : "";
 }
 
-export async function fetchTaskRuns(filters: TaskRunFilters = {}, signal?: AbortSignal): Promise<TaskRunSummary[]> {
-  const runs = await requestJSON<TaskRunSummary[]>(`/api/task-runs${buildQuery(filters)}`, signal);
+export async function fetchTaskRuns(projectSlug: string | undefined, filters: TaskRunFilters = {}, signal?: AbortSignal): Promise<TaskRunSummary[]> {
+  const runs = await requestJSON<TaskRunSummary[]>(`${projectApiPath(projectSlug, "/task-runs")}${buildQuery(filters)}`, signal);
   return Array.isArray(runs) ? runs : [];
 }
 
-export async function fetchTaskRunDetail(runID: string, signal?: AbortSignal): Promise<TaskRunDetailMetadata> {
-  return requestJSON<TaskRunDetailMetadata>(`/api/task-runs/${encodeURIComponent(runID)}`, signal);
+export async function fetchTaskRunDetail(projectSlug: string | undefined, runID: string, signal?: AbortSignal): Promise<TaskRunDetailMetadata> {
+  return requestJSON<TaskRunDetailMetadata>(projectApiPath(projectSlug, `/task-runs/${encodeURIComponent(runID)}`), signal);
 }
 
-export async function fetchTaskRunEvents(runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {
-  const events = await requestJSON<TaskRunEvent[]>(`/api/task-runs/${encodeURIComponent(runID)}/events`, signal);
+export async function fetchTaskRunEvents(projectSlug: string | undefined, runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {
+  const events = await requestJSON<TaskRunEvent[]>(projectApiPath(projectSlug, `/task-runs/${encodeURIComponent(runID)}/events`), signal);
   return Array.isArray(events) ? events : [];
 }
 

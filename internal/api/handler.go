@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -43,8 +44,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 // RegisterRoutesWithMiddleware registers the task run API routes and wraps each
 // endpoint with the provided middleware when present.
 func (h *Handler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
+	h.RegisterRoutesWithPrefix(mux, "/api", middleware)
+}
+
+// RegisterRoutesWithPrefix registers task run API routes under prefix.
+func (h *Handler) RegisterRoutesWithPrefix(mux *http.ServeMux, prefix string, middleware func(http.Handler) http.Handler) {
 	if h == nil || h.store == nil || mux == nil {
 		return
+	}
+	prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		prefix = "/api"
 	}
 
 	register := func(pattern string, handler http.HandlerFunc) {
@@ -55,9 +65,9 @@ func (h *Handler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware fu
 		mux.Handle(pattern, wrapped)
 	}
 
-	register("GET /api/task-runs", h.handleListTaskRuns)
-	register("GET /api/task-runs/{runID}", h.handleGetTaskRun)
-	register("GET /api/task-runs/{runID}/events", h.handleGetTaskRunEvents)
+	register(fmt.Sprintf("GET %s/task-runs", prefix), h.handleListTaskRuns)
+	register(fmt.Sprintf("GET %s/task-runs/{runID}", prefix), h.handleGetTaskRun)
+	register(fmt.Sprintf("GET %s/task-runs/{runID}/events", prefix), h.handleGetTaskRunEvents)
 }
 
 func (h *Handler) handleListTaskRuns(w http.ResponseWriter, r *http.Request) {

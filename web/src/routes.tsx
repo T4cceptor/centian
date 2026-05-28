@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 
 import { AppShell } from "./ui/app-shell";
 import { BenchmarkRunDetailPage } from "./ui/benchmark-run-detail-page";
@@ -15,10 +15,13 @@ export function AppRoutes() {
     <AppShell>
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<Navigate to="/tasks" replace />} />
-          <Route path="/tasks" element={<TaskRunListPage />} />
-          <Route path="/tasks/:runID" element={<TaskRunDetailPage />} />
-          <Route path="/events" element={<EventListPage />} />
+          <Route path="/" element={<Navigate to="/default/tasks" replace />} />
+          <Route path="/tasks" element={<LegacySectionRedirect section="tasks" />} />
+          <Route path="/tasks/:runID" element={<LegacyTaskRunRedirect />} />
+          <Route path="/events" element={<LegacySectionRedirect section="events" />} />
+          <Route path="/:projectSlug/tasks" element={<TaskRunListPage />} />
+          <Route path="/:projectSlug/tasks/:runID" element={<TaskRunDetailPage />} />
+          <Route path="/:projectSlug/events" element={<EventListPage />} />
           <Route path="/benchmarks" element={<BenchmarkSuiteListPage />} />
           <Route path="/benchmarks/:suiteID" element={<BenchmarkSuitePage />} />
           <Route path="/benchmarks/:suiteID/sessions/:sessionID" element={<BenchmarkSessionDetailPage />} />
@@ -27,4 +30,15 @@ export function AppRoutes() {
       </ErrorBoundary>
     </AppShell>
   );
+}
+
+function LegacySectionRedirect({ section }: { section: "tasks" | "events" }) {
+  const location = useLocation();
+  return <Navigate to={`/default/${section}${location.search}`} replace />;
+}
+
+function LegacyTaskRunRedirect() {
+  const { runID } = useParams();
+  const location = useLocation();
+  return <Navigate to={`/default/tasks/${encodeURIComponent(runID ?? "")}${location.search}`} replace />;
 }

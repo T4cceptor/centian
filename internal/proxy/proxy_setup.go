@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 
 	centapi "github.com/T4cceptor/centian/internal/api"
 	centauth "github.com/T4cceptor/centian/internal/auth"
@@ -309,6 +310,8 @@ func buildTaskVerificationService(
 
 // Setup uses CentianServer.config to create all gateways and endpoints for every project.
 func (c *CentianServer) Setup() error {
+	c.registerProjectHTTPRoutes()
+
 	for slug, project := range c.Projects {
 		if err := c.setupProject(slug, project); err != nil {
 			return fmt.Errorf("project '%s': %w", slug, err)
@@ -354,9 +357,6 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 		project.OAuth.RegisterRoutes(c.Mux)
 	}
 
-	// Register optional HTTP routes (API, UI) for this project.
-	c.registerProjectHTTPRoutes(project)
-
 	// Register gateway and server endpoints.
 	for gatewayName, gatewayConfig := range projectConfig.Gateways {
 		endpointPath := fmt.Sprintf("%s/mcp/%s", routePrefix, gatewayName)
@@ -394,33 +394,82 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 	return nil
 }
 
-// registerProjectHTTPRoutes registers API and UI routes for a project.
-func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
-	if project == nil || project.PersistenceStore == nil {
+// registerProjectHTTPRoutes registers project-aware API routes and the shared UI.
+func (c *CentianServer) registerProjectHTTPRoutes() {
+	if c == nil || c.Mux == nil {
 		return
 	}
 
-	// TODO: implement prefixed route registration for API and UI handlers
-	// in multi-project setups. Currently all projects share the same /api/* and /ui routes.
-	handler := centapi.NewHandler(project.PersistenceStore)
-	handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
+	centapi.NewProjectsHandler(c.projectSummaries()).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, "", next)
 	})
 
-	centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
-	})
+	uiEnabled := false
+	for _, project := range c.Projects {
+		if project == nil || project.PersistenceStore == nil {
+			continue
+		}
+		slug := project.Slug
+		prefix := "/api/" + slug
+		centapi.NewHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
+		centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
 
-	centapi.NewBenchmarkHandler(benchmarks.NewReadService(project.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
-	})
+		if project.Config != nil && project.Config.UIEnabled() {
+			uiEnabled = true
+		}
+	}
 
-	centapi.NewDemoHandler(project.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
-	})
-	if project.Config != nil && project.Config.UIEnabled() {
+	if defaultProject, ok := c.Projects[config.DefaultProjectSlug]; ok && defaultProject != nil && defaultProject.PersistenceStore != nil {
+		centapi.NewHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewEventsHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewBenchmarkHandler(benchmarks.NewReadService(defaultProject.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewDemoHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+	}
+
+	if uiEnabled {
 		centui.NewHandler().RegisterRoutes(c.Mux)
 	}
+}
+
+func (c *CentianServer) projectSummaries() []centapi.ProjectSummary {
+	if c == nil || len(c.Projects) == 0 {
+		return []centapi.ProjectSummary{}
+	}
+	slugs := make([]string, 0, len(c.Projects))
+	for slug := range c.Projects {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+
+	summaries := make([]centapi.ProjectSummary, 0, len(slugs))
+	for _, slug := range slugs {
+		project := c.Projects[slug]
+		if project == nil || project.Config == nil {
+			continue
+		}
+		summaries = append(summaries, centapi.ProjectSummary{
+			Slug:                    slug,
+			Name:                    slug,
+			Description:             project.Config.Description,
+			IsDefault:               slug == config.DefaultProjectSlug,
+			UIEnabled:               project.Config.UIEnabled(),
+			EventStorageEnabled:     project.PersistenceStore != nil,
+			TaskVerificationEnabled: project.Config.TaskVerificationEnabled(),
+		})
+	}
+	return summaries
 }
 
 // Close releases endpoint-owned resources such as pooled downstream sessions.

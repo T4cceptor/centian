@@ -67,7 +67,7 @@ export function ApiAuthCard({
             Clear stored key
           </button>
           {showBackLink ? (
-            <Link className="back-link" to="/tasks">
+            <Link className="back-link" to="/default/tasks">
               Back to task runs
             </Link>
           ) : null}

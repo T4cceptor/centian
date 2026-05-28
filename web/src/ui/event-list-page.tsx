@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { type EventListFilters, type EventListItem, fetchEvents } from "../api/events";
-import { ApiError } from "../api/task-runs";
+import { ApiError, normalizeProjectSlug } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatTimestampCompact, humanizePhase } from "./format";
 
@@ -46,6 +46,8 @@ const eventColumns: Array<{ key: EventSortColumn; label: string }> = [
 ];
 
 export function EventListPage() {
+  const { projectSlug: rawProjectSlug } = useParams();
+  const projectSlug = normalizeProjectSlug(rawProjectSlug);
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState<EventListItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string>();
@@ -88,7 +90,7 @@ export function EventListPage() {
     setLoadState("loading");
     setErrorMessage("");
 
-    void fetchEvents(filters, controller.signal)
+    void fetchEvents(projectSlug, filters, controller.signal)
       .then((page) => {
         setItems(page.items);
         setNextCursor(page.nextCursor);
@@ -110,7 +112,7 @@ export function EventListPage() {
       });
 
     return () => controller.abort();
-  }, [filters.cursor, filters.direction, filters.gateway, filters.limit, filters.messageType, filters.requestId, filters.server, filters.sessionId, filters.success, filters.tool, reloadToken]);
+  }, [filters.cursor, filters.direction, filters.gateway, filters.limit, filters.messageType, filters.requestId, filters.server, filters.sessionId, filters.success, filters.tool, projectSlug, reloadToken]);
 
   useEffect(() => {
     if (loadState !== "ready" || filters.cursor) {
@@ -127,7 +129,7 @@ export function EventListPage() {
 
       inFlight = true;
       controller = new AbortController();
-      void fetchEvents(filters, controller.signal)
+      void fetchEvents(projectSlug, filters, controller.signal)
         .then((page) => {
           setItems(page.items);
           setNextCursor(page.nextCursor);
@@ -153,7 +155,7 @@ export function EventListPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [filters.cursor, filters.direction, filters.gateway, filters.limit, filters.messageType, filters.requestId, filters.server, filters.sessionId, filters.success, filters.tool, loadState]);
+  }, [filters.cursor, filters.direction, filters.gateway, filters.limit, filters.messageType, filters.requestId, filters.server, filters.sessionId, filters.success, filters.tool, loadState, projectSlug]);
 
   if (loadState === "loading") {
     return (
@@ -461,7 +463,7 @@ export function EventListPage() {
 
                     {item.taskRunId ? (
                       <p className="event-card__task-link">
-                        Related task: <Link to={`/tasks/${item.taskRunId}`}>{item.taskRunId}</Link>
+                        Related task: <Link to={`/${projectSlug}/tasks/${item.taskRunId}`}>{item.taskRunId}</Link>
                       </p>
                     ) : null}
 

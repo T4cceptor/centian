@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { Eye, ListChecks, ScrollText, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type ProcessorAnnotation, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, normalizeProjectSlug, type ProcessorAnnotation, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatDuration, formatTemplateLabel, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
@@ -42,7 +42,8 @@ export type TimelineItem =
 
 // Loads a single run, groups its events into timeline sections, and drives the inspector UI.
 export function TaskRunDetailPage() {
-  const { runID } = useParams();
+  const { projectSlug: rawProjectSlug, runID } = useParams();
+  const projectSlug = normalizeProjectSlug(rawProjectSlug);
   const location = useLocation();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
   const [detailMetadata, setDetailMetadata] = useState<TaskRunDetailMetadata | null>(null);
@@ -77,8 +78,8 @@ export function TaskRunDetailPage() {
 
     // Reset view state when the route changes and ignore responses from aborted requests.
     void Promise.all([
-      fetchTaskRunEvents(runID, controller.signal),
-      fetchTaskRunDetail(runID, controller.signal),
+      fetchTaskRunEvents(projectSlug, runID, controller.signal),
+      fetchTaskRunDetail(projectSlug, runID, controller.signal),
     ])
       .then(([eventResult, detailResult]) => {
         setEvents(eventResult);
@@ -108,7 +109,7 @@ export function TaskRunDetailPage() {
       });
 
     return () => controller.abort();
-  }, [reloadToken, runID]);
+  }, [projectSlug, reloadToken, runID]);
 
   useEffect(() => {
     if (!runID || loadState !== "ready" || detailStatus !== "active") {
@@ -129,7 +130,7 @@ export function TaskRunDetailPage() {
       inFlight = true;
       controller = new AbortController();
 
-      void fetchTaskRunEvents(runID, controller.signal)
+      void fetchTaskRunEvents(projectSlug, runID, controller.signal)
         .then((result) => {
           setEvents(result);
         })
@@ -153,7 +154,7 @@ export function TaskRunDetailPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [detailStatus, loadState, runID]);
+  }, [detailStatus, loadState, projectSlug, runID]);
 
   const timelineItems = useMemo(() => buildTimelineItems(events), [events]);
   const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
@@ -309,7 +310,7 @@ export function TaskRunDetailPage() {
     <div className="task-run-detail">
       <header className="task-run-detail__header">
         <div className="task-run-detail__nav-actions">
-          <Link className="back-link task-run-detail__back-link" aria-label="Back to task runs" to={`/tasks${location.search || ""}`}>
+          <Link className="back-link task-run-detail__back-link" aria-label="Back to task runs" to={`/${projectSlug}/tasks${location.search || ""}`}>
             <span aria-hidden="true">←</span>
             <span>All Agent Tasks</span>
           </Link>

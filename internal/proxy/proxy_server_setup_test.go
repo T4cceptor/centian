@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,6 +25,36 @@ func testEchoProcessorConfig(name string) *config.ProcessorConfig {
 		Config: map[string]interface{}{
 			"command": "echo",
 		},
+	}
+}
+
+func testProjectConfig(
+	slug string,
+	description string,
+	authEnabled *bool,
+	uiEnabled *bool,
+	taskVerificationEnabled *bool,
+	eventStorePath string,
+) *config.ProjectConfig {
+	eventStorageEnabled := true
+	return &config.ProjectConfig{
+		Slug:        slug,
+		Description: description,
+		AuthEnabled: authEnabled,
+		Capabilities: &config.CapabilitiesSettings{
+			TaskVerification: &config.TaskVerificationCapabilitySettings{
+				Enabled: taskVerificationEnabled,
+			},
+			EventStorage: &config.EventStorageCapabilitySettings{
+				Enabled: &eventStorageEnabled,
+				Driver:  config.DefaultEventStorageDriver,
+				Path:    eventStorePath,
+			},
+			UI: &config.UICapabilitySettings{
+				Enabled: uiEnabled,
+			},
+		},
+		Gateways: map[string]*config.GatewayConfig{},
 	}
 }
 
@@ -104,6 +135,91 @@ func TestCentianServerSetup_RegistersHandlers(t *testing.T) {
 	uiTasksHandler, uiTasksPattern := proxy.Mux.Handler(uiTasksReq)
 	assert.Assert(t, uiTasksHandler != nil)
 	assert.Equal(t, uiTasksPattern, "GET /ui/")
+}
+
+func TestCentianServerSetup_RegistersProjectScopedAPIRoutes(t *testing.T) {
+	authDisabled := false
+	uiEnabled := true
+	taskVerificationEnabled := true
+	defaultStorePath := filepath.Join(t.TempDir(), "default.sqlite")
+	researchStorePath := filepath.Join(t.TempDir(), "research.sqlite")
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Projects: map[string]*config.ProjectConfig{
+			config.DefaultProjectSlug: testProjectConfig(config.DefaultProjectSlug, "Default project", &authDisabled, &uiEnabled, &taskVerificationEnabled, defaultStorePath),
+			"research":                testProjectConfig("research", "Research project", &authDisabled, &uiEnabled, &taskVerificationEnabled, researchStorePath),
+		},
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	proxy, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range proxy.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+
+	err = proxy.Setup()
+	assert.NilError(t, err)
+
+	projectsReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/projects", http.NoBody)
+	projectsRec := httptest.NewRecorder()
+	proxy.Mux.ServeHTTP(projectsRec, projectsReq)
+	assert.Equal(t, projectsRec.Code, http.StatusOK)
+	var response struct {
+		Projects []struct {
+			Slug                    string `json:"slug"`
+			Description             string `json:"description"`
+			IsDefault               bool   `json:"isDefault"`
+			UIEnabled               bool   `json:"uiEnabled"`
+			EventStorageEnabled     bool   `json:"eventStorageEnabled"`
+			TaskVerificationEnabled bool   `json:"taskVerificationEnabled"`
+		} `json:"projects"`
+	}
+	assert.NilError(t, json.Unmarshal(projectsRec.Body.Bytes(), &response))
+	assert.Equal(t, len(response.Projects), 2)
+	assert.Equal(t, response.Projects[0].Slug, config.DefaultProjectSlug)
+	assert.Equal(t, response.Projects[0].IsDefault, true)
+	assert.Equal(t, response.Projects[0].UIEnabled, true)
+	assert.Equal(t, response.Projects[0].EventStorageEnabled, true)
+	assert.Equal(t, response.Projects[0].TaskVerificationEnabled, true)
+	assert.Equal(t, response.Projects[1].Slug, "research")
+	assert.Equal(t, response.Projects[1].Description, "Research project")
+
+	legacyReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/task-runs", http.NoBody)
+	_, legacyPattern := proxy.Mux.Handler(legacyReq)
+	assert.Equal(t, legacyPattern, "GET /api/task-runs")
+
+	defaultReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/default/task-runs", http.NoBody)
+	_, defaultPattern := proxy.Mux.Handler(defaultReq)
+	assert.Equal(t, defaultPattern, "GET /api/default/task-runs")
+
+	researchReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/research/task-runs", http.NoBody)
+	_, researchPattern := proxy.Mux.Handler(researchReq)
+	assert.Equal(t, researchPattern, "GET /api/research/task-runs")
+
+	researchEventsReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/research/events", http.NoBody)
+	_, researchEventsPattern := proxy.Mux.Handler(researchEventsReq)
+	assert.Equal(t, researchEventsPattern, "GET /api/research/events")
+
+	unknownReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/unknown/task-runs", http.NoBody)
+	_, unknownPattern := proxy.Mux.Handler(unknownReq)
+	assert.Equal(t, unknownPattern, "")
+
+	scopedBenchmarkReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/research/benchmarks/suites", http.NoBody)
+	_, scopedBenchmarkPattern := proxy.Mux.Handler(scopedBenchmarkReq)
+	assert.Equal(t, scopedBenchmarkPattern, "")
+
+	legacyBenchmarkReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/benchmarks/suites", http.NoBody)
+	_, legacyBenchmarkPattern := proxy.Mux.Handler(legacyBenchmarkReq)
+	assert.Equal(t, legacyBenchmarkPattern, "GET /api/benchmarks/suites")
 }
 
 func TestCentianServerSetup_ProtectsAPIRoutesButLeavesUIReachable(t *testing.T) {

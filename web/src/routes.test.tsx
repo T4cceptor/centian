@@ -37,7 +37,8 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderApp(initialEntries: string[] = ["/tasks"]) {
+function renderApp(initialEntries: string[] = ["/tasks"], projects: unknown[] = [defaultProjectSummary()]) {
+  installProjectFetchMock(projects);
   return render(
     <MemoryRouter
       initialEntries={initialEntries}
@@ -46,6 +47,46 @@ function renderApp(initialEntries: string[] = ["/tasks"]) {
       <AppRoutes />
     </MemoryRouter>,
   );
+}
+
+function defaultProjectSummary() {
+  return {
+    slug: "default",
+    name: "default",
+    isDefault: true,
+    uiEnabled: true,
+    eventStorageEnabled: true,
+    taskVerificationEnabled: true,
+  };
+}
+
+function researchProjectSummary() {
+  return {
+    slug: "research",
+    name: "Research",
+    isDefault: false,
+    uiEnabled: true,
+    eventStorageEnabled: true,
+    taskVerificationEnabled: true,
+  };
+}
+
+function installProjectFetchMock(projects: unknown[]) {
+  const configuredFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/projects") {
+      return Promise.resolve(
+        createFetchResponse({
+          projects,
+        }),
+      );
+    }
+    return configuredFetch(input, init);
+  }) as typeof fetch;
+}
+
+function nonProjectFetchCalls() {
+  return vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) !== "/api/projects");
 }
 
 afterEach(() => {
@@ -146,7 +187,7 @@ describe("task run list", () => {
     expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(nonProjectFetchCalls()).toHaveLength(2);
     }, { timeout: 3500 });
 
     expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
@@ -191,14 +232,13 @@ describe("task run list", () => {
     await user.click(screen.getByRole("button", { name: "Save and retry" }));
 
     expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(
-      2,
-      "/api/task-runs",
+    expect(nonProjectFetchCalls()[1]).toEqual([
+      "/api/default/task-runs",
       expect.objectContaining({
         headers: expect.any(Headers),
       }),
-    );
-    const headers = (vi.mocked(globalThis.fetch).mock.calls[1]?.[1] as RequestInit)?.headers as Headers;
+    ]);
+    const headers = (nonProjectFetchCalls()[1]?.[1] as RequestInit)?.headers as Headers;
     expect(headers.get("X-Centian-Auth")).toBe("plain-key");
   });
 
@@ -373,13 +413,76 @@ describe("task run list", () => {
     expect(await screen.findByText("Python TDD Demo")).toBeInTheDocument();
     expect(screen.getByText("Benchmark suite: simple_tdd_v1")).toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "/api/task-runs?benchmarkSuite=simple_tdd_v1",
+      "/api/default/task-runs?benchmarkSuite=simple_tdd_v1",
       expect.objectContaining({ headers: expect.any(Headers) }),
     );
     expect(screen.getByRole("link", { name: /tr_1742947200123_0000000001/i })).toHaveAttribute(
       "href",
-      "/tasks/tr_1742947200123_0000000001?benchmarkSuite=simple_tdd_v1",
+      "/default/tasks/tr_1742947200123_0000000001?benchmarkSuite=simple_tdd_v1",
     );
+  });
+
+  it("loads task runs from a project-scoped route", async () => {
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/research/task-runs") {
+        return Promise.resolve(
+          createFetchResponse([
+            {
+              runId: "tr_1742947200123_0000000001",
+              templateId: "research_demo",
+              startedAt: 1742947200123,
+              status: "succeeded",
+              currentPhase: "execution.review",
+              taskEventCount: 1,
+              actionEventCount: 0,
+              eventCount: 1,
+            },
+          ]),
+        );
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    }) as typeof fetch;
+
+    renderApp(["/research/tasks"], [defaultProjectSummary(), researchProjectSummary()]);
+
+    expect(await screen.findByText("Research Demo")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/research/task-runs", expect.anything());
+    expect(screen.queryByRole("link", { name: "Benchmarks" })).not.toBeInTheDocument();
+  });
+
+  it("switches project-scoped task routes from the project selector", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/default/task-runs") {
+        return Promise.resolve(createFetchResponse([]));
+      }
+      if (url === "/api/research/task-runs") {
+        return Promise.resolve(
+          createFetchResponse([
+            {
+              runId: "tr_1742947200123_0000000002",
+              templateId: "research_demo",
+              startedAt: 1742947200123,
+              status: "succeeded",
+              currentPhase: "execution.review",
+              taskEventCount: 1,
+              actionEventCount: 0,
+              eventCount: 1,
+            },
+          ]),
+        );
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    }) as typeof fetch;
+
+    renderApp(["/default/tasks"], [defaultProjectSummary(), researchProjectSummary()]);
+
+    expect(await screen.findByText("No task runs yet")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Project"), "research");
+    expect(await screen.findByText("Research Demo")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/research/task-runs", expect.anything());
   });
 });
 
@@ -422,17 +525,45 @@ describe("event list", () => {
     renderApp(["/events?gateway=gw&server=server-a&success=false"]);
 
     expect(await screen.findByText("No matching events")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/events?gateway=gw&server=server-a&success=false", expect.anything());
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?gateway=gw&server=server-a&success=false", expect.anything());
     expect(screen.getByText("Gateway: gw")).toBeInTheDocument();
     expect(screen.getByText("Server: server-a")).toBeInTheDocument();
     expect(screen.getByText("Success: false")).toBeInTheDocument();
+  });
+
+  it("loads events from a project-scoped route", async () => {
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/research/events") {
+        return Promise.resolve(
+          createFetchResponse({
+            items: [
+              {
+                id: "ae_1742947200123_0000000001",
+                createdAtUnixMilli: 1742947200123,
+                toolName: "research__tool",
+                success: true,
+                isError: false,
+              },
+            ],
+          }),
+        );
+      }
+      return Promise.reject(new Error(`unexpected url ${url}`));
+    }) as typeof fetch;
+
+    renderApp(["/research/events"], [defaultProjectSummary(), researchProjectSummary()]);
+
+    expect(await screen.findByText("research__tool")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/research/events", expect.anything());
+    expect(screen.queryByRole("link", { name: "Benchmarks" })).not.toBeInTheDocument();
   });
 
   it("paginates older events and returns to newest", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/events") {
+      if (url === "/api/default/events") {
         return Promise.resolve(
           createFetchResponse({
             items: [
@@ -448,7 +579,7 @@ describe("event list", () => {
           }),
         );
       }
-      if (url === "/api/events?cursor=cursor-2") {
+      if (url === "/api/default/events?cursor=cursor-2") {
         return Promise.resolve(
           createFetchResponse({
             items: [
@@ -530,7 +661,7 @@ describe("event list", () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/events") {
+      if (url === "/api/default/events") {
         return Promise.resolve(
           createFetchResponse({
             items: [
@@ -557,7 +688,7 @@ describe("event list", () => {
           }),
         );
       }
-      if (url === "/api/events?sessionId=sid-1") {
+      if (url === "/api/default/events?sessionId=sid-1") {
         return Promise.resolve(
           createFetchResponse({
             items: [
@@ -583,7 +714,7 @@ describe("event list", () => {
     expect(screen.getByText(/Related task:/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "tr_1742947200123_0000000001" })).toHaveAttribute(
       "href",
-      "/tasks/tr_1742947200123_0000000001",
+      "/default/tasks/tr_1742947200123_0000000001",
     );
     expect(screen.getByDisplayValue(/"command": "pwd"/)).toBeInTheDocument();
     expect(screen.getByText("Planning / Review")).toBeInTheDocument();
@@ -767,7 +898,7 @@ describe("task run detail", () => {
     expect(await screen.findByText("Agent Task Details")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+      expect(nonProjectFetchCalls()).toHaveLength(3);
     }, { timeout: 2500 });
     await waitFor(() => {
       const titles = screen.getAllByTestId("timeline-event-title").map((element) => element.textContent ?? "");
@@ -920,7 +1051,7 @@ describe("task run detail", () => {
 
     await new Promise((resolve) => window.setTimeout(resolve, 2200));
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(nonProjectFetchCalls()).toHaveLength(2);
   }, 8000);
 
   it("keeps polling after a failed step event while the task run remains active", async () => {
@@ -973,7 +1104,7 @@ describe("task run detail", () => {
     expect(screen.getByText("No governance events recorded.")).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(nonProjectFetchCalls()).toHaveLength(2);
     }, { timeout: 2500 });
   }, 8000);
 
