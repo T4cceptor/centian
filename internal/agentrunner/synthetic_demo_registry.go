@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/T4cceptor/centian/internal/identifiers"
 	"github.com/T4cceptor/centian/internal/persistence"
 )
 
@@ -29,6 +30,11 @@ type SyntheticDemoRun struct {
 	DurationMS int    `json:"durationMs"`
 }
 
+// SyntheticDemoRunOptions customizes a seeded synthetic demo run.
+type SyntheticDemoRunOptions struct {
+	RunID string
+}
+
 var syntheticDemoDefinitions = []SyntheticDemoDefinition{
 	{
 		ID:          "it_ops",
@@ -47,6 +53,12 @@ func ListSyntheticDemos() []SyntheticDemoDefinition {
 
 // StartSyntheticDemoRun seeds one bundled synthetic demo against the provided store.
 func StartSyntheticDemoRun(ctx context.Context, store *persistence.Store, demoID string) (*SyntheticDemoRun, error) {
+	return StartSyntheticDemoRunWithOptions(ctx, store, demoID, SyntheticDemoRunOptions{})
+}
+
+// StartSyntheticDemoRunWithOptions seeds one bundled synthetic demo against the
+// provided store using explicit replay options.
+func StartSyntheticDemoRunWithOptions(ctx context.Context, store *persistence.Store, demoID string, options SyntheticDemoRunOptions) (*SyntheticDemoRun, error) {
 	if store == nil {
 		return nil, fmt.Errorf("event store is required")
 	}
@@ -57,6 +69,12 @@ func StartSyntheticDemoRun(ctx context.Context, store *persistence.Store, demoID
 
 	replayer := newSyntheticDemoReplayer()
 	state := replayer.newReplayState(scenario)
+	if options.RunID != "" {
+		if !identifiers.IsKind(options.RunID, identifiers.KindTaskRun) {
+			return nil, fmt.Errorf("invalid synthetic demo run id %q", options.RunID)
+		}
+		state.defaults.RunID = options.RunID
+	}
 	run := &SyntheticDemoRun{
 		RunID:      state.defaults.RunID,
 		DemoID:     definition.ID,

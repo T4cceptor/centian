@@ -8,6 +8,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/config"
 	urfavecli "github.com/urfave/cli/v3"
 )
 
@@ -59,6 +60,49 @@ func TestDemoCommandDocumentsStaticDefaultAndDeprecatedLegacyFlags(t *testing.T)
 		if !found {
 			t.Fatalf("expected %s flag", flagName)
 		}
+	}
+}
+
+func TestRejectDeprecatedDemoFlags(t *testing.T) {
+	for _, flagName := range []string{"agent", "file", "path", "model", "profile", "codex-config"} {
+		t.Run(flagName, func(t *testing.T) {
+			cmd := newTestCLICommand(DemoCommand.Flags)
+			cmd.Set(flagName, "value")
+
+			err := rejectDeprecatedDemoFlags(cmd)
+			if err == nil || !strings.Contains(err.Error(), "deprecated") || !strings.Contains(err.Error(), "--"+flagName) {
+				t.Fatalf("expected deprecated %s error, got %v", flagName, err)
+			}
+		})
+	}
+}
+
+func TestNewDemoConfigUsesDisklessDemoProject(t *testing.T) {
+	cfg := newDemoConfig()
+	if cfg.Proxy.Host != config.DefaultProxyHost {
+		t.Fatalf("expected loopback host, got %q", cfg.Proxy.Host)
+	}
+	if cfg.Proxy.Port != "0" {
+		t.Fatalf("expected ephemeral port, got %q", cfg.Proxy.Port)
+	}
+	if len(cfg.Projects) != 1 {
+		t.Fatalf("expected only demo project, got %d", len(cfg.Projects))
+	}
+	project := cfg.Projects[demoProjectSlug]
+	if project == nil {
+		t.Fatal("expected demo project")
+	}
+	if project.AuthEnabled == nil || *project.AuthEnabled {
+		t.Fatalf("expected auth disabled, got %#v", project.AuthEnabled)
+	}
+	if project.Capabilities == nil || project.Capabilities.EventStorage == nil || project.Capabilities.EventStorage.Path != ":memory:" {
+		t.Fatalf("expected in-memory event storage, got %#v", project.Capabilities)
+	}
+	if project.Metadata["name"] != demoProjectName {
+		t.Fatalf("expected demo display name, got %#v", project.Metadata["name"])
+	}
+	if len(project.Gateways) != 0 {
+		t.Fatalf("expected no demo gateways, got %d", len(project.Gateways))
 	}
 }
 

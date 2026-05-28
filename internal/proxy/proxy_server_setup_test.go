@@ -11,6 +11,7 @@ import (
 	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/persistence"
 	"gotest.tools/assert"
 )
 
@@ -176,6 +177,7 @@ func TestCentianServerSetup_RegistersProjectScopedAPIRoutes(t *testing.T) {
 	var response struct {
 		Projects []struct {
 			Slug                    string `json:"slug"`
+			Name                    string `json:"name"`
 			Description             string `json:"description"`
 			IsDefault               bool   `json:"isDefault"`
 			UIEnabled               bool   `json:"uiEnabled"`
@@ -186,11 +188,13 @@ func TestCentianServerSetup_RegistersProjectScopedAPIRoutes(t *testing.T) {
 	assert.NilError(t, json.Unmarshal(projectsRec.Body.Bytes(), &response))
 	assert.Equal(t, len(response.Projects), 2)
 	assert.Equal(t, response.Projects[0].Slug, config.DefaultProjectSlug)
+	assert.Equal(t, response.Projects[0].Name, config.DefaultProjectSlug)
 	assert.Equal(t, response.Projects[0].IsDefault, true)
 	assert.Equal(t, response.Projects[0].UIEnabled, true)
 	assert.Equal(t, response.Projects[0].EventStorageEnabled, true)
 	assert.Equal(t, response.Projects[0].TaskVerificationEnabled, true)
 	assert.Equal(t, response.Projects[1].Slug, "research")
+	assert.Equal(t, response.Projects[1].Name, "research")
 	assert.Equal(t, response.Projects[1].Description, "Research project")
 
 	legacyReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/task-runs", http.NoBody)
@@ -220,6 +224,68 @@ func TestCentianServerSetup_RegistersProjectScopedAPIRoutes(t *testing.T) {
 	legacyBenchmarkReq := httptest.NewRequest(http.MethodGet, "http://example.com/api/benchmarks/suites", http.NoBody)
 	_, legacyBenchmarkPattern := proxy.Mux.Handler(legacyBenchmarkReq)
 	assert.Equal(t, legacyBenchmarkPattern, "GET /api/benchmarks/suites")
+}
+
+func TestProjectSummariesUseConfiguredDisplayName(t *testing.T) {
+	authDisabled := false
+	uiEnabled := true
+	taskVerificationEnabled := true
+	project := testProjectConfig("demo", "Demo project", &authDisabled, &uiEnabled, &taskVerificationEnabled, ":memory:")
+	project.Metadata = map[string]interface{}{"name": "Centian Demonstration"}
+	server := &CentianServer{
+		Projects: map[string]*CentianProject{
+			"demo": {
+				Config:           project,
+				PersistenceStore: &persistence.Store{},
+			},
+		},
+	}
+
+	summaries := server.projectSummaries()
+
+	assert.Equal(t, len(summaries), 1)
+	assert.Equal(t, summaries[0].Slug, "demo")
+	assert.Equal(t, summaries[0].Name, "Centian Demonstration")
+}
+
+func TestNewCentianServerWithOptionsUsesLoggerFactory(t *testing.T) {
+	authDisabled := false
+	uiEnabled := true
+	taskVerificationEnabled := true
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authDisabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Projects: map[string]*config.ProjectConfig{
+			config.DefaultProjectSlug: testProjectConfig(config.DefaultProjectSlug, "Default project", &authDisabled, &uiEnabled, &taskVerificationEnabled, ":memory:"),
+			"research":                testProjectConfig("research", "Research project", &authDisabled, &uiEnabled, &taskVerificationEnabled, ":memory:"),
+		},
+	}
+	calls := make(map[string]int)
+
+	server, err := NewCentianServerWithOptions(globalConfig, CentianServerOptions{
+		LoggerFactory: func(projectSlug string) (*logging.Logger, error) {
+			calls[projectSlug]++
+			return logging.NewDiscardLogger()
+		},
+	})
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+
+	assert.Equal(t, calls[config.DefaultProjectSlug], 1)
+	assert.Equal(t, calls["research"], 1)
+	assert.Assert(t, server.Projects[config.DefaultProjectSlug].Logger != nil)
+	assert.Assert(t, server.Projects["research"].Logger != nil)
+	assert.Equal(t, server.Projects[config.DefaultProjectSlug].Logger.GetLogPath(), "")
+	assert.Equal(t, server.Projects["research"].Logger.GetLogPath(), "")
 }
 
 func TestCentianServerSetup_ProtectsAPIRoutesButLeavesUIReachable(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	centapi "github.com/T4cceptor/centian/internal/api"
 	centauth "github.com/T4cceptor/centian/internal/auth"
@@ -25,12 +26,23 @@ import (
 // This file creates the Centian HTTP server and registers gateway and
 // single-server proxy endpoints from config.
 
+// CentianServerOptions customizes runtime dependencies for server construction.
+type CentianServerOptions struct {
+	LoggerFactory func(projectSlug string) (*logging.Logger, error)
+}
+
 // NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
 // It resolves the config into the project-based layout and initializes per-project
 // services (persistence, task verification) for each project.
+func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
+	return NewCentianServerWithOptions(globalConfig, CentianServerOptions{})
+}
+
+// NewCentianServerWithOptions takes a GlobalConfig struct and explicit runtime
+// dependencies, then returns a new CentianServer.
 //
 //nolint:gocyclo // Server startup coordinates several subsystems; helpers keep the branches local and explicit.
-func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
+func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options CentianServerOptions) (*CentianServer, error) {
 	if globalConfig == nil || globalConfig.Proxy == nil {
 		return nil, fmt.Errorf("proxy settings are required")
 	}
@@ -58,7 +70,8 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		ReadTimeout:  common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
 		WriteTimeout: common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
 	}
-	logger, err := logging.NewLogger()
+	loggerFactory := options.loggerFactory()
+	logger, err := loggerFactory(config.DefaultProjectSlug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
@@ -90,7 +103,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 
 	// Initialize per-project state.
 	for slug, projectConfig := range globalConfig.Projects {
-		project, err := newCentianProject(slug, projectConfig, workingDir, logger)
+		project, err := newCentianProject(slug, projectConfig, workingDir, logger, loggerFactory)
 		if err != nil {
 			return nil, fmt.Errorf("project '%s': %w", slug, err)
 		}
@@ -118,14 +131,22 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 	return centianServer, nil
 }
 
+func (o CentianServerOptions) loggerFactory() func(projectSlug string) (*logging.Logger, error) {
+	if o.LoggerFactory != nil {
+		return o.LoggerFactory
+	}
+	return defaultProjectLogger
+}
+
 // newCentianProject initializes per-project runtime state.
 func newCentianProject(
 	slug string,
 	projectConfig *config.ProjectConfig,
 	workingDir string,
 	defaultLogger *logging.Logger,
+	loggerFactory func(projectSlug string) (*logging.Logger, error),
 ) (*CentianProject, error) {
-	projectLogger, err := newProjectLogger(slug, defaultLogger)
+	projectLogger, err := newProjectLogger(slug, defaultLogger, loggerFactory)
 	if err != nil {
 		return nil, err
 	}
@@ -151,9 +172,16 @@ func newCentianProject(
 	}, nil
 }
 
-func newProjectLogger(projectSlug string, defaultLogger *logging.Logger) (*logging.Logger, error) {
+func newProjectLogger(projectSlug string, defaultLogger *logging.Logger, loggerFactory func(projectSlug string) (*logging.Logger, error)) (*logging.Logger, error) {
 	if projectSlug == config.DefaultProjectSlug {
 		return defaultLogger, nil
+	}
+	return loggerFactory(projectSlug)
+}
+
+func defaultProjectLogger(projectSlug string) (*logging.Logger, error) {
+	if projectSlug == config.DefaultProjectSlug {
+		return logging.NewLogger()
 	}
 	logDir, err := resolveProjectLogDir(projectSlug)
 	if err != nil {
@@ -461,7 +489,7 @@ func (c *CentianServer) projectSummaries() []centapi.ProjectSummary {
 		}
 		summaries = append(summaries, centapi.ProjectSummary{
 			Slug:                    slug,
-			Name:                    slug,
+			Name:                    projectDisplayName(slug, project),
 			Description:             project.Config.Description,
 			IsDefault:               slug == config.DefaultProjectSlug,
 			UIEnabled:               project.Config.UIEnabled(),
@@ -470,6 +498,17 @@ func (c *CentianServer) projectSummaries() []centapi.ProjectSummary {
 		})
 	}
 	return summaries
+}
+
+func projectDisplayName(slug string, project *CentianProject) string {
+	if project != nil && project.Config != nil && project.Config.Metadata != nil {
+		if name, ok := project.Config.Metadata["name"].(string); ok {
+			if trimmed := strings.TrimSpace(name); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return slug
 }
 
 // Close releases endpoint-owned resources such as pooled downstream sessions.

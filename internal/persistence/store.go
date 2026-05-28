@@ -348,8 +348,10 @@ func NewSQLiteStore(path string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("sqlite event store path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create event store directory: %w", err)
+	if !isSQLiteMemoryPath(path) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return nil, fmt.Errorf("failed to create event store directory: %w", err)
+		}
 	}
 
 	sqldb, err := sql.Open(sqliteshim.ShimName, path)
@@ -368,6 +370,10 @@ func NewSQLiteStore(path string) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func isSQLiteMemoryPath(path string) bool {
+	return path == ":memory:" || strings.HasPrefix(path, "file::memory:")
 }
 
 // Close releases the underlying database handle.

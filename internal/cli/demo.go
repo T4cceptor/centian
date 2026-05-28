@@ -6,25 +6,42 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/agentrunner"
+	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/proxy"
 	"github.com/urfave/cli/v3"
 )
+
+const (
+	demoProjectSlug = "demo"
+	demoProjectName = "Centian Demonstration"
+	demoRunID       = "tr_1742947200123_itopsdemo1"
+)
+
+var demoOpenBrowser = openBrowserURL
 
 // DemoCommand launches a self-contained Centian demo workspace.
 var DemoCommand = &cli.Command{
 	Name:  "demo",
-	Usage: "Start a self-contained Centian demo workspace",
-	Description: `Create a local Centian demo workspace, seed the bundled IT Ops
-demo into the event database, start Centian, and open the task run list for
+	Usage: "Start an in-memory Centian demonstration server",
+	Description: `Start a diskless Centian demo server, seed the bundled IT Ops
+scenario into an in-memory event database, and open the task detail view for
 post-hoc inspection.
 
-The --file and --agent flows are deprecated and will likely be moved or removed
-in a future release. They remain available for now for legacy demo runs.
+Deprecated --file, --agent, and --path flows are no longer available from this
+command and will likely be moved or removed in a future release.
 
 Examples:
   centian demo
@@ -51,7 +68,7 @@ Deprecated:
 		&cli.StringFlag{
 			Name:    "path",
 			Aliases: []string{"p"},
-			Usage:   "Path where the demo workspace should be created",
+			Usage:   "Deprecated: disk-backed demo workspace path is no longer supported",
 		},
 		&cli.StringFlag{
 			Name:    "model",
@@ -71,67 +88,167 @@ Deprecated:
 
 // handleDemoCommand resolves demo inputs and runs one local demo session.
 func handleDemoCommand(ctx context.Context, cmd *cli.Command) error {
-	rootPath, err := resolveDemoRoot(cmd.String("path"))
-	if err != nil {
+	if err := rejectDeprecatedDemoFlags(cmd); err != nil {
 		return err
 	}
-	binaryPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve centian executable: %w", err)
-	}
-	runner := agentrunner.DemoRunner{}
-	options := &agentrunner.DemoOptions{
-		RootPath:          rootPath,
-		CentianBinaryPath: binaryPath,
-		Timeout:           5 * time.Minute,
-		Stdout:            os.Stdout,
-		Stderr:            os.Stderr,
-	}
+	return runInMemoryDemo(ctx, os.Stdout, os.Stderr)
+}
 
-	var result *agentrunner.DemoResult
-	agent := strings.TrimSpace(cmd.String("agent"))
-	if agent == "" {
-		scenarioPath, scenarioErr := demoScenarioFileFromFlags(cmd)
-		if scenarioErr != nil {
-			return scenarioErr
+func rejectDeprecatedDemoFlags(cmd *cli.Command) error {
+	for _, flagName := range []string{"agent", "file", "path", "model", "profile", "codex-config"} {
+		if strings.TrimSpace(cmd.String(flagName)) == "" {
+			continue
 		}
-		if scenarioPath == "" {
-			result, err = runner.RunStaticDemo(ctx, options)
-		} else {
-			_, _ = fmt.Fprintln(options.Stderr, "warning: centian demo --file is deprecated and will likely be moved or removed in a future release")
-			options.ScenarioFilePath = scenarioPath
-			result, err = runner.RunSyntheticDemo(ctx, options)
-		}
-	} else {
-		if strings.TrimSpace(cmd.String("file")) != "" {
-			return fmt.Errorf("--file cannot be used with --agent")
-		}
-		_, _ = fmt.Fprintln(options.Stderr, "warning: centian demo --agent is deprecated and will likely be moved or removed in a future release")
-		execution, executionErr := demoExecutionFromFlags(cmd)
-		if executionErr != nil {
-			return executionErr
-		}
-		options.Execution = execution
-		result, err = runner.RunDemo(ctx, options)
-	}
-	if result != nil {
-		fmt.Printf("Demo ready. UI: %s\n", result.UIPublicURL)
-		if agent == "" && strings.TrimSpace(cmd.String("file")) == "" {
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-		shutdownErr := promptDemoShutdown(os.Stdin, os.Stdout, result)
-		if err != nil {
-			return errors.Join(err, shutdownErr)
-		}
-		return shutdownErr
-	}
-	if err != nil {
-		return err
+		return fmt.Errorf("centian demo --%s is deprecated and is not supported by the in-memory demo", flagName)
 	}
 	return nil
+}
+
+func runInMemoryDemo(ctx context.Context, stdout, stderr io.Writer) error {
+	server, err := newInMemoryDemoServer(ctx)
+	if err != nil {
+		return err
+	}
+	cleanupServer := true
+	defer func() {
+		if cleanupServer {
+			closeDemoServer(server, stderr)
+		}
+	}()
+
+	shutdown, err := serveInMemoryDemo(ctx, server, stdout, stderr)
+	if shutdown {
+		cleanupServer = false
+	}
+	return err
+}
+
+func newInMemoryDemoServer(ctx context.Context) (*proxy.CentianServer, error) {
+	server, err := proxy.NewCentianServerWithOptions(newDemoConfig(), proxy.CentianServerOptions{
+		LoggerFactory: func(string) (*logging.Logger, error) {
+			return logging.NewDiscardLogger()
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create demo server: %w", err)
+	}
+	if err := server.Setup(); err != nil {
+		closeDemoServer(server, nil)
+		return nil, fmt.Errorf("setup demo server: %w", err)
+	}
+	project := server.Projects[demoProjectSlug]
+	if project == nil || project.PersistenceStore == nil {
+		closeDemoServer(server, nil)
+		return nil, fmt.Errorf("demo project event store is unavailable")
+	}
+	if _, err := agentrunner.StartSyntheticDemoRunWithOptions(ctx, project.PersistenceStore, "it_ops", agentrunner.SyntheticDemoRunOptions{RunID: demoRunID}); err != nil {
+		closeDemoServer(server, nil)
+		return nil, fmt.Errorf("seed demo run: %w", err)
+	}
+	return server, nil
+}
+
+func serveInMemoryDemo(ctx context.Context, server *proxy.CentianServer, stdout, stderr io.Writer) (bool, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(config.DefaultProxyHost, "0"))
+	if err != nil {
+		return false, fmt.Errorf("bind demo server: %w", err)
+	}
+	server.Server.Addr = listener.Addr().String()
+	errCh := make(chan error, 1)
+	go func() {
+		if err := server.Server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+			return
+		}
+		errCh <- nil
+	}()
+
+	uiURL := fmt.Sprintf("http://%s/ui/%s/tasks/%s", listener.Addr().String(), demoProjectSlug, demoRunID)
+	if err := demoOpenBrowser(uiURL); err != nil && stderr != nil {
+		_, _ = fmt.Fprintf(stderr, "warning: open browser: %v\n", err)
+	}
+	if stdout != nil {
+		_, _ = fmt.Fprintf(stdout, "Demo ready. UI: %s\n", uiURL)
+		_, _ = fmt.Fprintln(stdout, "Press Ctrl+C to stop")
+	}
+
+	stopCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	select {
+	case <-stopCtx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Server.Shutdown(shutdownCtx); err != nil {
+			return false, fmt.Errorf("shutdown demo server: %w", err)
+		}
+		<-errCh
+		return true, nil
+	case err := <-errCh:
+		if err != nil {
+			return false, fmt.Errorf("demo server: %w", err)
+		}
+		return false, nil
+	}
+}
+
+func closeDemoServer(server *proxy.CentianServer, stderr io.Writer) {
+	for _, err := range server.Close() {
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "warning: close demo server: %v\n", err)
+		}
+	}
+}
+
+func newDemoConfig() *config.GlobalConfig {
+	authDisabled := false
+	uiEnabled := true
+	eventStorageEnabled := true
+	taskVerificationEnabled := true
+	return &config.GlobalConfig{
+		Name:    "Centian Demonstration",
+		Version: "1.0.0",
+		Proxy: &config.ProxySettings{
+			Host:    config.DefaultProxyHost,
+			Port:    "0",
+			Timeout: 30,
+		},
+		Projects: map[string]*config.ProjectConfig{
+			demoProjectSlug: {
+				Slug:        demoProjectSlug,
+				Description: "Bundled in-memory Centian demonstration project.",
+				AuthEnabled: &authDisabled,
+				Capabilities: &config.CapabilitiesSettings{
+					UI: &config.UICapabilitySettings{
+						Enabled: &uiEnabled,
+					},
+					EventStorage: &config.EventStorageCapabilitySettings{
+						Enabled: &eventStorageEnabled,
+						Driver:  config.DefaultEventStorageDriver,
+						Path:    ":memory:",
+					},
+					TaskVerification: &config.TaskVerificationCapabilitySettings{
+						Enabled: &taskVerificationEnabled,
+					},
+				},
+				Gateways: map[string]*config.GatewayConfig{},
+				Metadata: map[string]interface{}{
+					"name": demoProjectName,
+				},
+			},
+		},
+	}
+}
+
+//nolint:gosec // The demo opens a Centian-generated local URL in the user's browser.
+func openBrowserURL(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
+	}
 }
 
 func demoScenarioFileFromFlags(cmd *cli.Command) (string, error) {
@@ -146,7 +263,7 @@ func demoScenarioFileFromFlags(cmd *cli.Command) (string, error) {
 // demoExecutionFromFlags converts demo agent flags into one normalized execution config.
 func demoExecutionFromFlags(cmd *cli.Command) (agentrunner.AgentExecutionOptions, error) {
 	agent := strings.TrimSpace(cmd.String("agent"))
-	exec := agentrunner.AgentExecutionOptions{
+	execution := agentrunner.AgentExecutionOptions{
 		Agent:   agent,
 		Profile: strings.TrimSpace(cmd.String("profile")),
 	}
@@ -154,24 +271,24 @@ func demoExecutionFromFlags(cmd *cli.Command) (agentrunner.AgentExecutionOptions
 		if strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
 			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("--model is not supported for codex-ollama; use --profile")
 		}
-		exec.Model = normalizeCLIModel(agent, model)
+		execution.Model = normalizeCLIModel(agent, model)
 	}
 	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
 	if err != nil {
 		return agentrunner.AgentExecutionOptions{}, err
 	}
-	exec.CodexConfigPath = codexConfigPath
+	execution.CodexConfigPath = codexConfigPath
 	if strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
 		if codexConfigPath == "" {
 			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("codex-ollama requires --codex-config")
 		}
-		if exec.Profile == "" {
+		if execution.Profile == "" {
 			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("codex-ollama requires --profile")
 		}
-	} else if exec.Profile != "" {
+	} else if execution.Profile != "" {
 		return agentrunner.AgentExecutionOptions{}, fmt.Errorf("--profile can only be used with --agent codex-ollama")
 	}
-	return agentrunner.NormalizeExecutionOptions(exec)
+	return agentrunner.NormalizeExecutionOptions(execution)
 }
 
 // promptDemoShutdown optionally stops the demo Centian process after the agent run ends.

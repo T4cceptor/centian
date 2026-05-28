@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/persistence"
 )
 
 type failingActionEventStore struct{}
@@ -190,6 +191,57 @@ func TestNewLoggerInDir(t *testing.T) {
 	fileName := filepath.Base(logPath)
 	if !strings.HasPrefix(fileName, "requests_") || !strings.HasSuffix(fileName, ".jsonl") {
 		t.Fatalf("expected request log filename, got %q", fileName)
+	}
+}
+
+func TestNewDiscardLoggerPersistsActionEventsWithoutFile(t *testing.T) {
+	store, err := persistence.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	logger, err := NewDiscardLogger()
+	if err != nil {
+		t.Fatalf("NewDiscardLogger: %v", err)
+	}
+	defer logger.Close()
+	logger.SetActionEventStore(store)
+
+	entry := common.LogEntry{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:   time.Now().UTC(),
+			RequestID:   "discard-request-1",
+			SessionID:   "discard-session-1",
+			Transport:   "http",
+			MessageType: common.MessageTypeRequest,
+			Direction:   common.DirectionClientToServer,
+			Success:     true,
+		},
+		Routing: common.RoutingContext{
+			Gateway:    "gw",
+			ServerName: "server-a",
+			Endpoint:   "/mcp/gw",
+		},
+	}
+	entry.WithToolRequest("server-a__ping", "server-a__ping", json.RawMessage(`{"ping":true}`))
+
+	if err := logger.LogMcpEvent(&entry); err != nil {
+		t.Fatalf("LogMcpEvent: %v", err)
+	}
+	if logger.GetLogPath() != "" {
+		t.Fatalf("expected discard logger to have no log path, got %q", logger.GetLogPath())
+	}
+
+	page, err := store.ListEvents(t.Context(), &persistence.EventListFilter{RequestID: "discard-request-1"})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(page.Items) != 1 {
+		t.Fatalf("expected one persisted action event, got %d", len(page.Items))
+	}
+	if page.Items[0].ToolName != "server-a__ping" {
+		t.Fatalf("expected persisted tool name, got %q", page.Items[0].ToolName)
 	}
 }
 

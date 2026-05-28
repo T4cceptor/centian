@@ -137,6 +137,44 @@ func TestLoadRegisteredSyntheticDemo(t *testing.T) {
 	}
 }
 
+func TestStartSyntheticDemoRunWithOptionsUsesFixedRunID(t *testing.T) {
+	store, err := persistence.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	const fixedRunID = "tr_1742947200123_itopsdemo1"
+	run, err := StartSyntheticDemoRunWithOptions(context.Background(), store, "it_ops", SyntheticDemoRunOptions{RunID: fixedRunID})
+	if err != nil {
+		t.Fatalf("StartSyntheticDemoRunWithOptions: %v", err)
+	}
+	if run.RunID != fixedRunID {
+		t.Fatalf("expected fixed run ID %q, got %q", fixedRunID, run.RunID)
+	}
+
+	snapshot, err := store.GetTaskRunSnapshot(context.Background(), fixedRunID)
+	if err != nil {
+		t.Fatalf("GetTaskRunSnapshot: %v", err)
+	}
+	if snapshot == nil {
+		t.Fatal("expected fixed run snapshot")
+	}
+}
+
+func TestStartSyntheticDemoRunWithOptionsRejectsInvalidRunID(t *testing.T) {
+	store, err := persistence.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	_, err = StartSyntheticDemoRunWithOptions(context.Background(), store, "it_ops", SyntheticDemoRunOptions{RunID: "run-1"})
+	if err == nil || !strings.Contains(err.Error(), "invalid synthetic demo run id") {
+		t.Fatalf("expected invalid run id error, got %v", err)
+	}
+}
+
 func TestValidateSyntheticDemoScenarioRejectsInvalidInputs(t *testing.T) {
 	tests := []struct {
 		name     string

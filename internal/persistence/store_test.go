@@ -139,6 +139,37 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 	assert.Assert(t, annotationColumns["raw_json"])
 }
 
+func TestNewSQLiteStoreMemoryBootstrapsAndPersistsRows(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	err = store.AppendTaskEvent(&taskverification.TaskEvent{
+		ID:                 "memory-task-event-1",
+		SchemaVersion:      1,
+		CreatedAtUnixMilli: time.Now().UTC().UnixMilli(),
+		TaskRunID:          "memory-run-1",
+		SessionID:          "memory-session-1",
+		TemplateID:         "memory-template-1",
+		PrincipalID:        "memory-principal-1",
+		PhasePath:          taskverification.TaskPhasePlanning,
+		NodeKind:           taskverification.WorkflowNodeKindPlanning,
+		ResultingPhasePath: taskverification.TaskPhase("execution.memory_step"),
+		ResultingNodeKind:  taskverification.WorkflowNodeKindExecution,
+		EventType:          taskverification.TaskEventTypePlanningCompleted,
+		Outcome:            taskverification.TaskEventOutcomeSucceeded,
+		Payload:            json.RawMessage(`{"ok":true}`),
+	})
+	assert.NilError(t, err)
+
+	rows, err := store.TaskEventRowsByTaskRunID("memory-run-1")
+	assert.NilError(t, err)
+	assert.Equal(t, len(rows), 1)
+	assert.Equal(t, rows[0].TemplateID, "memory-template-1")
+}
+
 func TestAppendActionEventPersistsAnnotationsSeparately(t *testing.T) {
 	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
 	assert.NilError(t, err)

@@ -18,6 +18,7 @@ import (
 type Logger struct {
 	logFile          *os.File
 	logPath          string
+	discard          bool
 	actionEventStore ActionEventStore
 	mu               sync.Mutex // Protect concurrent writes
 }
@@ -55,8 +56,17 @@ func NewLoggerInDir(logsDir string) (*Logger, error) {
 	}, nil
 }
 
+// NewDiscardLogger creates a logger that skips JSONL writes while still allowing
+// action event persistence through SetActionEventStore.
+func NewDiscardLogger() (*Logger, error) {
+	return &Logger{discard: true}, nil
+}
+
 // LogEntry writes any log entry to the JSONL file (base Logger method).
 func (l *Logger) LogEntry(entry interface{}) error {
+	if l.discard {
+		return nil
+	}
 	if l.logFile == nil {
 		return fmt.Errorf("logger not initialized")
 	}
