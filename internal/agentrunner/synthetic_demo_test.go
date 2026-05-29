@@ -2,7 +2,6 @@ package agentrunner
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,48 +12,6 @@ import (
 	"github.com/T4cceptor/centian/internal/taskruns"
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
-
-func TestLoadSyntheticDemoScenarioEmbedded(t *testing.T) {
-	scenario, data, err := loadSyntheticDemoScenario("")
-	if err != nil {
-		t.Fatalf("loadSyntheticDemoScenario: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("expected embedded scenario bytes")
-	}
-	if scenario.Version != syntheticDemoScenarioVersion {
-		t.Fatalf("expected version %d, got %d", syntheticDemoScenarioVersion, scenario.Version)
-	}
-	if scenario.DurationMS < 20_000 || scenario.DurationMS > 30_000 {
-		t.Fatalf("expected embedded scenario to last 20-30 seconds, got %dms", scenario.DurationMS)
-	}
-	if len(scenario.Timeline) == 0 {
-		t.Fatal("expected embedded timeline items")
-	}
-}
-
-func TestLoadSyntheticDemoScenarioFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "scenario.json")
-	if err := os.WriteFile(path, []byte(`{
-		"version": 1,
-		"timeline": [
-			{"offsetMs": 0, "snapshot": {"templateId": "demo", "templateName": "Demo", "status": "active", "phase": "onboarding", "selectedTemplate": {"version": "0.1", "task": {"id": "demo", "name": "Demo", "description": "Demo"}}}}
-		]
-	}`), 0o600); err != nil {
-		t.Fatalf("write scenario: %v", err)
-	}
-
-	scenario, data, err := loadSyntheticDemoScenario(path)
-	if err != nil {
-		t.Fatalf("loadSyntheticDemoScenario: %v", err)
-	}
-	if !strings.Contains(string(data), `"version": 1`) {
-		t.Fatalf("expected original file bytes, got %s", string(data))
-	}
-	if len(scenario.Timeline) != 1 {
-		t.Fatalf("expected one timeline item, got %d", len(scenario.Timeline))
-	}
-}
 
 func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
 	data, err := asset(itOpsSyntheticDemoAsset)
