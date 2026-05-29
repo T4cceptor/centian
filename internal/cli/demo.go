@@ -251,46 +251,6 @@ func openBrowserURL(url string) error {
 	}
 }
 
-func demoScenarioFileFromFlags(cmd *cli.Command) (string, error) {
-	for _, flagName := range []string{"model", "profile", "codex-config"} {
-		if strings.TrimSpace(cmd.String(flagName)) != "" {
-			return "", fmt.Errorf("--%s can only be used with --agent", flagName)
-		}
-	}
-	return resolveOptionalPath(cmd.String("file"))
-}
-
-// demoExecutionFromFlags converts demo agent flags into one normalized execution config.
-func demoExecutionFromFlags(cmd *cli.Command) (agentrunner.AgentExecutionOptions, error) {
-	agent := strings.TrimSpace(cmd.String("agent"))
-	execution := agentrunner.AgentExecutionOptions{
-		Agent:   agent,
-		Profile: strings.TrimSpace(cmd.String("profile")),
-	}
-	if model := strings.TrimSpace(cmd.String("model")); model != "" {
-		if strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
-			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("--model is not supported for codex-ollama; use --profile")
-		}
-		execution.Model = normalizeCLIModel(agent, model)
-	}
-	codexConfigPath, err := resolveOptionalPath(cmd.String("codex-config"))
-	if err != nil {
-		return agentrunner.AgentExecutionOptions{}, err
-	}
-	execution.CodexConfigPath = codexConfigPath
-	if strings.EqualFold(agent, agentrunner.AgentCodexOllama) {
-		if codexConfigPath == "" {
-			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("codex-ollama requires --codex-config")
-		}
-		if execution.Profile == "" {
-			return agentrunner.AgentExecutionOptions{}, fmt.Errorf("codex-ollama requires --profile")
-		}
-	} else if execution.Profile != "" {
-		return agentrunner.AgentExecutionOptions{}, fmt.Errorf("--profile can only be used with --agent codex-ollama")
-	}
-	return agentrunner.NormalizeExecutionOptions(execution)
-}
-
 // promptDemoShutdown optionally stops the demo Centian process after the agent run ends.
 func promptDemoShutdown(input io.Reader, output io.Writer, result *agentrunner.DemoResult) error {
 	if result == nil || result.PID <= 0 {
@@ -330,18 +290,6 @@ func shouldShutdownDemo(input io.Reader) bool {
 // normalizePromptAnswer trims and lowercases a yes/no prompt response.
 func normalizePromptAnswer(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
-}
-
-// resolveDemoRoot returns the explicit demo path or the default workspace location.
-func resolveDemoRoot(flagValue string) (string, error) {
-	if flagValue != "" {
-		return filepath.Abs(flagValue)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("resolve working directory: %w", err)
-	}
-	return filepath.Abs(filepath.Join(cwd, ".centian", "demo"))
 }
 
 // resolveOptionalPath absolutizes a non-empty path flag and leaves empty values unset.
