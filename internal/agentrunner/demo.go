@@ -344,6 +344,7 @@ func runAgentPrompt(
 	//nolint:gosec // The command is constructed by the selected internal agent adapter.
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = layout.WorkspacePath
+	cmd.SysProcAttr = detachedProcessAttrs()
 	if envVars := adapter.env(layout); len(envVars) > 0 {
 		cmd.Env = append(os.Environ(), envVars...)
 	}

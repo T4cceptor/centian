@@ -123,4 +123,3 @@ func TestShouldShutdownDemo(t *testing.T) {
 		})
 	}
 }
-
