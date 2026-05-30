@@ -1,13 +1,9 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/T4cceptor/centian/internal/agentrunner"
-	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	urfavecli "github.com/urfave/cli/v3"
 )
@@ -106,36 +102,6 @@ func TestNewDemoConfigUsesDisklessDemoProject(t *testing.T) {
 	}
 }
 
-func TestResolveDemoRootDefault(t *testing.T) {
-	cwd := t.TempDir()
-	original, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	if err := os.Chdir(cwd); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer func() {
-		_ = os.Chdir(original)
-	}()
-
-	root, err := resolveDemoRoot("")
-	if err != nil {
-		t.Fatalf("resolveDemoRoot: %v", err)
-	}
-	expected, err := filepath.Abs(filepath.Join(cwd, ".centian", "demo"))
-	if err != nil {
-		t.Fatalf("filepath.Abs: %v", err)
-	}
-	if normalizeDarwinPath(root) != normalizeDarwinPath(expected) {
-		t.Fatalf("expected %s, got %s", expected, root)
-	}
-}
-
-func normalizeDarwinPath(value string) string {
-	return strings.TrimPrefix(value, "/private")
-}
-
 func TestShouldShutdownDemo(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -155,95 +121,5 @@ func TestShouldShutdownDemo(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tt.expected, actual)
 			}
 		})
-	}
-}
-
-func TestDemoScenarioFileFromFlagsAllowsStaticDefaultDemo(t *testing.T) {
-	cmd := newTestCLICommand(DemoCommand.Flags)
-
-	path, err := demoScenarioFileFromFlags(cmd)
-	if err != nil {
-		t.Fatalf("demoScenarioFileFromFlags: %v", err)
-	}
-	if path != "" {
-		t.Fatalf("expected embedded scenario, got %q", path)
-	}
-}
-
-func TestDemoScenarioFileFromFlagsResolvesFile(t *testing.T) {
-	cmd := newTestCLICommand(DemoCommand.Flags)
-	cmd.Set("file", "scenario.json")
-
-	path, err := demoScenarioFileFromFlags(cmd)
-	if err != nil {
-		t.Fatalf("demoScenarioFileFromFlags: %v", err)
-	}
-	if !filepath.IsAbs(path) {
-		t.Fatalf("expected absolute file path, got %q", path)
-	}
-}
-
-func TestDemoScenarioFileFromFlagsRejectsAgentOnlyFlags(t *testing.T) {
-	for _, flagName := range []string{"model", "profile", "codex-config"} {
-		t.Run(flagName, func(t *testing.T) {
-			cmd := newTestCLICommand(DemoCommand.Flags)
-			cmd.Set(flagName, "value")
-
-			_, err := demoScenarioFileFromFlags(cmd)
-			if err == nil || err.Error() != "--"+flagName+" can only be used with --agent" {
-				t.Fatalf("expected %s rejection, got %v", flagName, err)
-			}
-		})
-	}
-}
-
-func TestDemoExecutionFromFlagsAppliesModelAndConfig(t *testing.T) {
-	cmd := newTestCLICommand(DemoCommand.Flags)
-	cmd.Set("agent", "codex")
-	cmd.Set("model", "gpt5.4-mini")
-	cmd.Set("codex-config", "/tmp/codex.toml")
-
-	exec, err := demoExecutionFromFlags(cmd)
-	if err != nil {
-		t.Fatalf("demoExecutionFromFlags: %v", err)
-	}
-	if exec.Agent != agentrunner.AgentCodex {
-		t.Fatalf("expected codex agent, got %q", exec.Agent)
-	}
-	if exec.Model != common.ModelCodexGPT54Mini {
-		t.Fatalf("expected normalized model, got %q", exec.Model)
-	}
-	if exec.CodexConfigPath == "" {
-		t.Fatal("expected codex config path to be resolved")
-	}
-}
-
-func TestDemoExecutionFromFlagsRejectsProfileWithoutCodexOllama(t *testing.T) {
-	cmd := newTestCLICommand(DemoCommand.Flags)
-	cmd.Set("agent", "codex")
-	cmd.Set("profile", "local-oss")
-
-	_, err := demoExecutionFromFlags(cmd)
-	if err == nil || err.Error() != "--profile can only be used with --agent codex-ollama" {
-		t.Fatalf("expected profile error, got %v", err)
-	}
-}
-
-func TestDemoExecutionFromFlagsRequiresCodexOllamaProfileAndConfig(t *testing.T) {
-	cmd := newTestCLICommand(DemoCommand.Flags)
-	cmd.Set("agent", "codex-ollama")
-
-	_, err := demoExecutionFromFlags(cmd)
-	if err == nil || err.Error() != "codex-ollama requires --codex-config" {
-		t.Fatalf("expected missing codex config error, got %v", err)
-	}
-
-	cmd = newTestCLICommand(DemoCommand.Flags)
-	cmd.Set("agent", "codex-ollama")
-	cmd.Set("codex-config", "/tmp/codex.toml")
-
-	_, err = demoExecutionFromFlags(cmd)
-	if err == nil || err.Error() != "codex-ollama requires --profile" {
-		t.Fatalf("expected missing profile error, got %v", err)
 	}
 }

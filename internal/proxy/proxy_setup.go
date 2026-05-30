@@ -461,9 +461,6 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 		centapi.NewBenchmarkHandler(benchmarks.NewReadService(defaultProject.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
 		})
-		centapi.NewDemoHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
-		})
 	}
 
 	if uiEnabled {

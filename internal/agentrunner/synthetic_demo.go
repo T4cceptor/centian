@@ -2,9 +2,7 @@ package agentrunner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -14,10 +12,7 @@ import (
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
 
-const (
-	syntheticDemoScenarioVersion = 1
-	defaultSyntheticDemoAsset    = "synthetic_demo.json"
-)
+const syntheticDemoScenarioVersion = 1
 
 type syntheticDemoScenario struct {
 	Version    int                         `json:"version"`
@@ -59,33 +54,6 @@ func newSyntheticDemoReplayer() syntheticDemoReplayer {
 	return syntheticDemoReplayer{
 		now: time.Now,
 	}
-}
-
-func loadSyntheticDemoScenario(path string) (*syntheticDemoScenario, []byte, error) {
-	var data []byte
-	var err error
-	if path == "" {
-		content, assetErr := asset(defaultSyntheticDemoAsset)
-		if assetErr != nil {
-			return nil, nil, assetErr
-		}
-		data = []byte(content)
-	} else {
-		//nolint:gosec // demo scenario path is an explicit user-provided CLI argument.
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, nil, fmt.Errorf("read demo file: %w", err)
-		}
-	}
-
-	var scenario syntheticDemoScenario
-	if err := json.Unmarshal(data, &scenario); err != nil {
-		return nil, nil, fmt.Errorf("parse demo file: %w", err)
-	}
-	if err := validateSyntheticDemoScenario(&scenario); err != nil {
-		return nil, nil, err
-	}
-	return &scenario, data, nil
 }
 
 func validateSyntheticDemoScenario(scenario *syntheticDemoScenario) error {

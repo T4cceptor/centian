@@ -44,18 +44,6 @@ var syntheticDemoDefinitions = []SyntheticDemoDefinition{
 	},
 }
 
-// ListSyntheticDemos returns the synthetic demos bundled with Centian.
-func ListSyntheticDemos() []SyntheticDemoDefinition {
-	result := make([]SyntheticDemoDefinition, len(syntheticDemoDefinitions))
-	copy(result, syntheticDemoDefinitions)
-	return result
-}
-
-// StartSyntheticDemoRun seeds one bundled synthetic demo against the provided store.
-func StartSyntheticDemoRun(ctx context.Context, store *persistence.Store, demoID string) (*SyntheticDemoRun, error) {
-	return StartSyntheticDemoRunWithOptions(ctx, store, demoID, SyntheticDemoRunOptions{})
-}
-
 // StartSyntheticDemoRunWithOptions seeds one bundled synthetic demo against the
 // provided store using explicit replay options.
 func StartSyntheticDemoRunWithOptions(ctx context.Context, store *persistence.Store, demoID string, options SyntheticDemoRunOptions) (*SyntheticDemoRun, error) {

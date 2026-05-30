@@ -24,19 +24,6 @@ export type TaskRunFilters = {
 
 export const defaultProjectSlug = "default";
 
-export type SyntheticDemoDefinition = {
-  id: string;
-  name: string;
-  description: string;
-  durationMs: number;
-};
-
-export type SyntheticDemoRun = {
-  runId: string;
-  demoId: string;
-  durationMs: number;
-};
-
 export type TaskRunBenchmarkLink = {
   benchmarkRunId: string;
   sessionId: string;
@@ -261,17 +248,14 @@ export function projectApiPath(projectSlug: string | undefined, path: string): s
   return `/api/${encodeURIComponent(normalizeProjectSlug(projectSlug))}${path}`;
 }
 
-export async function requestJSON<T>(url: string, signal?: AbortSignal, init: RequestInit = {}): Promise<T> {
+export async function requestJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   const headers = new Headers();
-  if (init.headers) {
-    new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-  }
   const storedAuth = loadStoredApiAuth();
   if (storedAuth) {
     headers.set(storedAuth.headerName, storedAuth.apiKey);
   }
 
-  const response = await fetch(url, { ...init, signal, headers });
+  const response = await fetch(url, { signal, headers });
   if (!response.ok) {
     const authHeaderName =
       response.headers && typeof response.headers.get === "function"
@@ -303,13 +287,4 @@ export async function fetchTaskRunDetail(projectSlug: string | undefined, runID:
 export async function fetchTaskRunEvents(projectSlug: string | undefined, runID: string, signal?: AbortSignal): Promise<TaskRunEvent[]> {
   const events = await requestJSON<TaskRunEvent[]>(projectApiPath(projectSlug, `/task-runs/${encodeURIComponent(runID)}/events`), signal);
   return Array.isArray(events) ? events : [];
-}
-
-export async function fetchSyntheticDemos(signal?: AbortSignal): Promise<SyntheticDemoDefinition[]> {
-  const demos = await requestJSON<SyntheticDemoDefinition[]>("/api/demos", signal);
-  return Array.isArray(demos) ? demos : [];
-}
-
-export async function startSyntheticDemoRun(demoID: string, signal?: AbortSignal): Promise<SyntheticDemoRun> {
-  return requestJSON<SyntheticDemoRun>(`/api/demos/${encodeURIComponent(demoID)}/runs`, signal, { method: "POST" });
 }

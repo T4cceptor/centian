@@ -7,11 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,8 +18,6 @@ import (
 )
 
 const (
-	darwinOS = "darwin"
-
 	// AgentClaude is the supported public agent identifier for the Claude CLI.
 	AgentClaude = common.AgentClaude
 	// AgentGemini is the supported public agent identifier for the Gemini CLI.
@@ -36,8 +32,6 @@ const (
 	DefaultGeminiModel = common.ModelGemini25Flash
 	// DefaultCodexModel is the default Codex model alias for demo runs (empty uses Codex default).
 	DefaultCodexModel = ""
-	// DefaultAgentTimeout is the default maximum runtime for a demo agent invocation.
-	DefaultAgentTimeout = 5 * time.Minute
 	// TaskTemplateFile is the default task template file name for the task.
 	TaskTemplateFile = "guided_tdd_workflow.yaml"
 )
@@ -106,9 +100,6 @@ type DemoResult struct {
 	StopHint      string
 }
 
-// DemoRunner provisions and launches a self-contained Centian demo workspace.
-type DemoRunner struct{}
-
 // agentAdapter abstracts the per-agent config, environment, and command construction.
 type agentAdapter interface {
 	name() string
@@ -139,129 +130,6 @@ type demoLayout struct {
 	BaseURL         string
 	MCPURL          string
 	Port            string
-}
-
-// RunDemo creates the demo workspace, starts Centian, launches the selected
-// agent, and leaves Centian running after the agent exits.
-func (DemoRunner) RunDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
-	options, err := normalizeOptions(opts)
-	if err != nil {
-		return nil, err
-	}
-	layout, err := prepareLayout(options)
-	if err != nil {
-		return nil, err
-	}
-
-	adapter, err := selectAdapter(options)
-	if err != nil {
-		return nil, err
-	}
-	if err := adapter.isAvailable(); err != nil {
-		return nil, fmt.Errorf("%s is not available: %w", adapter.name(), err)
-	}
-	if err := renderAssets(layout); err != nil {
-		return nil, err
-	}
-	if err := adapter.writeConfig(layout); err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := adapter.cleanup(layout); err != nil && options.Stderr != nil {
-			_, _ = fmt.Fprintf(options.Stderr, "warning: cleanup %s demo artifacts: %v\n", adapter.name(), err)
-		}
-	}()
-
-	centianCmd, errCh, err := startCentianProcess(layout, options)
-	if err != nil {
-		return nil, err
-	}
-	if err := common.WritePIDFile(layout.PIDPath, centianCmd.Process.Pid); err != nil {
-		_ = centianCmd.Process.Kill()
-		return nil, err
-	}
-
-	if err := waitForCentian(layout, errCh); err != nil {
-		_ = centianCmd.Process.Kill()
-		return nil, err
-	}
-
-	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
-
-	if options.OpenBrowser && runtime.GOOS == darwinOS {
-		//nolint:gosec // UI URL is generated locally from the bound loopback port.
-		_ = exec.Command("open", result.UIPublicURL).Start()
-	}
-	printDemoStatus(options.Stdout, result)
-
-	if err := runAgent(ctx, adapter, layout, options); err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-// normalizeOptions fills omitted demo options with platform and agent defaults.
-func normalizeOptions(opts *DemoOptions) (*DemoOptions, error) {
-	if opts == nil {
-		return nil, fmt.Errorf("demo options are required")
-	}
-	if opts.Timeout <= 0 {
-		opts.Timeout = DefaultAgentTimeout
-	}
-	execution, err := NormalizeExecutionOptions(opts.Execution)
-	if err != nil {
-		return nil, err
-	}
-	opts.Execution = execution
-	if opts.Stdout == nil {
-		opts.Stdout = io.Discard
-	}
-	if opts.Stderr == nil {
-		opts.Stderr = io.Discard
-	}
-	if !opts.OpenBrowser && runtime.GOOS == darwinOS {
-		opts.OpenBrowser = true
-	}
-	return opts, nil
-}
-
-// normalizeSyntheticOptions fills omitted demo options for the synthetic flow.
-func normalizeSyntheticOptions(opts *DemoOptions) (*DemoOptions, error) {
-	if opts == nil {
-		return nil, fmt.Errorf("demo options are required")
-	}
-	if strings.TrimSpace(opts.RootPath) == "" {
-		return nil, fmt.Errorf("demo root path is required")
-	}
-	if strings.TrimSpace(opts.CentianBinaryPath) == "" {
-		return nil, fmt.Errorf("centian binary path is required")
-	}
-	if opts.Stdout == nil {
-		opts.Stdout = io.Discard
-	}
-	if opts.Stderr == nil {
-		opts.Stderr = io.Discard
-	}
-	if !opts.OpenBrowser && runtime.GOOS == darwinOS {
-		opts.OpenBrowser = true
-	}
-	opts.ScenarioFilePath = strings.TrimSpace(opts.ScenarioFilePath)
-	return opts, nil
-}
-
-func demoResultFromLayout(layout *demoLayout, pid int) *DemoResult {
-	return &DemoResult{
-		RootPath:      layout.RootPath,
-		WorkspacePath: layout.WorkspacePath,
-		ConfigPath:    layout.ConfigPath,
-		PromptPath:    layout.PromptPath,
-		AgentStdout:   layout.AgentStdoutPath,
-		AgentStderr:   layout.AgentStderrPath,
-		UIPublicURL:   layout.BaseURL + "/ui/tasks",
-		MCPURL:        layout.MCPURL,
-		PID:           pid,
-		StopHint:      fmt.Sprintf("kill $(cat %s)", common.ShellQuote(layout.PIDPath)),
-	}
 }
 
 // prepareLayout creates the demo directory layout and allocates a loopback port.
@@ -303,111 +171,6 @@ func prepareLayout(opts *DemoOptions) (*demoLayout, error) {
 	layout.BaseURL = "http://127.0.0.1:" + port
 	layout.MCPURL = layout.BaseURL + "/mcp/taskverification"
 	return layout, nil
-}
-
-// RunSyntheticDemo creates the demo workspace, starts Centian, and seeds a
-// JSON-defined synthetic timeline without launching an external agent.
-func (DemoRunner) RunSyntheticDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
-	options, err := normalizeSyntheticOptions(opts)
-	if err != nil {
-		return nil, err
-	}
-	_, _ = fmt.Fprintln(options.Stdout, "Starting synthetic Centian demo...")
-	layout, err := prepareLayout(options)
-	if err != nil {
-		return nil, err
-	}
-	if err := renderAssets(layout); err != nil {
-		return nil, err
-	}
-	scenario, scenarioBytes, err := loadSyntheticDemoScenario(options.ScenarioFilePath)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(layout.ScenarioPath, scenarioBytes, 0o600); err != nil {
-		return nil, fmt.Errorf("write demo scenario: %w", err)
-	}
-
-	centianCmd, errCh, err := startCentianProcess(layout, options)
-	if err != nil {
-		return nil, err
-	}
-	if err := common.WritePIDFile(layout.PIDPath, centianCmd.Process.Pid); err != nil {
-		_ = centianCmd.Process.Kill()
-		return nil, err
-	}
-	if err := waitForCentian(layout, errCh); err != nil {
-		_ = centianCmd.Process.Kill()
-		return nil, err
-	}
-
-	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
-	if options.OpenBrowser && runtime.GOOS == darwinOS {
-		//nolint:gosec // UI URL is generated locally from the bound loopback port.
-		_ = exec.Command("open", result.UIPublicURL).Start()
-	}
-	printDemoStatus(options.Stdout, result)
-
-	replayer := newSyntheticDemoReplayer()
-	_, _ = fmt.Fprintf(options.Stdout, "Seeding synthetic demo timeline from %s...\n", layout.ScenarioPath)
-	if err := replayer.replay(ctx, layout, scenario); err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-// RunStaticDemo creates the demo workspace, seeds the bundled IT Ops scenario
-// into the event store without playback delays, starts Centian, and opens the
-// task list for post-hoc inspection.
-func (DemoRunner) RunStaticDemo(ctx context.Context, opts *DemoOptions) (*DemoResult, error) {
-	options, err := normalizeSyntheticOptions(opts)
-	if err != nil {
-		return nil, err
-	}
-	_, _ = fmt.Fprintln(options.Stdout, "Preparing static IT Ops Centian demo...")
-	layout, err := prepareLayout(options)
-	if err != nil {
-		return nil, err
-	}
-	if err := renderAssets(layout); err != nil {
-		return nil, err
-	}
-	scenario, scenarioBytes, err := loadEmbeddedSyntheticDemoScenarioWithBytes(itOpsSyntheticDemoAsset)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(layout.ScenarioPath, scenarioBytes, 0o600); err != nil {
-		return nil, fmt.Errorf("write demo scenario: %w", err)
-	}
-
-	replayer := syntheticDemoReplayer{
-		now: time.Now,
-	}
-	if err := replayer.replay(ctx, layout, scenario); err != nil {
-		return nil, err
-	}
-	_, _ = fmt.Fprintf(options.Stdout, "Seeded IT Ops demo timeline into %s.\n", layout.EventStorePath)
-
-	centianCmd, errCh, err := startCentianProcess(layout, options)
-	if err != nil {
-		return nil, err
-	}
-	if err := common.WritePIDFile(layout.PIDPath, centianCmd.Process.Pid); err != nil {
-		_ = centianCmd.Process.Kill()
-		return nil, err
-	}
-	if err := waitForCentian(layout, errCh); err != nil {
-		_ = centianCmd.Process.Kill()
-		return nil, err
-	}
-
-	result := demoResultFromLayout(layout, centianCmd.Process.Pid)
-	if options.OpenBrowser && runtime.GOOS == darwinOS {
-		//nolint:gosec // UI URL is generated locally from the bound loopback port.
-		_ = exec.Command("open", result.UIPublicURL).Start()
-	}
-	printStaticDemoStatus(options.Stdout, result, layout.EventStorePath)
-	return result, nil
 }
 
 // prepareDemoRoot validates or initializes the chosen demo root before assets are rendered.
@@ -546,68 +309,6 @@ func selectAdapter(opts *DemoOptions) (agentAdapter, error) {
 	return selectAdapterForExecution(opts.Execution)
 }
 
-// startCentianProcess launches the demo-local Centian child process and returns a watcher channel.
-func startCentianProcess(layout *demoLayout, opts *DemoOptions) (*exec.Cmd, <-chan error, error) {
-	// This stays package-local because the demo flow needs its own process watcher
-	// and layout-specific wiring around the shared readiness helpers.
-	binary := strings.TrimSpace(opts.CentianBinaryPath)
-	if binary == "" {
-		return nil, nil, fmt.Errorf("centian binary path is required")
-	}
-	//nolint:gosec // The executable path comes from the current Centian binary or explicit CLI input.
-	cmd := exec.Command(binary, "start", "--config-path", layout.ConfigPath)
-	cmd.Dir = layout.WorkspacePath
-	cmd.Env = append(os.Environ(), "CENTIAN_LOG_DIR="+layout.LogsPath)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	cmd.SysProcAttr = detachedProcessAttrs()
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("start centian: %w", err)
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		err := cmd.Wait()
-		if err != nil {
-			errCh <- err
-			return
-		}
-		errCh <- nil
-	}()
-	return cmd, errCh, nil
-}
-
-// waitForCentian blocks until both the MCP and JSON API endpoints are serving successfully.
-func waitForCentian(layout *demoLayout, errCh <-chan error) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	err := common.WaitForReadiness(client, 45*time.Second, 500*time.Millisecond, func() error {
-		select {
-		case err := <-errCh:
-			if err == nil {
-				return fmt.Errorf("centian exited before becoming ready")
-			}
-			return fmt.Errorf("centian exited before becoming ready: %w", err)
-		default:
-			return nil
-		}
-	}, func(client *http.Client) bool {
-		return common.IsEndpointReachable(client, layout.MCPURL) &&
-			common.IsJSONEndpointReady(client, layout.BaseURL+"/api/task-runs")
-	})
-	if errors.Is(err, common.ErrReadinessTimeout) {
-		return fmt.Errorf("centian did not become ready in time; inspect %s", layout.InternalLogPath)
-	}
-	return err
-}
-
-// runAgent loads the saved prompt file and executes the selected agent against the demo MCP server.
-func runAgent(ctx context.Context, adapter agentAdapter, layout *demoLayout, opts *DemoOptions) error {
-	prompt, err := common.LoadPromptDefinition(layout.PromptPath)
-	if err != nil {
-		return err
-	}
-	return runAgentPrompt(ctx, adapter, layout, prompt.Prompt, opts.Stdout, opts.Stderr, opts.Timeout)
-}
-
 // runAgentPrompt executes one agent command, mirrors logs, and returns trimmed failure output.
 func runAgentPrompt(
 	ctx context.Context,
@@ -643,6 +344,7 @@ func runAgentPrompt(
 	//nolint:gosec // The command is constructed by the selected internal agent adapter.
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 	cmd.Dir = layout.WorkspacePath
+	cmd.SysProcAttr = detachedProcessAttrs()
 	if envVars := adapter.env(layout); len(envVars) > 0 {
 		cmd.Env = append(os.Environ(), envVars...)
 	}
@@ -681,30 +383,4 @@ func openAgentLog(path, agentName string) (*os.File, error) {
 		return nil, err
 	}
 	return file, nil
-}
-
-// printDemoStatus emits the key paths and URLs the user needs after the demo is ready.
-func printDemoStatus(w io.Writer, result *DemoResult) {
-	if w == nil || result == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "Demo root: %s\n", result.RootPath)
-	_, _ = fmt.Fprintf(w, "Workspace: %s\n", result.WorkspacePath)
-	_, _ = fmt.Fprintf(w, "UI: %s\n", result.UIPublicURL)
-	_, _ = fmt.Fprintf(w, "Agent stdout: %s\n", result.AgentStdout)
-	_, _ = fmt.Fprintf(w, "Agent stderr: %s\n", result.AgentStderr)
-	_, _ = fmt.Fprintf(w, "Centian PID: %d\n", result.PID)
-	_, _ = fmt.Fprintf(w, "Stop: %s\n", result.StopHint)
-}
-
-func printStaticDemoStatus(w io.Writer, result *DemoResult, eventStorePath string) {
-	if w == nil || result == nil {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "Demo root: %s\n", result.RootPath)
-	_, _ = fmt.Fprintf(w, "Workspace: %s\n", result.WorkspacePath)
-	_, _ = fmt.Fprintf(w, "Event store: %s\n", eventStorePath)
-	_, _ = fmt.Fprintf(w, "UI: %s\n", result.UIPublicURL)
-	_, _ = fmt.Fprintf(w, "Centian PID: %d\n", result.PID)
-	_, _ = fmt.Fprintf(w, "Stop: %s\n", result.StopHint)
 }
