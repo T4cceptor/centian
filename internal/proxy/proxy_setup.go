@@ -428,7 +428,13 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 		return
 	}
 
-	centapi.NewProjectsHandler(c.projectSummaries()).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+	centapi.NewProjectsHandler(c.projectSummaries()).WithFilter(func(r *http.Request, project centapi.ProjectSummary) bool {
+		authData := getAuthData(r.Context())
+		if authData == nil || authData.KeyEntry == nil {
+			return true
+		}
+		return authData.KeyEntry.AllowsProject(project.Slug)
+	}).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 		return wrapWithAPIKeyAuth(c, "", next)
 	})
 

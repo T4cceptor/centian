@@ -226,6 +226,109 @@ func TestCentianServerSetup_RegistersProjectScopedAPIRoutes(t *testing.T) {
 	assert.Equal(t, legacyBenchmarkPattern, "GET /api/benchmarks/suites")
 }
 
+func TestCentianServerSetup_FiltersProjectsByAPIKeyScope(t *testing.T) {
+	authEnabled := true
+	uiEnabled := true
+	taskVerificationEnabled := true
+	t.Setenv("HOME", t.TempDir())
+	entry, err := auth.NewAPIKeyEntry("plain-key")
+	assert.NilError(t, err)
+	entry.ID = "key_research"
+	entry.Projects = []string{"research"}
+	defaultPath, err := auth.DefaultAPIKeysPath()
+	assert.NilError(t, err)
+	assert.NilError(t, auth.WriteAPIKeyFile(defaultPath, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authEnabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Projects: map[string]*config.ProjectConfig{
+			config.DefaultProjectSlug: testProjectConfig(config.DefaultProjectSlug, "Default project", &authEnabled, &uiEnabled, &taskVerificationEnabled, filepath.Join(t.TempDir(), "default.sqlite")),
+			"research":                testProjectConfig("research", "Research project", &authEnabled, &uiEnabled, &taskVerificationEnabled, filepath.Join(t.TempDir(), "research.sqlite")),
+		},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+	assert.NilError(t, server.Setup())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/projects", http.NoBody)
+	req.Header.Set(config.DefaultAuthHeader, "Bearer plain-key")
+	rec := httptest.NewRecorder()
+	server.Mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	var response struct {
+		Projects []struct {
+			Slug string `json:"slug"`
+		} `json:"projects"`
+	}
+	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, len(response.Projects), 1)
+	assert.Equal(t, response.Projects[0].Slug, "research")
+}
+
+func TestCentianServerSetup_ProjectsAPIAllowAllKeySeesAllProjects(t *testing.T) {
+	authEnabled := true
+	uiEnabled := true
+	taskVerificationEnabled := true
+	t.Setenv("HOME", t.TempDir())
+	entry, err := auth.NewAPIKeyEntry("plain-key")
+	assert.NilError(t, err)
+	entry.ID = "key_all"
+	entry.Projects = []string{"*"}
+	defaultPath, err := auth.DefaultAPIKeysPath()
+	assert.NilError(t, err)
+	assert.NilError(t, auth.WriteAPIKeyFile(defaultPath, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authEnabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Projects: map[string]*config.ProjectConfig{
+			config.DefaultProjectSlug: testProjectConfig(config.DefaultProjectSlug, "Default project", &authEnabled, &uiEnabled, &taskVerificationEnabled, filepath.Join(t.TempDir(), "default.sqlite")),
+			"research":                testProjectConfig("research", "Research project", &authEnabled, &uiEnabled, &taskVerificationEnabled, filepath.Join(t.TempDir(), "research.sqlite")),
+		},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+	assert.NilError(t, server.Setup())
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/projects", http.NoBody)
+	req.Header.Set(config.DefaultAuthHeader, "Bearer plain-key")
+	rec := httptest.NewRecorder()
+	server.Mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	var response struct {
+		Projects []struct {
+			Slug string `json:"slug"`
+		} `json:"projects"`
+	}
+	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, len(response.Projects), 2)
+	assert.Equal(t, response.Projects[0].Slug, config.DefaultProjectSlug)
+	assert.Equal(t, response.Projects[1].Slug, "research")
+}
+
 func TestProjectSummariesUseConfiguredDisplayName(t *testing.T) {
 	authDisabled := false
 	uiEnabled := true

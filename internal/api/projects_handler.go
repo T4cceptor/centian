@@ -17,14 +17,27 @@ type projectsResponse struct {
 	Projects []ProjectSummary `json:"projects"`
 }
 
+// ProjectSummaryFilter filters project metadata for the current request.
+type ProjectSummaryFilter func(*http.Request, ProjectSummary) bool
+
 // ProjectsHandler serves configured project metadata.
 type ProjectsHandler struct {
 	projects []ProjectSummary
+	filter   ProjectSummaryFilter
 }
 
 // NewProjectsHandler builds a project metadata API handler.
 func NewProjectsHandler(projects []ProjectSummary) *ProjectsHandler {
 	return &ProjectsHandler{projects: append([]ProjectSummary{}, projects...)}
+}
+
+// WithFilter returns the handler with a request-scoped project filter attached.
+func (h *ProjectsHandler) WithFilter(filter ProjectSummaryFilter) *ProjectsHandler {
+	if h == nil {
+		return nil
+	}
+	h.filter = filter
+	return h
 }
 
 // RegisterRoutesWithMiddleware registers project metadata routes.
@@ -39,8 +52,15 @@ func (h *ProjectsHandler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middl
 	mux.Handle("GET /api/projects", wrapped)
 }
 
-func (h *ProjectsHandler) handleListProjects(w http.ResponseWriter, _ *http.Request) {
+func (h *ProjectsHandler) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	projects := make([]ProjectSummary, 0, len(h.projects))
+	for _, project := range h.projects {
+		if h.filter != nil && !h.filter(r, project) {
+			continue
+		}
+		projects = append(projects, project)
+	}
 	writeJSON(w, http.StatusOK, projectsResponse{
-		Projects: append([]ProjectSummary{}, h.projects...),
+		Projects: projects,
 	})
 }

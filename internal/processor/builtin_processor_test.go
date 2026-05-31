@@ -10,9 +10,11 @@ import (
 
 func TestBuiltinProcessorPromptInjectionGuard(t *testing.T) {
 	cfg := &config.ProcessorConfig{
-		Name:    "prompt-injection",
-		Type:    string(config.BuiltinProcessor),
-		Enabled: true,
+		Name:     "prompt-injection",
+		Type:     string(config.BuiltinProcessor),
+		Enabled:  true,
+		Required: true,
+		Parts:    []string{"payload", "annotations"},
 		Config: map[string]interface{}{
 			"processor": "prompt_injection_guard",
 			"mode":      "redact",
@@ -47,7 +49,9 @@ func TestBuiltinProcessorPromptInjectionGuard(t *testing.T) {
 
 func TestParseBuiltinProcessorSettings(t *testing.T) {
 	cfg := &config.ProcessorConfig{
-		Name: "prompt-injection",
+		Name:     "prompt-injection",
+		Required: true,
+		Parts:    []string{"payload", "annotations"},
 		Config: map[string]interface{}{
 			"processor": "prompt_injection_guard",
 			"mode":      "remove",

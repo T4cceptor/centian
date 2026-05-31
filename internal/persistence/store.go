@@ -24,7 +24,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 8
+const schemaVersion = 7
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -517,7 +517,7 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 		if err := s.migrateV6ToV7(ctx); err != nil {
 			return err
 		}
-		return s.migrateV7ToV8(ctx)
+		return nil
 	case 5:
 		if err := s.migrateV5ToV6(ctx); err != nil {
 			return err
@@ -525,14 +525,9 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 		if err := s.migrateV6ToV7(ctx); err != nil {
 			return err
 		}
-		return s.migrateV7ToV8(ctx)
+		return nil
 	case 6:
-		if err := s.migrateV6ToV7(ctx); err != nil {
-			return err
-		}
-		return s.migrateV7ToV8(ctx)
-	case 7:
-		return s.migrateV7ToV8(ctx)
+		return s.migrateV6ToV7(ctx)
 	default:
 		return &SchemaMigrationRequiredError{
 			StoredVersion:   fromVersion,

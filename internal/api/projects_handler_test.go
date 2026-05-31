@@ -45,3 +45,26 @@ func TestProjectsHandlerListsConfiguredProjects(t *testing.T) {
 	assert.Equal(t, response.Projects[1].Slug, "research")
 	assert.Equal(t, response.Projects[1].Description, "Research project")
 }
+
+func TestProjectsHandlerFiltersProjectsPerRequest(t *testing.T) {
+	handler := NewProjectsHandler([]ProjectSummary{
+		{Slug: "default", Name: "default"},
+		{Slug: "research", Name: "Research"},
+	}).WithFilter(func(_ *http.Request, project ProjectSummary) bool {
+		return project.Slug == "research"
+	})
+	mux := http.NewServeMux()
+	handler.RegisterRoutesWithMiddleware(mux, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/projects", http.NoBody)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, rec.Code, http.StatusOK)
+	var response struct {
+		Projects []ProjectSummary `json:"projects"`
+	}
+	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, len(response.Projects), 1)
+	assert.Equal(t, response.Projects[0].Slug, "research")
+}

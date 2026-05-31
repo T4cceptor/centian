@@ -184,6 +184,7 @@ type oauthHarness struct {
 
 func newOAuthHarness(t *testing.T, issueExpiredCodeToken bool) *oauthHarness {
 	t.Helper()
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
 
 	authServer := newFakeOAuthServer(issueExpiredCodeToken)
 	authBaseURL := startLocalHTTPServer(t, authServer.handler())

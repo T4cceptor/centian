@@ -77,9 +77,11 @@ func TestNewProcessor(t *testing.T) {
 
 	t.Run("creates builtin processor when enabled and type is builtin", func(t *testing.T) {
 		cfg := &config.ProcessorConfig{
-			Name:    "prompt-injection",
-			Type:    string(config.BuiltinProcessor),
-			Enabled: true,
+			Name:     "prompt-injection",
+			Type:     string(config.BuiltinProcessor),
+			Enabled:  true,
+			Required: true,
+			Parts:    []string{"payload", "annotations"},
 			Config: map[string]interface{}{
 				"processor": "prompt_injection_guard",
 				"mode":      "annotate",

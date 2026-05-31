@@ -689,6 +689,9 @@ type BuiltinProcessorSettings struct {
 	Mode      string
 }
 
+// BuiltinPromptInjectionGuard is the in-process prompt injection detection processor.
+const BuiltinPromptInjectionGuard = "prompt_injection_guard"
+
 var allowedProcessorParts = map[string]bool{
 	"payload":     true,
 	"meta":        true,
@@ -1455,6 +1458,20 @@ func ParseBuiltinProcessorSettings(processor *ProcessorConfig) (*BuiltinProcesso
 			return nil, fmt.Errorf("processor '%s': config.mode must be a string", processor.Name)
 		}
 		settings.Mode = strings.TrimSpace(mode)
+	}
+	if settings.Processor == BuiltinPromptInjectionGuard {
+		if !processor.Required {
+			return nil, fmt.Errorf("processor '%s': prompt_injection_guard must set required=true", processor.Name)
+		}
+		parts := map[string]bool{}
+		for _, part := range processor.GetParts() {
+			parts[part] = true
+		}
+		for _, requiredPart := range []string{"payload", "annotations"} {
+			if !parts[requiredPart] {
+				return nil, fmt.Errorf("processor '%s': prompt_injection_guard requires part '%s'", processor.Name, requiredPart)
+			}
+		}
 	}
 	return settings, nil
 }

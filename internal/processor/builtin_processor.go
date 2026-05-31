@@ -7,8 +7,6 @@ import (
 	promptinjectionguard "github.com/T4cceptor/centian/internal/processor/prompt_injection_guard"
 )
 
-const builtinPromptInjectionGuard = "prompt_injection_guard"
-
 // BuiltinProcessor runs a processor implementation compiled into Centian.
 type BuiltinProcessor struct {
 	config *config.ProcessorConfig
@@ -41,7 +39,7 @@ func (b *BuiltinProcessor) Process(input *DataContext) (*DataContext, error) {
 
 	var outputJSON []byte
 	switch settings.Processor {
-	case builtinPromptInjectionGuard:
+	case config.BuiltinPromptInjectionGuard:
 		outputJSON, err = promptinjectionguard.ProcessJSON(inputJSON, settings.Mode)
 	default:
 		return nil, fmt.Errorf("processor '%s': unsupported builtin processor %q", b.config.Name, settings.Processor)

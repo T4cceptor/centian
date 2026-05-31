@@ -137,6 +137,9 @@ func TestNewSQLiteStoreBootstrapsAndPersistsRows(t *testing.T) {
 	assert.Assert(t, annotationColumns["type"])
 	assert.Assert(t, annotationColumns["category"])
 	assert.Assert(t, annotationColumns["raw_json"])
+	assertSQLiteIndexExists(t, db, "idx_event_annotations_action_event_id")
+	assertSQLiteIndexExists(t, db, "idx_event_annotations_request_id")
+	assertSQLiteIndexExists(t, db, "idx_event_annotations_created_at")
 }
 
 func TestNewSQLiteStoreMemoryBootstrapsAndPersistsRows(t *testing.T) {
@@ -404,38 +407,9 @@ func TestNewSQLiteStoreMigratesAnnotationsV6ToCurrentSchema(t *testing.T) {
 	assert.Assert(t, columns["type"])
 	assert.Assert(t, columns["category"])
 	assert.Assert(t, columns["raw_json"])
-
-	var version int
-	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
-	assert.NilError(t, err)
-	assert.Equal(t, version, schemaVersion)
-}
-
-func TestNewSQLiteStoreMigratesAnnotationsV7ToV8(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "events.sqlite")
-
-	db, err := sql.Open(sqliteshim.ShimName, path)
-	assert.NilError(t, err)
-	seedSchemaVersion7Store(t, db)
-	assert.NilError(t, db.Close())
-
-	store, err := NewSQLiteStore(path)
-	assert.NilError(t, err)
-	assert.NilError(t, store.Close())
-
-	db, err = sql.Open(sqliteshim.ShimName, path)
-	assert.NilError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	columns, err := tableColumns(db, "event_annotations")
-	assert.NilError(t, err)
-	assert.Assert(t, columns["type"])
-	assert.Assert(t, columns["category"])
-
-	var annotationCount int
-	err = db.QueryRow(`SELECT COUNT(*) FROM event_annotations WHERE action_event_id = 'ae_v7'`).Scan(&annotationCount)
-	assert.NilError(t, err)
-	assert.Equal(t, annotationCount, 1)
+	assertSQLiteIndexExists(t, db, "idx_event_annotations_action_event_id")
+	assertSQLiteIndexExists(t, db, "idx_event_annotations_request_id")
+	assertSQLiteIndexExists(t, db, "idx_event_annotations_created_at")
 
 	var version int
 	err = db.QueryRow(`SELECT version FROM event_store_schema WHERE name = 'event_storage'`).Scan(&version)
@@ -1596,52 +1570,6 @@ func seedSchemaVersion6Store(t *testing.T, db *sql.DB) {
 	}
 }
 
-func seedSchemaVersion7Store(t *testing.T, db *sql.DB) {
-	t.Helper()
-
-	seedSchemaVersion6Store(t, db)
-	_, err := db.Exec(`UPDATE event_store_schema SET version = 7 WHERE name = 'event_storage'`)
-	assert.NilError(t, err)
-	_, err = db.Exec(`CREATE TABLE event_annotations (
-		id TEXT PRIMARY KEY,
-		schema_version INTEGER NOT NULL,
-		action_event_id TEXT NOT NULL,
-		request_id TEXT NOT NULL,
-		created_at_unix_milli INTEGER NOT NULL,
-		processor TEXT,
-		action TEXT,
-		severity TEXT,
-		message TEXT,
-		rule TEXT,
-		path TEXT,
-		raw_json BLOB,
-		FOREIGN KEY(action_event_id) REFERENCES action_events(id) ON DELETE CASCADE
-	)`)
-	assert.NilError(t, err)
-	_, err = db.Exec(`INSERT INTO event_annotations (
-		id,
-		schema_version,
-		action_event_id,
-		request_id,
-		created_at_unix_milli,
-		processor,
-		action,
-		severity,
-		message
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"ann_v7",
-		7,
-		"ae_v7",
-		"req_v7",
-		1000,
-		"legacy_processor",
-		"annotated",
-		"low",
-		"legacy annotation",
-	)
-	assert.NilError(t, err)
-}
-
 func insertTaskRunSnapshotRow(t *testing.T, db *sql.DB, runID string, status string) {
 	t.Helper()
 
@@ -1710,4 +1638,11 @@ func sqliteMasterCount(db *sql.DB, entryType string, name string) (int, error) {
 	var count int
 	err := row.Scan(&count)
 	return count, err
+}
+
+func assertSQLiteIndexExists(t *testing.T, db *sql.DB, name string) {
+	t.Helper()
+	count, err := sqliteMasterCount(db, "index", name)
+	assert.NilError(t, err)
+	assert.Equal(t, count, 1)
 }
