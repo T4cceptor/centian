@@ -10,11 +10,12 @@ import (
 )
 
 type processorInputDTO struct {
-	Version string              `json:"version,omitempty"`
-	Event   *common.MetaContext `json:"event,omitempty"`
-	Payload *payloadPartDTO     `json:"payload,omitempty"`
-	Routing *RoutingPart        `json:"routing,omitempty"`
-	Auth    *common.AuthContext `json:"auth,omitempty"`
+	Version     string              `json:"version,omitempty"`
+	Event       *common.MetaContext `json:"event,omitempty"`
+	Payload     *payloadPartDTO     `json:"payload,omitempty"`
+	Routing     *RoutingPart        `json:"routing,omitempty"`
+	Auth        *common.AuthContext `json:"auth,omitempty"`
+	Annotations *AnnotationPart     `json:"annotations,omitempty"`
 }
 
 type payloadPartDTO struct {
@@ -34,10 +35,11 @@ func marshalProcessorInput(input *DataContext) ([]byte, error) {
 	}
 
 	dto := &processorInputDTO{
-		Version: input.Version,
-		Event:   input.Event,
-		Routing: input.Routing,
-		Auth:    input.Auth,
+		Version:     input.Version,
+		Event:       input.Event,
+		Routing:     input.Routing,
+		Auth:        input.Auth,
+		Annotations: input.Annotations,
 	}
 
 	if input.Payload != nil {

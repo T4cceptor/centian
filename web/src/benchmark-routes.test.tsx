@@ -18,6 +18,7 @@ function createFetchResponse(body: unknown, status: number = 200): Response {
 }
 
 function renderApp(initialEntries: string[]) {
+  installProjectFetchMock();
   return render(
     <MemoryRouter
       initialEntries={initialEntries}
@@ -26,6 +27,29 @@ function renderApp(initialEntries: string[]) {
       <AppRoutes />
     </MemoryRouter>,
   );
+}
+
+function installProjectFetchMock() {
+  const configuredFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === "/api/projects") {
+      return Promise.resolve(
+        createFetchResponse({
+          projects: [
+            {
+              slug: "default",
+              name: "default",
+              isDefault: true,
+              uiEnabled: true,
+              eventStorageEnabled: true,
+              taskVerificationEnabled: true,
+            },
+          ],
+        }),
+      );
+    }
+    return configuredFetch(input, init);
+  }) as typeof fetch;
 }
 
 afterEach(() => {
@@ -370,7 +394,7 @@ describe("benchmark routes", () => {
     expect(screen.getAllByText("codex / gpt-5.4-mini").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Show task runs" })).toHaveAttribute(
       "href",
-      "/tasks?benchmarkSuite=simple_tdd_v1",
+      "/default/tasks?benchmarkSuite=simple_tdd_v1",
     );
   });
 
@@ -514,7 +538,7 @@ describe("benchmark routes", () => {
     expect(screen.getByRole("heading", { name: "Assertion-failure red baseline" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "To Task Run" })).toHaveAttribute(
       "href",
-      "/tasks/tr_1742947200123_0000000001",
+      "/default/tasks/tr_1742947200123_0000000001",
     );
     expect(screen.queryByText("Linked Task Runs")).not.toBeInTheDocument();
   });

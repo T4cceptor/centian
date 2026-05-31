@@ -5,6 +5,8 @@ This folder provides two local demos with a single Centian config and container:
 - Logging gateway (`/mcp/logging-demo`): emits OpenTelemetry tool-call spans to Jaeger.
 - Redaction gateway (`/mcp/modification-demo`): masks sensitive patterns in MCP response text.
 
+It also uses the built-in prompt injection guard processor, which demonstrates blocking obvious prompt injection markers in tool requests and results. The guard is compiled into Centian and configured with `type: "builtin"`.
+
 ## Structure
 
 Run commands from `demo/processors`.

@@ -24,6 +24,7 @@ const (
 	KindTaskRun      Kind = "tr"
 	KindTaskEvent    Kind = "te"
 	KindActionEvent  Kind = "ae"
+	KindAnnotation   Kind = "ann"
 	KindRequest      Kind = "req"
 	KindSession      Kind = "sid"
 	KindServer       Kind = "srv"
@@ -46,6 +47,7 @@ var knownKinds = map[Kind]struct{}{
 	KindTaskRun:      {},
 	KindTaskEvent:    {},
 	KindActionEvent:  {},
+	KindAnnotation:   {},
 	KindRequest:      {},
 	KindSession:      {},
 	KindServer:       {},

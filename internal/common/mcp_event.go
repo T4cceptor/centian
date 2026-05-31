@@ -8,13 +8,33 @@ import (
 // MetaContext contains processor-facing event metadata.
 type MetaContext struct {
 	BaseMcpEvent
+	Annotations []EventAnnotation `json:"-"`
 }
 
 // LogEntry is the enriched log payload written to the Centian JSONL log.
 type LogEntry struct {
 	BaseMcpEvent
-	Routing  RoutingContext `json:"routing"`
-	ToolCall *ToolCallLog   `json:"tool_call,omitempty"`
+	Routing     RoutingContext    `json:"routing"`
+	ToolCall    *ToolCallLog      `json:"tool_call,omitempty"`
+	Annotations []EventAnnotation `json:"annotations,omitempty"`
+}
+
+// EventAnnotation describes a processor observation or policy action for an event.
+type EventAnnotation struct {
+	Type      string                   `json:"type,omitempty"`
+	Processor string                   `json:"processor,omitempty"`
+	Action    string                   `json:"action,omitempty"`
+	Category  string                   `json:"category,omitempty"`
+	Severity  string                   `json:"severity,omitempty"`
+	Message   string                   `json:"message,omitempty"`
+	Findings  []EventAnnotationFinding `json:"findings,omitempty"`
+	Details   map[string]any           `json:"details,omitempty"`
+}
+
+// EventAnnotationFinding identifies a specific annotation finding.
+type EventAnnotationFinding struct {
+	Rule string `json:"rule,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 
 // RoutingContext captures where the request is going.

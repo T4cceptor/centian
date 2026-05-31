@@ -199,6 +199,36 @@ func (h *DefaultAuthHandler) Apply(_ CallContext, _ *processor.DataContext) erro
 }
 
 // =============================================================================
+// AnnotationHandler - stores processor findings on event annotations
+// =============================================================================
+
+// DefaultAnnotationHandler lets processors report findings without modifying MCP payloads.
+type DefaultAnnotationHandler struct{}
+
+// AttachPart attaches existing processor annotations from the current event.
+func (h *DefaultAnnotationHandler) AttachPart(callCtx CallContext, input *processor.DataContext) {
+	if input == nil || callCtx == nil || callCtx.GetMetaContext() == nil {
+		return
+	}
+	input.Annotations = &processor.AnnotationPart{Reports: callCtx.GetMetaContext().Annotations}
+}
+
+// Apply appends processor annotations to the event model.
+func (h *DefaultAnnotationHandler) Apply(callCtx CallContext, output *processor.DataContext) error {
+	if callCtx == nil || output == nil || output.Annotations == nil || len(output.Annotations.Reports) == 0 {
+		return nil
+	}
+
+	meta := callCtx.GetMetaContext()
+	if meta == nil {
+		meta = common.NewMetaContext("", common.DirectionUnknown, common.MessageTypeUnknown)
+		callCtx.SetMetaContext(meta)
+	}
+	meta.Annotations = append(meta.Annotations, output.Annotations.Reports...)
+	return nil
+}
+
+// =============================================================================
 // DefaultLogHandler writes the current call state to the request log.
 // =============================================================================
 

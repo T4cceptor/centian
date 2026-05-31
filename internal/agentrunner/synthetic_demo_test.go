@@ -2,7 +2,6 @@ package agentrunner
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,45 +13,122 @@ import (
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
 
-func TestLoadSyntheticDemoScenarioEmbedded(t *testing.T) {
-	scenario, data, err := loadSyntheticDemoScenario("")
+func TestLoadOpsSyntheticDemoScenario(t *testing.T) {
+	data, err := asset(itOpsSyntheticDemoAsset)
 	if err != nil {
-		t.Fatalf("loadSyntheticDemoScenario: %v", err)
+		t.Fatalf("load ops demo asset: %v", err)
+	}
+	scenario, err := loadEmbeddedSyntheticDemoScenario(itOpsSyntheticDemoAsset)
+	if err != nil {
+		t.Fatalf("loadEmbeddedSyntheticDemoScenario: %v", err)
 	}
 	if len(data) == 0 {
-		t.Fatal("expected embedded scenario bytes")
+		t.Fatal("expected ops demo scenario bytes")
 	}
-	if scenario.Version != syntheticDemoScenarioVersion {
-		t.Fatalf("expected version %d, got %d", syntheticDemoScenarioVersion, scenario.Version)
+	if scenario.Defaults.TemplateID != "it_incident_resolution" {
+		t.Fatalf("expected it_incident_resolution template, got %q", scenario.Defaults.TemplateID)
 	}
-	if scenario.DurationMS < 20_000 || scenario.DurationMS > 30_000 {
-		t.Fatalf("expected embedded scenario to last 20-30 seconds, got %dms", scenario.DurationMS)
+
+	var sawPromptInjectionAnnotation bool
+	var sawAllowlistDenial bool
+	var sawDocumentationCheckFailure bool
+	var sawFrozenChecksComplete bool
+	for _, item := range scenario.Timeline {
+		if item.ActionEvent != nil {
+			event := item.ActionEvent
+			for _, annotation := range event.Annotations {
+				if annotation.Processor == "prompt_injection_guard" && annotation.Action == "redacted" {
+					sawPromptInjectionAnnotation = true
+				}
+			}
+			if event.Error == "restart_service is not permitted in step root_cause_analysis." {
+				sawAllowlistDenial = true
+			}
+			if event.Error == "Cannot complete step `root_cause_documentation`: postcondition `rca_documented` not met." {
+				sawDocumentationCheckFailure = true
+			}
+			if event.ToolCall != nil && event.ToolCall.Name == "centian.task_complete_step" &&
+				strings.Contains(string(event.ToolCall.Result), "latency_within_target") &&
+				strings.Contains(string(event.ToolCall.Result), "service_healthy") {
+				sawFrozenChecksComplete = true
+			}
+		}
 	}
-	if len(scenario.Timeline) == 0 {
-		t.Fatal("expected embedded timeline items")
+	if !sawPromptInjectionAnnotation {
+		t.Fatal("expected prompt injection annotation beat")
+	}
+	if !sawAllowlistDenial {
+		t.Fatal("expected allowlist denial beat")
+	}
+	if !sawDocumentationCheckFailure {
+		t.Fatal("expected documentation check failure beat")
+	}
+	if !sawFrozenChecksComplete {
+		t.Fatal("expected frozen verification completion beat")
+	}
+
+	replayer := syntheticDemoReplayer{
+		now: func() time.Time {
+			return time.UnixMilli(1_779_318_000_000).UTC()
+		},
+	}
+	layout := &demoLayout{EventStorePath: filepath.Join(t.TempDir(), "events.sqlite")}
+	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
+		t.Fatalf("replay ops scenario: %v", err)
 	}
 }
 
-func TestLoadSyntheticDemoScenarioFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "scenario.json")
-	if err := os.WriteFile(path, []byte(`{
-		"version": 1,
-		"timeline": [
-			{"offsetMs": 0, "snapshot": {"templateId": "demo", "templateName": "Demo", "status": "active", "phase": "onboarding", "selectedTemplate": {"version": "0.1", "task": {"id": "demo", "name": "Demo", "description": "Demo"}}}}
-		]
-	}`), 0o600); err != nil {
-		t.Fatalf("write scenario: %v", err)
+func TestLoadRegisteredSyntheticDemo(t *testing.T) {
+	definition, scenario, err := loadRegisteredSyntheticDemo("it_ops")
+	if err != nil {
+		t.Fatalf("loadRegisteredSyntheticDemo: %v", err)
+	}
+	if definition.ID != "it_ops" {
+		t.Fatalf("expected it_ops definition, got %q", definition.ID)
+	}
+	if scenario.Defaults.TemplateID != "it_incident_resolution" {
+		t.Fatalf("expected it_incident_resolution template, got %q", scenario.Defaults.TemplateID)
+	}
+	if scenario.DurationMS != 72_000 {
+		t.Fatalf("expected 72000ms duration, got %d", scenario.DurationMS)
+	}
+}
+
+func TestStartSyntheticDemoRunWithOptionsUsesFixedRunID(t *testing.T) {
+	store, err := persistence.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	const fixedRunID = "tr_1742947200123_itopsdemo1"
+	run, err := StartSyntheticDemoRunWithOptions(context.Background(), store, "it_ops", SyntheticDemoRunOptions{RunID: fixedRunID})
+	if err != nil {
+		t.Fatalf("StartSyntheticDemoRunWithOptions: %v", err)
+	}
+	if run.RunID != fixedRunID {
+		t.Fatalf("expected fixed run ID %q, got %q", fixedRunID, run.RunID)
 	}
 
-	scenario, data, err := loadSyntheticDemoScenario(path)
+	snapshot, err := store.GetTaskRunSnapshot(context.Background(), fixedRunID)
 	if err != nil {
-		t.Fatalf("loadSyntheticDemoScenario: %v", err)
+		t.Fatalf("GetTaskRunSnapshot: %v", err)
 	}
-	if !strings.Contains(string(data), `"version": 1`) {
-		t.Fatalf("expected original file bytes, got %s", string(data))
+	if snapshot == nil {
+		t.Fatal("expected fixed run snapshot")
 	}
-	if len(scenario.Timeline) != 1 {
-		t.Fatalf("expected one timeline item, got %d", len(scenario.Timeline))
+}
+
+func TestStartSyntheticDemoRunWithOptionsRejectsInvalidRunID(t *testing.T) {
+	store, err := persistence.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	_, err = StartSyntheticDemoRunWithOptions(context.Background(), store, "it_ops", SyntheticDemoRunOptions{RunID: "run-1"})
+	if err == nil || !strings.Contains(err.Error(), "invalid synthetic demo run id") {
+		t.Fatalf("expected invalid run id error, got %v", err)
 	}
 }
 
@@ -153,27 +229,14 @@ func TestSyntheticDemoReplayPersistsTimelineWithoutWaiting(t *testing.T) {
 			},
 		},
 	}
-	var sleeps []time.Duration
 	replayer := syntheticDemoReplayer{
 		now: func() time.Time {
 			return time.UnixMilli(1_742_947_200_000).UTC()
-		},
-		sleep: func(_ context.Context, duration time.Duration) error {
-			sleeps = append(sleeps, duration)
-			return nil
 		},
 	}
 
 	if err := replayer.replay(context.Background(), layout, scenario); err != nil {
 		t.Fatalf("replay: %v", err)
-	}
-
-	var totalSleep time.Duration
-	for _, duration := range sleeps {
-		totalSleep += duration
-	}
-	if totalSleep != 300*time.Millisecond {
-		t.Fatalf("expected replay sleeps to span 300ms, got %s from %#v", totalSleep, sleeps)
 	}
 
 	store, err := persistence.NewSQLiteStore(layout.EventStorePath)
@@ -257,9 +320,6 @@ func TestSyntheticDemoReplayRemapsLogicalRequestIDsPerRun(t *testing.T) {
 	}
 	replayer := syntheticDemoReplayer{
 		now: func() time.Time { return time.UnixMilli(1_742_947_200_000).UTC() },
-		sleep: func(context.Context, time.Duration) error {
-			return nil
-		},
 	}
 
 	if err := replayer.replay(context.Background(), layout, scenario); err != nil {

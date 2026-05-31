@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 type Store interface {
 	ListTaskRuns(ctx context.Context, filter persistence.TaskRunFilter) ([]persistence.TaskRunSummary, error)
 	GetTaskRun(ctx context.Context, runID string) (*persistence.TaskRunSummary, error)
+	GetTaskRunSnapshot(ctx context.Context, runID string) (*persistence.TaskRunSnapshotRecord, error)
 	ListTaskRunBenchmarkLinks(ctx context.Context, runID string) ([]persistence.TaskRunBenchmarkLink, error)
 	GetTaskRunEvents(ctx context.Context, runID string) ([]persistence.TaskRunEvent, error)
 }
@@ -42,8 +44,17 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 // RegisterRoutesWithMiddleware registers the task run API routes and wraps each
 // endpoint with the provided middleware when present.
 func (h *Handler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware func(http.Handler) http.Handler) {
+	h.RegisterRoutesWithPrefix(mux, "/api", middleware)
+}
+
+// RegisterRoutesWithPrefix registers task run API routes under prefix.
+func (h *Handler) RegisterRoutesWithPrefix(mux *http.ServeMux, prefix string, middleware func(http.Handler) http.Handler) {
 	if h == nil || h.store == nil || mux == nil {
 		return
+	}
+	prefix = strings.TrimRight(strings.TrimSpace(prefix), "/")
+	if prefix == "" {
+		prefix = "/api"
 	}
 
 	register := func(pattern string, handler http.HandlerFunc) {
@@ -54,9 +65,9 @@ func (h *Handler) RegisterRoutesWithMiddleware(mux *http.ServeMux, middleware fu
 		mux.Handle(pattern, wrapped)
 	}
 
-	register("GET /api/task-runs", h.handleListTaskRuns)
-	register("GET /api/task-runs/{runID}", h.handleGetTaskRun)
-	register("GET /api/task-runs/{runID}/events", h.handleGetTaskRunEvents)
+	register(fmt.Sprintf("GET %s/task-runs", prefix), h.handleListTaskRuns)
+	register(fmt.Sprintf("GET %s/task-runs/{runID}", prefix), h.handleGetTaskRun)
+	register(fmt.Sprintf("GET %s/task-runs/{runID}/events", prefix), h.handleGetTaskRunEvents)
 }
 
 func (h *Handler) handleListTaskRuns(w http.ResponseWriter, r *http.Request) {
@@ -93,10 +104,21 @@ func (h *Handler) handleGetTaskRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get task run")
 		return
 	}
-	writeJSON(w, http.StatusOK, persistence.TaskRunDetailMetadata{
+	detail := persistence.TaskRunDetailMetadata{
 		RunID:          summary.RunID,
+		Summary:        summary,
 		BenchmarkLinks: links,
-	})
+	}
+	snapshot, err := h.store.GetTaskRunSnapshot(r.Context(), runID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusInternalServerError, "failed to get task run")
+			return
+		}
+	} else if snapshot != nil {
+		detail.Snapshot = snapshot.Payload
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *Handler) handleGetTaskRunEvents(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +134,20 @@ func (h *Handler) handleGetTaskRunEvents(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if len(events) == 0 {
-		writeError(w, http.StatusNotFound, "task run not found")
+		summary, err := h.store.GetTaskRun(r.Context(), runID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "task run not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to get task run events")
+			return
+		}
+		if summary == nil {
+			writeError(w, http.StatusNotFound, "task run not found")
+			return
+		}
+		writeJSON(w, http.StatusOK, []persistence.TaskRunEvent{})
 		return
 	}
 	writeJSON(w, http.StatusOK, events)

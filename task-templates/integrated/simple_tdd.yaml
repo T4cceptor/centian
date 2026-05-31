@@ -51,6 +51,7 @@ workflow:
       tools_allowed: ["*"]
       checks:
         - id: "selected_test_fails"
+          description: "The selected baseline must fail for the expected reason before implementation starts."
           command: "${testCommand}"
           pre_conditions:
             - type: exit_code_in
@@ -75,6 +76,7 @@ workflow:
       tools_allowed: ["*"]
       checks:
         - id: "selected_test_passes"
+          description: "The selected baseline must pass after the implementation change."
           command: "${testCommand}"
           pre_conditions:
             - type: exit_code_in
@@ -97,6 +99,7 @@ workflow:
       tools_allowed: ["*"]
       checks:
         - id: "selected_test_stays_green"
+          description: "The selected baseline must stay green throughout refactoring."
           command: "${testCommand}"
           pre_conditions:
             - type: exit_code

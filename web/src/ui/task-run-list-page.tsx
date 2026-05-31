@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRuns, type TaskRunSummary } from "../api/task-runs";
+import { ApiError, fetchTaskRuns, normalizeProjectSlug, type TaskRunSummary } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import {
   formatDuration,
@@ -31,6 +31,8 @@ function getTaskRunDisplayPhase(run: TaskRunSummary): string {
 
 // Shows the live task run index, including loading, empty, and error states.
 export function TaskRunListPage() {
+  const { projectSlug: rawProjectSlug } = useParams();
+  const projectSlug = normalizeProjectSlug(rawProjectSlug);
   const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<TaskRunSummary[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -49,7 +51,7 @@ export function TaskRunListPage() {
     setErrorMessage("");
 
     // Abort in-flight fetches when the page unmounts so stale responses do not win.
-    void fetchTaskRuns({ benchmarkSuite: benchmarkSuite || undefined }, controller.signal)
+    void fetchTaskRuns(projectSlug, { benchmarkSuite: benchmarkSuite || undefined }, controller.signal)
       .then((result) => {
         setRuns(result);
         setLoadState("ready");
@@ -69,7 +71,7 @@ export function TaskRunListPage() {
       });
 
     return () => controller.abort();
-  }, [benchmarkSuite, reloadToken]);
+  }, [benchmarkSuite, projectSlug, reloadToken]);
 
   useEffect(() => {
     if (loadState !== "ready") {
@@ -90,7 +92,7 @@ export function TaskRunListPage() {
       inFlight = true;
       controller = new AbortController();
 
-      void fetchTaskRuns({ benchmarkSuite: benchmarkSuite || undefined }, controller.signal)
+      void fetchTaskRuns(projectSlug, { benchmarkSuite: benchmarkSuite || undefined }, controller.signal)
         .then((result) => {
           setRuns(result);
         })
@@ -115,7 +117,7 @@ export function TaskRunListPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [benchmarkSuite, loadState]);
+  }, [benchmarkSuite, loadState, projectSlug]);
 
   useEffect(() => {
     const activeRunExists = runs.some((run) => getTaskRunUIStatus(run.status, run.endedAt) === "active");
@@ -200,7 +202,9 @@ export function TaskRunListPage() {
             </div>
           ) : null}
         </div>
-        <p className="task-run-list__count">{runs.length} tracked runs</p>
+        <div className="task-run-list__toolbar-actions">
+          <p className="task-run-list__count">{runs.length} tracked runs</p>
+        </div>
       </div>
 
       <div className="task-run-table" role="table" aria-label="Task runs">
@@ -227,7 +231,7 @@ export function TaskRunListPage() {
                 key={run.runId}
                 aria-label={`Open task run ${run.runId}`}
                 className="task-run-row"
-                to={`/tasks/${run.runId}${detailSuffix}`}
+                to={`/${projectSlug}/tasks/${run.runId}${detailSuffix}`}
               >
                 <span className="task-run-row__run" title={run.runId}>
                   <strong>{formatTaskRunId(run.runId)}</strong>

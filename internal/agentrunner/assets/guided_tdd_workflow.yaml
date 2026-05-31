@@ -68,6 +68,7 @@ workflow:
         Create the planned test file as a new artifact. Keep this step additive.
       checks:
         - id: "test_file_created"
+          description: "The planned test file must be created during scaffolding."
           command: "printf 'scaffold-test-file'"
           pre_conditions:
             - type: file_not_exists
@@ -84,6 +85,7 @@ workflow:
         Add the planned test scaffold and make sure the implementation target exists. If the implementation file does not exist yet, create a minimal stub that preserves the planned failing baseline.
       checks:
         - id: "test_scaffold_created"
+          description: "The planned test scaffold and implementation target must exist before execution starts."
           command: "printf 'scaffold-test-content'"
           pre_conditions:
             - type: file_exists
@@ -108,6 +110,7 @@ workflow:
         The pass/fail decision for this step comes from `centian.task_complete_step`.
       checks:
         - id: "selected_test_fails"
+          description: "The selected test must fail for the expected reason before implementation starts."
           command: "${testCommand} ${testTarget}"
           pre_conditions:
             - type: exit_code
@@ -130,6 +133,7 @@ workflow:
         Once this step is active, keep the selected test file stable.
       checks:
         - id: "selected_test_passes"
+          description: "The selected test must pass after the implementation change."
           command: "${testCommand} ${testTarget}"
           pre_conditions:
             - type: exit_code
@@ -138,6 +142,7 @@ workflow:
             - type: exit_code
               value: 0
         - id: "project_lint_passes"
+          description: "The project lint command must pass before the solution step is accepted."
           command: "${lintCommand}"
           post_conditions:
             - type: exit_code

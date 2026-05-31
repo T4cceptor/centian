@@ -57,6 +57,7 @@ func newTaskToolTestProxyWithTimeout(
 	t.Cleanup(func() {
 		_ = logger.Close()
 	})
+	taskService := taskverification.NewServiceWithOptions(templateDir, workingDir, taskverification.ServiceOptions{})
 
 	endpoint := &CentianEndpoint{
 		name:     "tasks",
@@ -74,7 +75,12 @@ func newTaskToolTestProxyWithTimeout(
 				},
 			},
 			Logger:           logger,
-			TaskVerification: taskverification.NewServiceWithOptions(templateDir, workingDir, taskverification.ServiceOptions{}),
+			TaskVerification: taskService,
+		},
+		project: &CentianProject{
+			Slug:             config.DefaultProjectSlug,
+			Logger:           logger,
+			TaskVerification: taskService,
 		},
 		config: &config.GatewayConfig{
 			VerificationRequirement: requirement,
@@ -117,8 +123,181 @@ func newPersistentTaskToolTestProxy(t *testing.T, templateContent string) (*Cent
 		_ = store.Close()
 	})
 	endpoint.server.TaskVerification.EventStore = store
+	endpoint.server.TaskVerification.RunStore = store
+	endpoint.server.PersistenceStore = store
 	endpoint.server.Logger.SetActionEventStore(store)
+	if endpoint.project != nil {
+		endpoint.project.PersistenceStore = store
+		endpoint.project.TaskVerification.EventStore = store
+		endpoint.project.TaskVerification.RunStore = store
+		endpoint.project.Logger.SetActionEventStore(store)
+	}
 	return endpoint, session, store
+}
+
+func newProjectScopedWritePathTestEndpoint(
+	t *testing.T,
+	server *CentianServer,
+	slug string,
+	storePath string,
+) (*CentianEndpoint, *UpstreamSession, *persistence.Store) {
+	t.Helper()
+
+	templateDir := t.TempDir()
+	workingDir := t.TempDir()
+	assert.NilError(t, os.WriteFile(filepath.Join(templateDir, "task.yaml"), []byte(basicTaskTemplate()), 0o644))
+
+	store, err := persistence.NewSQLiteStore(storePath)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+
+	logger, err := logging.NewLoggerInDir(filepath.Join(t.TempDir(), "logs"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = logger.Close()
+	})
+	logger.SetActionEventStore(store)
+
+	taskService := taskverification.NewServiceWithOptions(templateDir, workingDir, taskverification.ServiceOptions{})
+	taskService.EventStore = store
+	taskService.RunStore = store
+
+	project := &CentianProject{
+		Slug:             slug,
+		Config:           &config.ProjectConfig{},
+		Logger:           logger,
+		PersistenceStore: store,
+		TaskVerification: taskService,
+	}
+	endpoint := &CentianEndpoint{
+		name:             slug + "-gateway",
+		endpoint:         "/mcp/" + slug + "-gateway",
+		server:           server,
+		project:          project,
+		config:           &config.GatewayConfig{VerificationRequirement: config.VerificationRequirementOptional},
+		upstreamSessions: make(map[string]*UpstreamSession),
+		downstreamPools:  make(map[string]*DownstreamSessionPool),
+	}
+	session := &UpstreamSession{
+		id:                    "session-" + slug,
+		identityKey:           "principal-" + slug,
+		downstreamSessionKey:  "pool-" + slug,
+		downstreamConns:       make(map[string]DownstreamConnectionInterface),
+		registeredTools:       make(map[string]struct{}),
+		registeredStaticTools: make(map[string]struct{}),
+	}
+	return endpoint, session, store
+}
+
+func TestProjectScopedWritePathIsolatesTaskAndActionEvents(t *testing.T) {
+	t.Setenv("CENTIAN_LOG_DIR", t.TempDir())
+	serverLogger, err := logging.NewLogger()
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = serverLogger.Close()
+	})
+	server := &CentianServer{
+		ServerID: "server-1",
+		Logger:   serverLogger,
+	}
+	defaultEndpoint, defaultSession, defaultStore := newProjectScopedWritePathTestEndpoint(t, server, config.DefaultProjectSlug, filepath.Join(t.TempDir(), "default.sqlite"))
+	researchEndpoint, researchSession, researchStore := newProjectScopedWritePathTestEndpoint(t, server, "research", filepath.Join(t.TempDir(), "research.sqlite"))
+
+	callTaskRegisterTool(t, defaultEndpoint, defaultSession)
+	assertTaskRunCount(t, defaultStore, 1)
+	assertTaskRunCount(t, researchStore, 0)
+	assertActionEventCount(t, defaultStore, 1)
+	assertActionEventCount(t, researchStore, 0)
+
+	assert.NilError(t, researchEndpoint.projectLogger().LogMcpEvent(projectScopedTestLogEntry("research-req", "research-gateway")))
+	assertActionEventCount(t, defaultStore, 1)
+	assertActionEventCount(t, researchStore, 1)
+	assertAnnotatedEventCount(t, researchStore, 1)
+
+	callTaskRegisterTool(t, researchEndpoint, researchSession)
+	assertTaskRunCount(t, defaultStore, 1)
+	assertTaskRunCount(t, researchStore, 1)
+	assertActionEventCount(t, defaultStore, 1)
+	assertActionEventCount(t, researchStore, 2)
+}
+
+func callTaskRegisterTool(t *testing.T, endpoint *CentianEndpoint, session *UpstreamSession) {
+	t.Helper()
+	rawArgs, err := json.Marshal(map[string]any{
+		"templateId": "task",
+	})
+	assert.NilError(t, err)
+	handler := endpoint.wrapTaskToolHandler(session, taskRegisterTool, endpoint.handleTaskRegisterTool)
+	result, err := handler(context.Background(), &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Name:      taskRegisterTool,
+			Arguments: rawArgs,
+		},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, result != nil)
+	assert.Assert(t, !result.IsError)
+}
+
+func projectScopedTestLogEntry(requestID string, gateway string) *common.LogEntry {
+	meta := common.NewRequestMetaContext(string(common.HTTPTransport)).
+		WithRequestID(requestID).
+		WithSessionID("session-" + gateway).
+		WithServerID("server-1")
+	meta.Success = true
+	meta.Direction = common.DirectionClientToServer
+	meta.MessageType = common.MessageTypeRequest
+
+	entry := &common.LogEntry{
+		BaseMcpEvent: meta.BaseMcpEvent,
+		Routing: common.RoutingContext{
+			Transport:  common.HTTPTransport,
+			Gateway:    gateway,
+			ServerName: "shell",
+			Endpoint:   "/mcp/" + gateway,
+		},
+		Annotations: []common.EventAnnotation{
+			{
+				Type:      "governance_events",
+				Processor: "test",
+				Action:    "blocked",
+				Category:  "policy",
+				Severity:  "high",
+				Message:   "blocked by test policy",
+			},
+		},
+	}
+	entry.WithToolRequest("shell__exec", "shell__exec", json.RawMessage(`{"command":"pwd"}`))
+	return entry
+}
+
+func assertTaskRunCount(t *testing.T, store *persistence.Store, expected int) {
+	t.Helper()
+	runs, err := store.ListTaskRuns(context.Background(), persistence.TaskRunFilter{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(runs), expected)
+}
+
+func assertActionEventCount(t *testing.T, store *persistence.Store, expected int) {
+	t.Helper()
+	page, err := store.ListEvents(context.Background(), &persistence.EventListFilter{Limit: 100})
+	assert.NilError(t, err)
+	assert.Equal(t, len(page.Items), expected)
+}
+
+func assertAnnotatedEventCount(t *testing.T, store *persistence.Store, expected int) {
+	t.Helper()
+	page, err := store.ListEvents(context.Background(), &persistence.EventListFilter{Limit: 100})
+	assert.NilError(t, err)
+	count := 0
+	for _, item := range page.Items {
+		if len(item.Annotations) > 0 {
+			count++
+		}
+	}
+	assert.Equal(t, count, expected)
 }
 
 func attachTaskToolDownstream(
@@ -575,6 +754,11 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 		byName[tool.Name] = tool
 	}
 
+	registerSchema := byName[taskRegisterTool].InputSchema.(map[string]any)
+	registerProps := registerSchema["properties"].(map[string]any)
+	assert.Assert(t, registerProps["task_description"] != nil)
+	assert.Assert(t, registerProps["annotations"] != nil)
+
 	onboardingSchema := byName[taskCompleteOnboardingTool].InputSchema.(map[string]any)
 	onboardingProps := onboardingSchema["properties"].(map[string]any)["onboarding"].(map[string]any)["properties"].(map[string]any)
 	assert.Assert(t, onboardingProps["taskSummary"] != nil)
@@ -598,6 +782,24 @@ func TestTaskVerificationToolSchemasExposeNestedArtifacts(t *testing.T) {
 	assert.Equal(t, listTool.Annotations.IdempotentHint, true)
 	assert.Assert(t, listTool.Annotations.OpenWorldHint != nil)
 	assert.Equal(t, *listTool.Annotations.OpenWorldHint, false)
+
+	for _, toolName := range []string{
+		taskListTemplatesTool,
+		taskRegisterTool,
+		taskCompleteOnboardingTool,
+		taskCompletePlanningTool,
+		taskStartStepTool,
+		taskCompleteStepTool,
+		taskResumeTool,
+		taskRestartTool,
+		taskFailTool,
+	} {
+		tool := byName[toolName]
+		assert.Assert(t, tool != nil)
+		schema := tool.InputSchema.(map[string]any)
+		props := schema["properties"].(map[string]any)
+		assert.Assert(t, props["annotations"] != nil, "missing annotations schema on %s", toolName)
+	}
 
 	for _, toolName := range []string{
 		taskRegisterTool,
@@ -1056,7 +1258,11 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	_, err = clientSession.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: taskRegisterTool,
 		Arguments: map[string]any{
-			"templateId": "task",
+			"templateId":       "task",
+			"task_description": "Resolve the incident using the governed workflow.",
+			"annotations": []any{
+				map[string]any{"phase": "registration", "note": "human context"},
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -1064,6 +1270,9 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 		Name: taskCompleteOnboardingTool,
 		Arguments: map[string]any{
 			"onboarding": map[string]any{"taskSummary": "Stored summary"},
+			"annotations": []any{
+				"onboarding context captured",
+			},
 		},
 	})
 	assert.NilError(t, err)
@@ -1080,6 +1289,16 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	assert.Equal(t, len(taskEvents), 2)
 	assert.Equal(t, taskEvents[0].EventType, taskverification.TaskEventTypeRegistered)
 	assert.Equal(t, taskEvents[1].EventType, taskverification.TaskEventTypeOnboardingCompleted)
+	var registerPayload map[string]any
+	assert.NilError(t, json.Unmarshal(taskEvents[0].Payload, &registerPayload))
+	assert.Equal(t, registerPayload["taskDescription"], "Resolve the incident using the governed workflow.")
+	registerAnnotations := registerPayload["annotations"].([]any)
+	assert.Equal(t, len(registerAnnotations), 1)
+	assert.Equal(t, registerAnnotations[0].(map[string]any)["note"], "human context")
+	var onboardingPayload map[string]any
+	assert.NilError(t, json.Unmarshal(taskEvents[1].Payload, &onboardingPayload))
+	onboardingAnnotations := onboardingPayload["annotations"].([]any)
+	assert.Equal(t, onboardingAnnotations[0], "onboarding context captured")
 
 	contexts, err := store.ActionEventTaskContexts()
 	assert.NilError(t, err)
@@ -1087,6 +1306,48 @@ func TestTaskToolCallsPersistToSQLiteActionAndTaskStores(t *testing.T) {
 	assert.Equal(t, contexts[0].RequestID, actionEvents[1].RequestID)
 	assert.Equal(t, contexts[0].TaskRunID, taskEvents[0].TaskRunID)
 	assert.Equal(t, contexts[1].InvocationPhasePath, taskverification.TaskPhaseOnboarding)
+}
+
+func TestTaskToolEventPayloadAddsCentianGovernanceAnnotationForFailedChecks(t *testing.T) {
+	payload := taskToolEventPayload(TaskToolMetadata{}, map[string]any{
+		"passed":                 false,
+		"failureKind":            "check",
+		"failedCheckId":          "rca_documented",
+		"failedCheckDescription": "Root cause must be documented before resolution starts.",
+		"summary":                "Resolution could not start before the root-cause comment existed.",
+	})
+
+	annotations := payload["annotations"].([]any)
+	assert.Equal(t, len(annotations), 1)
+	annotation := annotations[0].(map[string]any)
+	assert.Equal(t, annotation["type"], "governance_events")
+	assert.Equal(t, annotation["processor"], "centian")
+	assert.Equal(t, annotation["action"], "stopped")
+	assert.Equal(t, annotation["category"], "quality")
+	assert.Equal(t, annotation["severity"], "medium")
+	assert.Equal(t, annotation["message"], "Root cause must be documented before resolution starts.")
+}
+
+func TestTaskToolEventPayloadDoesNotDuplicateUserGovernanceAnnotation(t *testing.T) {
+	payload := taskToolEventPayload(TaskToolMetadata{
+		Annotations: []any{
+			map[string]any{
+				"type":     "governance_events",
+				"action":   "stopped",
+				"category": "quality",
+				"severity": "high",
+				"message":  "custom process annotation",
+			},
+		},
+	}, map[string]any{
+		"passed":        false,
+		"failedCheckId": "rca_documented",
+	})
+
+	annotations := payload["annotations"].([]any)
+	assert.Equal(t, len(annotations), 1)
+	annotation := annotations[0].(map[string]any)
+	assert.Equal(t, annotation["message"], "custom process annotation")
 }
 
 func TestProxiedToolCallsPersistToSQLiteActionStoreAndContext(t *testing.T) {
@@ -1260,6 +1521,7 @@ workflow:
       tools_allowed: ["shell__*", "filesystem__*"]
       checks:
         - id: "check_one"
+          description: "The verification output must include the completion marker."
           command: "printf 'unexpected output for verification'"
           pre_conditions:
             - type: stdout_contains
@@ -1311,6 +1573,7 @@ workflow:
 	assert.Equal(t, structured["failureKind"], string(taskverification.StepFailureKindCheck))
 	assert.Equal(t, structured["failurePhase"], string(taskverification.StepFailurePhasePostcondition))
 	assert.Equal(t, structured["failedCheckId"], "check_one")
+	assert.Equal(t, structured["failedCheckDescription"], "The verification output must include the completion marker.")
 	assert.Assert(t, structured["stdoutSnippet"] != nil)
 	assert.Assert(t, structured["summary"] != nil)
 	assert.Equal(t, structured["retryable"], true)
@@ -1738,6 +2001,32 @@ func TestWorkflowNodeToolGovernanceDeniesUnmatchedTool(t *testing.T) {
 	assert.DeepEqual(t, structured["allowedTools"], []any{"shell__*", "filesystem__*"})
 	assert.Equal(t, structured["nextAction"], "Follow the current Centian workflow state before retrying this tool.")
 	assert.Assert(t, downstream.CapturedRequest == nil)
+}
+
+func TestGovernanceDeniedResultAnnotatesBlockedToolCall(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.originalRequest.Params.Name = "database__query"
+	callCtx.request.Params.Name = "query"
+
+	result := governanceDeniedResult(
+		callCtx,
+		taskverification.TaskPhaseOnboarding,
+		taskverification.TaskStatusActive,
+		taskverification.WorkflowNodeKindOnboarding,
+		[]string{"shell__*"},
+		governanceDeniedNoPatternMatch,
+		"",
+	)
+
+	assert.Assert(t, result.IsError)
+	annotations := callCtx.GetMetaContext().Annotations
+	assert.Equal(t, len(annotations), 1)
+	assert.Equal(t, annotations[0].Type, "governance_events")
+	assert.Equal(t, annotations[0].Processor, "centian")
+	assert.Equal(t, annotations[0].Action, "blocked")
+	assert.Equal(t, annotations[0].Category, "policy")
+	assert.Equal(t, annotations[0].Severity, "high")
+	assert.Equal(t, annotations[0].Message, "tool not allowed in phase onboarding")
 }
 
 func TestWorkflowNodeToolGovernanceDeniesWithoutAllowlist(t *testing.T) {

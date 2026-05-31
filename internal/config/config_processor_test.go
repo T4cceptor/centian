@@ -348,6 +348,88 @@ func TestProcessorValidation(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name: "prompt injection guard requires required true",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:    "prompt-injection",
+						Type:    "builtin",
+						Enabled: true,
+						Parts:   []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPromptInjectionGuard,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "must set required=true",
+		},
+		{
+			name: "prompt injection guard default parts omit annotations",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "prompt-injection",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Config: map[string]interface{}{
+							"processor": BuiltinPromptInjectionGuard,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires part 'annotations'",
+		},
+		{
+			name: "prompt injection guard requires payload part",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "prompt-injection",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPromptInjectionGuard,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires part 'payload'",
+		},
+		{
+			name: "valid prompt injection guard",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "prompt-injection",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPromptInjectionGuard,
+							"mode":      "redact",
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
 			name: "nil processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",

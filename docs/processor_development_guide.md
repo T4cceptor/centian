@@ -126,6 +126,9 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
     "authenticated": true,
     "principal_type": "api_key",
     "gateway": "default"
+  },
+  "annotations": {
+    "reports": []
   }
 }
 ```
@@ -142,6 +145,7 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
 | `payload.original_result` | object | Original downstream result snapshot. |
 | `routing` | object | Current and original server/tool routing data. |
 | `auth` | object | Read-only auth context. |
+| `annotations` | object | Processor-supplied reports about the event. Persisted as Centian event annotations, not applied to the MCP request or result payload. |
 
 Notes:
 
@@ -173,11 +177,31 @@ Processors must return a JSON object with the same `DataContext` shape. CLI proc
         }
       ]
     }
+  },
+  "annotations": {
+    "reports": [
+      {
+        "processor": "security-policy",
+        "action": "redacted",
+        "severity": "high",
+        "message": "Suspicious tool result content was redacted.",
+        "findings": [
+          {
+            "rule": "ignore_previous_instructions",
+            "path": "payload.result.content[0].text"
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
 Fields you return are applied back into the current call context according to the configured `parts`.
+
+### Processor annotations
+
+Use the `annotations` part when a processor needs to tell Centian what it found without changing the MCP call itself. Returned annotation reports are persisted as event annotations and exposed in event APIs, while allowing `payload` to remain unchanged for observe-only processors.
 
 ## Configuration in Centian
 
@@ -249,6 +273,18 @@ Edit `~/.centian/config.json`:
       }
     },
     {
+      "name": "prompt_injection_guard",
+      "type": "builtin",
+      "enabled": true,
+      "parts": ["payload", "meta", "annotations"],
+      "timeout": 15,
+      "required": true,
+      "config": {
+        "processor": "prompt_injection_guard",
+        "mode": "redact"
+      }
+    },
+    {
       "name": "audit-webhook",
       "type": "webhook",
       "enabled": true,
@@ -271,7 +307,7 @@ Edit `~/.centian/config.json`:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | Yes | Unique processor identifier within the processor list. |
-| `type` | string | Yes | `"cli"` or `"webhook"`. |
+| `type` | string | Yes | `"cli"`, `"webhook"`, or `"builtin"`. |
 | `enabled` | boolean | Yes | Whether the processor is active. |
 | `parts` | array | No | Context parts to provide. Defaults to `["payload","meta"]`. |
 | `timeout` | number | No | Per-invocation timeout in seconds. Defaults to `15`. |
@@ -280,12 +316,15 @@ Edit `~/.centian/config.json`:
 | `config.args` | array | CLI only | Arguments including script path. |
 | `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST`. |
 | `config.headers` | object | Webhook only | Optional string headers. |
+| `config.processor` | string | Built-in only | Built-in processor identifier, for example `prompt_injection_guard`. |
+| `config.mode` | string | Built-in optional | Built-in processor mode. The prompt injection guard supports `annotate`, `error`, `redact`, and `remove`. |
 
 Important runtime notes:
 
-- supported processor types are only `cli` and `webhook`
-- supported parts are only `payload`, `meta`, `routing`, and `auth`
+- supported processor types are `cli`, `webhook`, and `builtin`
+- supported parts are only `payload`, `meta`, `routing`, `auth`, and `annotations`
 - webhook `config` only supports `url` and `headers`
+- built-in processors are compiled into Centian and do not require a separate executable
 
 ### Timeout behavior
 
@@ -530,6 +569,8 @@ It demonstrates:
 - OpenTelemetry span export for MCP tool calls
 - response redaction with a gateway-level processor
 - a local Docker Compose flow that builds the demo image and bundles the demo processor code
+
+The dependency-free built-in prompt injection guard lives in [internal/processor/prompt_injection_guard](../internal/processor/prompt_injection_guard).
 
 ## Further Reading
 

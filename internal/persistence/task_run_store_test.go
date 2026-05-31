@@ -41,6 +41,24 @@ func TestTaskRunSnapshotStoreUpsertAndRoundTrip(t *testing.T) {
 				Name:        "Simple TDD Task",
 				Description: "Test task",
 			},
+			CompiledWorkflow: &taskruns.PersistedCompiledWorkflowSnapshot{
+				WorkflowSteps: []taskruns.PersistedCompiledStepSnapshot{{
+					ID:           "step_one",
+					Path:         "execution.step_one",
+					Instructions: "Implement the first step.",
+				}},
+			},
+		},
+		RunnableTemplate: &taskruns.PersistedTemplateSnapshot{
+			Version: "0.1",
+			Task:    taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Task", Description: "Resolved task"},
+			CompiledWorkflow: &taskruns.PersistedCompiledWorkflowSnapshot{
+				WorkflowSteps: []taskruns.PersistedCompiledStepSnapshot{{
+					ID:           "step_one",
+					Path:         "execution.step_one",
+					Instructions: "Implement the resolved first step.",
+				}},
+			},
 		},
 		Steps: []taskruns.PersistedStepStateSnapshot{{
 			ID:                 "step_one",
@@ -58,6 +76,9 @@ func TestTaskRunSnapshotStoreUpsertAndRoundTrip(t *testing.T) {
 	assert.Equal(t, record.RunID, "run-1")
 	assert.Equal(t, record.TemplateName, "Simple TDD Task")
 	assert.Equal(t, record.Payload.SelectedTemplate.Task.Name, "Simple TDD Task")
+	assert.Equal(t, record.Payload.SelectedTemplate.CompiledWorkflow.WorkflowSteps[0].Instructions, "Implement the first step.")
+	assert.Assert(t, record.Payload.RunnableTemplate != nil)
+	assert.Equal(t, record.Payload.RunnableTemplate.CompiledWorkflow.WorkflowSteps[0].Instructions, "Implement the resolved first step.")
 	assert.Equal(t, record.Payload.Steps[0].InvariantBaselines["stable"], "same")
 }
 

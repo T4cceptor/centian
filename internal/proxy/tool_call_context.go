@@ -100,12 +100,14 @@ func NewToolCallContext(
 	toolCallCtx.SetHandler("meta", &DefaultMetaHandler{})
 	toolCallCtx.SetHandler("routing", &DefaultRoutingHandler{})
 	toolCallCtx.SetHandler("auth", &DefaultAuthHandler{})
+	toolCallCtx.SetHandler("annotations", &DefaultAnnotationHandler{})
 
 	// Set default log handler - proxy.server nil check was done above
-	if proxy.server.Logger == nil {
+	logger := proxy.projectLogger()
+	if logger == nil {
 		return nil, fmt.Errorf("unable to get logger from centian server")
 	}
-	toolCallCtx.SetLogHandler(NewDefaultLogHandler(proxy.server.Logger))
+	toolCallCtx.SetLogHandler(NewDefaultLogHandler(logger))
 	return toolCallCtx, nil
 }
 
@@ -184,6 +186,7 @@ func (c *ToolCallContext) ToLogEntry() *common.LogEntry {
 
 	entry := &common.LogEntry{
 		BaseMcpEvent: c.meta.BaseMcpEvent,
+		Annotations:  c.meta.Annotations,
 	}
 	entry.Timestamp = time.Now()
 	entry.Success = c.GetStatus() < 400

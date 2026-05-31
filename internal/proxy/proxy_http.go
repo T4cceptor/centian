@@ -274,7 +274,7 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName, project
 			return
 		}
 
-		if !entry.AllowsProject(projectSlug) {
+		if projectSlug != "" && !entry.AllowsProject(projectSlug) {
 			writeUnauthorized(w, headerName)
 			common.LogWarn("Unauthorized request: key '%s' not allowed for project '%s' from %s", entry.ID, projectSlug, r.RemoteAddr)
 			return

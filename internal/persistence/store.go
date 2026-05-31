@@ -15,6 +15,7 @@ import (
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
+	"github.com/T4cceptor/centian/internal/taskruns"
 
 	// TODO: refactor this out of here so persistence only deals with database access.
 	"github.com/T4cceptor/centian/internal/taskverification"
@@ -23,7 +24,7 @@ import (
 	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 // SchemaMigrationRequiredError reports that an existing event store schema
 // cannot be opened safely without an explicit migration path.
@@ -85,8 +86,10 @@ type TaskRunBenchmarkLink struct {
 
 // TaskRunDetailMetadata is the non-event metadata used by the task-run detail view.
 type TaskRunDetailMetadata struct {
-	RunID          string                 `json:"runId"`
-	BenchmarkLinks []TaskRunBenchmarkLink `json:"benchmarkLinks,omitempty"`
+	RunID          string                         `json:"runId"`
+	Summary        *TaskRunSummary                `json:"summary,omitempty"`
+	Snapshot       *taskruns.PersistedRunSnapshot `json:"snapshot,omitempty"`
+	BenchmarkLinks []TaskRunBenchmarkLink         `json:"benchmarkLinks,omitempty"`
 }
 
 // TaskRunEventSource identifies where one timeline row originated.
@@ -101,10 +104,11 @@ const (
 
 // TaskRunEvent is the unified task timeline projection used by the UI.
 type TaskRunEvent struct {
-	Source             TaskRunEventSource `json:"source"`
-	ID                 string             `json:"id"`
-	CreatedAtUnixMilli int64              `json:"createdAtUnixMilli"`
-	PayloadJSON        json.RawMessage    `json:"payloadJson,omitempty"`
+	Source             TaskRunEventSource       `json:"source"`
+	ID                 string                   `json:"id"`
+	CreatedAtUnixMilli int64                    `json:"createdAtUnixMilli"`
+	PayloadJSON        json.RawMessage          `json:"payloadJson,omitempty"`
+	Annotations        []common.EventAnnotation `json:"annotations,omitempty"`
 
 	EventType              string `json:"eventType,omitempty"`
 	Outcome                string `json:"outcome,omitempty"`
@@ -234,24 +238,25 @@ type EventListFilter struct {
 
 // EventListItem is one row in the global action-event feed.
 type EventListItem struct {
-	ID                  string          `json:"id"`
-	CreatedAtUnixMilli  int64           `json:"createdAtUnixMilli"`
-	RequestID           string          `json:"requestId,omitempty"`
-	SessionID           string          `json:"sessionId,omitempty"`
-	Transport           string          `json:"transport,omitempty"`
-	Direction           string          `json:"direction,omitempty"`
-	MessageType         string          `json:"messageType,omitempty"`
-	Gateway             string          `json:"gateway,omitempty"`
-	ServerName          string          `json:"serverName,omitempty"`
-	Endpoint            string          `json:"endpoint,omitempty"`
-	ToolName            string          `json:"toolName,omitempty"`
-	OriginalToolName    string          `json:"originalToolName,omitempty"`
-	Success             bool            `json:"success"`
-	IsError             bool            `json:"isError"`
-	PayloadJSON         json.RawMessage `json:"payloadJson,omitempty"`
-	TaskRunID           string          `json:"taskRunId,omitempty"`
-	InvocationPhasePath string          `json:"invocationPhasePath,omitempty"`
-	InvocationNodeKind  string          `json:"invocationNodeKind,omitempty"`
+	ID                  string                   `json:"id"`
+	CreatedAtUnixMilli  int64                    `json:"createdAtUnixMilli"`
+	RequestID           string                   `json:"requestId,omitempty"`
+	SessionID           string                   `json:"sessionId,omitempty"`
+	Transport           string                   `json:"transport,omitempty"`
+	Direction           string                   `json:"direction,omitempty"`
+	MessageType         string                   `json:"messageType,omitempty"`
+	Gateway             string                   `json:"gateway,omitempty"`
+	ServerName          string                   `json:"serverName,omitempty"`
+	Endpoint            string                   `json:"endpoint,omitempty"`
+	ToolName            string                   `json:"toolName,omitempty"`
+	OriginalToolName    string                   `json:"originalToolName,omitempty"`
+	Success             bool                     `json:"success"`
+	IsError             bool                     `json:"isError"`
+	PayloadJSON         json.RawMessage          `json:"payloadJson,omitempty"`
+	Annotations         []common.EventAnnotation `json:"annotations,omitempty"`
+	TaskRunID           string                   `json:"taskRunId,omitempty"`
+	InvocationPhasePath string                   `json:"invocationPhasePath,omitempty"`
+	InvocationNodeKind  string                   `json:"invocationNodeKind,omitempty"`
 }
 
 // EventListPage is the paginated response model for the global action-event feed.
@@ -343,8 +348,10 @@ func NewSQLiteStore(path string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("sqlite event store path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create event store directory: %w", err)
+	if !isSQLiteMemoryPath(path) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			return nil, fmt.Errorf("failed to create event store directory: %w", err)
+		}
 	}
 
 	sqldb, err := sql.Open(sqliteshim.ShimName, path)
@@ -363,6 +370,10 @@ func NewSQLiteStore(path string) (*Store, error) {
 		return nil, err
 	}
 	return store, nil
+}
+
+func isSQLiteMemoryPath(path string) bool {
+	return path == ":memory:" || strings.HasPrefix(path, "file::memory:")
 }
 
 // Close releases the underlying database handle.
@@ -469,6 +480,9 @@ func (s *Store) createTables(ctx context.Context) error {
 			return fmt.Errorf("failed to bootstrap event store schema: %w", err)
 		}
 	}
+	if err := createEventAnnotationTables(ctx, s.db); err != nil {
+		return err
+	}
 	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
@@ -497,9 +511,23 @@ func (s *Store) migrateSchema(ctx context.Context, fromVersion int) error {
 		if err := s.migrateV4ToV5(ctx); err != nil {
 			return err
 		}
-		return s.migrateV5ToV6(ctx)
+		if err := s.migrateV5ToV6(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV6ToV7(ctx); err != nil {
+			return err
+		}
+		return nil
 	case 5:
-		return s.migrateV5ToV6(ctx)
+		if err := s.migrateV5ToV6(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV6ToV7(ctx); err != nil {
+			return err
+		}
+		return nil
+	case 6:
+		return s.migrateV6ToV7(ctx)
 	default:
 		return &SchemaMigrationRequiredError{
 			StoredVersion:   fromVersion,
@@ -558,13 +586,14 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 	if entry == nil {
 		return nil
 	}
-	payload, err := json.Marshal(entry)
+	payload, err := marshalActionEventPayload(entry)
 	if err != nil {
 		return fmt.Errorf("failed to marshal action event payload: %w", err)
 	}
 	timestamp := TouchTimestamp(entry.Timestamp)
+	actionEventID := newActionEventRowID()
 	row := ActionEventRecord{
-		ID:                 newActionEventRowID(),
+		ID:                 actionEventID,
 		SchemaVersion:      schemaVersion,
 		CreatedAtUnixMilli: timestamp.UnixMilli(),
 		RequestID:          entry.RequestID,
@@ -584,7 +613,22 @@ func (s *Store) AppendActionEvent(entry *common.LogEntry) error {
 		row.OriginalToolName = entry.ToolCall.OriginalName
 		row.IsError = entry.ToolCall.IsError
 	}
-	if _, err = s.db.NewInsert().Model(&row).Exec(context.Background()); err != nil {
+	annotationRows, err := eventAnnotationRowsFromReports(actionEventID, entry.RequestID, row.CreatedAtUnixMilli, entry.Annotations)
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+	if err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err = tx.NewInsert().Model(&row).Exec(ctx); err != nil {
+			return err
+		}
+		if len(annotationRows) > 0 {
+			if _, err = tx.NewInsert().Model(&annotationRows).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	return s.refreshTaskRunStatsForActionRequest(context.Background(), entry.RequestID)
@@ -918,6 +962,15 @@ ORDER BY created_at_unix_milli ASC, id ASC
 			Endpoint:               nullStringValue(row.Endpoint),
 		})
 	}
+	annotations, err := s.annotationsByActionEventID(ctx, sortedActionEventIDsFromTaskEvents(events))
+	if err != nil {
+		return nil, err
+	}
+	for idx := range events {
+		if eventAnnotations := annotations[events[idx].ID]; len(eventAnnotations) > 0 {
+			events[idx].Annotations = eventAnnotations
+		}
+	}
 	return events, nil
 }
 
@@ -980,6 +1033,15 @@ LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
 
 	for idx := range rows {
 		page.Items = append(page.Items, eventListItemFromRow(&rows[idx]))
+	}
+	annotations, err := s.annotationsByActionEventID(ctx, sortedActionEventIDsFromListItems(page.Items))
+	if err != nil {
+		return nil, err
+	}
+	for idx := range page.Items {
+		if eventAnnotations := annotations[page.Items[idx].ID]; len(eventAnnotations) > 0 {
+			page.Items[idx].Annotations = eventAnnotations
+		}
 	}
 
 	return page, nil

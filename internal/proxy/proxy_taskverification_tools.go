@@ -27,29 +27,44 @@ const (
 )
 
 type taskRegisterArgs struct {
-	TemplateID string `json:"templateId"`
+	TemplateID       string `json:"templateId"`
+	TaskDescription  string `json:"task_description,omitempty"`
+	TaskToolMetadata        // shared optional metadata for Centian task tools.
 }
 
 type taskStepArgs struct {
 	Step int `json:"step"`
+	TaskToolMetadata
 }
 
 type taskCompleteOnboardingArgs struct {
 	Onboarding taskverification.OnboardingArtifact `json:"onboarding"`
+	TaskToolMetadata
 }
 
 type taskCompletePlanningArgs struct {
 	Planning taskverification.PlanningArtifact `json:"planning"`
+	TaskToolMetadata
 }
 
 type taskFailArgs struct {
 	Reason string `json:"reason"`
+	TaskToolMetadata
+}
+
+type taskMetadataArgs struct {
+	TaskToolMetadata
+}
+
+// TaskToolMetadata contains optional metadata accepted by all Centian task tools.
+type TaskToolMetadata struct {
+	Annotations []any `json:"annotations,omitempty"`
 }
 
 type taskToolHandler func(context.Context, *UpstreamSession, *mcp.CallToolRequest) (*mcp.CallToolResult, error)
 
 func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession, server *mcp.Server) {
-	if session == nil || server == nil || p == nil || p.server == nil || p.server.TaskVerification == nil {
+	if session == nil || server == nil || p == nil || p.server == nil || p.taskVerificationService() == nil {
 		return
 	}
 	if _, exists := session.registeredStaticTools[taskListTemplatesTool]; exists {
@@ -66,23 +81,27 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		Name:        taskListTemplatesTool,
 		Description: taskToolDescription("List available task verification templates."),
 		Annotations: taskReadOnlyAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
-		},
+		}),
 	}, taskListTemplatesTool, p.handleTaskListTemplatesTool)
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskRegisterTool,
 		Description: taskToolDescription("Register a task verification run from a template."),
 		Annotations: taskStateTransitionAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"templateId": map[string]any{"type": "string"},
+				"task_description": map[string]any{
+					"type":        "string",
+					"description": "Human-facing description of what this specific task run is trying to achieve.",
+				},
 			},
 			"required": []string{"templateId"},
-		},
+		}),
 	}, taskRegisterTool, p.handleTaskRegisterTool)
 
 	addTaskTool(&mcp.Tool{
@@ -103,63 +122,88 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 		Name:        taskStartStepTool,
 		Description: taskToolDescription("Start a task step by running preconditions and capturing invariant baselines."),
 		Annotations: taskStateTransitionAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"step": map[string]any{"type": "integer"},
 			},
 			"required": []string{"step"},
-		},
+		}),
 	}, taskStartStepTool, p.handleTaskStartStepTool)
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskCompleteStepTool,
 		Description: taskToolDescription("Complete a task step by running postconditions and invariant checks."),
 		Annotations: taskStateTransitionAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"step": map[string]any{"type": "integer"},
 			},
 			"required": []string{"step"},
-		},
+		}),
 	}, taskCompleteStepTool, p.handleTaskCompleteStepTool)
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskResumeTool,
 		Description: taskToolDescription("Resume a timed-out task verification run without resetting workflow progress."),
 		Annotations: taskStateTransitionAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
-		},
+		}),
 	}, taskResumeTool, p.handleTaskResumeTool)
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskRestartTool,
 		Description: taskToolDescription("Restart the active task verification run and clear step state."),
 		Annotations: taskStateTransitionAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
-		},
+		}),
 	}, taskRestartTool, p.handleTaskRestartTool)
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskFailTool,
 		Description: taskToolDescription("Explicitly fail the active task verification run."),
 		Annotations: taskStateTransitionAnnotations(),
-		InputSchema: map[string]any{
+		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"reason": map[string]any{"type": "string"},
 			},
-		},
+		}),
 	}, taskFailTool, p.handleTaskFailTool)
 }
 
 func taskToolDescription(base string) string {
 	return base + " Use workspaceRoot as the project root, keep file paths relative to it, and treat nextAction as the workflow hint."
+}
+
+func withTaskToolAnnotationsSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		schema = map[string]any{"type": "object"}
+	}
+	properties, _ := schema["properties"].(map[string]any)
+	if properties == nil {
+		properties = map[string]any{}
+		schema["properties"] = properties
+	}
+	properties["annotations"] = map[string]any{
+		"type":        "array",
+		"description": "Optional annotations that provide additional context for this Centian tool call. These are persisted on related task lifecycle events when one is emitted.",
+		"items": map[string]any{
+			"oneOf": []any{
+				map[string]any{"type": "string"},
+				map[string]any{
+					"type":                 "object",
+					"additionalProperties": true,
+				},
+			},
+		},
+	}
+	return schema
 }
 
 func taskReadOnlyAnnotations() *mcp.ToolAnnotations {
@@ -200,7 +244,7 @@ func (p *CentianEndpoint) wrapTaskToolHandler(
 			err    error
 		)
 		if invocationSnapshot.RunID == "" && !taskToolAllowedBeforeRegistration(toolName) {
-			result = taskToolRegistrationRequiredResult(toolName, p.server.TaskVerification.WorkingDir)
+			result = taskToolRegistrationRequiredResult(toolName, p.taskVerificationService().WorkingDir)
 		} else {
 			result, err = handler(ctx, session, req)
 		}
@@ -273,7 +317,8 @@ func (p *CentianEndpoint) logTaskToolCall(
 	result *mcp.CallToolResult,
 	callErr error,
 ) {
-	if p == nil || p.server == nil || p.server.Logger == nil || session == nil {
+	logger := p.projectLogger()
+	if p == nil || p.server == nil || logger == nil || session == nil {
 		return
 	}
 
@@ -308,7 +353,7 @@ func (p *CentianEndpoint) logTaskToolCall(
 	}
 	entry.WithToolRequest(toolName, toolName, taskToolArguments(req))
 	entry.WithToolResult(taskToolResultJSON(result, callErr), callErr != nil || (result != nil && result.IsError))
-	if err := p.server.Logger.LogMcpEvent(entry); err != nil {
+	if err := logger.LogMcpEvent(entry); err != nil {
 		common.LogWarn("ProxyEndpoint[%s]: failed to log task tool call %s for session %s: %v", p.name, toolName, session.id, err)
 	}
 }
@@ -337,7 +382,7 @@ func taskToolResultJSON(result *mcp.CallToolResult, callErr error) json.RawMessa
 }
 
 func taskCompleteOnboardingSchema() map[string]any {
-	return map[string]any{
+	return withTaskToolAnnotationsSchema(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"onboarding": map[string]any{
@@ -380,11 +425,11 @@ func taskCompleteOnboardingSchema() map[string]any {
 			},
 		},
 		"required": []string{"onboarding"},
-	}
+	})
 }
 
 func taskCompletePlanningSchema() map[string]any {
-	return map[string]any{
+	return withTaskToolAnnotationsSchema(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"planning": map[string]any{
@@ -408,11 +453,11 @@ func taskCompletePlanningSchema() map[string]any {
 			},
 		},
 		"required": []string{"planning"},
-	}
+	})
 }
 
 func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	templates, err := p.server.TaskVerification.ListTemplates()
+	templates, err := p.taskVerificationService().ListTemplates()
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +480,7 @@ func (p *CentianEndpoint) handleTaskListTemplatesTool(_ context.Context, _ *Upst
 		"templates":  structured,
 		"nextAction": "Call centian.task_register with one templateId.",
 	}
-	addWorkspaceContext(response, p.server.TaskVerification.WorkingDir)
+	addWorkspaceContext(response, p.taskVerificationService().WorkingDir)
 	return toolResult(strings.Join(lines, "\n"), response), nil
 }
 
@@ -452,6 +497,10 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
+	if strings.TrimSpace(args.TaskDescription) == "" {
+		args.TaskDescription = taskRegisterDescriptionFromRequest(req)
+	}
 	if strings.TrimSpace(args.TemplateID) == "" {
 		return nil, fmt.Errorf("templateId is required")
 	}
@@ -463,15 +512,22 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		return nil, fmt.Errorf("an active task is already registered for this session")
 	}
 
-	run, err := p.server.TaskVerification.RegisterTask(ctx, args.TemplateID)
+	run, err := p.taskVerificationService().RegisterTaskWithDescription(ctx, args.TemplateID, args.TaskDescription)
 	if err != nil {
 		return nil, err
 	}
 	session.taskRun = run
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(run)
-	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
+	registerPayload := taskToolEventPayload(args.TaskToolMetadata, nil)
+	if taskDescription := strings.TrimSpace(args.TaskDescription); taskDescription != "" {
+		if registerPayload == nil {
+			registerPayload = map[string]any{}
+		}
+		registerPayload["taskDescription"] = taskDescription
+	}
+	p.recordTaskEvent(session, run, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRegistered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), registerPayload)
 
-	structured := lifecycleStructuredContent(run, p.server.TaskVerification.WorkingDir)
+	structured := lifecycleStructuredContent(run, p.taskVerificationService().WorkingDir)
 	stepCount := len(run.SelectedTemplate.CompiledWorkflow.WorkflowSteps)
 	return toolResult(fmt.Sprintf("Registered task %s with %d declared step(s).", run.TemplateID, stepCount), structured), nil
 }
@@ -481,22 +537,23 @@ func (p *CentianEndpoint) handleTaskCompleteOnboardingTool(ctx context.Context, 
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.CompleteOnboarding(ctx, session.taskRun, &args.Onboarding); err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+	if err := p.taskVerificationService().CompleteOnboarding(ctx, session.taskRun, &args.Onboarding); err != nil {
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
-		})
+		}))
 		return nil, err
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeOnboardingCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 		"taskSummary": args.Onboarding.TaskSummary,
-	})
-	structured := onboardingStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
+	}))
+	structured := onboardingStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)
 	return toolResult("Task onboarding completed; task moved to planning.", structured), nil
 }
 
@@ -505,30 +562,31 @@ func (p *CentianEndpoint) handleTaskCompletePlanningTool(ctx context.Context, se
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
 	normalizePlanningArtifactArguments(req, &args.Planning)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.CompletePlanning(ctx, session.taskRun, &args.Planning); err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+	if err := p.taskVerificationService().CompletePlanning(ctx, session.taskRun, &args.Planning); err != nil {
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
-		})
+		}))
 		var validationErr *taskverification.PlanningValidationError
 		if errors.As(err, &validationErr) {
-			return planningValidationToolResult(validationErr, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+			return planningValidationToolResult(validationErr, session.taskRun, p.taskVerificationService().WorkingDir), nil
 		}
 		return nil, err
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypePlanningCompleted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 		"planning": args.Planning,
-	})
+	}))
 	if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
 	}
-	structured := planningCompletionStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)
+	structured := planningCompletionStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)
 	return toolResult(fmt.Sprintf("Task planning completed; task moved to %s.", session.taskRun.Phase), structured), nil
 }
 
@@ -580,22 +638,153 @@ func copyLegacyPlanningParameter(raw map[string]json.RawMessage, parameters map[
 	parameters[targetKey] = decoded
 }
 
+func taskRegisterDescriptionFromRequest(req *mcp.CallToolRequest) string {
+	rawArgs := rawTaskToolArguments(req)
+	for _, key := range []string{"task_description", "taskDescription", "prompt"} {
+		raw, exists := rawArgs[key]
+		if !exists {
+			continue
+		}
+		var decoded string
+		if err := json.Unmarshal(raw, &decoded); err == nil {
+			if trimmed := strings.TrimSpace(decoded); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
+func taskToolMetadataFromRequest(req *mcp.CallToolRequest) TaskToolMetadata {
+	rawArgs := rawTaskToolArguments(req)
+	raw, exists := rawArgs["annotations"]
+	if !exists {
+		return TaskToolMetadata{}
+	}
+	var annotations []any
+	if err := json.Unmarshal(raw, &annotations); err != nil {
+		return TaskToolMetadata{}
+	}
+	return TaskToolMetadata{Annotations: annotations}
+}
+
+func rawTaskToolArguments(req *mcp.CallToolRequest) map[string]json.RawMessage {
+	if req == nil || req.Params == nil || len(req.Params.Arguments) == 0 {
+		return nil
+	}
+	rawArgs := map[string]json.RawMessage{}
+	if err := json.Unmarshal(req.Params.Arguments, &rawArgs); err != nil {
+		return nil
+	}
+	return rawArgs
+}
+
+func taskToolEventPayload(metadata TaskToolMetadata, payload map[string]any) map[string]any {
+	annotations := append([]any{}, metadata.Annotations...)
+	if generated, ok := centianTaskGovernanceAnnotation(payload); ok && !hasGovernanceEventAnnotation(annotations) {
+		annotations = append(annotations, generated)
+	}
+	if len(annotations) == 0 {
+		return payload
+	}
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["annotations"] = annotations
+	return payload
+}
+
+func centianTaskGovernanceAnnotation(payload map[string]any) (map[string]any, bool) {
+	if payload == nil || !isGovernanceTaskFailurePayload(payload) {
+		return nil, false
+	}
+	return map[string]any{
+		"type":      "governance_events",
+		"processor": "centian",
+		"action":    "stopped",
+		"category":  "quality",
+		"severity":  centianTaskGovernanceSeverity(payload),
+		"message":   centianTaskGovernanceMessage(payload),
+	}, true
+}
+
+func isGovernanceTaskFailurePayload(payload map[string]any) bool {
+	if passed, ok := payload["passed"].(bool); ok && !passed {
+		return true
+	}
+	if value, ok := payload["failureKind"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	if value, ok := payload["failedCheckId"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	if value, ok := payload["failedInvariantId"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	if value, ok := payload["error"].(string); ok && strings.TrimSpace(value) != "" {
+		return true
+	}
+	return false
+}
+
+func centianTaskGovernanceMessage(payload map[string]any) string {
+	if value, ok := payload["failedCheckDescription"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	for _, key := range []string{"summary", "error", "message"} {
+		if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	if value, ok := payload["failedCheckId"].(string); ok && strings.TrimSpace(value) != "" {
+		return fmt.Sprintf("expected `%s`", strings.TrimSpace(value))
+	}
+	if value, ok := payload["failedInvariantId"].(string); ok && strings.TrimSpace(value) != "" {
+		return fmt.Sprintf("expected invariant `%s`", strings.TrimSpace(value))
+	}
+	return "process requirement failed"
+}
+
+func centianTaskGovernanceSeverity(payload map[string]any) string {
+	if value, ok := payload["failureKind"].(string); ok && strings.TrimSpace(value) == "check" {
+		return "medium"
+	}
+	if _, ok := payload["failedCheckId"].(string); ok {
+		return "medium"
+	}
+	return "high"
+}
+
+func hasGovernanceEventAnnotation(annotations []any) bool {
+	for _, annotation := range annotations {
+		values, ok := annotation.(map[string]any)
+		if !ok {
+			continue
+		}
+		if values["type"] == "governance_events" {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := taskStepArgs{}
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	result, err := p.server.TaskVerification.StartStep(ctx, session.taskRun, args.Step)
+	result, err := p.taskVerificationService().StartStep(ctx, session.taskRun, args.Step)
 	if err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepStarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepStarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"step":  args.Step,
 			"error": err.Error(),
-		})
+		}))
 		return nil, err
 	}
 	outcome := taskverification.TaskEventOutcomeSucceeded
@@ -603,8 +792,8 @@ func (p *CentianEndpoint) handleTaskStartStepTool(ctx context.Context, session *
 		outcome = taskverification.TaskEventOutcomeFailed
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepStarted, outcome, taskActionRequestIDFromContext(ctx), stepEventPayload(result))
-	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepStarted, outcome, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, stepEventPayload(result)))
+	return stepToolResult(result, session.taskRun, p.taskVerificationService().WorkingDir), nil
 }
 
 func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -612,17 +801,18 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	result, err := p.server.TaskVerification.CompleteStep(ctx, session.taskRun, args.Step)
+	result, err := p.taskVerificationService().CompleteStep(ctx, session.taskRun, args.Step)
 	if err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeStepCompleted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"step":  args.Step,
 			"error": err.Error(),
-		})
+		}))
 		return nil, err
 	}
 	outcome := taskverification.TaskEventOutcomeSucceeded
@@ -630,45 +820,57 @@ func (p *CentianEndpoint) handleTaskCompleteStepTool(ctx context.Context, sessio
 		outcome = taskverification.TaskEventOutcomeFailed
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepCompleted, outcome, taskActionRequestIDFromContext(ctx), stepEventPayload(result))
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeStepCompleted, outcome, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, stepEventPayload(result)))
 	if result.Passed {
 		if node, exists := session.taskRun.CurrentNode(); exists && node.Kind == taskverification.WorkflowNodeKindWaitingForApproval {
-			p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
+			p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeApprovalWaitEntered, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
 		}
 	}
-	return stepToolResult(result, session.taskRun, p.server.TaskVerification.WorkingDir), nil
+	return stepToolResult(result, session.taskRun, p.taskVerificationService().WorkingDir), nil
 }
 
-func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := taskMetadataArgs{}
+	if err := decodeToolArguments(req, &args); err != nil {
+		return nil, err
+	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
+
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
-	if err := p.server.TaskVerification.ResumeTask(ctx, session.taskRun); err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+	if err := p.taskVerificationService().ResumeTask(ctx, session.taskRun); err != nil {
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
-		})
+		}))
 		return nil, err
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
-	return toolResult("Task resumed.", lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
+	return toolResult("Task resumed.", lifecycleStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)), nil
 }
 
-func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (p *CentianEndpoint) handleTaskRestartTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := taskMetadataArgs{}
+	if err := decodeToolArguments(req, &args); err != nil {
+		return nil, err
+	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
+
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.RestartTask(ctx, session.taskRun); err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+	if err := p.taskVerificationService().RestartTask(ctx, session.taskRun); err != nil {
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"error": err.Error(),
-		})
+		}))
 		return nil, err
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), nil)
-	return toolResult("Task restarted.", lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeRestarted, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, nil))
+	return toolResult("Task restarted.", lifecycleStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)), nil
 }
 
 func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *UpstreamSession, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -676,27 +878,28 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 	if err := decodeToolArguments(req, &args); err != nil {
 		return nil, err
 	}
+	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
-	if err := p.server.TaskVerification.FailTask(ctx, session.taskRun, args.Reason); err != nil {
-		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), map[string]any{
+	if err := p.taskVerificationService().FailTask(ctx, session.taskRun, args.Reason); err != nil {
+		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 			"reason": args.Reason,
 			"error":  err.Error(),
-		})
+		}))
 		return nil, err
 	}
 	resultingPhase, resultingNodeKind := taskPhaseSnapshot(session.taskRun)
-	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), map[string]any{
+	p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeFailed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
 		"reason": args.Reason,
-	})
+	}))
 	message := "Task failed."
 	if strings.TrimSpace(args.Reason) != "" {
 		message = fmt.Sprintf("Task failed: %s", strings.TrimSpace(args.Reason))
 	}
-	return toolResult(message, lifecycleStructuredContent(session.taskRun, p.server.TaskVerification.WorkingDir)), nil
+	return toolResult(message, lifecycleStructuredContent(session.taskRun, p.taskVerificationService().WorkingDir)), nil
 }
 
 func decodeToolArguments(req *mcp.CallToolRequest, target any) error {
@@ -740,6 +943,9 @@ func stepToolResult(result *taskverification.StepResult, run *taskverification.R
 	if result.FailedCheckID != "" {
 		structured["failedCheckId"] = result.FailedCheckID
 	}
+	if result.FailedCheckDescription != "" {
+		structured["failedCheckDescription"] = result.FailedCheckDescription
+	}
 	if result.FailedInvariantID != "" {
 		structured["failedInvariantId"] = result.FailedInvariantID
 	}
@@ -781,6 +987,9 @@ func lifecycleStructuredContent(run *taskverification.RunState, workingDir strin
 		"hasOnboarding":  run.Onboarding != nil,
 		"hasPlanning":    run.Planning != nil,
 		"executionReady": run.WorkflowReady,
+	}
+	if strings.TrimSpace(run.TaskDescription) != "" {
+		structured["taskDescription"] = run.TaskDescription
 	}
 	if strings.TrimSpace(run.ExplicitFailReason) != "" {
 		structured["explicitFailReason"] = run.ExplicitFailReason
@@ -838,6 +1047,9 @@ func stepStructuredContent(run *taskverification.RunState, workingDir string) ma
 		"templateName": run.SelectedTemplate.Task.Name,
 		"status":       string(run.Status),
 		"phase":        string(run.Phase),
+	}
+	if strings.TrimSpace(run.TaskDescription) != "" {
+		structured["taskDescription"] = run.TaskDescription
 	}
 	addTaskTimingFields(structured, run)
 	addWorkspaceContext(structured, workingDir)

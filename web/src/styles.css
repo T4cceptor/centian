@@ -124,6 +124,35 @@ code,
   text-align: right;
 }
 
+.app-header__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.app-header__project {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-header__project select {
+  min-width: 140px;
+  border: 1px solid rgba(140, 230, 216, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 17, 28, 0.86);
+  color: var(--text);
+  font: inherit;
+  letter-spacing: 0;
+  padding: 6px 28px 6px 10px;
+  text-transform: none;
+}
+
 .app-header__nav {
   display: flex;
   gap: 10px;
@@ -178,6 +207,14 @@ code,
   font-size: 0.84rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.task-run-list__toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .task-run-filter-bar {
@@ -1057,6 +1094,10 @@ code,
     text-align: left;
   }
 
+  .app-header__side {
+    align-items: flex-start;
+  }
+
   .task-run-table__header,
   .benchmark-table__header {
     display: none;
@@ -1171,6 +1212,13 @@ code,
   cursor: pointer;
 }
 
+.action-button--with-spinner {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
 .action-button:disabled {
   opacity: 0.48;
   cursor: not-allowed;
@@ -1184,6 +1232,12 @@ code,
 .task-run-detail {
   display: grid;
   gap: 14px;
+}
+
+@keyframes centian-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .task-run-detail__workspace {
@@ -1201,28 +1255,98 @@ code,
 }
 
 .task-run-detail__header {
-  justify-content: space-between;
-  align-items: start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
 }
 
 .task-run-detail__title-block {
   display: grid;
-  gap: 4px;
+  gap: 8px;
+  justify-items: start;
 }
 
+.task-run-detail__nav-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-self: start;
+}
+
+.task-run-detail__back-link,
 .task-run-detail__benchmark-link {
-  margin-left: auto;
-  padding: 14px 24px;
-  border: 1px solid rgba(116, 204, 194, 0.24);
-  border-radius: 999px;
+  justify-self: start;
+  gap: 6px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.task-run-detail__title-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-self: start;
+  min-width: 0;
+}
+
+.task-run-detail__title {
+  flex: 0 0 auto;
+  margin: 0;
   color: var(--accent-strong);
-  background: linear-gradient(180deg, rgba(10, 20, 30, 0.76), rgba(8, 16, 24, 0.9));
-  box-shadow: inset 0 1px 0 rgba(140, 230, 216, 0.12);
-  text-decoration: none;
-  font-size: 0.98rem;
-  line-height: 1;
-  align-self: center;
+  font-size: 1.24rem;
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: left;
+}
+
+.task-run-detail__subtitle {
+  display: block;
+  max-width: min(860px, 58vw);
+  color: rgba(207, 222, 238, 0.86);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.86rem;
+  font-weight: 400;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.task-run-detail__subtitle p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.task-run-detail__task-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 8px 20px 2px;
+  color: rgba(207, 222, 238, 0.82);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 0.86rem;
+  line-height: 1.32;
+}
+
+.task-run-detail__task-row-label {
+  color: #5a7a9a;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.32;
+  text-transform: uppercase;
+}
+
+.task-run-detail__task-row p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .task-run-detail__benchmark-link:hover {
@@ -1249,6 +1373,291 @@ code,
 .task-run-detail__summary {
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.task-run-detail__metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-run-detail__metric-label {
+  display: inline-flex;
+  min-height: 16px;
+  flex-direction: row;
+  gap: 5px;
+  align-items: baseline;
+  color: #5a7a9a;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.task-run-detail__metric-label-detail {
+  color: #6f8fad;
+}
+
+.task-run-detail__template-metric {
+  max-width: 240px;
+}
+
+.task-run-detail__template-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-run-detail__duration-value--active {
+  color: #7eb3ff;
+}
+
+.task-run-detail__duration-value--success {
+  color: var(--accent-success);
+}
+
+.task-run-detail__duration-value--failed {
+  color: var(--accent-danger);
+}
+
+.task-run-detail__split-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-run-detail__split-process {
+  color: rgb(167, 139, 250);
+}
+
+.task-run-detail__split-mcp {
+  color: rgb(50, 210, 250);
+}
+
+.task-run-detail__split-separator {
+  color: var(--text-muted);
+}
+
+.task-run-detail__governance {
+  margin: 4px 20px 14px;
+  border: 1px solid rgba(167, 139, 250, 0.22);
+  border-left: 4px solid rgb(167, 139, 250);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(12, 15, 31, 0.82), rgba(10, 18, 32, 0.66));
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.16);
+}
+
+.task-run-detail__governance-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: 600 0.98rem system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+}
+
+.task-run-detail__governance-toggle:hover {
+  background: rgba(140, 230, 216, 0.04);
+}
+
+.task-run-detail__governance-toggle:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: -2px;
+}
+
+.task-run-detail__governance-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-strong);
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.task-run-detail__governance-title-count {
+  color: inherit;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-weight: 600;
+}
+
+.task-run-detail__governance-title-signals {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-run-detail__governance-title-paren {
+  color: var(--text-dim);
+}
+
+.task-run-detail__governance-title-signal {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.task-run-detail__governance-title-signal .task-run-detail__governance-category-icon {
+  width: 15px;
+  height: 15px;
+  color: currentColor;
+}
+
+.task-run-detail__governance-title-signal .task-run-detail__governance-category-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.task-run-detail__governance-action {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.task-run-detail__governance-body {
+  padding: 0 18px 16px;
+}
+
+.task-run-detail__governance-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-run-detail__governance-item {
+  display: grid;
+  grid-template-columns: 20px 96px 8px 82px minmax(180px, 260px) 8px minmax(0, 1fr);
+  column-gap: 7px;
+  row-gap: 4px;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+}
+
+.task-run-detail__governance-item code {
+  min-width: 0;
+  color: #d6e2ff;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.task-run-detail__governance-item > span:last-child {
+  min-width: 0;
+}
+
+.task-run-detail__governance-category-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--accent-strong);
+}
+
+.task-run-detail__governance-category--security {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  box-shadow: 0 0 10px rgba(255, 107, 107, 0.2);
+}
+
+.task-run-detail__governance-category--policy {
+  color: #f4b740;
+  background: rgba(244, 183, 64, 0.1);
+}
+
+.task-run-detail__governance-category--quality {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.1);
+}
+
+.task-run-detail__governance-category--observability {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.09);
+}
+
+.task-run-detail__governance-category--compliance {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.1);
+}
+
+.task-run-detail__governance-category--risk {
+  color: var(--accent-danger);
+  background: rgba(255, 140, 140, 0.08);
+}
+
+.task-run-detail__governance-category-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2;
+}
+
+.task-run-detail__governance-event-action {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #d6e2ff;
+}
+
+.task-run-detail__governance-category-label {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.task-run-detail__governance-severity {
+  display: inline-flex;
+  min-width: 54px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.task-run-detail__governance-severity--high {
+  color: var(--accent-danger);
+  background: rgba(255, 140, 140, 0.08);
+}
+
+.task-run-detail__governance-severity--medium {
+  color: #ff9f43;
+  background: rgba(255, 159, 67, 0.1);
+}
+
+.task-run-detail__governance-severity--low {
+  color: var(--accent-warning);
+  background: rgba(244, 210, 122, 0.1);
+}
+
+.task-run-detail__governance-separator,
+.task-run-detail__governance-empty {
+  color: var(--text-muted);
+}
+
+.task-run-detail__governance-empty {
+  margin: 0;
+  font-size: 0.84rem;
 }
 
 .task-run-summary-card {
@@ -1939,6 +2348,13 @@ code,
   .timeline-group__header {
     align-items: start;
     flex-direction: column;
+  }
+
+  .task-run-detail__governance-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
   }
 
 }

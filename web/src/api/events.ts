@@ -1,5 +1,5 @@
 import { loadStoredApiAuth, unauthorizedAuthHeaderHint } from "./api-auth";
-import { ApiError } from "./task-runs";
+import { ApiError, projectApiPath, type ProcessorAnnotation } from "./task-runs";
 
 export type EventListFilters = {
   gateway?: string;
@@ -30,6 +30,7 @@ export type EventListItem = {
   success: boolean;
   isError: boolean;
   payloadJson?: unknown;
+  annotations?: ProcessorAnnotation[];
   taskRunId?: string;
   invocationPhasePath?: string;
   invocationNodeKind?: string;
@@ -76,8 +77,8 @@ function buildQuery(filters: EventListFilters = {}): string {
   return query ? `?${query}` : "";
 }
 
-export async function fetchEvents(filters: EventListFilters = {}, signal?: AbortSignal): Promise<EventListPage> {
-  const page = await requestJSON<EventListPage>(`/api/events${buildQuery(filters)}`, signal);
+export async function fetchEvents(projectSlug: string | undefined, filters: EventListFilters = {}, signal?: AbortSignal): Promise<EventListPage> {
+  const page = await requestJSON<EventListPage>(`${projectApiPath(projectSlug, "/events")}${buildQuery(filters)}`, signal);
   return {
     items: Array.isArray(page?.items) ? page.items : [],
     nextCursor: typeof page?.nextCursor === "string" && page.nextCursor ? page.nextCursor : undefined,

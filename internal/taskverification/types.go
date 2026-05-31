@@ -398,6 +398,8 @@ type RunState struct {
 	RunID string `json:"taskRunId"`
 	// TemplateID is the identifier of the template this run was registered from.
 	TemplateID string `json:"templateId"`
+	// TaskDescription is the user/agent supplied description of this specific task run.
+	TaskDescription string `json:"taskDescription,omitempty"`
 	// SelectedTemplate is the original unresolved template chosen at registration time and is not serialized.
 	SelectedTemplate Template `json:"-"`
 	// Status is the overall lifecycle status of the task run.
@@ -458,6 +460,8 @@ type StepResult struct {
 	FailurePhase StepFailurePhase `json:"failurePhase,omitempty"`
 	// FailedCheckID identifies the failing check when a check caused the step to fail.
 	FailedCheckID string `json:"failedCheckId,omitempty"`
+	// FailedCheckDescription is the template-authored description for the failing check, when available.
+	FailedCheckDescription string `json:"failedCheckDescription,omitempty"`
 	// FailedInvariantID identifies the failing invariant when invariant capture or verification failed.
 	FailedInvariantID string `json:"failedInvariantId,omitempty"`
 	// Summary is an optional concise summary of the step outcome suitable for UIs.

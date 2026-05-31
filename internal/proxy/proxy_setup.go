@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	centapi "github.com/T4cceptor/centian/internal/api"
 	centauth "github.com/T4cceptor/centian/internal/auth"
@@ -24,12 +26,23 @@ import (
 // This file creates the Centian HTTP server and registers gateway and
 // single-server proxy endpoints from config.
 
+// CentianServerOptions customizes runtime dependencies for server construction.
+type CentianServerOptions struct {
+	LoggerFactory func(projectSlug string) (*logging.Logger, error)
+}
+
 // NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
 // It resolves the config into the project-based layout and initializes per-project
 // services (persistence, task verification) for each project.
+func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
+	return NewCentianServerWithOptions(globalConfig, CentianServerOptions{})
+}
+
+// NewCentianServerWithOptions takes a GlobalConfig struct and explicit runtime
+// dependencies, then returns a new CentianServer.
 //
 //nolint:gocyclo // Server startup coordinates several subsystems; helpers keep the branches local and explicit.
-func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
+func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options CentianServerOptions) (*CentianServer, error) {
 	if globalConfig == nil || globalConfig.Proxy == nil {
 		return nil, fmt.Errorf("proxy settings are required")
 	}
@@ -57,7 +70,8 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		ReadTimeout:  common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
 		WriteTimeout: common.GetSecondsFromInt(globalConfig.Proxy.Timeout),
 	}
-	logger, err := logging.NewLogger()
+	loggerFactory := options.loggerFactory()
+	logger, err := loggerFactory(config.DefaultProjectSlug)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
@@ -89,7 +103,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 
 	// Initialize per-project state.
 	for slug, projectConfig := range globalConfig.Projects {
-		project, err := newCentianProject(slug, projectConfig, workingDir, logger)
+		project, err := newCentianProject(slug, projectConfig, workingDir, logger, loggerFactory)
 		if err != nil {
 			return nil, fmt.Errorf("project '%s': %w", slug, err)
 		}
@@ -101,6 +115,7 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 		centianServer.Gateways = defaultProject.Gateways
 		centianServer.Endpoints = defaultProject.Endpoints
 		centianServer.OAuth = defaultProject.OAuth
+		centianServer.Logger = defaultProject.Logger
 		centianServer.PersistenceStore = defaultProject.PersistenceStore
 		centianServer.TaskVerification = defaultProject.TaskVerification
 		centianServer.eventStoreCloser = defaultProject.eventStoreCloser
@@ -116,26 +131,63 @@ func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error)
 	return centianServer, nil
 }
 
+func (o CentianServerOptions) loggerFactory() func(projectSlug string) (*logging.Logger, error) {
+	if o.LoggerFactory != nil {
+		return o.LoggerFactory
+	}
+	return defaultProjectLogger
+}
+
 // newCentianProject initializes per-project runtime state.
 func newCentianProject(
 	slug string,
 	projectConfig *config.ProjectConfig,
 	workingDir string,
-	logger *logging.Logger,
+	defaultLogger *logging.Logger,
+	loggerFactory func(projectSlug string) (*logging.Logger, error),
 ) (*CentianProject, error) {
-	taskService, persistenceStore, eventStoreCloser, err := newProjectTaskVerificationService(projectConfig, slug, workingDir, logger)
+	projectLogger, err := newProjectLogger(slug, defaultLogger, loggerFactory)
 	if err != nil {
 		return nil, err
+	}
+	taskService, persistenceStore, eventStoreCloser, err := newProjectTaskVerificationService(projectConfig, slug, workingDir)
+	if err != nil {
+		if projectLogger != nil && projectLogger != defaultLogger {
+			_ = projectLogger.Close()
+		}
+		return nil, err
+	}
+	if projectLogger != nil {
+		projectLogger.SetActionEventStore(persistenceStore)
 	}
 	return &CentianProject{
 		Slug:             slug,
 		Config:           projectConfig,
 		Gateways:         make(map[string]*CentianEndpoint),
 		Endpoints:        []*CentianEndpoint{},
+		Logger:           projectLogger,
 		PersistenceStore: persistenceStore,
 		TaskVerification: taskService,
 		eventStoreCloser: eventStoreCloser,
 	}, nil
+}
+
+func newProjectLogger(projectSlug string, defaultLogger *logging.Logger, loggerFactory func(projectSlug string) (*logging.Logger, error)) (*logging.Logger, error) {
+	if projectSlug == config.DefaultProjectSlug {
+		return defaultLogger, nil
+	}
+	return loggerFactory(projectSlug)
+}
+
+func defaultProjectLogger(projectSlug string) (*logging.Logger, error) {
+	if projectSlug == config.DefaultProjectSlug {
+		return logging.NewLogger()
+	}
+	logDir, err := resolveProjectLogDir(projectSlug)
+	if err != nil {
+		return nil, err
+	}
+	return logging.NewLoggerInDir(logDir)
 }
 
 // newProjectTaskVerificationService creates task verification and persistence services for a project.
@@ -143,14 +195,12 @@ func newProjectTaskVerificationService(
 	projectConfig *config.ProjectConfig,
 	projectSlug string,
 	workingDir string,
-	logger *logging.Logger,
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
 	templateDir := resolveProjectTaskTemplatesPath(projectConfig, workingDir)
 	eventStorage := projectConfig.EventStorageCapability()
 	return buildTaskVerificationService(
 		templateDir,
 		workingDir,
-		logger,
 		eventStorage == nil || eventStorage.IsEnabled(),
 		func() (string, error) {
 			return resolveProjectEventStorePath(eventStorage, projectSlug)
@@ -208,6 +258,17 @@ func resolveProjectEventStorePath(settings *config.EventStorageCapabilitySetting
 	return filepath.Join(projectDir, "events.sqlite"), nil
 }
 
+func resolveProjectLogDir(projectSlug string) (string, error) {
+	if projectSlug == config.DefaultProjectSlug {
+		return logging.GetLogsDirectory()
+	}
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine config directory: %w", err)
+	}
+	return filepath.Join(configDir, "projects", projectSlug, "logs"), nil
+}
+
 func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, error) {
 	// Check if any project has auth enabled.
 	anyAuthEnabled := false
@@ -254,7 +315,6 @@ func (noopCloser) Close() error {
 func buildTaskVerificationService(
 	templateDir string,
 	workingDir string,
-	logger *logging.Logger,
 	eventStorageEnabled bool,
 	resolveStorePath func() (string, error),
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
@@ -273,12 +333,13 @@ func buildTaskVerificationService(
 	}
 	taskService.EventStore = store
 	taskService.RunStore = store
-	logger.SetActionEventStore(store)
 	return taskService, store, store, nil
 }
 
 // Setup uses CentianServer.config to create all gateways and endpoints for every project.
 func (c *CentianServer) Setup() error {
+	c.registerProjectHTTPRoutes()
+
 	for slug, project := range c.Projects {
 		if err := c.setupProject(slug, project); err != nil {
 			return fmt.Errorf("project '%s': %w", slug, err)
@@ -290,6 +351,7 @@ func (c *CentianServer) Setup() error {
 		c.Gateways = defaultProject.Gateways
 		c.Endpoints = defaultProject.Endpoints
 		c.OAuth = defaultProject.OAuth
+		c.Logger = defaultProject.Logger
 		c.PersistenceStore = defaultProject.PersistenceStore
 		c.TaskVerification = defaultProject.TaskVerification
 	}
@@ -322,9 +384,6 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 		// Currently all projects share the same /oauth/* routes.
 		project.OAuth.RegisterRoutes(c.Mux)
 	}
-
-	// Register optional HTTP routes (API, UI) for this project.
-	c.registerProjectHTTPRoutes(project)
 
 	// Register gateway and server endpoints.
 	for gatewayName, gatewayConfig := range projectConfig.Gateways {
@@ -363,29 +422,96 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 	return nil
 }
 
-// registerProjectHTTPRoutes registers API and UI routes for a project.
-func (c *CentianServer) registerProjectHTTPRoutes(project *CentianProject) {
-	if project == nil || project.PersistenceStore == nil {
+// registerProjectHTTPRoutes registers project-aware API routes and the shared UI.
+func (c *CentianServer) registerProjectHTTPRoutes() {
+	if c == nil || c.Mux == nil {
 		return
 	}
 
-	// TODO: implement prefixed route registration for API and UI handlers
-	// in multi-project setups. Currently all projects share the same /api/* and /ui routes.
-	handler := centapi.NewHandler(project.PersistenceStore)
-	handler.RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
+	centapi.NewProjectsHandler(c.projectSummaries()).WithFilter(func(r *http.Request, project centapi.ProjectSummary) bool {
+		authData := getAuthData(r.Context())
+		if authData == nil || authData.KeyEntry == nil {
+			return true
+		}
+		return authData.KeyEntry.AllowsProject(project.Slug)
+	}).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+		return wrapWithAPIKeyAuth(c, "", next)
 	})
 
-	centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
-	})
+	uiEnabled := false
+	for _, project := range c.Projects {
+		if project == nil || project.PersistenceStore == nil {
+			continue
+		}
+		slug := project.Slug
+		prefix := "/api/" + slug
+		centapi.NewHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
+		centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
 
-	centapi.NewBenchmarkHandler(benchmarks.NewReadService(project.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
-		return wrapWithAPIKeyAuth(c, project.Slug, next)
-	})
-	if project.Config != nil && project.Config.UIEnabled() {
+		if project.Config != nil && project.Config.UIEnabled() {
+			uiEnabled = true
+		}
+	}
+
+	if defaultProject, ok := c.Projects[config.DefaultProjectSlug]; ok && defaultProject != nil && defaultProject.PersistenceStore != nil {
+		centapi.NewHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewEventsHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewBenchmarkHandler(benchmarks.NewReadService(defaultProject.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+	}
+
+	if uiEnabled {
 		centui.NewHandler().RegisterRoutes(c.Mux)
 	}
+}
+
+func (c *CentianServer) projectSummaries() []centapi.ProjectSummary {
+	if c == nil || len(c.Projects) == 0 {
+		return []centapi.ProjectSummary{}
+	}
+	slugs := make([]string, 0, len(c.Projects))
+	for slug := range c.Projects {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+
+	summaries := make([]centapi.ProjectSummary, 0, len(slugs))
+	for _, slug := range slugs {
+		project := c.Projects[slug]
+		if project == nil || project.Config == nil {
+			continue
+		}
+		summaries = append(summaries, centapi.ProjectSummary{
+			Slug:                    slug,
+			Name:                    projectDisplayName(slug, project),
+			Description:             project.Config.Description,
+			IsDefault:               slug == config.DefaultProjectSlug,
+			UIEnabled:               project.Config.UIEnabled(),
+			EventStorageEnabled:     project.PersistenceStore != nil,
+			TaskVerificationEnabled: project.Config.TaskVerificationEnabled(),
+		})
+	}
+	return summaries
+}
+
+func projectDisplayName(slug string, project *CentianProject) string {
+	if project != nil && project.Config != nil && project.Config.Metadata != nil {
+		if name, ok := project.Config.Metadata["name"].(string); ok {
+			if trimmed := strings.TrimSpace(name); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return slug
 }
 
 // Close releases endpoint-owned resources such as pooled downstream sessions.
@@ -413,6 +539,11 @@ func closeProject(project *CentianProject) []error {
 	var errs []error
 	if project.eventStoreCloser != nil {
 		if err := project.eventStoreCloser.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if project.Logger != nil {
+		if err := project.Logger.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}

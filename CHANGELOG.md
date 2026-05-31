@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.4.3 - 2026-06-01
+
+### Major
+- Added the built-in `prompt_injection_guard` processor, including annotate/redact/remove/error modes, prompt-injection governance annotations, and fail-closed validation requiring `required: true` plus `payload` and `annotations` processor parts.
+- Added normalized processor annotation persistence for MCP/action events through the new `event_annotations` SQLite table, with typed API projection for task-run detail and global event responses.
+- Made projects first-class in the UI/API by adding `/api/projects`, project-scoped task/event APIs under `/api/{projectSlug}/...`, and project-aware UI routes under `/ui/{projectSlug}/...`.
+- Reworked `centian demo` into a diskless in-memory IT Ops demonstration that starts a temporary local server, seeds the bundled governed incident run, and opens directly to the demo task-run detail view.
+- Redesigned the task-run detail UI around compact metadata, task description, governance events, annotation category icons, saved section states, and hoverable governance context on timeline events.
+
+### Minor
+- Scoped task verification writes, MCP action-event persistence, and request JSONL loggers per project so named projects write only to their own stores and log directories.
+- Exposed persisted task-run snapshots through the task-run detail API so the UI can use the frozen runtime template instead of the current config template.
+- Added `task_description` and optional `annotations` support to Centian task tools, with generated governance annotations for process failures, failed checks, and tool allowlist denials.
+
+### Bugfixes
+- Fixed `/api/projects` authorization so project-scoped API keys only see project metadata they are allowed to access.
+- Collapsed the unreleased annotation schema migration into schema v7 and ensured fresh/migrated databases create the final annotation columns and indexes.
+- Fixed demo and OAuth integration test isolation by avoiding stale local event stores when using temporary demo or test storage.
+
 ## v0.4.2 - 2026-04-23
 
 ### Minor

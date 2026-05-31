@@ -78,6 +78,18 @@
               "/opt/centian/processors/response_redactor.py"
             ]
           }
+        },
+        {
+          "name": "prompt_injection_guard",
+          "type": "builtin",
+          "enabled": true,
+          "required": true,
+          "timeout": 15,
+          "parts": ["payload", "meta", "annotations"],
+          "config": {
+            "processor": "prompt_injection_guard",
+            "mode": "redact"
+          }
         }
       ]
     }

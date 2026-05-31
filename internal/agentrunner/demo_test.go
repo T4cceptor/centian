@@ -348,11 +348,11 @@ func TestRunAgentAppendsLogs(t *testing.T) {
 		},
 	}
 
-	if err := runAgent(context.Background(), adapter, layout, &DemoOptions{Timeout: time.Second}); err != nil {
-		t.Fatalf("runAgent first run: %v", err)
+	if err := runAgentPrompt(context.Background(), adapter, layout, "prompt", nil, nil, time.Second); err != nil {
+		t.Fatalf("runAgentPrompt first run: %v", err)
 	}
-	if err := runAgent(context.Background(), adapter, layout, &DemoOptions{Timeout: time.Second}); err != nil {
-		t.Fatalf("runAgent second run: %v", err)
+	if err := runAgentPrompt(context.Background(), adapter, layout, "prompt", nil, nil, time.Second); err != nil {
+		t.Fatalf("runAgentPrompt second run: %v", err)
 	}
 
 	stdoutData, err := os.ReadFile(layout.AgentStdoutPath)
@@ -394,16 +394,8 @@ func TestWritePIDAndStopHint(t *testing.T) {
 	}
 }
 
-func TestRunDemoUnsupportedAgent(t *testing.T) {
-	allocateFreePortFunc = func() (string, error) { return "40123", nil }
-	defer func() { allocateFreePortFunc = common.AllocateFreePort }()
-
-	_, err := (DemoRunner{}).RunDemo(context.Background(), &DemoOptions{
-		Execution:         AgentExecutionOptions{Agent: "unsupported-agent"},
-		RootPath:          filepath.Join(t.TempDir(), "demo"),
-		CentianBinaryPath: "/tmp/centian",
-		Timeout:           time.Second,
-	})
+func TestSelectAdapterForExecutionUnsupportedAgent(t *testing.T) {
+	_, err := selectAdapterForExecution(AgentExecutionOptions{Agent: "unsupported-agent"})
 	if err == nil || !strings.Contains(err.Error(), "unsupported agent") {
 		t.Fatalf("expected unsupported agent error, got %v", err)
 	}

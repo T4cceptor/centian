@@ -27,6 +27,7 @@ type stepFailureDetails struct {
 	kind            StepFailureKind
 	phase           StepFailurePhase
 	failedCheckID   string
+	failedCheckDesc string
 	failedInvariant string
 	summary         string
 	exitCode        *int
@@ -257,7 +258,7 @@ func (s *Service) runStepChecks(ctx context.Context, run *RunState, step *Step, 
 		result, err := s.runCommand(cmdCtx, check.Command)
 		cancel()
 		if err != nil {
-			return s.executionFailure(run, step, stepIndex, stepNumber, check.ID, result, err), true
+			return s.executionFailure(run, step, stepIndex, stepNumber, check, result, err), true
 		}
 		if err := evaluateConditions(conditions(check), result, s.WorkingDir); err != nil {
 			details := failureDetailsFromCommand(
@@ -267,6 +268,7 @@ func (s *Service) runStepChecks(ctx context.Context, run *RunState, step *Step, 
 				fmt.Sprintf("step %d (%s) %s failed for check %s", stepNumber, step.ID, phase, check.ID),
 			)
 			details.failedCheckID = check.ID
+			details.failedCheckDesc = strings.TrimSpace(check.Description)
 			details.summary = fmt.Sprintf("%s: %v", details.summary, err)
 			return failureResult(run, stepIndex, stepNumber, step.ID, &details), true
 		}
@@ -323,7 +325,13 @@ func (s *Service) verifyInvariants(ctx context.Context, run *RunState, step *Ste
 	return nil, false
 }
 
-func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNumber int, checkID string, result *commandResult, err error) *StepResult {
+func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNumber int, check *Check, result *commandResult, err error) *StepResult {
+	checkID := ""
+	checkDescription := ""
+	if check != nil {
+		checkID = check.ID
+		checkDescription = strings.TrimSpace(check.Description)
+	}
 	details := failureDetailsFromCommand(
 		StepFailureKindCommandExecution,
 		StepFailurePhaseCommandExecution,
@@ -331,6 +339,7 @@ func (s *Service) executionFailure(run *RunState, step *Step, stepIndex, stepNum
 		fmt.Sprintf("step %d (%s) could not execute check %s", stepNumber, step.ID, checkID),
 	)
 	details.failedCheckID = checkID
+	details.failedCheckDesc = checkDescription
 	details.summary = fmt.Sprintf("%s: %v", details.summary, err)
 	return failureResult(run, stepIndex, stepNumber, step.ID, &details)
 }
@@ -405,21 +414,22 @@ func failureResult(run *RunState, stepIndex, stepNumber int, stepID string, deta
 	message := details.summary
 	run.LastFailureMessage = message
 	result := &StepResult{
-		Passed:            false,
-		Message:           message,
-		Summary:           details.summary,
-		Step:              stepNumber,
-		StepID:            stepID,
-		Status:            run.Status,
-		Phase:             run.Phase,
-		StepStatus:        run.Steps[stepIndex].Status,
-		FailureKind:       details.kind,
-		FailurePhase:      details.phase,
-		FailedCheckID:     details.failedCheckID,
-		FailedInvariantID: details.failedInvariant,
-		ExitCode:          details.exitCode,
-		StdoutSnippet:     details.stdoutSnippet,
-		StderrSnippet:     details.stderrSnippet,
+		Passed:                 false,
+		Message:                message,
+		Summary:                details.summary,
+		Step:                   stepNumber,
+		StepID:                 stepID,
+		Status:                 run.Status,
+		Phase:                  run.Phase,
+		StepStatus:             run.Steps[stepIndex].Status,
+		FailureKind:            details.kind,
+		FailurePhase:           details.phase,
+		FailedCheckID:          details.failedCheckID,
+		FailedCheckDescription: details.failedCheckDesc,
+		FailedInvariantID:      details.failedInvariant,
+		ExitCode:               details.exitCode,
+		StdoutSnippet:          details.stdoutSnippet,
+		StderrSnippet:          details.stderrSnippet,
 	}
 	return result
 }

@@ -1,9 +1,10 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { Eye, ListChecks, ScrollText, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 
-import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, type TaskRunDetailMetadata, type TaskRunEvent } from "../api/task-runs";
+import { ApiError, fetchTaskRunDetail, fetchTaskRunEvents, normalizeProjectSlug, type ProcessorAnnotation, type TaskRunDetailMetadata, type TaskRunEvent, type TaskRunSnapshot } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
-import { formatTimestamp, formatDuration, formatTaskRunId, humanizeIdentifier, humanizePhase } from "./format";
+import { formatTimestamp, formatDuration, formatTemplateLabel, humanizeIdentifier, humanizePhase } from "./format";
 import { SciFiTimeline } from "./sci-fi-timeline";
 import { type TaskRunUIStatus } from "./task-run-status";
 
@@ -41,7 +42,8 @@ export type TimelineItem =
 
 // Loads a single run, groups its events into timeline sections, and drives the inspector UI.
 export function TaskRunDetailPage() {
-  const { runID } = useParams();
+  const { projectSlug: rawProjectSlug, runID } = useParams();
+  const projectSlug = normalizeProjectSlug(rawProjectSlug);
   const location = useLocation();
   const [events, setEvents] = useState<TaskRunEvent[]>([]);
   const [detailMetadata, setDetailMetadata] = useState<TaskRunDetailMetadata | null>(null);
@@ -56,6 +58,10 @@ export function TaskRunDetailPage() {
   const previousExpandedWidthRef = useRef(getDefaultDetailsWidth());
   const detailStatus = useMemo(() => deriveTaskRunDetailStatus(events), [events]);
   const benchmarkLink = detailMetadata?.benchmarkLinks?.[0];
+  const detailSubtitle = useMemo(
+    () => deriveTaskRunSubtitle(events, detailMetadata?.snapshot),
+    [detailMetadata?.snapshot, events],
+  );
 
   useEffect(() => {
     if (!runID) {
@@ -72,8 +78,8 @@ export function TaskRunDetailPage() {
 
     // Reset view state when the route changes and ignore responses from aborted requests.
     void Promise.all([
-      fetchTaskRunEvents(runID, controller.signal),
-      fetchTaskRunDetail(runID, controller.signal),
+      fetchTaskRunEvents(projectSlug, runID, controller.signal),
+      fetchTaskRunDetail(projectSlug, runID, controller.signal),
     ])
       .then(([eventResult, detailResult]) => {
         setEvents(eventResult);
@@ -103,7 +109,7 @@ export function TaskRunDetailPage() {
       });
 
     return () => controller.abort();
-  }, [reloadToken, runID]);
+  }, [projectSlug, reloadToken, runID]);
 
   useEffect(() => {
     if (!runID || loadState !== "ready" || detailStatus !== "active") {
@@ -124,7 +130,7 @@ export function TaskRunDetailPage() {
       inFlight = true;
       controller = new AbortController();
 
-      void fetchTaskRunEvents(runID, controller.signal)
+      void fetchTaskRunEvents(projectSlug, runID, controller.signal)
         .then((result) => {
           setEvents(result);
         })
@@ -148,13 +154,21 @@ export function TaskRunDetailPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [detailStatus, loadState, runID]);
+  }, [detailStatus, loadState, projectSlug, runID]);
 
   const timelineItems = useMemo(() => buildTimelineItems(events), [events]);
   const groupedEvents = useMemo(() => groupEventsByPhase(timelineItems), [timelineItems]);
   const flatTimelineItems = useMemo(
     () => groupedEvents.flatMap((group) => group.items),
     [groupedEvents],
+  );
+  const governanceEvents = useMemo(
+    () => deriveGovernanceEvents(flatTimelineItems),
+    [flatTimelineItems],
+  );
+  const governanceEventItemIDs = useMemo(
+    () => new Set(governanceEvents.map((event) => event.itemId)),
+    [governanceEvents],
   );
   const selectedItem = flatTimelineItems.find((item) => item.id === selectedItemID);
   const inspectorVisible = selectedItemID !== "" && selectedItem != null;
@@ -163,28 +177,31 @@ export function TaskRunDetailPage() {
     const startedAt = events[0]?.createdAtUnixMilli;
     const lastSeenAt = events.length > 0 ? events[events.length - 1].createdAtUnixMilli : undefined;
 
-    let errorCount = 0;
+    let processEventCount = 0;
+    let mcpEventCount = 0;
     // Aggregate lightweight summary stats directly from the flattened render model.
     for (const item of flatTimelineItems) {
-      if (item.kind === "exchange") {
-        const resp = item.exchange.response;
-        if (resp && (resp.isError === true || resp.success === false)) {
-          errorCount++;
-        }
-      } else if (item.kind === "task") {
-        if (item.task.outcome === "failed" || item.task.eventType === "task_failed") {
-          errorCount++;
-        }
+      if (item.kind === "task") {
+        processEventCount++;
+        continue;
+      }
+
+      if (isProcessExchange(item.exchange)) {
+        processEventCount++;
+      } else {
+        mcpEventCount++;
       }
     }
 
     return {
       startedAt,
       durationEndedAt: detailStatus === "active" ? undefined : lastSeenAt,
-      errorCount,
-      totalEvents: events.length,
+      lastSeenAt,
+      processEventCount,
+      mcpEventCount,
     };
   }, [detailStatus, events, flatTimelineItems]);
+  const templateLabel = useMemo(() => getTaskTemplateLabel(detailMetadata), [detailMetadata]);
 
   useEffect(() => {
     if (detailStatus !== "active") {
@@ -292,23 +309,28 @@ export function TaskRunDetailPage() {
   return (
     <div className="task-run-detail">
       <header className="task-run-detail__header">
-        <div className="task-run-detail__title-block">
-          <p className="state-card__eyebrow">
-            <span>Run Detail</span>
-            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
-            {formatTaskRunId(runID ?? "")}
-            <span style={{ opacity: 0.35, margin: "0 8px" }}>·</span>
-            <span className={`status-badge status-badge--${detailStatus}`}>{detailStatus}</span>
-          </p>
-        </div>
-        <div className="task-run-detail__header-actions">
-          <Link className="back-link" style={{fontFamily:"inter"}} to={`/tasks${location.search || ""}`}>
-            Back to task runs
+        <div className="task-run-detail__nav-actions">
+          <Link className="back-link task-run-detail__back-link" aria-label="Back to task runs" to={`/${projectSlug}/tasks${location.search || ""}`}>
+            <span aria-hidden="true">←</span>
+            <span>All Agent Tasks</span>
           </Link>
+          {benchmarkLink ? (
+            <Link
+              className="back-link task-run-detail__benchmark-link"
+              to={`/benchmarks/${benchmarkLink.suiteId}/runs/${benchmarkLink.benchmarkRunId}`}
+            >
+              See Benchmark
+            </Link>
+          ) : null}
+        </div>
+        <div className="task-run-detail__title-group">
+          <h1 className="task-run-detail__title">Agent Task Details</h1>
         </div>
       </header>
 
-      <RunMetadataBar stats={runStats} now={now} benchmarkLink={benchmarkLink} />
+      {detailSubtitle ? <TaskDescriptionRow text={detailSubtitle.text} /> : null}
+      <RunMetadataBar stats={runStats} status={detailStatus} now={now} templateLabel={templateLabel} />
+      <GovernanceEventsPanel events={governanceEvents} />
 
       <div className="task-run-detail__workspace">
         <SciFiTimeline
@@ -323,6 +345,8 @@ export function TaskRunDetailPage() {
           onSelectItem={setSelectedItemID}
           selectedItemId={selectedItemID}
           events={events}
+          governanceEventItemIDs={governanceEventItemIDs}
+          governanceEvents={governanceEvents}
         />
 
         {inspectorVisible ? (
@@ -525,44 +549,62 @@ function DetailStateCard({
   );
 }
 
-type BenchmarkLinkTarget = NonNullable<TaskRunDetailMetadata["benchmarkLinks"]>[number];
-
 // Summary numbers shown above the timeline.
 type RunStats = {
   startedAt: number | undefined;
   durationEndedAt: number | undefined;
-  errorCount: number;
-  totalEvents: number;
+  lastSeenAt: number | undefined;
+  processEventCount: number;
+  mcpEventCount: number;
 };
+
+type TaskRunDetailSubtitle = {
+  text: string;
+};
+
+type GovernanceEventDescription = {
+  id: string;
+  itemId: string;
+  action: string;
+  category: string;
+  event: string;
+  reason: string;
+  severity: GovernanceSeverity;
+};
+
+type GovernanceSeverity = "low" | "medium" | "high";
+
+const STALE_TASK_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+
+function TaskDescriptionRow({ text }: { text: string }) {
+  return (
+    <div className="task-run-detail__task-row" aria-label="Task detail summary">
+      <span className="task-run-detail__task-row-label">Task</span>
+      <p>{text}</p>
+    </div>
+  );
+}
 
 // Displays the headline metrics for the selected run.
 function RunMetadataBar({
   stats,
+  status,
   now,
-  benchmarkLink,
+  templateLabel,
 }: {
   stats: RunStats;
+  status: TaskRunUIStatus;
   now: number;
-  benchmarkLink?: BenchmarkLinkTarget;
+  templateLabel?: string;
 }) {
   // Shared inline styles keep the compact metadata row visually consistent.
-  const cellStyle: CSSProperties = {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-  };
-  const labelStyle: CSSProperties = {
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: "0.05em",
-    textTransform: "uppercase",
-    color: "#5a7a9a",
-  };
   const valueStyle: CSSProperties = {
     fontSize: 13,
     color: "#c8daf0",
     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
   };
+  const durationValueStyle: CSSProperties = { ...valueStyle, color: undefined };
+  const durationMetric = getDurationMetric(stats, status, now);
 
   return (
     <div
@@ -570,51 +612,572 @@ function RunMetadataBar({
         display: "flex",
         flexWrap: "wrap",
         gap: 24,
-        padding: "10px 20px",
-        background: "linear-gradient(135deg, rgba(10,14,30,0.7), rgba(15,22,42,0.5))",
+        padding: "8px 20px",
+        background: "rgba(10, 14, 30, 0.38)",
         borderBottom: "1px solid rgba(100,140,200,0.1)",
         fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         alignItems: "flex-start",
       }}
     >
+      {templateLabel ? (
+        <div className="task-run-detail__metric task-run-detail__template-metric" aria-label={`Template: ${templateLabel}`}>
+          <MetricLabel label="Template" />
+          <span className="task-run-detail__template-value" style={valueStyle} title={templateLabel}>
+            {templateLabel}
+          </span>
+        </div>
+      ) : null}
+
       {stats.startedAt != null && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Started</span>
+        <div className="task-run-detail__metric">
+          <MetricLabel label="Started" />
           <span style={valueStyle}>{formatTimestamp(stats.startedAt)}</span>
         </div>
       )}
 
       {stats.startedAt != null && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Duration</span>
-          <span style={valueStyle}>
-            {formatDuration(stats.startedAt, stats.durationEndedAt, now)}
+        <div className="task-run-detail__metric">
+          <MetricLabel label="Duration" />
+          <span
+            className={`task-run-detail__duration-value task-run-detail__duration-value--${durationMetric.tone}`}
+            style={durationValueStyle}
+          >
+            {durationMetric.label}
           </span>
         </div>
       )}
 
-      <div style={cellStyle}>
-        <span style={labelStyle}>Events</span>
-        <span style={valueStyle}>{stats.totalEvents}</span>
-      </div>
-
-      {stats.errorCount > 0 && (
-        <div style={cellStyle}>
-          <span style={labelStyle}>Errors</span>
-          <span style={{ ...valueStyle, color: "#fb7185" }}>{stats.errorCount}</span>
-        </div>
-      )}
-
-      {benchmarkLink ? (
-        <Link
-          className="task-run-detail__benchmark-link"
-          to={`/benchmarks/${benchmarkLink.suiteId}/runs/${benchmarkLink.benchmarkRunId}`}
-        >
-          Benchmark Run
-        </Link>
-      ) : null}
+      <SplitMetric
+        label="Agent Actions"
+        labelDetail="(Process/MCP)"
+        processCount={stats.processEventCount}
+        mcpCount={stats.mcpEventCount}
+        valueStyle={valueStyle}
+      />
     </div>
   );
+}
+
+function GovernanceEventsPanel({ events }: { events: GovernanceEventDescription[] }) {
+  const [expanded, setExpanded] = useState(true);
+  const eventCount = events.length;
+  const panelID = "task-run-governance-events";
+  const titleSignals = getGovernanceTitleSignals(events);
+
+  return (
+    <section className="task-run-detail__governance" aria-label={`Governance Events: ${eventCount}`}>
+      <button
+        type="button"
+        className="task-run-detail__governance-toggle"
+        aria-expanded={expanded}
+        aria-controls={panelID}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="task-run-detail__governance-title">
+          Governance Events: <span className="task-run-detail__governance-title-count">{eventCount}</span>
+          {titleSignals.length > 0 ? (
+            <span className="task-run-detail__governance-title-signals" aria-hidden="true">
+              <span className="task-run-detail__governance-title-paren">(</span>
+              {titleSignals.map((signal) => (
+                <span
+                  key={signal.category}
+                  className={`task-run-detail__governance-title-signal task-run-detail__governance-category--${getGovernanceCategoryTone(signal.category)}`}
+                  title={`${signal.category} · ${signal.severity}`}
+                >
+                  <GovernanceCategoryIcon category={signal.category} decorative />
+                </span>
+              ))}
+              <span className="task-run-detail__governance-title-paren">)</span>
+            </span>
+          ) : null}
+        </span>
+        <span className="task-run-detail__governance-action">
+          {expanded ? "Hide" : "Show"}
+        </span>
+      </button>
+
+      {expanded ? (
+        <div id={panelID} className="task-run-detail__governance-body">
+          {events.length > 0 ? (
+            <ul className="task-run-detail__governance-list">
+              {events.map((event) => (
+                <li
+                  key={event.id}
+                  className={`task-run-detail__governance-item task-run-detail__governance-item--${event.severity}`}
+                  aria-label={`${formatGovernanceCategory(event.category)}: ${event.action} ${event.event} - ${event.reason}`}
+                >
+                  <GovernanceCategoryIcon category={event.category} />
+                  <span className={`task-run-detail__governance-category-label task-run-detail__governance-category--${getGovernanceCategoryTone(event.category)}`}>
+                    {formatGovernanceCategory(event.category)}
+                  </span>
+                  <span className="task-run-detail__governance-separator">:</span>
+                  <span className="task-run-detail__governance-event-action">
+                    {event.action}
+                  </span>
+                  <code>{event.event}</code>
+                  <span className="task-run-detail__governance-separator">-</span>
+                  <span>{event.reason}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="task-run-detail__governance-empty">No governance events recorded.</p>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+type GovernanceTitleSignal = {
+  category: string;
+  severity: GovernanceSeverity;
+};
+
+function getGovernanceTitleSignals(events: GovernanceEventDescription[]): GovernanceTitleSignal[] {
+  const byCategory = new Map<string, GovernanceTitleSignal>();
+  for (const event of events) {
+    const category = event.category.trim();
+    if (!category || !getGovernanceCategoryIcon(category)) {
+      continue;
+    }
+    const key = category.toLowerCase();
+    const current = byCategory.get(key);
+    if (!current || governanceSeverityRank(event.severity) < governanceSeverityRank(current.severity)) {
+      byCategory.set(key, { category, severity: event.severity });
+    }
+  }
+  return [...byCategory.values()].sort((left, right) => governanceSeverityRank(left.severity) - governanceSeverityRank(right.severity));
+}
+
+function governanceSeverityRank(severity: GovernanceSeverity): number {
+  switch (severity) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+  }
+}
+
+export function GovernanceCategoryIcon({ category, decorative = false }: { category: string; decorative?: boolean }) {
+  const Icon = getGovernanceCategoryIcon(category);
+  const tone = getGovernanceCategoryTone(category);
+  if (!Icon) {
+    return null;
+  }
+  return (
+    <span
+      className={`task-run-detail__governance-category-icon task-run-detail__governance-category--${tone}`}
+      title={decorative ? undefined : `Category: ${category}`}
+    >
+      <Icon aria-hidden="true" />
+    </span>
+  );
+}
+
+function formatGovernanceCategory(category: string): string {
+  const normalized = category.trim();
+  if (!normalized) {
+    return "Governance";
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+}
+
+function SplitMetric({
+  label,
+  labelDetail,
+  processCount,
+  mcpCount,
+  valueStyle,
+}: {
+  label: string;
+  labelDetail: string;
+  processCount: number;
+  mcpCount: number;
+  valueStyle: CSSProperties;
+}) {
+  const accessibleLabel = `${label} ${labelDetail}`;
+  return (
+    <div className="task-run-detail__metric" aria-label={`${accessibleLabel}: Process ${processCount}, MCP ${mcpCount}`}>
+      <MetricLabel label={label} labelDetail={labelDetail} />
+      <span className="task-run-detail__split-value" style={{ ...valueStyle, color: undefined }}>
+        <span className="task-run-detail__split-process">{processCount}</span>
+        <span className="task-run-detail__split-separator">/</span>
+        <span className="task-run-detail__split-mcp">{mcpCount}</span>
+      </span>
+    </div>
+  );
+}
+
+function MetricLabel({ label, labelDetail }: { label: string; labelDetail?: string }) {
+  return (
+    <span className="task-run-detail__metric-label" aria-hidden="true">
+      <span>{label}</span>
+      {labelDetail ? <span className="task-run-detail__metric-label-detail">{labelDetail}</span> : null}
+    </span>
+  );
+}
+
+function getDurationMetric(
+  stats: RunStats,
+  status: TaskRunUIStatus,
+  now: number,
+): { label: string; tone: "active" | "success" | "failed" } {
+  if (status === "timed_out" || isStaleActiveRun(stats, status, now)) {
+    return { label: "timeout", tone: "failed" };
+  }
+
+  const label =
+    stats.startedAt != null ? formatDuration(stats.startedAt, stats.durationEndedAt, now) : "";
+
+  if (status === "success") {
+    return { label, tone: "success" };
+  }
+  if (status === "failed") {
+    return { label, tone: "failed" };
+  }
+  return { label, tone: "active" };
+}
+
+function isStaleActiveRun(stats: RunStats, status: TaskRunUIStatus, now: number): boolean {
+  return status === "active" && stats.lastSeenAt != null && now - stats.lastSeenAt >= STALE_TASK_RUN_TIMEOUT_MS;
+}
+
+function getTaskTemplateLabel(detailMetadata: TaskRunDetailMetadata | null): string | undefined {
+  const snapshot = detailMetadata?.snapshot;
+  if (snapshot) {
+    return formatTemplateLabel(
+      snapshot.templateId,
+      snapshot.templateName || snapshot.selectedTemplate?.task?.name,
+    );
+  }
+
+  const summary = detailMetadata?.summary;
+  if (summary) {
+    return formatTemplateLabel(summary.templateId, summary.templateName);
+  }
+
+  return undefined;
+}
+
+function deriveTaskRunSubtitle(events: TaskRunEvent[], snapshot?: TaskRunSnapshot): TaskRunDetailSubtitle | undefined {
+  const taskDescription =
+    findLatestTaskPayloadString(events, "task_registered", [
+      ["taskDescription"],
+      ["task_description"],
+      ["prompt"],
+    ]) ?? snapshot?.taskDescription?.trim();
+  return taskDescription ? { text: taskDescription } : undefined;
+}
+
+function findLatestTaskPayloadString(events: TaskRunEvent[], eventType: string, paths: string[][]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.source !== "task" || event.eventType !== eventType) {
+      continue;
+    }
+    const value = readPayloadString(event.payloadJson, paths);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function readPayloadString(payload: unknown, paths: string[][]): string | undefined {
+  for (const path of paths) {
+    const value = readPayloadPath(payload, path);
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function readPayloadPath(payload: unknown, path: string[]): unknown {
+  let current = payload;
+  for (const segment of path) {
+    if (current == null || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescription[] {
+  const descriptions: GovernanceEventDescription[] = [];
+  const seen = new Set<string>();
+
+  const addDescription = (
+    id: string,
+    itemId: string,
+    action: string,
+    category: string,
+    event: string,
+    reason: string,
+    severity: GovernanceSeverity,
+  ) => {
+    const key = `${action}:${category}:${event}:${reason}:${severity}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    descriptions.push({ id, itemId, action, category, event, reason, severity });
+  };
+
+  for (const item of items) {
+    if (item.kind === "task") {
+      addAnnotationGovernanceDescriptions(item.id, getProcessActionLabel(item.task), [item.task], addDescription);
+      if (item.correlatedExchange) {
+        addAnnotationGovernanceDescriptions(
+          item.id,
+          getGovernanceToolLabel(item.correlatedExchange),
+          [item.correlatedExchange.request, item.correlatedExchange.response],
+          addDescription,
+        );
+      }
+      continue;
+    }
+
+    addAnnotationGovernanceDescriptions(
+      item.id,
+      getGovernanceToolLabel(item.exchange),
+      [item.exchange.request, item.exchange.response],
+      addDescription,
+    );
+  }
+
+  const actionOrder: Record<string, number> = {
+    Redacted: 0,
+    Removed: 0,
+    Modified: 0,
+    Escalated: 0,
+    Blocked: 1,
+    Stopped: 2,
+  };
+  return descriptions.sort((left, right) => (actionOrder[left.action] ?? 3) - (actionOrder[right.action] ?? 3));
+}
+
+function addAnnotationGovernanceDescriptions(
+  itemId: string,
+  eventLabel: string,
+  events: Array<TaskRunEvent | undefined>,
+  addDescription: (
+    id: string,
+    itemId: string,
+    action: string,
+    category: string,
+    event: string,
+    reason: string,
+    severity: GovernanceSeverity,
+  ) => void,
+) {
+  let index = 0;
+  for (const event of events) {
+    for (const annotation of getEventAnnotations(event)) {
+      if (annotation.type !== "governance_events") {
+        continue;
+      }
+      const action = getProcessorGovernanceAction(annotation.action);
+      const category = annotation.category?.trim();
+      const severity = normalizeGovernanceSeverity(annotation.severity);
+      if (!action || !category || !severity) {
+        continue;
+      }
+      addDescription(
+        `${itemId}:${event?.id ?? "event"}:${index}`,
+        itemId,
+        action,
+        category,
+        eventLabel,
+        getProcessorGovernanceReason(annotation),
+        severity,
+      );
+      index += 1;
+    }
+  }
+}
+
+export function getEventAnnotations(event: TaskRunEvent | undefined): ProcessorAnnotation[] {
+  if (!event) {
+    return [];
+  }
+
+  const payloadAnnotations = readPayloadAnnotations(event.payloadJson);
+  if (!event.annotations || event.annotations.length === 0) {
+    return payloadAnnotations;
+  }
+  return [...event.annotations, ...payloadAnnotations];
+}
+
+function readPayloadAnnotations(payload: unknown): ProcessorAnnotation[] {
+  const annotations = readPayloadPath(payload, ["annotations"]);
+  if (!Array.isArray(annotations)) {
+    return [];
+  }
+  return annotations.filter((annotation): annotation is ProcessorAnnotation => (
+    annotation != null &&
+    typeof annotation === "object" &&
+    !Array.isArray(annotation)
+  ));
+}
+
+function getProcessorGovernanceAction(action?: string): string | undefined {
+  const normalized = action?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase();
+}
+
+function getProcessorGovernanceReason(annotation: NonNullable<TaskRunEvent["annotations"]>[number]): string {
+  const message = annotation.message?.trim();
+  if (message) {
+    return message;
+  }
+
+  switch (annotation.action?.trim().toLowerCase()) {
+    case "blocked":
+      return "processor blocked content";
+    case "stopped":
+      return "process action stopped";
+    case "redacted":
+      return "processor redacted content";
+    case "removed":
+      return "processor removed content";
+    case "escalated":
+      return "processor escalated event";
+    default:
+      return "processor modified content";
+  }
+}
+
+function getProcessActionLabel(event: TaskRunEvent): string {
+  switch (event.eventType) {
+    case "task_registered":
+      return "Register Task";
+    case "onboarding_completed":
+      return "Complete Onboarding";
+    case "planning_completed":
+      return "Complete Planning";
+    case "step_started":
+    case "step_completed":
+      return getTaskStepDisplayName(event).replace(/^Execution\s*\/\s*/i, "") || "Execution Step";
+    case "task_completed":
+      return "Complete Task";
+    case "task_failed":
+      return "Fail Task";
+    case "task_timed_out":
+      return "Timeout Task";
+    case "restarted":
+      return "Restart Task";
+    case "resumed":
+      return "Resume Task";
+    default:
+      return humanizeIdentifier(event.eventType ?? "Process Action");
+  }
+}
+
+function getProcessActionLabelForToolName(toolName?: string): string {
+  switch (toolName) {
+    case "centian.task_register":
+      return "Register Task";
+    case "centian.task_complete_onboarding":
+      return "Complete Onboarding";
+    case "centian.task_complete_planning":
+      return "Complete Planning";
+    case "centian.task_start_step":
+      return "Start Execution";
+    case "centian.task_complete_step":
+      return "Complete Execution";
+    case "centian.task_resume":
+      return "Resume Task";
+    case "centian.task_restart":
+      return "Restart Task";
+    case "centian.task_fail":
+      return "Fail Task";
+    default:
+      return humanizeIdentifier(toolName ?? "Process Action");
+  }
+}
+
+function normalizeGovernanceSeverity(severity?: string): GovernanceSeverity | undefined {
+  const normalized = severity?.trim().toLowerCase();
+  if (normalized === "critical" || normalized === "high") {
+    return "high";
+  }
+  if (normalized === "medium" || normalized === "low") {
+    return normalized;
+  }
+  return undefined;
+}
+
+export function getGovernanceCategoryTone(category: string): string | undefined {
+  switch (category.trim().toLowerCase()) {
+    case "security":
+    case "policy":
+    case "quality":
+    case "observability":
+    case "compliance":
+    case "risk":
+      return category.trim().toLowerCase();
+    default:
+      return undefined;
+  }
+}
+
+function getGovernanceCategoryIcon(category: string): LucideIcon | undefined {
+  switch (category.trim().toLowerCase()) {
+    case "security":
+      return ShieldCheck;
+    case "policy":
+      return ScrollText;
+    case "observability":
+      return Eye;
+    case "compliance":
+      return ListChecks;
+    case "risk":
+      return TriangleAlert;
+    case "quality":
+      return SearchCheck;
+    default:
+      return undefined;
+  }
+}
+
+function getGovernanceToolLabel(exchange: TimelineExchange): string {
+  const event = exchange.request ?? exchange.response;
+  const originalToolName = event?.originalToolName?.trim();
+  const parsedOriginalToolName = originalToolName ? parseNamespacedToolName(originalToolName) : undefined;
+  if (parsedOriginalToolName) {
+    return `${parsedOriginalToolName.server} - ${parsedOriginalToolName.tool}`;
+  }
+
+  const toolName = event?.toolName?.trim();
+  if (toolName?.startsWith("centian.task_")) {
+    return getProcessActionLabelForToolName(toolName);
+  }
+
+  const serverName = getExchangeServerName(exchange);
+  if (toolName) {
+    return `${serverName} - ${toolName}`;
+  }
+  return getExchangeTitle(exchange);
+}
+
+function parseNamespacedToolName(value: string): { server: string; tool: string } | undefined {
+  const match = value.match(/^([A-Za-z0-9-]+)_{2,3}(.+)$/);
+  if (!match) {
+    return undefined;
+  }
+  return { server: match[1], tool: match[2] };
+}
+
+function isProcessExchange(exchange: TimelineExchange): boolean {
+  return getExchangeServerName(exchange) === "centian";
 }
 
 // Converts the raw event stream into timeline rows, merging request/response pairs where possible.

@@ -2,9 +2,7 @@ package agentrunner
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -14,10 +12,7 @@ import (
 	"github.com/T4cceptor/centian/internal/taskverification"
 )
 
-const (
-	syntheticDemoScenarioVersion = 1
-	defaultSyntheticDemoAsset    = "synthetic_demo.json"
-)
+const syntheticDemoScenarioVersion = 1
 
 type syntheticDemoScenario struct {
 	Version    int                         `json:"version"`
@@ -45,54 +40,20 @@ type syntheticDemoTimelineItem struct {
 }
 
 type syntheticDemoReplayer struct {
-	now   func() time.Time
-	sleep func(context.Context, time.Duration) error
+	now func() time.Time
+}
+
+type syntheticDemoReplayState struct {
+	defaults     *syntheticDemoDefaults
+	start        time.Time
+	seenContexts map[string]struct{}
+	requestIDs   map[string]string
 }
 
 func newSyntheticDemoReplayer() syntheticDemoReplayer {
 	return syntheticDemoReplayer{
 		now: time.Now,
-		sleep: func(ctx context.Context, duration time.Duration) error {
-			if duration <= 0 {
-				return nil
-			}
-			timer := time.NewTimer(duration)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-timer.C:
-				return nil
-			}
-		},
 	}
-}
-
-func loadSyntheticDemoScenario(path string) (*syntheticDemoScenario, []byte, error) {
-	var data []byte
-	var err error
-	if path == "" {
-		content, assetErr := asset(defaultSyntheticDemoAsset)
-		if assetErr != nil {
-			return nil, nil, assetErr
-		}
-		data = []byte(content)
-	} else {
-		//nolint:gosec // demo scenario path is an explicit user-provided CLI argument.
-		data, err = os.ReadFile(path)
-		if err != nil {
-			return nil, nil, fmt.Errorf("read demo file: %w", err)
-		}
-	}
-
-	var scenario syntheticDemoScenario
-	if err := json.Unmarshal(data, &scenario); err != nil {
-		return nil, nil, fmt.Errorf("parse demo file: %w", err)
-	}
-	if err := validateSyntheticDemoScenario(&scenario); err != nil {
-		return nil, nil, err
-	}
-	return &scenario, data, nil
 }
 
 func validateSyntheticDemoScenario(scenario *syntheticDemoScenario) error {
@@ -168,9 +129,6 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 	if r.now == nil {
 		r.now = time.Now
 	}
-	if r.sleep == nil {
-		r.sleep = newSyntheticDemoReplayer().sleep
-	}
 
 	store, err := persistence.NewSQLiteStore(layout.EventStorePath)
 	if err != nil {
@@ -180,28 +138,41 @@ func (r syntheticDemoReplayer) replay(ctx context.Context, layout *demoLayout, s
 		_ = store.Close()
 	}()
 
-	defaults := resolveSyntheticDemoDefaults(&scenario.Defaults)
-	start := r.now().UTC()
-	var previousOffset int64
-	seenContexts := make(map[string]struct{})
-	requestIDs := make(map[string]string)
+	return r.replayToStore(ctx, store, scenario)
+}
+
+func (r syntheticDemoReplayer) replayToStore(ctx context.Context, store *persistence.Store, scenario *syntheticDemoScenario) error {
+	if store == nil {
+		return fmt.Errorf("demo event store is required")
+	}
+	if scenario == nil {
+		return fmt.Errorf("demo scenario is required")
+	}
+	if r.now == nil {
+		r.now = time.Now
+	}
+
+	state := r.newReplayState(scenario)
+	return r.replayToStoreFromState(ctx, store, scenario, state)
+}
+
+func (r syntheticDemoReplayer) newReplayState(scenario *syntheticDemoScenario) syntheticDemoReplayState {
+	return syntheticDemoReplayState{
+		defaults:     resolveSyntheticDemoDefaults(&scenario.Defaults),
+		start:        r.now().UTC(),
+		seenContexts: make(map[string]struct{}),
+		requestIDs:   make(map[string]string),
+	}
+}
+
+func (r syntheticDemoReplayer) replayToStoreFromState(ctx context.Context, store *persistence.Store, scenario *syntheticDemoScenario, state syntheticDemoReplayState) error {
 	for idx := range scenario.Timeline {
 		item := scenario.Timeline[idx]
-		delay := time.Duration(item.OffsetMS-previousOffset) * time.Millisecond
-		if err := r.sleep(ctx, delay); err != nil {
-			return fmt.Errorf("replay demo item %d: %w", idx, err)
-		}
-		previousOffset = item.OffsetMS
-		if err := applySyntheticDemoItem(ctx, store, defaults, start.Add(time.Duration(item.OffsetMS)*time.Millisecond), item, seenContexts, requestIDs); err != nil {
+		if err := applySyntheticDemoItem(ctx, store, state.defaults, state.start.Add(time.Duration(item.OffsetMS)*time.Millisecond), item, state.seenContexts, state.requestIDs); err != nil {
 			return fmt.Errorf("replay demo item %d: %w", idx, err)
 		}
 	}
 
-	if scenario.DurationMS > 0 && int64(scenario.DurationMS) > previousOffset {
-		if err := r.sleep(ctx, time.Duration(int64(scenario.DurationMS)-previousOffset)*time.Millisecond); err != nil {
-			return fmt.Errorf("finish demo replay: %w", err)
-		}
-	}
 	return nil
 }
 

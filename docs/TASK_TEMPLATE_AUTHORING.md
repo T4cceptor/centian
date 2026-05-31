@@ -518,6 +518,7 @@ Checks are the verification units run by Centian.
 ```yaml
 checks:
   - id: "selected_test_fails"
+    description: "The selected regression test must fail for the expected reason."
     command: "${testCommand}"
     pre_conditions:
       - type: exit_code_in
@@ -536,6 +537,7 @@ Rules:
 - each check needs `id`
 - check IDs must be unique within the step
 - each check needs `command`
+- `description` is optional; when present, Centian uses it as the governance annotation message for failed checks
 - `pre_conditions` are evaluated when `centian.task_start_step` runs
 - `post_conditions` are evaluated when `centian.task_complete_step` runs
 

@@ -266,6 +266,38 @@ func TestGetInput_WithAuthPart(t *testing.T) {
 	assert.Equal(t, 1, authHandler.getCalls)
 }
 
+func TestAnnotationHandler_AppendsReportsToEventAnnotations(t *testing.T) {
+	callCtx := newMockCallContext()
+	callCtx.SetHandler("annotations", &DefaultAnnotationHandler{})
+
+	processorConfig := &config.ProcessorConfig{
+		Parts: []string{"annotations"},
+	}
+	result := &processor.DataContext{
+		Annotations: &processor.AnnotationPart{
+			Reports: []processor.Report{
+				{
+					Processor: "prompt_injection_guard",
+					Action:    "redacted",
+					Severity:  "high",
+					Findings: []processor.Finding{
+						{Rule: "ignore_previous_instructions", Path: "payload.result.content[0].text"},
+					},
+				},
+			},
+		},
+	}
+
+	err := ApplyResult(processorConfig, result, callCtx)
+	assert.NilError(t, err)
+
+	reports := callCtx.GetMetaContext().Annotations
+	assert.Equal(t, len(reports), 1)
+	assert.Equal(t, reports[0].Processor, "prompt_injection_guard")
+	assert.Equal(t, reports[0].Action, "redacted")
+	assert.Equal(t, reports[0].Findings[0].Rule, "ignore_previous_instructions")
+}
+
 func TestGetInput_SkipsMissingHandler(t *testing.T) {
 	callCtx := newMockCallContext()
 	payloadHandler := &mockHandler{

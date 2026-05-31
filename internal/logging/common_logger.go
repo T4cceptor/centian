@@ -18,6 +18,7 @@ import (
 type Logger struct {
 	logFile          *os.File
 	logPath          string
+	discard          bool
 	actionEventStore ActionEventStore
 	mu               sync.Mutex // Protect concurrent writes
 }
@@ -29,7 +30,11 @@ func NewLogger() (*Logger, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewLoggerInDir(logsDir)
+}
 
+// NewLoggerInDir creates a logger that writes request JSONL files in logDir.
+func NewLoggerInDir(logsDir string) (*Logger, error) {
 	if err := os.MkdirAll(logsDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create logs directory: %w", err)
 	}
@@ -51,8 +56,17 @@ func NewLogger() (*Logger, error) {
 	}, nil
 }
 
+// NewDiscardLogger creates a logger that skips JSONL writes while still allowing
+// action event persistence through SetActionEventStore.
+func NewDiscardLogger() (*Logger, error) {
+	return &Logger{discard: true}, nil
+}
+
 // LogEntry writes any log entry to the JSONL file (base Logger method).
 func (l *Logger) LogEntry(entry interface{}) error {
+	if l.discard {
+		return nil
+	}
 	if l.logFile == nil {
 		return fmt.Errorf("logger not initialized")
 	}

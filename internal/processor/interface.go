@@ -26,6 +26,7 @@ type ProcessorInterface interface {
 var (
 	_ ProcessorInterface = (*CLIProcessor)(nil)
 	_ ProcessorInterface = (*WebhookProcessor)(nil)
+	_ ProcessorInterface = (*BuiltinProcessor)(nil)
 )
 
 // ErrProcessorDisabled indicates processor creation was requested for a disabled processor config.
@@ -44,6 +45,9 @@ func NewProcessor(processorConfig *config.ProcessorConfig) (ProcessorInterface, 
 		return processor, err
 	case string(config.WebhookProcessor):
 		processor, err := NewWebhookProcessor(processorConfig)
+		return processor, err
+	case string(config.BuiltinProcessor):
+		processor, err := NewBuiltinProcessor(processorConfig)
 		return processor, err
 	}
 	return nil, fmt.Errorf("unsupported processor type '%s'", processorConfig.Type)
