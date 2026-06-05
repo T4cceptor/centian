@@ -61,7 +61,7 @@ func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to resolve api key path: %w", err)
 	}
 
-	key, err := auth.GenerateAPIKey()
+	gen, err := auth.GenerateAPIKey()
 	if err != nil {
 		return err
 	}
@@ -71,12 +71,12 @@ func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
 	if pErr != nil {
 		return pErr
 	}
-	_, pErr = fmt.Fprintln(os.Stdout, key)
+	_, pErr = fmt.Fprintln(os.Stdout, gen.Token)
 	if pErr != nil {
 		return pErr
 	}
 
-	entry, err := auth.NewAPIKeyEntry(key)
+	entry, err := auth.NewAPIKeyEntry(gen)
 	if err != nil {
 		return err
 	}

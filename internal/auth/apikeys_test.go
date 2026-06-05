@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -31,12 +32,12 @@ func TestLoadDefaultAPIKeys(t *testing.T) {
 	path, err := DefaultAPIKeysPath()
 	assert.NilError(t, err)
 
-	plain := "sk-test-default"
+	secret := "default-secret"
 	file := &APIKeyFile{
 		Keys: []APIKeyEntry{
 			{
 				ID:        "key_1",
-				Hash:      hashKey(t, plain),
+				Hash:      hashKey(t, secret),
 				CreatedAt: "2025-01-01T00:00:00Z",
 			},
 		},
@@ -46,11 +47,11 @@ func TestLoadDefaultAPIKeys(t *testing.T) {
 	// When: loading API keys from the default path
 	store, err := LoadDefaultAPIKeys()
 
-	// Then: the key should validate and path should match
+	// Then: the key should validate via its token and path should match
 	assert.NilError(t, err)
 	assert.Equal(t, store.Path(), path)
 	assert.Equal(t, store.Count(), 1)
-	if _, ok := store.Lookup(plain); !ok {
+	if _, ok := store.Lookup(tokenFor("key_1", secret)); !ok {
 		t.Fatalf("expected key to validate")
 	}
 }
@@ -72,13 +73,18 @@ func TestPath(t *testing.T) {
 func TestGenerateAPIKey(t *testing.T) {
 	// Given: GenerateAPIKey method
 	// When: calling GenerateAPIKey
-	new_key, err := GenerateAPIKey()
+	gen, err := GenerateAPIKey()
 
-	// Then: no error, and key is as expected
+	// Then: token has the sk- prefix, embeds the credential id, and round-trips
 	assert.NilError(t, err)
-	sk_prefix := new_key[:3]
-	assert.Assert(t, sk_prefix == "sk-")
-	assert.Assert(t, len(new_key) == 46)
+	assert.Assert(t, strings.HasPrefix(gen.Token, "sk-"))
+	assert.Assert(t, gen.CredID != "" && gen.Secret != "")
+	assert.Equal(t, gen.Token, tokenFor(gen.CredID, gen.Secret))
+
+	credID, secret, perr := parseToken(gen.Token)
+	assert.NilError(t, perr)
+	assert.Equal(t, credID, gen.CredID)
+	assert.Equal(t, secret, gen.Secret)
 }
 
 func TestLoadAPIKeys_NotFound(t *testing.T) {
@@ -95,49 +101,52 @@ func TestLoadAPIKeys_NotFound(t *testing.T) {
 }
 
 func TestLoadAPIKeys_ObjectFormat(t *testing.T) {
-	// Given: a JSON object with hashed keys
-	hash1 := hashKey(t, "key-1")
-	hash2 := hashKey(t, "key-2")
-	path := writeTempFile(t, `{"keys":[{"id":"key_1","hash":"`+hash1+`","created_at":"2025-01-01T00:00:00Z"},{"id":"key_2","hash":"`+hash2+`","created_at":"2025-01-02T00:00:00Z"}]}`)
+	// Given: a JSON object with two hashed keys
+	path := writeTempFile(t, `{"keys":[`+
+		entryJSON(t, "key_1", "secret-1")+`,`+
+		entryJSON(t, "key_2", "secret-2")+`]}`)
 
 	// When: loading API keys from the file
 	store, err := LoadAPIKeys(path)
 
-	// Then: keys should validate
+	// Then: both tokens should validate, unknown ones should not
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if store.Count() != 2 {
 		t.Fatalf("expected 2 keys, got %d", store.Count())
 	}
-	if _, ok := store.Lookup("key-1"); !ok {
-		t.Fatalf("expected key-1 to be present")
+	if _, ok := store.Lookup(tokenFor("key_1", "secret-1")); !ok {
+		t.Fatalf("expected key_1 to be present")
 	}
-	if _, ok := store.Lookup("key-2"); !ok {
-		t.Fatalf("expected keys to be present")
+	if _, ok := store.Lookup(tokenFor("key_2", "secret-2")); !ok {
+		t.Fatalf("expected key_2 to be present")
 	}
-	if _, ok := store.Lookup("missing"); ok {
-		t.Fatalf("expected missing key to be invalid")
+	if _, ok := store.Lookup(tokenFor("key_2", "wrong-secret")); ok {
+		t.Fatalf("expected wrong secret to be invalid")
+	}
+	if _, ok := store.Lookup(tokenFor("key_missing", "secret-1")); ok {
+		t.Fatalf("expected missing credential id to be invalid")
 	}
 }
 
 func TestAPIKeyStoreLookup(t *testing.T) {
 	// Given: a store with one API key
-	plain := "lookup-key"
-	path := writeTempFile(t, `{"keys":[{"id":"key_lookup","hash":"`+hashKey(t, plain)+`","created_at":"2025-01-01T00:00:00Z"}]}`)
+	secret := "lookup-secret"
+	path := writeTempFile(t, `{"keys":[`+entryJSON(t, "key_lookup", secret)+`]}`)
 	store, err := LoadAPIKeys(path)
 	assert.NilError(t, err)
 
-	// When: looking up the valid key
-	entry, ok := store.Lookup(plain)
+	// When: looking up the valid token
+	entry, ok := store.Lookup(tokenFor("key_lookup", secret))
 
 	// Then: the matching entry is returned
 	assert.Assert(t, ok)
 	assert.Assert(t, entry != nil)
 	assert.Equal(t, entry.ID, "key_lookup")
 
-	// When: looking up an invalid key
-	entry, ok = store.Lookup("missing")
+	// When: looking up a legacy-format token (no embedded credential id)
+	entry, ok = store.Lookup("sk-legacyformat")
 
 	// Then: no entry is returned
 	assert.Assert(t, !ok)
@@ -171,12 +180,13 @@ func TestLoadAPIKeys_Empty(t *testing.T) {
 }
 
 func TestAppendAPIKey(t *testing.T) {
-	// Given: an empty api key file
+	// Given: an empty api key file and freshly minted key material
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "api_keys.json")
 
-	plain := "sk-test-key"
-	entry, err := NewAPIKeyEntry(plain)
+	gen, err := GenerateAPIKey()
+	assert.NilError(t, err)
+	entry, err := NewAPIKeyEntry(gen)
 	if err != nil {
 		t.Fatalf("failed to create entry: %v", err)
 	}
@@ -186,29 +196,37 @@ func TestAppendAPIKey(t *testing.T) {
 		t.Fatalf("failed to append api key: %v", err)
 	}
 
-	// Then: the key should validate
+	// Then: the original token should validate, and a principal id is persisted
 	store, err := LoadAPIKeys(path)
 	if err != nil {
 		t.Fatalf("failed to load api keys: %v", err)
 	}
-	if _, ok := store.Lookup(plain); !ok {
+	if _, ok := store.Lookup(gen.Token); !ok {
 		t.Fatalf("expected key to validate")
 	}
+	assert.Assert(t, strings.HasPrefix(entry.PrincipalID, "pr_"))
 }
 
 func TestResolve(t *testing.T) {
-	plain := "sk-test-resolve"
-	path := writeTempFile(t, `{"keys":[{"id":"key_resolve","hash":"`+hashKey(t, plain)+`","created_at":"2025-01-01T00:00:00Z"}]}`)
+	secret := "resolve-secret"
+	path := writeTempFile(t, `{"keys":[`+entryJSON(t, "key_resolve", secret)+`]}`)
 	store, err := LoadAPIKeys(path)
 	assert.NilError(t, err)
 
-	entry, ok := store.Lookup(plain)
+	entry, ok := store.Lookup(tokenFor("key_resolve", secret))
 	assert.Assert(t, ok)
 	assert.Assert(t, entry != nil)
 	assert.Equal(t, entry.ID, "key_resolve")
 
-	_, ok = store.Lookup("sk-missing")
+	_, ok = store.Lookup(tokenFor("key_resolve", "wrong"))
 	assert.Assert(t, !ok)
+}
+
+func TestParseTokenRejectsLegacyFormat(t *testing.T) {
+	// Given: a pre-principal token without an embedded credential id
+	// When/Then: parsing it returns ErrLegacyTokenFormat
+	_, _, err := parseToken("sk-justasecretnodot")
+	assert.Assert(t, errors.Is(err, ErrLegacyTokenFormat))
 }
 
 func TestAPIKeyEntryAllowsGateway(t *testing.T) {
@@ -247,4 +265,15 @@ func hashKey(t *testing.T, plain string) string {
 		t.Fatalf("failed to hash key: %v", err)
 	}
 	return string(hash)
+}
+
+// tokenFor builds a token for the given credential id and secret.
+func tokenFor(credID, secret string) string {
+	return apiKeyTokenPrefix + credID + tokenSeparator + secret
+}
+
+// entryJSON builds a stored-entry JSON fragment whose hash matches the secret.
+func entryJSON(t *testing.T, credID, secret string) string {
+	t.Helper()
+	return `{"id":"` + credID + `","hash":"` + hashKey(t, secret) + `","created_at":"2025-01-01T00:00:00Z"}`
 }
