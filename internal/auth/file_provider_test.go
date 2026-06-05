@@ -85,6 +85,17 @@ func TestFilePrincipalProviderIDStableAcrossReload(t *testing.T) {
 	assert.Equal(t, p1.ID, p2.ID)
 }
 
+// Given: entries with and without a human-friendly name
+// When: resolving them to principals
+// Then: DisplayName uses the name when present and falls back to the credential id.
+func TestFilePrincipalProviderDisplayName(t *testing.T) {
+	named := APIKeyEntry{ID: "key_named", Hash: hashKey(t, "s"), PrincipalID: "pr_named", Name: "CI deploy bot"}
+	unnamed := APIKeyEntry{ID: "key_unnamed", Hash: hashKey(t, "s"), PrincipalID: "pr_unnamed"}
+
+	assert.Equal(t, named.toPrincipal().DisplayName, "CI deploy bot")
+	assert.Equal(t, unnamed.toPrincipal().DisplayName, "key_unnamed")
+}
+
 // Given: missing or empty key files
 // When: setting up the provider
 // Then: the historical sentinel errors are preserved.

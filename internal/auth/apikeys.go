@@ -52,6 +52,7 @@ type APIKeyEntry struct {
 	ID          string   `json:"id"`
 	Hash        string   `json:"hash"`
 	PrincipalID string   `json:"principal_id,omitempty"`
+	Name        string   `json:"name,omitempty"` // Human-friendly principal name (optional)
 	CreatedAt   string   `json:"created_at"`
 	Gateways    []string `json:"gateways,omitempty"`
 	Projects    []string `json:"projects,omitempty"` // Allowed project slugs (empty = allow all, "*" = allow all)
@@ -62,9 +63,14 @@ func (e *APIKeyEntry) toPrincipal() *Principal {
 	if e == nil {
 		return nil
 	}
+	displayName := e.Name
+	if displayName == "" {
+		// Fall back to the credential id when no human-friendly name was provided.
+		displayName = e.ID
+	}
 	return &Principal{
 		ID:           e.PrincipalID,
-		DisplayName:  e.ID,
+		DisplayName:  displayName,
 		CredentialID: e.ID,
 		Gateways:     append([]string(nil), e.Gateways...),
 		Projects:     append([]string(nil), e.Projects...),

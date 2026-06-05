@@ -334,6 +334,7 @@ func createDefaultAPIKey() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create api key entry: %w", err)
 	}
+	entry.Name = "default"
 	path, err := auth.DefaultAPIKeysPath()
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve api key path: %w", err)
