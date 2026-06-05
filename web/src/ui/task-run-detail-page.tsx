@@ -909,7 +909,6 @@ function readPayloadPath(payload: unknown, path: string[]): unknown {
 
 function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescription[] {
   const descriptions: GovernanceEventDescription[] = [];
-  const seen = new Set<string>();
 
   const addDescription = (
     id: string,
@@ -920,11 +919,6 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
     reason: string,
     severity: GovernanceSeverity,
   ) => {
-    const key = `${action}:${category}:${event}:${reason}:${severity}`;
-    if (seen.has(key)) {
-      return;
-    }
-    seen.add(key);
     descriptions.push({ id, itemId, action, category, event, reason, severity });
   };
 

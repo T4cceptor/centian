@@ -515,6 +515,7 @@ describe("event list", () => {
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
     expect(screen.getByText("Observed MCP events")).toBeInTheDocument();
+    expect(screen.queryByText("Newest first across all proxied traffic.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Time/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Request/i })).toBeInTheDocument();
   });
@@ -559,7 +560,82 @@ describe("event list", () => {
     expect(screen.queryByRole("link", { name: "Benchmarks" })).not.toBeInTheDocument();
   });
 
-  it("paginates older events and returns to newest", async () => {
+  it("renders governance annotations in the events view", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              success: true,
+              isError: false,
+              annotations: [
+                {
+                  type: "governance_events",
+                  action: "redacted",
+                  category: "security",
+                  severity: "high",
+                  message: "masked secret output",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    const governanceSection = await screen.findByLabelText("Governance Events: 1");
+    expect(within(governanceSection).getByText("Security")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("Redacted")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("shell__exec")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("masked secret output")).toBeInTheDocument();
+  });
+
+  it("counts repeated governance annotations as separate events", async () => {
+    const duplicateGovernanceAnnotation = {
+      type: "governance_events",
+      action: "redacted",
+      category: "security",
+      severity: "high",
+      message: "masked secret output",
+    };
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+            {
+              id: "ae_1742947201123_0000000002",
+              createdAtUnixMilli: 1742947201123,
+              toolName: "shell__exec",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    const governanceSection = await screen.findByLabelText("Governance Events: 2");
+    expect(within(governanceSection).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(governanceSection).getAllByText("masked secret output")).toHaveLength(2);
+  });
+
+  it("appends older events using the cursor URL token", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -600,12 +676,11 @@ describe("event list", () => {
     renderApp(["/events"]);
 
     expect(await screen.findByText("tool-new")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Older" }));
+    await user.click(screen.getByRole("button", { name: "Load more..." }));
     expect(await screen.findByText("tool-old")).toBeInTheDocument();
-    expect(screen.getByText("Older page")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Newest" }));
-    expect(await screen.findByText("tool-new")).toBeInTheDocument();
+    expect(screen.getByText("tool-new")).toBeInTheDocument();
+    expect(screen.queryByText("Older page")).not.toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?cursor=cursor-2", expect.anything());
   });
 
   it("sorts the visible event page by column like the benchmark overview", async () => {
