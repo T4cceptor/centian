@@ -29,6 +29,7 @@ const (
 	KindSession      Kind = "sid"
 	KindServer       Kind = "srv"
 	KindOAuthPending Kind = "op"
+	KindPrincipal    Kind = "pr"
 )
 
 type parsedID struct {
@@ -52,6 +53,7 @@ var knownKinds = map[Kind]struct{}{
 	KindSession:      {},
 	KindServer:       {},
 	KindOAuthPending: {},
+	KindPrincipal:    {},
 }
 
 // New returns a canonical internal ID for the provided kind.
