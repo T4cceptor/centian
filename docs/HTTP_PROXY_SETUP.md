@@ -50,7 +50,11 @@ centian auth new-key
 
 This prints the API key once and writes the hashed entry to `~/.centian/api_keys.json`.
 
-The file stores bcrypt hashes plus metadata, not plaintext keys. The on-disk shape is:
+The printed key has the form `sk-<credentialId>.<secret>`, where `<credentialId>`
+matches the entry `id` and lets the proxy look the credential up in O(1) before
+verifying the secret. Only the secret is bcrypt-hashed; the file never stores the
+plaintext key. Each entry also records a stable `principal_id` (`pr_...`) that the
+credential resolves to. The on-disk shape is:
 
 ```json
 {
@@ -58,11 +62,15 @@ The file stores bcrypt hashes plus metadata, not plaintext keys. The on-disk sha
     {
       "id": "key_0123456789abcdef",
       "hash": "$2a$10$...",
+      "principal_id": "pr_1712050200000_abcdefghij",
       "created_at": "2026-04-02T10:30:00Z"
     }
   ]
 }
 ```
+
+> Keys created before the token-format change are no longer valid and must be
+> regenerated with `centian auth new-key`.
 
 If you disable auth for local testing, set `"auth": false` in your config instead.
 
