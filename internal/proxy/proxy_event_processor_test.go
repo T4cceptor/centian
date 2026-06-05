@@ -47,7 +47,7 @@ func newMockCallContext() *mockCallContext {
 			AuthHeaderName: "Authorization",
 			Gateway:        "gateway-a",
 			Headers:        http.Header{"Authorization": []string{"Bearer test-token"}},
-			KeyEntry:       &auth.APIKeyEntry{ID: "key_1"},
+			Principal:      &auth.Principal{ID: "pr_1", CredentialID: "key_1"},
 		},
 		handlers:           map[string]CallContextHandler{},
 		serverName:         "server-a",

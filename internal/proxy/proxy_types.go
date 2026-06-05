@@ -46,7 +46,8 @@ type CentianServer struct {
 	Server     *http.Server
 	Logger     *logging.Logger
 	Projects   map[string]*CentianProject
-	APIKeys    *centauth.APIKeyStore
+	Principals centauth.PrincipalProvider
+	Authorizer centauth.Authorizer
 	AuthHeader string
 
 	// Legacy flat-access fields - point to the default project's data for backwards compatibility.

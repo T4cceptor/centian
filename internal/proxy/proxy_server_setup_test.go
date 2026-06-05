@@ -231,9 +231,8 @@ func TestCentianServerSetup_FiltersProjectsByAPIKeyScope(t *testing.T) {
 	uiEnabled := true
 	taskVerificationEnabled := true
 	t.Setenv("HOME", t.TempDir())
-	entry, err := auth.NewAPIKeyEntry("plain-key")
+	entry, err := auth.NewAPIKeyEntry(auth.GeneratedKey{CredID: "key_research", Secret: "secret"})
 	assert.NilError(t, err)
-	entry.ID = "key_research"
 	entry.Projects = []string{"research"}
 	defaultPath, err := auth.DefaultAPIKeysPath()
 	assert.NilError(t, err)
@@ -262,7 +261,7 @@ func TestCentianServerSetup_FiltersProjectsByAPIKeyScope(t *testing.T) {
 	assert.NilError(t, server.Setup())
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/projects", http.NoBody)
-	req.Header.Set(config.DefaultAuthHeader, "Bearer plain-key")
+	req.Header.Set(config.DefaultAuthHeader, "Bearer sk-key_research.secret")
 	rec := httptest.NewRecorder()
 	server.Mux.ServeHTTP(rec, req)
 
@@ -282,9 +281,8 @@ func TestCentianServerSetup_ProjectsAPIAllowAllKeySeesAllProjects(t *testing.T) 
 	uiEnabled := true
 	taskVerificationEnabled := true
 	t.Setenv("HOME", t.TempDir())
-	entry, err := auth.NewAPIKeyEntry("plain-key")
+	entry, err := auth.NewAPIKeyEntry(auth.GeneratedKey{CredID: "key_all", Secret: "secret"})
 	assert.NilError(t, err)
-	entry.ID = "key_all"
 	entry.Projects = []string{"*"}
 	defaultPath, err := auth.DefaultAPIKeysPath()
 	assert.NilError(t, err)
@@ -313,7 +311,7 @@ func TestCentianServerSetup_ProjectsAPIAllowAllKeySeesAllProjects(t *testing.T) 
 	assert.NilError(t, server.Setup())
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/projects", http.NoBody)
-	req.Header.Set(config.DefaultAuthHeader, "Bearer plain-key")
+	req.Header.Set(config.DefaultAuthHeader, "Bearer sk-key_all.secret")
 	rec := httptest.NewRecorder()
 	server.Mux.ServeHTTP(rec, req)
 
@@ -395,9 +393,8 @@ func TestCentianServerSetup_ProtectsAPIRoutesButLeavesUIReachable(t *testing.T) 
 	authEnabled := true
 	uiEnabled := true
 	t.Setenv("HOME", t.TempDir())
-	entry, err := auth.NewAPIKeyEntry("plain-key")
+	entry, err := auth.NewAPIKeyEntry(auth.GeneratedKey{CredID: "key_test", Secret: "secret"})
 	assert.NilError(t, err)
-	entry.ID = "key_test"
 	defaultPath, err := auth.DefaultAPIKeysPath()
 	assert.NilError(t, err)
 	assert.NilError(t, auth.WriteAPIKeyFile(defaultPath, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))

@@ -60,7 +60,7 @@ func TestGetOrCreateServerForRequest_SessionAndIdentityGuards(t *testing.T) {
 			Config: &config.GlobalConfig{Version: "1.0.0"},
 		}
 		if withAuth {
-			endpoint.server.APIKeys = createTestAPIKeyStore(t)
+			endpoint.server.Principals = createTestAPIKeyStore(t)
 		}
 		return endpoint
 	}

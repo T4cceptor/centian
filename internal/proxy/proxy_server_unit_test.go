@@ -59,7 +59,7 @@ func TestWriteUnauthorized_CustomHeader(t *testing.T) {
 func TestAPIKeyMiddlewareWithHeader_NoStore(t *testing.T) {
 	// Given: a handler and nil API key store
 	called := false
-	handler := apiKeyMiddlewareWithHeader(nil, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(nil, nil, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -79,7 +79,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -106,7 +106,7 @@ func TestAPIKeyMiddlewareWithHeader_WithStore(t *testing.T) {
 	// When: request has valid token
 	recorder = httptest.NewRecorder()
 	request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	// Then: handler is called
@@ -119,7 +119,7 @@ func TestAPIKeyMiddlewareWithHeader_AttachesIdentityToContext(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 
 	var identity string
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, _ = requestIdentityFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -127,7 +127,7 @@ func TestAPIKeyMiddlewareWithHeader_AttachesIdentityToContext(t *testing.T) {
 	// When: request has valid token
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	// Then: identity is attached to the request context
@@ -142,7 +142,8 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 		name:     "gateway",
 		endpoint: "/mcp/gateway",
 		server: &CentianServer{
-			APIKeys:    store,
+			Principals: store,
+			Authorizer: auth.DirectGrantAuthorizer{},
 			AuthHeader: "Authorization",
 		},
 	}
@@ -162,21 +163,21 @@ func TestRegisterHandler_WithAuthMiddleware(t *testing.T) {
 func TestAPIKeyMiddlewareWithHeader_AttachesAuthData(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		authData := getAuthData(r.Context())
 		assert.Assert(t, authData != nil)
 		assert.Equal(t, authData.AuthHeaderName, "Authorization")
 		assert.Equal(t, authData.Gateway, "gateway-a")
 		assert.Assert(t, authData.Headers != nil)
-		assert.Assert(t, authData.KeyEntry != nil)
-		assert.Equal(t, authData.KeyEntry.ID, "key_test")
+		assert.Assert(t, authData.Principal != nil)
+		assert.Equal(t, authData.Principal.CredentialID, "key_test")
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	assert.Assert(t, called)
@@ -184,16 +185,16 @@ func TestAPIKeyMiddlewareWithHeader_AttachesAuthData(t *testing.T) {
 }
 
 func TestAPIKeyMiddlewareWithHeader_EnforcesGatewayScope(t *testing.T) {
-	store := createScopedAPIKeyStore(t, "plain-key", []string{"gateway-a"})
+	store := createScopedAPIKeyStore(t, []string{"gateway-a"})
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-b", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	assert.Assert(t, !called)
@@ -202,10 +203,10 @@ func TestAPIKeyMiddlewareWithHeader_EnforcesGatewayScope(t *testing.T) {
 
 func TestAPIKeyMiddlewareWithHeader_EnforcesProjectScope(t *testing.T) {
 	// Given: an API key scoped to "project-a"
-	store := createProjectScopedAPIKeyStore(t, "plain-key", []string{"project-a"})
+	store := createProjectScopedAPIKeyStore(t, []string{"project-a"})
 
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "project-b", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "project-b", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -213,7 +214,7 @@ func TestAPIKeyMiddlewareWithHeader_EnforcesProjectScope(t *testing.T) {
 	// When: requesting with a key not allowed for project-b
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	// Then: request is rejected
@@ -223,10 +224,10 @@ func TestAPIKeyMiddlewareWithHeader_EnforcesProjectScope(t *testing.T) {
 
 func TestAPIKeyMiddlewareWithHeader_AllowsMatchingProject(t *testing.T) {
 	// Given: an API key scoped to "project-a"
-	store := createProjectScopedAPIKeyStore(t, "plain-key", []string{"project-a"})
+	store := createProjectScopedAPIKeyStore(t, []string{"project-a"})
 
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "project-a", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "project-a", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		authData := getAuthData(r.Context())
 		assert.Assert(t, authData != nil)
@@ -237,7 +238,7 @@ func TestAPIKeyMiddlewareWithHeader_AllowsMatchingProject(t *testing.T) {
 	// When: requesting with a key allowed for project-a
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	// Then: request is allowed and AuthData contains the project
@@ -250,7 +251,7 @@ func TestAPIKeyMiddlewareWithHeader_EmptyProjectsAllowsAll(t *testing.T) {
 	store := createTestAPIKeyStore(t)
 
 	called := false
-	handler := apiKeyMiddlewareWithHeader(store, "Authorization", "any-project", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(store, auth.DirectGrantAuthorizer{}, "Authorization", "any-project", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -258,7 +259,7 @@ func TestAPIKeyMiddlewareWithHeader_EmptyProjectsAllowsAll(t *testing.T) {
 	// When: requesting for any project
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer sk-key_test.test-secret")
 	handler.ServeHTTP(recorder, request)
 
 	// Then: request is allowed (empty projects = allow all)
@@ -313,7 +314,7 @@ func TestGetServerForRequest_ReusesPooledDownstreamForSameIdentity(t *testing.T)
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -355,7 +356,7 @@ func TestGetServerForRequest_UsesSeparatePoolsForDifferentAuthIdentities(t *test
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -489,7 +490,7 @@ func TestGetServerForRequest_DoesNotReusePoolWhenForwardedAuthChanges(t *testing
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "X-Centian-Auth",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -546,7 +547,7 @@ func TestGetServerForRequest_RetriesFailedDownstreamsForLaterSessions(t *testing
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -616,7 +617,7 @@ func TestGetServerForRequest_RetriesTransientFailureInBackground(t *testing.T) {
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -665,7 +666,7 @@ func TestGetServerForRequest_DoesNotRetryPermanentFailures(t *testing.T) {
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -734,7 +735,7 @@ func TestGetServerForRequest_DoesNotRetryAuthorizationFailures(t *testing.T) {
 					return conn
 				},
 				server: &CentianServer{
-					APIKeys:    createTestAPIKeyStore(t),
+					Principals: createTestAPIKeyStore(t),
 					AuthHeader: "Authorization",
 					Config:     &config.GlobalConfig{Version: "1.0.0"},
 				},
@@ -800,7 +801,7 @@ func TestInvalidatePooledDownstream_CancelsActiveRetry(t *testing.T) {
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -881,7 +882,7 @@ func TestGetServerForRequest_DoesNotSpawnDuplicateRetryWorker(t *testing.T) {
 			return conn
 		},
 		server: &CentianServer{
-			APIKeys:    createTestAPIKeyStore(t),
+			Principals: createTestAPIKeyStore(t),
 			AuthHeader: "Authorization",
 			Config:     &config.GlobalConfig{Version: "1.0.0"},
 		},
@@ -1003,42 +1004,40 @@ func (c *closeErrorDownstreamConnection) Close() error {
 	return c.closeErr
 }
 
-func createTestAPIKeyStore(t *testing.T) *auth.APIKeyStore {
-	t.Helper()
-	entry, err := auth.NewAPIKeyEntry("plain-key")
-	assert.NilError(t, err)
-	entry.ID = "key_test"
-	path := filepath.Join(t.TempDir(), "api_keys.json")
-	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
-	store, err := auth.LoadAPIKeys(path)
-	assert.NilError(t, err)
-	return store
+// Shared test credential material in the new sk-<credId>.<secret> format.
+const (
+	testCredID      = "key_test"
+	testSecret      = "test-secret"
+	testToken       = "sk-" + testCredID + "." + testSecret
+	testPrincipalID = "pr_0000000000000_principal0"
+)
+
+func createTestAPIKeyStore(t *testing.T) auth.PrincipalProvider {
+	return newTestPrincipalProvider(t, nil, nil)
 }
 
-func createScopedAPIKeyStore(t *testing.T, plain string, gateways []string) *auth.APIKeyStore {
+func createScopedAPIKeyStore(t *testing.T, gateways []string) auth.PrincipalProvider {
+	return newTestPrincipalProvider(t, gateways, nil)
+}
+
+func createProjectScopedAPIKeyStore(t *testing.T, projects []string) auth.PrincipalProvider {
+	return newTestPrincipalProvider(t, nil, projects)
+}
+
+// newTestPrincipalProvider builds a file-backed provider with a single
+// credential ("key_test") resolving to a deterministic principal id.
+func newTestPrincipalProvider(t *testing.T, gateways, projects []string) auth.PrincipalProvider {
 	t.Helper()
-	entry, err := auth.NewAPIKeyEntry(plain)
+	entry, err := auth.NewAPIKeyEntry(auth.GeneratedKey{Token: testToken, CredID: testCredID, Secret: testSecret})
 	assert.NilError(t, err)
-	entry.ID = "key_test"
+	entry.PrincipalID = testPrincipalID
 	entry.Gateways = gateways
-	path := filepath.Join(t.TempDir(), "api_keys.json")
-	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
-	store, err := auth.LoadAPIKeys(path)
-	assert.NilError(t, err)
-	return store
-}
-
-func createProjectScopedAPIKeyStore(t *testing.T, plain string, projects []string) *auth.APIKeyStore {
-	t.Helper()
-	entry, err := auth.NewAPIKeyEntry(plain)
-	assert.NilError(t, err)
-	entry.ID = "key_test"
 	entry.Projects = projects
 	path := filepath.Join(t.TempDir(), "api_keys.json")
 	assert.NilError(t, auth.WriteAPIKeyFile(path, &auth.APIKeyFile{Keys: []auth.APIKeyEntry{entry}}))
-	store, err := auth.LoadAPIKeys(path)
-	assert.NilError(t, err)
-	return store
+	provider := auth.NewFilePrincipalProvider(path)
+	assert.NilError(t, provider.Setup(context.Background()))
+	return provider
 }
 
 func waitForCondition(t *testing.T, timeout time.Duration, condition func() bool) {

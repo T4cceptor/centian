@@ -246,9 +246,9 @@ func cloneRequestBody(r *http.Request) []byte {
 	return bodyBytes
 }
 
-func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName, projectSlug string, next http.Handler) http.Handler {
+func principalAuthMiddleware(provider centauth.PrincipalProvider, authorizer centauth.Authorizer, headerName, projectSlug string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if store == nil {
+		if provider == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -260,33 +260,37 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName, project
 			return
 		}
 
-		entry, ok := store.Lookup(token)
-		if !ok {
+		principal, err := provider.GetPrincipal(r.Context(), token)
+		if err != nil {
 			writeUnauthorized(w, headerName)
-			common.LogWarn("Unauthorized request: invalid auth token from %s", r.RemoteAddr)
+			common.LogWarn("Unauthorized request: %v from %s", err, r.RemoteAddr)
 			return
 		}
 
 		gatewayName := getGatewayFromPath(r.URL.Path)
-		if !entry.AllowsGateway(gatewayName) {
-			writeUnauthorized(w, headerName)
-			common.LogWarn("Unauthorized request: key '%s' not allowed for gateway '%s' from %s", entry.ID, gatewayName, r.RemoteAddr)
-			return
+		if authorizer != nil {
+			if err := authorizer.Authorize(r.Context(), principal, centauth.ActionAccess, centauth.GatewayResource(gatewayName)); err != nil {
+				writeUnauthorized(w, headerName)
+				common.LogWarn("Unauthorized request: principal '%s' not allowed for gateway '%s' from %s", principal.ID, gatewayName, r.RemoteAddr)
+				return
+			}
+			if projectSlug != "" {
+				if err := authorizer.Authorize(r.Context(), principal, centauth.ActionAccess, centauth.ProjectResource(projectSlug)); err != nil {
+					writeUnauthorized(w, headerName)
+					common.LogWarn("Unauthorized request: principal '%s' not allowed for project '%s' from %s", principal.ID, projectSlug, r.RemoteAddr)
+					return
+				}
+			}
 		}
 
-		if projectSlug != "" && !entry.AllowsProject(projectSlug) {
-			writeUnauthorized(w, headerName)
-			common.LogWarn("Unauthorized request: key '%s' not allowed for project '%s' from %s", entry.ID, projectSlug, r.RemoteAddr)
-			return
-		}
-
-		ctx := withRequestIdentity(r.Context(), "auth:"+entry.ID)
+		ctx := withRequestIdentity(r.Context(), principal.ID)
 		authData := &AuthData{
 			AuthHeaderName: headerName,
 			Project:        projectSlug,
 			Gateway:        gatewayName,
 			Headers:        r.Header.Clone(),
-			KeyEntry:       entry,
+			Principal:      principal,
+			CredentialID:   principal.CredentialID,
 		}
 		ctx = withAuthData(ctx, authData)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -294,7 +298,7 @@ func apiKeyMiddlewareWithHeader(store *centauth.APIKeyStore, headerName, project
 }
 
 func wrapWithAPIKeyAuth(server *CentianServer, projectSlug string, handler http.Handler) http.Handler {
-	if server == nil || server.APIKeys == nil || handler == nil {
+	if server == nil || server.Principals == nil || handler == nil {
 		return handler
 	}
 
@@ -302,7 +306,7 @@ func wrapWithAPIKeyAuth(server *CentianServer, projectSlug string, handler http.
 	if headerName == "" {
 		headerName = strings.Clone(config.DefaultAuthHeader)
 	}
-	return apiKeyMiddlewareWithHeader(server.APIKeys, headerName, projectSlug, handler)
+	return principalAuthMiddleware(server.Principals, server.Authorizer, headerName, projectSlug, handler)
 }
 
 func getGatewayFromPath(requestPath string) string {
@@ -316,11 +320,6 @@ func getGatewayFromPath(requestPath string) string {
 
 func getCredentialFingerprint(token string) string {
 	hash := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(hash[:])
-}
-
-func getPrincipalID(keyID, gateway string) string {
-	hash := sha256.Sum256([]byte(strings.TrimSpace(keyID) + ":" + strings.TrimSpace(gateway)))
 	return hex.EncodeToString(hash[:])
 }
 

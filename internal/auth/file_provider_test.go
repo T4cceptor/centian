@@ -19,7 +19,7 @@ func writeProviderFile(t *testing.T, entry APIKeyEntry) string {
 
 // Given: a file provider over one credential
 // When: resolving its token
-// Then: the mapped principal carries the persisted id, credential id, and grants
+// Then: the mapped principal carries the persisted id, credential id, and grants.
 func TestFilePrincipalProviderGetPrincipal(t *testing.T) {
 	entry := APIKeyEntry{
 		ID:          "key_abc",
@@ -42,7 +42,7 @@ func TestFilePrincipalProviderGetPrincipal(t *testing.T) {
 
 // Given: a file provider
 // When: presenting a wrong secret, unknown credential id, or legacy-format token
-// Then: the appropriate sentinel error is returned (and the index is O(1))
+// Then: the appropriate sentinel error is returned (and the index is O(1)).
 func TestFilePrincipalProviderRejections(t *testing.T) {
 	entry := APIKeyEntry{ID: "key_abc", Hash: hashKey(t, "the-secret"), PrincipalID: "pr_x"}
 	provider := NewFilePrincipalProvider(writeProviderFile(t, entry))
@@ -87,7 +87,7 @@ func TestFilePrincipalProviderIDStableAcrossReload(t *testing.T) {
 
 // Given: missing or empty key files
 // When: setting up the provider
-// Then: the historical sentinel errors are preserved
+// Then: the historical sentinel errors are preserved.
 func TestFilePrincipalProviderSetupErrors(t *testing.T) {
 	missing := NewFilePrincipalProvider(filepath.Join(t.TempDir(), "nope.json"))
 	assert.Assert(t, errors.Is(missing.Setup(context.Background()), ErrAPIKeysNotFound))
