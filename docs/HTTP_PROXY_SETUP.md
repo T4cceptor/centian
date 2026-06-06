@@ -76,15 +76,16 @@ Principals are global, so the backend is configured once at the top level of
 - `store`: backend location (SQLite db path, or `api_keys.json` path for `file`).
   Omit it to use the default path for the chosen type.
 
-`centian auth new-key` writes to the same backend, reading the `authBackend` block
-for its defaults. Override per invocation with `--type` and `--store`:
+`centian auth new-key` writes to the backend defined by your config's `authBackend`
+block, so the command always stays in sync with the server that reads the keys. It
+uses `~/.centian/config.json` by default; point at another config with `--config`:
 
 ```bash
 # Restrict a key to specific projects, name its principal
 centian auth new-key --name "ci bot" --projects research
 
-# Use the legacy file backend explicitly
-centian auth new-key --type file
+# Store the key in the backend defined by a specific config file
+centian auth new-key --config /etc/centian/config.json
 ```
 
 > **Upgrading from the file backend:** the default backend is now SQLite. To keep

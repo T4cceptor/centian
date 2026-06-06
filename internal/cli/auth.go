@@ -44,12 +44,14 @@ var AuthNewKeyCommand = &cli.Command{
 	Description: `Generate a new API key for the HTTP proxy.
 
 The key is printed once to the console, then hashed with bcrypt and stored in the
-configured auth backend. By default this is the principals SQLite database:
+auth backend defined by your Centian config (the global "authBackend" block).
+By default this is the principals SQLite database:
   ~/.centian/principals.sqlite
 
-Use --type to choose the backend (sqlite or file) and --store to override its
-location. When omitted, these fall back to the authBackend block in config.json,
-then to the sqlite default.
+Use --config to point at a specific config file; its authBackend decides where the
+key is stored, keeping this command in sync with the server that reads it. When
+omitted, the default config (~/.centian/config.json) is used, falling back to the
+sqlite default if no config exists yet.
 
 Use --projects to restrict the key to specific projects (comma-separated slugs).
 Omit the flag to allow all projects.
@@ -66,12 +68,8 @@ Use --name to label the key's principal. If omitted, you are prompted for one.
 			Usage: "Human-friendly name for this key's principal (prompted if omitted)",
 		},
 		&cli.StringFlag{
-			Name:  "type",
-			Usage: "Auth backend type: sqlite (default) or file",
-		},
-		&cli.StringFlag{
-			Name:  "store",
-			Usage: "Backend location (sqlite db path or key file path); defaults per backend type",
+			Name:  "config",
+			Usage: "Path to a Centian config whose authBackend selects where the key is stored (defaults to ~/.centian/config.json)",
 		},
 	},
 	Action: handleAuthNewKeyCommand,
@@ -88,7 +86,10 @@ func handleAuthNewKeyCommand(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	backendType, store := resolveNewKeyBackend(cmd)
+	backendType, store, err := resolveNewKeyBackend(cmd)
+	if err != nil {
+		return err
+	}
 
 	var projects []string
 	if p := cmd.String("projects"); p != "" {
@@ -126,29 +127,30 @@ func handleAuthNewKeyCommand(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-// resolveNewKeyBackend determines the auth backend (type, store) for new-key.
-// Explicit flags win; otherwise it falls back to the authBackend block in the
-// loaded config, then to empty values (which the auth package resolves to the
-// sqlite default). Config load failures (e.g. before `centian init`) are ignored
-// so a key can still be minted with defaults.
-func resolveNewKeyBackend(cmd *cli.Command) (backendType, store string) {
-	backendType = strings.TrimSpace(cmd.String("type"))
-	store = strings.TrimSpace(cmd.String("store"))
-	if backendType != "" && store != "" {
-		return backendType, store
+// resolveNewKeyBackend derives the auth backend (type, store) for new-key from a
+// Centian config so the command always writes where the server reads.
+//
+// With --config, the named file's authBackend block is used and load failures are
+// fatal (the operator explicitly pointed at it). Without --config, the default
+// config is used when present; a missing/invalid default config is not fatal so a
+// key can still be minted with backend defaults (sqlite) before `centian init`.
+func resolveNewKeyBackend(cmd *cli.Command) (backendType, store string, err error) {
+	if configPath := strings.TrimSpace(cmd.String("config")); configPath != "" {
+		cfg, loadErr := config.LoadConfigFromPath(configPath)
+		if loadErr != nil {
+			return "", "", fmt.Errorf("failed to load config %q: %w", configPath, loadErr)
+		}
+		backendType, store = cfg.GetAuthBackend()
+		return backendType, store, nil
 	}
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return backendType, store
+
+	// Best-effort: a missing/invalid default config falls back to backend defaults.
+	cfg, _ := config.LoadConfig()
+	if cfg == nil {
+		return "", "", nil
 	}
-	cfgType, cfgStore := cfg.GetAuthBackend()
-	if backendType == "" {
-		backendType = cfgType
-	}
-	if store == "" {
-		store = cfgStore
-	}
-	return backendType, store
+	backendType, store = cfg.GetAuthBackend()
+	return backendType, store, nil
 }
 
 // promptLine writes a label to out and reads a single trimmed line from in.

@@ -50,7 +50,7 @@ Runtime notes:
 
 - `sqlite` keeps principals, credentials, and grants in `~/.centian/principals.sqlite` (a dedicated database, separate from the per-project event stores). Credentials are stored generically (`type` + JSON `data`); grants live in `principal_gateways`/`principal_projects`.
 - `file` keeps api-key principals in `~/.centian/api_keys.json` (legacy layout).
-- `centian auth new-key` reads this block for its defaults and accepts `--type`/`--store` overrides.
+- `centian auth new-key` writes to the backend defined by this block, reading `~/.centian/config.json` by default or the file named by `--config`.
 
 ## `projects`
 
