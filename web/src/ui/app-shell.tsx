@@ -11,14 +11,25 @@ export function AppShell({ children }: PropsWithChildren) {
   const [projects, setProjects] = useState<ProjectSummary[]>([defaultProject()]);
   const benchmarkSection = location.pathname.startsWith("/benchmarks");
   const currentProjectSlug = benchmarkSection ? defaultProjectSlug : projectSlugFromPath(location.pathname);
-  const eventSection = pathSection(location.pathname) === "events";
+  const activeSection = pathSection(location.pathname);
+  const activitySection = activeSection === "activity";
+  const eventSection = activeSection === "events";
+  const taskSection = !benchmarkSection && !activitySection && !eventSection;
   const taskDetailSection = /^\/[^/]+\/tasks\/[^/]+/.test(location.pathname);
-  const title = benchmarkSection ? "Benchmarks" : eventSection ? "Events" : "Task Runs";
+  const title = benchmarkSection
+    ? "Benchmarks"
+    : activitySection
+      ? "Activity Timeline"
+      : eventSection
+        ? "Events"
+        : "Task Runs";
   const subtitle = benchmarkSection
     ? "Inspect persisted benchmark suites, sessions, scorecards, and comparisons."
-    : eventSection
-      ? "Inspect all persisted MCP action events across the proxy."
-      : "Inspect task workflow progress, current phase, and run volume.";
+    : activitySection
+      ? "Where Centian stepped in. Routine proxied traffic sits on the baseline — every intervention rises above it."
+      : eventSection
+        ? "Inspect all persisted MCP action events across the proxy."
+        : "Inspect task workflow progress, current phase, and run volume.";
   const projectExists = benchmarkSection || projects.some((project) => project.slug === currentProjectSlug);
   const showProjectSelector = !benchmarkSection && projects.length > 1;
 
@@ -42,7 +53,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const handleProjectChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextProject = event.target.value;
     const section = pathSection(location.pathname);
-    const targetSection = section === "events" ? "events" : "tasks";
+    const targetSection = section === "events" || section === "activity" ? section : "tasks";
     navigate(`/${nextProject}/${targetSection}`);
   };
 
@@ -57,10 +68,13 @@ export function AppShell({ children }: PropsWithChildren) {
               <p className="app-header__eyebrow">Centian Monitor</p>
               <h1>{title}</h1>
               <nav className="app-header__nav" aria-label="Primary">
+                <Link className={activitySection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/activity`}>
+                  Activity
+                </Link>
                 <Link className={eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/events`}>
                   Events
                 </Link>
-                <Link className={!benchmarkSection && !eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/tasks`}>
+                <Link className={taskSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/tasks`}>
                   Tasks
                 </Link>
                 {currentProjectSlug === defaultProjectSlug ? (
@@ -115,18 +129,22 @@ function defaultProject(): ProjectSummary {
 function projectSlugFromPath(pathname: string): string {
   const parts = pathname.split("/").filter(Boolean);
   const [firstSegment, secondSegment] = parts;
-  if (!firstSegment || firstSegment === "tasks" || firstSegment === "events") {
+  if (!firstSegment || isSectionSegment(firstSegment)) {
     return defaultProjectSlug;
   }
-  if (secondSegment !== "tasks" && secondSegment !== "events") {
+  if (!isSectionSegment(secondSegment)) {
     return defaultProjectSlug;
   }
   return firstSegment || defaultProjectSlug;
 }
 
+function isSectionSegment(segment?: string): boolean {
+  return segment === "tasks" || segment === "events" || segment === "activity";
+}
+
 function pathSection(pathname: string): string {
   const parts = pathname.split("/").filter(Boolean);
-  if (parts[0] === "tasks" || parts[0] === "events") {
+  if (isSectionSegment(parts[0])) {
     return parts[0];
   }
   return parts.length >= 2 ? parts[1] : parts[0] || "tasks";

@@ -30,6 +30,12 @@ export function formatTimestampCompact(unixMilli: number): { date: string; time:
   return { date, time };
 }
 
+// Formats an API timestamp as a bare HH:MM clock time (used by chart axes).
+export function formatClockTime(unixMilli: number): string {
+  const value = new Date(unixMilli);
+  return `${padTimestampPart(value.getHours())}:${padTimestampPart(value.getMinutes())}`;
+}
+
 // Renders elapsed time for both finished and still-running task runs.
 export function formatDuration(startedAt: number, endedAt?: number, now: number = Date.now()): string {
   const totalSeconds = Math.max(0, Math.floor(((endedAt ?? now) - startedAt) / 1000));

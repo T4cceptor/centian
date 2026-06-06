@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 
+import { ActivityPage } from "./ui/activity-page";
 import { AppShell } from "./ui/app-shell";
 import { BenchmarkRunDetailPage } from "./ui/benchmark-run-detail-page";
 import { BenchmarkSessionDetailPage } from "./ui/benchmark-session-detail-page";
@@ -15,10 +16,12 @@ export function AppRoutes() {
     <AppShell>
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<Navigate to="/default/events" replace />} />
+          <Route path="/" element={<Navigate to="/default/activity" replace />} />
+          <Route path="/activity" element={<LegacySectionRedirect section="activity" />} />
           <Route path="/tasks" element={<LegacySectionRedirect section="tasks" />} />
           <Route path="/tasks/:runID" element={<LegacyTaskRunRedirect />} />
           <Route path="/events" element={<LegacySectionRedirect section="events" />} />
+          <Route path="/:projectSlug/activity" element={<ActivityPage />} />
           <Route path="/:projectSlug/tasks" element={<TaskRunListPage />} />
           <Route path="/:projectSlug/tasks/:runID" element={<TaskRunDetailPage />} />
           <Route path="/:projectSlug/events" element={<EventListPage />} />
@@ -32,7 +35,7 @@ export function AppRoutes() {
   );
 }
 
-function LegacySectionRedirect({ section }: { section: "tasks" | "events" }) {
+function LegacySectionRedirect({ section }: { section: "tasks" | "events" | "activity" }) {
   const location = useLocation();
   return <Navigate to={`/default/${section}${location.search}`} replace />;
 }

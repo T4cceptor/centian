@@ -487,7 +487,7 @@ describe("task run list", () => {
 });
 
 describe("event list", () => {
-  it("defaults the ui root to the default project events route", async () => {
+  it("defaults the ui root to the default project activity route", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse({
@@ -498,9 +498,9 @@ describe("event list", () => {
 
     renderApp(["/"]);
 
-    expect(await screen.findByText("No persisted events yet")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events", expect.anything());
-    expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
+    // Activity is the landing view and serves mocked data, so it does not hit fetch.
+    expect(await screen.findByRole("heading", { name: "Activity Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("Interventions")).toBeInTheDocument();
   });
 
   it("renders the events route and primary nav", async () => {
@@ -531,6 +531,7 @@ describe("event list", () => {
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Primary" })).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Activity",
       "Events",
       "Tasks",
       "Benchmarks",
