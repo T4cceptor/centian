@@ -487,6 +487,22 @@ describe("task run list", () => {
 });
 
 describe("event list", () => {
+  it("defaults the ui root to the default project events route", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/"]);
+
+    expect(await screen.findByText("No persisted events yet")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events", expect.anything());
+    expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
+  });
+
   it("renders the events route and primary nav", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -514,21 +530,33 @@ describe("event list", () => {
 
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
-    expect(screen.getByText("Observed MCP events")).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Primary" })).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Events",
+      "Tasks",
+      "Benchmarks",
+    ]);
+    expect(screen.queryByText("Observed MCP events")).not.toBeInTheDocument();
+    expect(screen.queryByText("Global Feed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Newest first across all proxied traffic.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Time/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sort by Request/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by Type/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sort by Direction/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sort by Status/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Request")).toHaveClass("event-card__message-type--success");
+    expect(screen.getByRole("button", { name: /Sort by Gov. Events/i })).toBeInTheDocument();
   });
 
   it("reflects URL filters in the request and active chips", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(createFetchResponse({ items: [] }))) as typeof fetch;
 
-    renderApp(["/events?gateway=gw&server=server-a&success=false"]);
+    renderApp(["/events?gateway=gw&server=server-a&success=false&withGovernanceEvent=true"]);
 
     expect(await screen.findByText("No matching events")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?gateway=gw&server=server-a&success=false", expect.anything());
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?gateway=gw&server=server-a&success=false&withGovernanceEvent=true", expect.anything());
     expect(screen.getByText("Gateway: gw")).toBeInTheDocument();
     expect(screen.getByText("Server: server-a")).toBeInTheDocument();
     expect(screen.getByText("Success: false")).toBeInTheDocument();
+    expect(screen.getAllByText("With governance event").length).toBeGreaterThan(0);
   });
 
   it("loads events from a project-scoped route", async () => {
@@ -559,7 +587,156 @@ describe("event list", () => {
     expect(screen.queryByRole("link", { name: "Benchmarks" })).not.toBeInTheDocument();
   });
 
-  it("paginates older events and returns to newest", async () => {
+  it("renders governance annotations in the events view", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              success: true,
+              isError: false,
+              annotations: [
+                {
+                  type: "governance_events",
+                  action: "redacted",
+                  category: "security",
+                  severity: "high",
+                  message: "masked secret output",
+                },
+              ],
+            },
+            {
+              id: "ae_1742947201123_0000000002",
+              createdAtUnixMilli: 1742947201123,
+              toolName: "centian.task_complete_step",
+              requestId: "complete_step_2_early",
+              success: false,
+              isError: true,
+              annotations: [
+                {
+                  type: "governance_events",
+                  action: "stopped",
+                  category: "quality",
+                  severity: "medium",
+                  message: "Ticket was not updated.",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    const governanceSection = await screen.findByLabelText("Governance Events: 2");
+    expect(within(governanceSection).getAllByText("Security")).toHaveLength(2);
+    expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
+    expect(within(governanceSection).getAllByText("Quality")).toHaveLength(2);
+    expect(within(governanceSection).getByTitle("Quality: 1")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("Redacted")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("shell__exec")).toBeInTheDocument();
+    expect(within(governanceSection).getByText("masked secret output")).toBeInTheDocument();
+    expect(screen.getByLabelText("Governance events: Security")).toBeInTheDocument();
+    expect(screen.getByLabelText("Governance events: Quality")).toBeInTheDocument();
+  });
+
+  it("collapses repeated governance annotations for the same request id", async () => {
+    const user = userEvent.setup();
+    const duplicateGovernanceAnnotation = {
+      type: "governance_events",
+      action: "redacted",
+      category: "security",
+      severity: "high",
+      message: "masked secret output",
+    };
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              requestId: "req-1",
+              messageType: "request",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+            {
+              id: "ae_1742947201123_0000000002",
+              createdAtUnixMilli: 1742947201123,
+              toolName: "shell__exec",
+              requestId: "req-1",
+              messageType: "response",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    const governanceSection = await screen.findByLabelText("Governance Events: 1");
+    expect(within(governanceSection).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
+
+    await user.click(within(governanceSection).getByRole("button", { name: /Governance Events: 1/i }));
+    expect(within(governanceSection).queryByText("masked secret output")).not.toBeInTheDocument();
+    expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
+  });
+
+  it("counts repeated governance annotations separately across request ids", async () => {
+    const duplicateGovernanceAnnotation = {
+      type: "governance_events",
+      action: "redacted",
+      category: "security",
+      severity: "high",
+      message: "masked secret output",
+    };
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              requestId: "req-1",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+            {
+              id: "ae_1742947201123_0000000002",
+              createdAtUnixMilli: 1742947201123,
+              toolName: "shell__exec",
+              requestId: "req-2",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    const governanceSection = await screen.findByLabelText("Governance Events: 2");
+    expect(within(governanceSection).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(governanceSection).getByTitle("Security: 2")).toBeInTheDocument();
+    expect(within(governanceSection).getAllByText("masked secret output")).toHaveLength(2);
+  });
+
+  it("appends older events using the cursor URL token", async () => {
     const user = userEvent.setup();
     globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -600,12 +777,11 @@ describe("event list", () => {
     renderApp(["/events"]);
 
     expect(await screen.findByText("tool-new")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Older" }));
+    await user.click(screen.getByRole("button", { name: "Load more..." }));
     expect(await screen.findByText("tool-old")).toBeInTheDocument();
-    expect(screen.getByText("Older page")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Newest" }));
-    expect(await screen.findByText("tool-new")).toBeInTheDocument();
+    expect(screen.getByText("tool-new")).toBeInTheDocument();
+    expect(screen.queryByText("Older page")).not.toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?cursor=cursor-2", expect.anything());
   });
 
   it("sorts the visible event page by column like the benchmark overview", async () => {

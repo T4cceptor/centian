@@ -15,7 +15,7 @@ export function AppRoutes() {
     <AppShell>
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<Navigate to="/default/tasks" replace />} />
+          <Route path="/" element={<Navigate to="/default/events" replace />} />
           <Route path="/tasks" element={<LegacySectionRedirect section="tasks" />} />
           <Route path="/tasks/:runID" element={<LegacyTaskRunRedirect />} />
           <Route path="/events" element={<LegacySectionRedirect section="events" />} />
