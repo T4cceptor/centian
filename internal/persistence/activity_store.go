@@ -2,7 +2,9 @@ package persistence
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -84,6 +86,19 @@ type activityInterventionRow struct {
 	ServerName         string `bun:"server_name"`
 }
 
+// activityTaskGovRow is a task event (with its related action event fields, if any)
+// whose payload may carry governance annotations.
+type activityTaskGovRow struct {
+	TaskEventID     string          `bun:"task_event_id"`
+	TaskCreatedAt   int64           `bun:"task_created_at"`
+	ActionEventID   string          `bun:"action_event_id"`
+	ActionCreatedAt int64           `bun:"action_created_at"`
+	ToolName        string          `bun:"tool_name"`
+	Gateway         string          `bun:"gateway"`
+	ServerName      string          `bun:"server_name"`
+	PayloadJSON     json.RawMessage `bun:"payload_json"`
+}
+
 type activityVolumeRow struct {
 	CreatedAtUnixMilli int64  `bun:"created_at_unix_milli"`
 	MessageType        string `bun:"message_type"`
@@ -145,9 +160,28 @@ func (s *Store) ActivitySummary(ctx context.Context, filter *ActivityFilter) (*A
 	return summary, nil
 }
 
+// rawGov is a normalized governance record from either source (action-event
+// annotations or task-event payloads) before grouping into interventions.
+type rawGov struct {
+	key        string // grouping key: action event id when known, else task:<id>
+	timestamp  int64
+	category   string
+	severity   string
+	action     string
+	processor  string
+	message    string
+	rule       string
+	toolName   string
+	gateway    string
+	serverName string
+}
+
 func (s *Store) activityInterventions(ctx context.Context, start, end int64) ([]ActivityIntervention, error) {
-	rows := make([]activityInterventionRow, 0)
-	query := `
+	records := make([]rawGov, 0)
+
+	// Source 1: governance annotations persisted against action events.
+	annotationRows := make([]activityInterventionRow, 0)
+	annotationQuery := `
 SELECT
 	a.id AS annotation_id,
 	a.action_event_id,
@@ -166,51 +200,122 @@ JOIN action_events ae ON ae.id = a.action_event_id
 WHERE ae.created_at_unix_milli >= ? AND ae.created_at_unix_milli <= ? AND a.type = 'governance_events'
 ORDER BY ae.created_at_unix_milli ASC, a.id ASC
 `
-	if err := s.db.NewRaw(query, start, end).Scan(ctx, &rows); err != nil {
+	if err := s.db.NewRaw(annotationQuery, start, end).Scan(ctx, &annotationRows); err != nil {
 		return nil, err
 	}
+	for idx := range annotationRows {
+		row := &annotationRows[idx]
+		records = append(records, rawGov{
+			key:        row.ActionEventID,
+			timestamp:  row.CreatedAtUnixMilli,
+			category:   row.Category,
+			severity:   row.Severity,
+			action:     row.Action,
+			processor:  row.Processor,
+			message:    row.Message,
+			rule:       row.Rule,
+			toolName:   row.ToolName,
+			gateway:    row.Gateway,
+			serverName: row.ServerName,
+		})
+	}
 
-	// Action-event rows are stored one-per-finding, so collapse them back into a
-	// single intervention per governed action event, keeping the highest severity.
+	// Source 2: governance annotations embedded in task-event payloads, related to
+	// an action event by request id (mirrors how the Events view surfaces them).
+	taskRows := make([]activityTaskGovRow, 0)
+	taskQuery := `
+SELECT
+	te.id AS task_event_id,
+	te.created_at_unix_milli AS task_created_at,
+	COALESCE(ae.id, '') AS action_event_id,
+	COALESCE(ae.created_at_unix_milli, 0) AS action_created_at,
+	COALESCE(ae.tool_name, '') AS tool_name,
+	COALESCE(ae.gateway, '') AS gateway,
+	COALESCE(ae.server_name, '') AS server_name,
+	te.payload_json
+FROM task_events te
+LEFT JOIN action_events ae ON ae.request_id = te.related_action_request_id
+WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.payload_json IS NOT NULL
+ORDER BY te.created_at_unix_milli ASC, te.id ASC
+`
+	if err := s.db.NewRaw(taskQuery, start, end).Scan(ctx, &taskRows); err != nil {
+		return nil, err
+	}
+	for idx := range taskRows {
+		row := &taskRows[idx]
+		key := row.ActionEventID
+		timestamp := row.ActionCreatedAt
+		if key == "" {
+			key = "task:" + row.TaskEventID
+		}
+		if timestamp == 0 {
+			timestamp = row.TaskCreatedAt
+		}
+		for _, annotation := range governanceAnnotationsFromPayload(row.PayloadJSON) {
+			rule := ""
+			if len(annotation.Findings) > 0 {
+				rule = annotation.Findings[0].Rule
+			}
+			records = append(records, rawGov{
+				key:        key,
+				timestamp:  timestamp,
+				category:   annotation.Category,
+				severity:   annotation.Severity,
+				action:     annotation.Action,
+				processor:  annotation.Processor,
+				message:    annotation.Message,
+				rule:       rule,
+				toolName:   row.ToolName,
+				gateway:    row.Gateway,
+				serverName: row.ServerName,
+			})
+		}
+	}
+
+	// Collapse to a single intervention per key, keeping the highest severity.
 	order := make([]string, 0)
-	byEvent := make(map[string]*activityInterventionRow)
-	for idx := range rows {
-		row := &rows[idx]
-		existing, ok := byEvent[row.ActionEventID]
+	byKey := make(map[string]*rawGov)
+	for idx := range records {
+		record := &records[idx]
+		existing, ok := byKey[record.key]
 		if !ok {
-			byEvent[row.ActionEventID] = row
-			order = append(order, row.ActionEventID)
+			byKey[record.key] = record
+			order = append(order, record.key)
 			continue
 		}
-		if severityToScore(row.Severity) > severityToScore(existing.Severity) {
-			byEvent[row.ActionEventID] = row
+		if severityToScore(record.severity) > severityToScore(existing.severity) {
+			byKey[record.key] = record
 		}
 	}
 
 	interventions := make([]ActivityIntervention, 0, len(order))
-	for _, eventID := range order {
-		row := byEvent[eventID]
-		score := severityToScore(row.Severity)
+	for _, key := range order {
+		record := byKey[key]
+		score := severityToScore(record.severity)
 		label := ""
 		if score >= 0.8 {
-			label = actionLabel(row.Action)
+			label = actionLabel(record.action)
 		}
 		interventions = append(interventions, ActivityIntervention{
-			ID:                 eventID,
-			Category:           normalizeCategory(row.Category),
-			TimestampUnixMilli: row.CreatedAtUnixMilli,
+			ID:                 key,
+			Category:           normalizeCategory(record.category),
+			TimestampUnixMilli: record.timestamp,
 			Severity:           score,
-			Title:              interventionTitle(row),
-			Summary:            interventionSummary(row),
-			RuleID:             firstNonEmpty(row.Rule, row.Processor),
-			RuleExplanation:    row.Message,
-			ToolName:           row.ToolName,
-			Gateway:            row.Gateway,
-			ServerName:         row.ServerName,
+			Title:              interventionTitle(record),
+			Summary:            interventionSummary(record),
+			RuleID:             firstNonEmpty(record.rule, record.processor),
+			RuleExplanation:    record.message,
+			ToolName:           record.toolName,
+			Gateway:            record.gateway,
+			ServerName:         record.serverName,
 			Label:              label,
-			action:             row.Action,
+			action:             record.action,
 		})
 	}
+	// Order by time so the skyline plots markers left-to-right.
+	sort.SliceStable(interventions, func(i, j int) bool {
+		return interventions[i].TimestampUnixMilli < interventions[j].TimestampUnixMilli
+	})
 	return interventions, nil
 }
 
@@ -320,16 +425,16 @@ func actionLabel(action string) string {
 	}
 }
 
-func interventionTitle(row *activityInterventionRow) string {
-	if title := humanizeToken(row.Processor); title != "" {
+func interventionTitle(record *rawGov) string {
+	if title := humanizeToken(record.processor); title != "" {
 		return title
 	}
-	return humanizeToken(row.Category + " " + row.Action)
+	return humanizeToken(record.category + " " + record.action)
 }
 
-func interventionSummary(row *activityInterventionRow) string {
-	verb := actionLabel(row.Action)
-	category := normalizeCategory(row.Category)
+func interventionSummary(record *rawGov) string {
+	verb := actionLabel(record.action)
+	category := normalizeCategory(record.category)
 	if verb == "" {
 		return fmt.Sprintf("Intervention on %s traffic.", category)
 	}

@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 
 import {
   type ActivityQuery,
-  type ActivityRange,
   type ActivitySummary,
+  activityRanges,
   categoryLabels,
   fetchActivitySummary,
   interventionCategories,
+  isActivityRange,
 } from "../api/activity";
 import { ApiError, normalizeProjectSlug } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
@@ -17,7 +18,7 @@ import { InterventionSkyline } from "./intervention-skyline";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
 
-const RANGES: ActivityRange[] = ["1h", "6h", "1d", "1w"];
+const RANGES = activityRanges;
 
 const DEFAULT_QUERY: ActivityQuery = { kind: "preset", range: "6h" };
 
@@ -49,11 +50,16 @@ const STAT_FIELDS: { key: keyof ActivitySummary["stats"]; label: string }[] = [
 export function ActivityPage() {
   const { projectSlug: rawProjectSlug } = useParams();
   const projectSlug = normalizeProjectSlug(rawProjectSlug);
+  const [searchParams] = useSearchParams();
   const [summary, setSummary] = useState<ActivitySummary>();
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [authHeaderName, setAuthHeaderName] = useState<string>();
-  const [query, setQuery] = useState<ActivityQuery>(DEFAULT_QUERY);
+  // Seed the timeframe from a ?range= query param (e.g. `centian demo` opens 60s).
+  const [query, setQuery] = useState<ActivityQuery>(() => {
+    const requested = searchParams.get("range");
+    return isActivityRange(requested) ? { kind: "preset", range: requested } : DEFAULT_QUERY;
+  });
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [customError, setCustomError] = useState<string>("");

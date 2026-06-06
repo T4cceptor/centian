@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/taskverification"
 	"gotest.tools/assert"
 )
 
@@ -112,6 +113,54 @@ func TestActivitySummaryAggregatesInterventionsAndVolume(t *testing.T) {
 		total += point.Volume
 	}
 	assert.Equal(t, total, 3.0)
+}
+
+func TestActivitySummaryIncludesTaskEventGovernance(t *testing.T) {
+	// Given: an action event plus a task event whose payload carries a governance
+	// annotation related to that action event (the case the Events view also surfaces)
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const start, end = int64(10_000), int64(100_000)
+
+	appendRequestEvent(t, store, "req-task", 30_000)
+	err = store.AppendTaskEvent(&taskverification.TaskEvent{
+		ID:                     "te-1",
+		SchemaVersion:          schemaVersion,
+		CreatedAtUnixMilli:     30_500,
+		TaskRunID:              "run-1",
+		EventType:              taskverification.TaskEventTypeStepCompleted,
+		Outcome:                taskverification.TaskEventOutcomeFailed,
+		RelatedActionRequestID: "req-task",
+		Payload: json.RawMessage(`{
+			"annotations": [
+				{
+					"type": "governance_events",
+					"processor": "centian",
+					"action": "stopped",
+					"category": "quality",
+					"severity": "medium",
+					"message": "Ticket was not updated."
+				}
+			]
+		}`),
+	})
+	assert.NilError(t, err)
+
+	// When: aggregating activity over the window
+	summary, err := store.ActivitySummary(context.Background(), &ActivityFilter{Start: start, End: end})
+	assert.NilError(t, err)
+
+	// Then: the task-sourced governance event appears as an intervention, joined to
+	// the related action event for tool context.
+	assert.Equal(t, summary.Stats.Interventions, 1)
+	assert.Equal(t, summary.CategoryCounts.Quality, 1)
+	assert.Equal(t, len(summary.Interventions), 1)
+	iv := summary.Interventions[0]
+	assert.Equal(t, iv.Category, "quality")
+	assert.Equal(t, iv.ToolName, "search") // from the related action event
+	assert.Equal(t, iv.Severity, 0.55)
 }
 
 func TestActivitySummaryEmptyWindow(t *testing.T) {

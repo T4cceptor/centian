@@ -108,6 +108,10 @@ func activityWindowFromQuery(r *http.Request, now time.Time) (*persistence.Activ
 	}
 	var duration time.Duration
 	switch rawRange {
+	case "60s":
+		duration = time.Minute
+	case "5m":
+		duration = 5 * time.Minute
 	case "1h":
 		duration = time.Hour
 	case "6h":

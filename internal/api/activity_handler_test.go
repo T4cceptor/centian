@@ -67,6 +67,32 @@ func TestActivityHandler_Activity(t *testing.T) {
 		assert.Equal(t, store.filter.End-store.filter.Start, int64(60*60*1000))
 	})
 
+	t.Run("supports short ranges", func(t *testing.T) {
+		for _, tc := range []struct {
+			rangeParam string
+			spanMillis int64
+		}{
+			{"60s", 60 * 1000},
+			{"5m", 5 * 60 * 1000},
+		} {
+			store := &stubActivityStore{
+				summaryFn: func(_ context.Context, filter *persistence.ActivityFilter) (*persistence.ActivitySummary, error) {
+					return &persistence.ActivitySummary{}, nil
+				},
+			}
+			handler := NewActivityHandler(store)
+			mux := http.NewServeMux()
+			handler.RegisterRoutesWithMiddleware(mux, nil)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/activity?range="+tc.rangeParam, http.NoBody)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			assert.Equal(t, rec.Code, http.StatusOK)
+			assert.Equal(t, store.filter.End-store.filter.Start, tc.spanMillis)
+		}
+	})
+
 	t.Run("uses an explicit start/end window over range", func(t *testing.T) {
 		store := &stubActivityStore{
 			summaryFn: func(_ context.Context, filter *persistence.ActivityFilter) (*persistence.ActivitySummary, error) {

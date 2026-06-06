@@ -5,7 +5,13 @@
 
 import { projectApiPath, requestJSON } from "./task-runs";
 
-export type ActivityRange = "1h" | "6h" | "1d" | "1w";
+export type ActivityRange = "60s" | "5m" | "1h" | "6h" | "1d" | "1w";
+
+export const activityRanges: ActivityRange[] = ["60s", "5m", "1h", "6h", "1d", "1w"];
+
+export function isActivityRange(value: string | null | undefined): value is ActivityRange {
+  return value != null && (activityRanges as string[]).includes(value);
+}
 
 export type InterventionCategory = "security" | "policy" | "risk" | "quality" | "compliance";
 
