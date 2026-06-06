@@ -36,6 +36,8 @@ func guardRules(settings *config.BuiltinProcessorSettings) []builtinutil.ToolGua
 		switch preset {
 		case config.BuiltinToolGuardPresetDangerousCommands:
 			rules = append(rules, dangerousCommandRules()...)
+		case config.BuiltinToolGuardPresetPathBoundary:
+			rules = append(rules, pathBoundaryRule(settings.PathBoundary))
 		}
 	}
 	for _, rule := range settings.GuardRules {
@@ -58,6 +60,36 @@ func configRuleToBuiltinRule(rule config.BuiltinToolGuardRule) builtinutil.ToolG
 		Message:       rule.Message,
 		ToolPatterns:  rule.ToolPatterns,
 		ArgumentRules: argumentRules,
+	}
+}
+
+func pathBoundaryRule(settings *config.BuiltinPathBoundarySettings) builtinutil.ToolGuardRule {
+	if settings == nil {
+		settings = &config.BuiltinPathBoundarySettings{}
+	}
+	toolPatterns := settings.ToolPatterns
+	if len(toolPatterns) == 0 {
+		toolPatterns = []string{"*file*", "*filesystem*", "*read*", "*write*", "*directory*"}
+	}
+	deniedPaths := append([]string{
+		".env",
+		".git/config",
+		".ssh",
+		".aws",
+		"id_rsa",
+		"id_ed25519",
+	}, settings.DeniedPaths...)
+	return builtinutil.ToolGuardRule{
+		Name:         "path_boundary",
+		Severity:     "high",
+		Message:      "Filesystem path access blocked.",
+		ToolPatterns: toolPatterns,
+		PathBoundary: &builtinutil.PathBoundaryOptions{
+			AllowedRoots:     settings.AllowedRoots,
+			RelativeBaseRoot: settings.RelativeBaseRoot,
+			ArgumentPaths:    settings.ArgumentPaths,
+			DeniedPaths:      deniedPaths,
+		},
 	}
 }
 

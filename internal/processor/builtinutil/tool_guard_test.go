@@ -145,6 +145,121 @@ func TestApplyToolGuardNoopsOnResponsePhase(t *testing.T) {
 	assert.Assert(t, ctx.Annotations == nil)
 }
 
+func TestApplyToolGuardPathBoundaryBlocksTraversal(t *testing.T) {
+	ctx := contextWithToolCall(t, "filesystem___read_file", map[string]any{"path": `..\secret.txt`})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules:     []ToolGuardRule{testPathBoundaryRule()},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, result.Blocked)
+	assert.Equal(t, result.Findings[0].Rule, "path_boundary_traversal")
+	assert.Equal(t, ctx.Annotations.Reports[0].Details["path_boundary_reason"], "path_traversal")
+}
+
+func TestApplyToolGuardPathBoundaryBlocksDeniedPaths(t *testing.T) {
+	ctx := contextWithToolCall(t, "filesystem___read_file", map[string]any{"path": "/workspace/.git/config"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules: []ToolGuardRule{
+			{
+				Name:         "path_boundary",
+				Severity:     "high",
+				ToolPatterns: []string{"*file*", "*filesystem*"},
+				PathBoundary: &PathBoundaryOptions{
+					DeniedPaths: []string{".env", ".git/config", ".npmrc"},
+				},
+			},
+		},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, result.Blocked)
+	assert.Equal(t, result.Findings[0].Rule, "path_boundary_denied_path")
+}
+
+func TestApplyToolGuardPathBoundaryAllowsPathsUnderConfiguredRoots(t *testing.T) {
+	ctx := contextWithToolCall(t, "filesystem___read_file", map[string]any{"path": "/workspace/src/main.go"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules:     []ToolGuardRule{testPathBoundaryRule()},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, !result.Matched)
+	assert.Assert(t, ctx.Payload.Result == nil)
+}
+
+func TestApplyToolGuardPathBoundaryBlocksPathsOutsideConfiguredRoots(t *testing.T) {
+	ctx := contextWithToolCall(t, "filesystem___read_file", map[string]any{"path": "/etc/passwd"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules:     []ToolGuardRule{testPathBoundaryRule()},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, result.Blocked)
+	assert.Equal(t, result.Findings[0].Rule, "path_boundary_outside_allowed_roots")
+	assert.Equal(t, ctx.Annotations.Reports[0].Details["path_boundary_resolved_path"], "/etc/passwd")
+}
+
+func TestApplyToolGuardPathBoundaryResolvesRelativePathsAgainstBaseRoot(t *testing.T) {
+	ctx := contextWithToolCall(t, "filesystem___read_file", map[string]any{"path": "src/main.go"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules:     []ToolGuardRule{testPathBoundaryRule()},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, !result.Matched)
+	assert.Assert(t, ctx.Payload.Result == nil)
+}
+
+func TestApplyToolGuardPathBoundaryAnnotateModeDoesNotBlock(t *testing.T) {
+	ctx := contextWithToolCall(t, "filesystem___read_file", map[string]any{"path": ".env"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Mode:      ToolGuardModeAnnotate,
+		Rules: []ToolGuardRule{
+			{
+				Name:         "path_boundary",
+				Severity:     "high",
+				ToolPatterns: []string{"*file*", "*filesystem*"},
+				PathBoundary: &PathBoundaryOptions{
+					DeniedPaths: []string{".env"},
+				},
+			},
+		},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, result.Matched)
+	assert.Assert(t, !result.Blocked)
+	assert.Assert(t, ctx.Payload.Result == nil)
+	assert.Assert(t, ctx.Event == nil)
+	assert.Equal(t, ctx.Annotations.Reports[0].Action, "annotated")
+}
+
+func TestApplyToolGuardPathBoundaryIgnoresNonFilesystemTools(t *testing.T) {
+	ctx := contextWithToolCall(t, "notes___create", map[string]any{"path": "../secret.txt"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules:     []ToolGuardRule{testPathBoundaryRule()},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, !result.Matched)
+	assert.Assert(t, ctx.Annotations == nil)
+}
+
 func contextWithToolCall(t *testing.T, toolName string, args any) *DataContext {
 	t.Helper()
 	ctx := contextWithRequestArgs(t, args)
@@ -154,4 +269,17 @@ func contextWithToolCall(t *testing.T, toolName string, args any) *DataContext {
 		OriginalToolname: toolName,
 	}
 	return ctx
+}
+
+func testPathBoundaryRule() ToolGuardRule {
+	return ToolGuardRule{
+		Name:         "path_boundary",
+		Severity:     "high",
+		ToolPatterns: []string{"*file*", "*filesystem*"},
+		PathBoundary: &PathBoundaryOptions{
+			AllowedRoots:     []string{"/workspace"},
+			RelativeBaseRoot: "/workspace",
+			DeniedPaths:      []string{".env", ".git/config", ".ssh", ".aws", "id_rsa", "id_ed25519"},
+		},
+	}
 }

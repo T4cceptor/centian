@@ -637,6 +637,35 @@ func TestProcessorValidation(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name: "valid tool call guard path boundary processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"mode":      "block",
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots":      []interface{}{"/workspace", "/tmp/centian-demo"},
+								"relative_base_root": "/workspace",
+								"tool_patterns":      []interface{}{"repo___*"},
+								"argument_paths":     []interface{}{"target"},
+								"denied_paths":       []interface{}{".npmrc", ".pypirc"},
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
 			name: "tool call guard validates mode",
 			config: &GlobalConfig{
 				Version:  "1.0.0",
@@ -787,6 +816,106 @@ func TestProcessorValidation(t *testing.T) {
 			},
 			wantError: true,
 			errorMsg:  "requires part 'routing'",
+		},
+		{
+			name: "tool call guard path boundary validates unknown fields",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"unknown": true,
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.unknown is unsupported",
+		},
+		{
+			name: "tool call guard path boundary validates root types",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots": []interface{}{123},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.allowed_roots must contain only non-empty strings",
+		},
+		{
+			name: "tool call guard path boundary validates empty roots",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots": []interface{}{""},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.allowed_roots must contain only non-empty strings",
+		},
+		{
+			name: "tool call guard path boundary validates absolute roots",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots": []interface{}{"workspace"},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.allowed_roots must contain absolute lexical roots",
 		},
 		{
 			name: "nil processor list is valid",

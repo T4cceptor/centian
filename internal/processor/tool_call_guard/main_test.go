@@ -109,6 +109,73 @@ func TestProcessJSONDangerousCommandsPresetIgnoresNonShellToolText(t *testing.T)
 	}
 }
 
+func TestProcessJSONPathBoundaryPresetBlocksRepresentativePath(t *testing.T) {
+	input := requestInput(t, "filesystem___read_file", map[string]any{
+		"path": "/workspace/.env",
+	})
+
+	output := runToolCallGuard(t, input, &config.BuiltinProcessorSettings{
+		Processor: config.BuiltinToolCallGuard,
+		Mode:      config.BuiltinToolGuardModeBlock,
+		Presets:   []string{config.BuiltinToolGuardPresetPathBoundary},
+		PathBoundary: &config.BuiltinPathBoundarySettings{
+			AllowedRoots:     []string{"/workspace"},
+			RelativeBaseRoot: "/workspace",
+		},
+	})
+
+	result := output["payload"].(map[string]any)["result"].(map[string]any)
+	assert.Equal(t, result["isError"], true)
+	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
+	assert.Equal(t, report["severity"], "high")
+	findings := report["findings"].([]any)
+	assert.Equal(t, findings[0].(map[string]any)["rule"], "path_boundary_denied_path")
+}
+
+func TestProcessJSONPathBoundaryPresetHonorsCustomToolAndArgumentPaths(t *testing.T) {
+	input := requestInput(t, "repo___fetch", map[string]any{
+		"target": "/etc/passwd",
+	})
+
+	output := runToolCallGuard(t, input, &config.BuiltinProcessorSettings{
+		Processor: config.BuiltinToolCallGuard,
+		Mode:      config.BuiltinToolGuardModeBlock,
+		Presets:   []string{config.BuiltinToolGuardPresetPathBoundary},
+		PathBoundary: &config.BuiltinPathBoundarySettings{
+			AllowedRoots:     []string{"/workspace"},
+			RelativeBaseRoot: "/workspace",
+			ToolPatterns:     []string{"repo___*"},
+			ArgumentPaths:    []string{"target"},
+		},
+	})
+
+	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
+	findings := report["findings"].([]any)
+	assert.Equal(t, findings[0].(map[string]any)["rule"], "path_boundary_outside_allowed_roots")
+}
+
+func TestProcessJSONCombinesDangerousCommandsAndPathBoundaryPresets(t *testing.T) {
+	input := requestInput(t, "desktop_commander___exec", map[string]any{
+		"command": "rm -rf /tmp/build",
+	})
+
+	output := runToolCallGuard(t, input, &config.BuiltinProcessorSettings{
+		Processor: config.BuiltinToolCallGuard,
+		Mode:      config.BuiltinToolGuardModeBlock,
+		Presets: []string{
+			config.BuiltinToolGuardPresetDangerousCommands,
+			config.BuiltinToolGuardPresetPathBoundary,
+		},
+		PathBoundary: &config.BuiltinPathBoundarySettings{
+			AllowedRoots: []string{"/workspace"},
+		},
+	})
+
+	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
+	details := report["details"].(map[string]any)
+	assert.Equal(t, details["matched_rule"], "dangerous_rm_rf")
+}
+
 func requestInput(t *testing.T, toolName string, args map[string]any) string {
 	t.Helper()
 	rawArgs, err := json.Marshal(args)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
 )
@@ -29,6 +30,15 @@ type ToolGuardRule struct {
 	Message       string
 	ToolPatterns  []string
 	ArgumentRules []ToolGuardArgumentRule
+	PathBoundary  *PathBoundaryOptions
+}
+
+// PathBoundaryOptions controls lexical filesystem path guard behavior.
+type PathBoundaryOptions struct {
+	AllowedRoots     []string
+	RelativeBaseRoot string
+	ArgumentPaths    []string
+	DeniedPaths      []string
 }
 
 // ToolGuardOptions controls generic tool-call guard behavior.
@@ -53,6 +63,7 @@ type toolGuardMatch struct {
 	toolName string
 	toolPath string
 	findings []common.EventAnnotationFinding
+	details  map[string]any
 }
 
 type toolNameCandidate struct {
@@ -107,6 +118,9 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 			"argument_rule_count": len(match.rule.ArgumentRules),
 		},
 	}
+	for key, value := range match.details {
+		report.Details[key] = value
+	}
 	AppendReport(ctx, report)
 
 	result.Matched = true
@@ -132,6 +146,11 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 				"matched_paths":  findingPaths(match.findings),
 			},
 		})
+		if structured, ok := ctx.Payload.Result.StructuredContent.(map[string]any); ok {
+			for key, value := range match.details {
+				structured[key] = value
+			}
+		}
 	}
 
 	return result, nil
@@ -180,14 +199,14 @@ func firstToolGuardMatch(ctx *DataContext, rules []ToolGuardRule) (toolGuardMatc
 		if !ok {
 			continue
 		}
-		findings, ok, err := matchingArgumentFindings(ctx, rule)
+		findings, details, ok, err := matchingArgumentFindings(ctx, rule)
 		if err != nil || !ok {
 			return toolGuardMatch{}, false, err
 		}
 		if len(findings) == 0 {
 			findings = []common.EventAnnotationFinding{{Rule: rule.Name, Path: toolName.pathOrDefault()}}
 		}
-		return toolGuardMatch{rule: rule, toolName: toolName.Value, toolPath: toolName.pathOrDefault(), findings: findings}, true, nil
+		return toolGuardMatch{rule: rule, toolName: toolName.Value, toolPath: toolName.pathOrDefault(), findings: findings, details: details}, true, nil
 	}
 	return toolGuardMatch{}, false, nil
 }
@@ -235,16 +254,19 @@ func (candidate toolNameCandidate) pathOrDefault() string {
 	return candidate.Path
 }
 
-func matchingArgumentFindings(ctx *DataContext, rule ToolGuardRule) ([]common.EventAnnotationFinding, bool, error) {
+func matchingArgumentFindings(ctx *DataContext, rule ToolGuardRule) ([]common.EventAnnotationFinding, map[string]any, bool, error) {
+	if rule.PathBoundary != nil {
+		return matchingPathBoundaryFindings(ctx, rule)
+	}
 	if len(rule.ArgumentRules) == 0 {
-		return nil, true, nil
+		return nil, nil, true, nil
 	}
 
 	var nodes []ArgumentNode
 	if err := WalkRequestArgumentValues(ctx, func(node ArgumentNode) {
 		nodes = append(nodes, node)
 	}); err != nil {
-		return nil, false, err
+		return nil, nil, false, err
 	}
 
 	findings := []common.EventAnnotationFinding{}
@@ -259,7 +281,7 @@ func matchingArgumentFindings(ctx *DataContext, rule ToolGuardRule) ([]common.Ev
 			})
 		}
 	}
-	return findings, len(findings) > 0, nil
+	return findings, nil, len(findings) > 0, nil
 }
 
 func argumentRuleMatchesNode(rule ToolGuardArgumentRule, node ArgumentNode) bool {
@@ -270,6 +292,154 @@ func argumentRuleMatchesNode(rule ToolGuardArgumentRule, node ArgumentNode) bool
 		return true
 	}
 	return node.Scalar && rule.Regex.MatchString(node.Text)
+}
+
+func matchingPathBoundaryFindings(ctx *DataContext, rule ToolGuardRule) ([]common.EventAnnotationFinding, map[string]any, bool, error) {
+	var nodes []ArgumentNode
+	if err := WalkRequestArgumentValues(ctx, func(node ArgumentNode) {
+		if node.Scalar {
+			nodes = append(nodes, node)
+		}
+	}); err != nil {
+		return nil, nil, false, err
+	}
+
+	options := rule.PathBoundary
+	for _, node := range nodes {
+		if !matchesPathBoundaryArgumentPath(options.ArgumentPaths, node.Path) {
+			continue
+		}
+		check := checkPathBoundary(node.Text, options)
+		if check.Rule == "" {
+			continue
+		}
+		findingPath := requestArgumentPath(node.Path)
+		return []common.EventAnnotationFinding{
+				{Rule: check.Rule, Path: findingPath},
+			}, map[string]any{
+				"path_boundary_reason":          check.Reason,
+				"path_boundary_original_path":   check.OriginalPath,
+				"path_boundary_normalized_path": check.NormalizedPath,
+				"path_boundary_resolved_path":   check.ResolvedPath,
+				"path_boundary_matched_path":    findingPath,
+				"path_boundary_allowed_roots":   options.AllowedRoots,
+				"path_boundary_relative_base":   options.RelativeBaseRoot,
+			}, true, nil
+	}
+	return nil, nil, false, nil
+}
+
+type pathBoundaryCheck struct {
+	Rule           string
+	Reason         string
+	OriginalPath   string
+	NormalizedPath string
+	ResolvedPath   string
+}
+
+func checkPathBoundary(rawPath string, options *PathBoundaryOptions) pathBoundaryCheck {
+	check := pathBoundaryCheck{OriginalPath: rawPath}
+	normalizedInput := normalizeBoundaryPathInput(rawPath)
+	check.NormalizedPath = normalizedInput
+	if normalizedInput == "" {
+		return check
+	}
+	if containsPathTraversal(normalizedInput) {
+		check.Rule = "path_boundary_traversal"
+		check.Reason = "path_traversal"
+		return check
+	}
+	normalized := path.Clean(normalizedInput)
+	check.NormalizedPath = normalized
+	for _, deniedPath := range options.DeniedPaths {
+		if boundaryPathContains(normalized, deniedPath) {
+			check.Rule = "path_boundary_denied_path"
+			check.Reason = "denied_path"
+			return check
+		}
+	}
+	if len(options.AllowedRoots) == 0 {
+		return check
+	}
+	resolved := resolveBoundaryPath(normalized, options.RelativeBaseRoot)
+	check.ResolvedPath = resolved
+	if !isUnderAllowedRoot(resolved, options.AllowedRoots) {
+		check.Rule = "path_boundary_outside_allowed_roots"
+		check.Reason = "outside_allowed_roots"
+	}
+	return check
+}
+
+func normalizeBoundaryPathInput(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	for strings.Contains(value, "//") {
+		value = strings.ReplaceAll(value, "//", "/")
+	}
+	return value
+}
+
+func containsPathTraversal(value string) bool {
+	if value == ".." || strings.HasPrefix(value, "../") {
+		return true
+	}
+	return strings.Contains(value, "/../") || strings.HasSuffix(value, "/..")
+}
+
+func boundaryPathContains(value string, deniedPath string) bool {
+	deniedPath = path.Clean(normalizeBoundaryPathInput(deniedPath))
+	if deniedPath == "" {
+		return false
+	}
+	value = strings.ToLower(value)
+	deniedPath = strings.ToLower(deniedPath)
+	return strings.Contains(value, deniedPath)
+}
+
+func resolveBoundaryPath(value string, relativeBaseRoot string) string {
+	if strings.HasPrefix(value, "/") {
+		return path.Clean(value)
+	}
+	if relativeBaseRoot == "" {
+		return path.Clean(value)
+	}
+	return path.Clean(path.Join(relativeBaseRoot, value))
+}
+
+func isUnderAllowedRoot(value string, allowedRoots []string) bool {
+	for _, root := range allowedRoots {
+		root = path.Clean(root)
+		if value == root || strings.HasPrefix(value, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesPathBoundaryArgumentPath(patterns []string, argumentPath string) bool {
+	if len(patterns) == 0 {
+		return isPathLikeArgumentPath(argumentPath)
+	}
+	for _, pattern := range patterns {
+		if matchesGlob(pattern, argumentPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func isPathLikeArgumentPath(argumentPath string) bool {
+	argumentPath = strings.ToLower(argumentPath)
+	lastSegment := argumentPath
+	if index := strings.LastIndex(lastSegment, "."); index >= 0 {
+		lastSegment = lastSegment[index+1:]
+	}
+	return strings.Contains(lastSegment, "path") ||
+		strings.Contains(lastSegment, "file") ||
+		strings.Contains(lastSegment, "dir")
 }
 
 func matchesGlob(pattern, value string) bool {

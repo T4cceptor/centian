@@ -249,7 +249,11 @@ func TestParseBuiltinProcessorSettingsToolCallGuard(t *testing.T) {
 		Parts:    []string{"payload", "routing", "annotations"},
 		Config: map[string]interface{}{
 			"processor": "tool_call_guard",
-			"presets":   []interface{}{"dangerous_commands"},
+			"presets":   []interface{}{"dangerous_commands", "path_boundary"},
+			"path_boundary": map[string]interface{}{
+				"allowed_roots":      []interface{}{"/workspace"},
+				"relative_base_root": "/workspace",
+			},
 			"rules": []interface{}{
 				map[string]interface{}{
 					"name":          "block_prod_environment",
@@ -268,9 +272,10 @@ func TestParseBuiltinProcessorSettingsToolCallGuard(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, settings.Processor, "tool_call_guard")
 	assert.Equal(t, settings.Mode, "block")
-	assert.Equal(t, len(settings.Presets), 1)
+	assert.Equal(t, len(settings.Presets), 2)
 	assert.Equal(t, len(settings.GuardRules), 1)
 	assert.Equal(t, settings.GuardRules[0].ArgumentRules[0].Path, "environment")
+	assert.Equal(t, settings.PathBoundary.AllowedRoots[0], "/workspace")
 }
 
 func TestBuiltinProcessorUnsupportedProcessor(t *testing.T) {

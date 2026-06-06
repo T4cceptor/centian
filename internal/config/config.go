@@ -707,12 +707,13 @@ type WebhookProcessorSettings struct {
 
 // BuiltinProcessorSettings contains parsed runtime settings for a built-in processor.
 type BuiltinProcessorSettings struct {
-	Processor  string
-	Mode       string
-	Scope      string
-	Rules      []BuiltinRedactionRule
-	Presets    []string
-	GuardRules []BuiltinToolGuardRule
+	Processor    string
+	Mode         string
+	Scope        string
+	Rules        []BuiltinRedactionRule
+	Presets      []string
+	GuardRules   []BuiltinToolGuardRule
+	PathBoundary *BuiltinPathBoundarySettings
 }
 
 // BuiltinPromptInjectionGuard is the in-process prompt injection detection processor.
@@ -743,6 +744,7 @@ const (
 	BuiltinToolGuardModeAnnotate = "annotate"
 
 	BuiltinToolGuardPresetDangerousCommands = "dangerous_commands"
+	BuiltinToolGuardPresetPathBoundary      = "path_boundary"
 )
 
 // BuiltinRedactionRule contains one configurable pattern redaction rule.
@@ -765,6 +767,15 @@ type BuiltinToolGuardRule struct {
 	Message       string
 	ToolPatterns  []string
 	ArgumentRules []BuiltinToolGuardArgumentRule
+}
+
+// BuiltinPathBoundarySettings contains path-aware tool guard settings.
+type BuiltinPathBoundarySettings struct {
+	AllowedRoots     []string
+	RelativeBaseRoot string
+	ToolPatterns     []string
+	ArgumentPaths    []string
+	DeniedPaths      []string
 }
 
 var allowedProcessorParts = map[string]bool{
@@ -1716,11 +1727,16 @@ func validateBuiltinToolGuardSettings(processor *ProcessorConfig, settings *Buil
 	if err != nil {
 		return err
 	}
+	pathBoundary, err := parseBuiltinPathBoundarySettings(processor, containsString(presets, BuiltinToolGuardPresetPathBoundary))
+	if err != nil {
+		return err
+	}
 	if len(presets) == 0 && len(rules) == 0 {
 		return fmt.Errorf("processor '%s': config.presets or config.rules must contain at least one entry", processor.Name)
 	}
 	settings.Presets = presets
 	settings.GuardRules = rules
+	settings.PathBoundary = pathBoundary
 	return nil
 }
 
@@ -1734,11 +1750,133 @@ func parseBuiltinToolGuardPresets(processor *ProcessorConfig) ([]string, error) 
 		return nil, err
 	}
 	for _, preset := range presets {
-		if preset != BuiltinToolGuardPresetDangerousCommands {
+		switch preset {
+		case BuiltinToolGuardPresetDangerousCommands, BuiltinToolGuardPresetPathBoundary:
+		default:
 			return nil, fmt.Errorf("processor '%s': config.presets contains unsupported preset %q", processor.Name, preset)
 		}
 	}
 	return presets, nil
+}
+
+func parseBuiltinPathBoundarySettings(processor *ProcessorConfig, presetEnabled bool) (*BuiltinPathBoundarySettings, error) {
+	raw, exists := processor.Config["path_boundary"]
+	if !exists {
+		if presetEnabled {
+			return &BuiltinPathBoundarySettings{}, nil
+		}
+		return nil, nil
+	}
+	value, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.path_boundary must be an object", processor.Name)
+	}
+	allowedKeys := map[string]bool{
+		"allowed_roots":      true,
+		"relative_base_root": true,
+		"tool_patterns":      true,
+		"argument_paths":     true,
+		"denied_paths":       true,
+	}
+	for key := range value {
+		if !allowedKeys[key] {
+			return nil, fmt.Errorf("processor '%s': config.path_boundary.%s is unsupported", processor.Name, key)
+		}
+	}
+
+	settings := &BuiltinPathBoundarySettings{}
+	var err error
+	if rawAllowedRoots, ok := value["allowed_roots"]; ok {
+		settings.AllowedRoots, err = parseLexicalRoots(processor.Name, "path_boundary.allowed_roots", rawAllowedRoots)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if rawRelativeBaseRoot, ok := value["relative_base_root"]; ok {
+		relativeBaseRoot, ok := rawRelativeBaseRoot.(string)
+		if !ok || strings.TrimSpace(relativeBaseRoot) == "" {
+			return nil, fmt.Errorf("processor '%s': config.path_boundary.relative_base_root must be a non-empty string", processor.Name)
+		}
+		cleanedRoot, err := cleanLexicalRoot(processor.Name, "path_boundary.relative_base_root", relativeBaseRoot)
+		if err != nil {
+			return nil, err
+		}
+		settings.RelativeBaseRoot = cleanedRoot
+	}
+	if settings.RelativeBaseRoot == "" && len(settings.AllowedRoots) > 0 {
+		settings.RelativeBaseRoot = settings.AllowedRoots[0]
+	}
+	if rawToolPatterns, ok := value["tool_patterns"]; ok {
+		settings.ToolPatterns, err = processorConfigNamedStringSlice(processor.Name, "path_boundary.tool_patterns", rawToolPatterns)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateGlobList(processor.Name, "path_boundary.tool_patterns", settings.ToolPatterns); err != nil {
+			return nil, err
+		}
+	}
+	if rawArgumentPaths, ok := value["argument_paths"]; ok {
+		settings.ArgumentPaths, err = processorConfigNamedStringSlice(processor.Name, "path_boundary.argument_paths", rawArgumentPaths)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateGlobList(processor.Name, "path_boundary.argument_paths", settings.ArgumentPaths); err != nil {
+			return nil, err
+		}
+	}
+	if rawDeniedPaths, ok := value["denied_paths"]; ok {
+		settings.DeniedPaths, err = processorConfigNamedStringSlice(processor.Name, "path_boundary.denied_paths", rawDeniedPaths)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return settings, nil
+}
+
+func parseLexicalRoots(processorName string, fieldName string, value interface{}) ([]string, error) {
+	rawRoots, err := processorConfigNamedStringSlice(processorName, fieldName, value)
+	if err != nil {
+		return nil, err
+	}
+	roots := make([]string, 0, len(rawRoots))
+	for _, root := range rawRoots {
+		cleanedRoot, err := cleanLexicalRoot(processorName, fieldName, root)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, cleanedRoot)
+	}
+	return roots, nil
+}
+
+func cleanLexicalRoot(processorName string, fieldName string, root string) (string, error) {
+	root = strings.TrimSpace(root)
+	root = strings.ReplaceAll(root, "\\", "/")
+	if root == "" {
+		return "", fmt.Errorf("processor '%s': config.%s must contain only non-empty strings", processorName, fieldName)
+	}
+	if !strings.HasPrefix(root, "/") {
+		return "", fmt.Errorf("processor '%s': config.%s must contain absolute lexical roots", processorName, fieldName)
+	}
+	return pathpkg.Clean(root), nil
+}
+
+func validateGlobList(processorName string, fieldName string, values []string) error {
+	for _, value := range values {
+		if _, err := pathpkg.Match(value, ""); err != nil {
+			return fmt.Errorf("processor '%s': config.%s contains invalid glob %q: %w", processorName, fieldName, value, err)
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func parseBuiltinToolGuardRules(processor *ProcessorConfig) ([]BuiltinToolGuardRule, error) {
