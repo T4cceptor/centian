@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import {
+  type ActivityQuery,
   type ActivityRange,
   type ActivitySummary,
   categoryLabels,
@@ -11,12 +12,31 @@ import {
 import { ApiError, normalizeProjectSlug } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { CategoryIcon } from "./category-icon";
-import { formatClockTime, formatTimestampCompact } from "./format";
+import { formatClockTime, formatTimestampCompact, toDatetimeLocalValue } from "./format";
 import { InterventionSkyline } from "./intervention-skyline";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
 
 const RANGES: ActivityRange[] = ["1h", "6h", "1d", "1w"];
+
+const DEFAULT_QUERY: ActivityQuery = { kind: "preset", range: "6h" };
+
+// A stable string key so the fetch effect re-runs only when the window changes.
+function queryKey(query: ActivityQuery): string {
+  return query.kind === "custom" ? `c:${query.startUnixMilli}:${query.endUnixMilli}` : `p:${query.range}`;
+}
+
+// Renders the window header compactly, expanding to full dates when it spans days.
+function formatWindowLabel(startUnixMilli: number, endUnixMilli: number): string {
+  const start = formatTimestampCompact(startUnixMilli);
+  const end = formatTimestampCompact(endUnixMilli);
+  const startClock = formatClockTime(startUnixMilli);
+  const endClock = formatClockTime(endUnixMilli);
+  if (start.date === end.date) {
+    return `${start.date} · ${startClock}–${endClock}`;
+  }
+  return `${start.date} ${startClock} → ${end.date} ${endClock}`;
+}
 
 const STAT_FIELDS: { key: keyof ActivitySummary["stats"]; label: string }[] = [
   { key: "interventions", label: "Interventions" },
@@ -33,9 +53,14 @@ export function ActivityPage() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [authHeaderName, setAuthHeaderName] = useState<string>();
-  const [range, setRange] = useState<ActivityRange>("6h");
+  const [query, setQuery] = useState<ActivityQuery>(DEFAULT_QUERY);
+  const [customStart, setCustomStart] = useState<string>("");
+  const [customEnd, setCustomEnd] = useState<string>("");
+  const [customError, setCustomError] = useState<string>("");
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
+  const activeKey = queryKey(query);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -43,10 +68,16 @@ export function ActivityPage() {
     setErrorMessage("");
     setPinnedId(null);
 
-    void fetchActivitySummary(projectSlug, range, controller.signal)
+    void fetchActivitySummary(projectSlug, query, controller.signal)
       .then((result) => {
         setSummary(result);
         setLoadState("ready");
+        // Keep the custom pickers in sync with the resolved window while on a
+        // preset, so opening the custom range starts from what's on screen.
+        if (query.kind === "preset") {
+          setCustomStart(toDatetimeLocalValue(result.rangeStartUnixMilli));
+          setCustomEnd(toDatetimeLocalValue(result.rangeEndUnixMilli));
+        }
       })
       .catch((error: unknown) => {
         if ((error as Error)?.name === "AbortError") {
@@ -63,7 +94,24 @@ export function ActivityPage() {
       });
 
     return () => controller.abort();
-  }, [projectSlug, range, reloadToken]);
+    // activeKey captures the meaningful contents of `query`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSlug, activeKey, reloadToken]);
+
+  const applyCustomRange = () => {
+    const startMs = customStart ? new Date(customStart).getTime() : NaN;
+    const endMs = customEnd ? new Date(customEnd).getTime() : NaN;
+    if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+      setCustomError("Pick both a start and an end.");
+      return;
+    }
+    if (endMs <= startMs) {
+      setCustomError("End must be after start.");
+      return;
+    }
+    setCustomError("");
+    setQuery({ kind: "custom", startUnixMilli: startMs, endUnixMilli: endMs });
+  };
 
   if (loadState === "loading") {
     return (
@@ -100,30 +148,66 @@ export function ActivityPage() {
     );
   }
 
-  const window = formatTimestampCompact(summary.rangeStartUnixMilli);
+  const windowLabel = formatWindowLabel(summary.rangeStartUnixMilli, summary.rangeEndUnixMilli);
   const hasInterventions = summary.interventions.length > 0;
 
   return (
     <div className="activity">
       <div className="activity__toolbar">
-        <span className="activity__window">
-          {window.date} · {formatClockTime(summary.rangeStartUnixMilli)}–{formatClockTime(summary.rangeEndUnixMilli)}
-        </span>
-        <div className="activity__range" role="group" aria-label="Time range">
-          {RANGES.map((option) => (
+        <span className="activity__window">{windowLabel}</span>
+        <div className="activity__controls">
+          <div className="activity__custom" role="group" aria-label="Custom range">
+            <label className="activity__custom-field">
+              <span>From</span>
+              <input
+                type="datetime-local"
+                className="activity__datetime"
+                value={customStart}
+                max={customEnd || undefined}
+                onChange={(event) => setCustomStart(event.target.value)}
+              />
+            </label>
+            <label className="activity__custom-field">
+              <span>To</span>
+              <input
+                type="datetime-local"
+                className="activity__datetime"
+                value={customEnd}
+                min={customStart || undefined}
+                onChange={(event) => setCustomEnd(event.target.value)}
+              />
+            </label>
             <button
-              key={option}
               type="button"
               className={
-                option === range ? "activity__range-btn activity__range-btn--active" : "activity__range-btn"
+                query.kind === "custom"
+                  ? "activity__apply activity__apply--active"
+                  : "activity__apply"
               }
-              onClick={() => setRange(option)}
+              onClick={applyCustomRange}
             >
-              {option}
+              Apply
             </button>
-          ))}
+          </div>
+          <div className="activity__range" role="group" aria-label="Quick range">
+            {RANGES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={
+                  query.kind === "preset" && query.range === option
+                    ? "activity__range-btn activity__range-btn--active"
+                    : "activity__range-btn"
+                }
+                onClick={() => setQuery({ kind: "preset", range: option })}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+      {customError ? <p className="activity__custom-error">{customError}</p> : null}
 
       <div className="activity__stats">
         {STAT_FIELDS.map((stat) => (

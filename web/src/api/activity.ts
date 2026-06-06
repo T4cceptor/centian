@@ -62,13 +62,30 @@ export type ActivitySummary = {
   interventions: Intervention[];
 };
 
+// An activity window is either a quick relative preset or an explicit custom
+// range with absolute start/end timestamps (unix milli).
+export type ActivityQuery =
+  | { kind: "preset"; range: ActivityRange }
+  | { kind: "custom"; startUnixMilli: number; endUnixMilli: number };
+
+function buildActivityQuery(query: ActivityQuery): string {
+  if (query.kind === "custom") {
+    const params = new URLSearchParams({
+      start: String(query.startUnixMilli),
+      end: String(query.endUnixMilli),
+    });
+    return `?${params.toString()}`;
+  }
+  return `?range=${encodeURIComponent(query.range)}`;
+}
+
 export async function fetchActivitySummary(
   projectSlug: string | undefined,
-  range: ActivityRange,
+  query: ActivityQuery,
   signal?: AbortSignal,
 ): Promise<ActivitySummary> {
   const summary = await requestJSON<ActivitySummary>(
-    `${projectApiPath(projectSlug, "/activity")}?range=${encodeURIComponent(range)}`,
+    `${projectApiPath(projectSlug, "/activity")}${buildActivityQuery(query)}`,
     signal,
   );
   return {

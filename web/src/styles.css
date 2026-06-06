@@ -2770,6 +2770,82 @@ code,
   color: var(--accent-strong);
 }
 
+/* Custom range + quick presets */
+.activity__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.activity__custom {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activity__custom-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.activity__custom-field > span {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.activity__datetime {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(8, 20, 31, 0.6);
+  color: var(--text);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  padding: 6px 10px;
+  color-scheme: dark;
+}
+
+.activity__datetime:focus {
+  outline: none;
+  border-color: var(--border-2);
+}
+
+.activity__apply {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.activity__apply:hover {
+  color: var(--accent-strong);
+  border-color: var(--border-2);
+}
+
+.activity__apply--active {
+  background: rgba(94, 234, 212, 0.14);
+  border-color: var(--border-2);
+  color: var(--accent-strong);
+}
+
+.activity__custom-error {
+  margin: -8px 0 0;
+  font-size: 0.78rem;
+  color: var(--accent-danger);
+}
+
 /* Stat row */
 .activity__stats {
   display: grid;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,10 +80,29 @@ func (h *ActivityHandler) handleActivity(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, summary)
 }
 
-// activityWindowFromQuery turns the ?range= toggle into an absolute [start,end]
-// window ending now. Defaults to 6h to match the UI default.
+// activityWindowFromQuery resolves the requested window. An explicit start/end
+// pair (unix milli) takes precedence; otherwise the ?range= toggle is turned into
+// an absolute [start,end] window ending now. Defaults to 6h to match the UI default.
 func activityWindowFromQuery(r *http.Request, now time.Time) (*persistence.ActivityFilter, error) {
-	rawRange := strings.TrimSpace(r.URL.Query().Get("range"))
+	query := r.URL.Query()
+	rawStart := strings.TrimSpace(query.Get("start"))
+	rawEnd := strings.TrimSpace(query.Get("end"))
+	if rawStart != "" || rawEnd != "" {
+		start, err := strconv.ParseInt(rawStart, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid start")
+		}
+		end, err := strconv.ParseInt(rawEnd, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid end")
+		}
+		if end <= start {
+			return nil, fmt.Errorf("end must be after start")
+		}
+		return &persistence.ActivityFilter{Start: start, End: end}, nil
+	}
+
+	rawRange := strings.TrimSpace(query.Get("range"))
 	if rawRange == "" {
 		rawRange = "6h"
 	}

@@ -67,6 +67,56 @@ func TestActivityHandler_Activity(t *testing.T) {
 		assert.Equal(t, store.filter.End-store.filter.Start, int64(60*60*1000))
 	})
 
+	t.Run("uses an explicit start/end window over range", func(t *testing.T) {
+		store := &stubActivityStore{
+			summaryFn: func(_ context.Context, filter *persistence.ActivityFilter) (*persistence.ActivitySummary, error) {
+				return &persistence.ActivitySummary{
+					RangeStartUnixMilli: filter.Start,
+					RangeEndUnixMilli:   filter.End,
+				}, nil
+			},
+		}
+		handler := NewActivityHandler(store)
+		mux := http.NewServeMux()
+		handler.RegisterRoutesWithMiddleware(mux, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/activity?start=1000&end=5000&range=1h", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusOK)
+		assert.Equal(t, store.filter.Start, int64(1000))
+		assert.Equal(t, store.filter.End, int64(5000))
+	})
+
+	t.Run("rejects a custom window where end precedes start", func(t *testing.T) {
+		store := &stubActivityStore{}
+		handler := NewActivityHandler(store)
+		mux := http.NewServeMux()
+		handler.RegisterRoutesWithMiddleware(mux, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/activity?start=5000&end=1000", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusBadRequest)
+		assert.Equal(t, store.calls, 0)
+	})
+
+	t.Run("rejects a non-numeric start", func(t *testing.T) {
+		store := &stubActivityStore{}
+		handler := NewActivityHandler(store)
+		mux := http.NewServeMux()
+		handler.RegisterRoutesWithMiddleware(mux, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/activity?start=abc&end=5000", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusBadRequest)
+		assert.Equal(t, store.calls, 0)
+	})
+
 	t.Run("rejects an invalid range", func(t *testing.T) {
 		store := &stubActivityStore{}
 		handler := NewActivityHandler(store)

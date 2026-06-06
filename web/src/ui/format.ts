@@ -36,6 +36,18 @@ export function formatClockTime(unixMilli: number): string {
   return `${padTimestampPart(value.getHours())}:${padTimestampPart(value.getMinutes())}`;
 }
 
+// Formats a timestamp as a local "YYYY-MM-DDTHH:mm" value for <input type="datetime-local">.
+export function toDatetimeLocalValue(unixMilli: number): string {
+  const value = new Date(unixMilli);
+  const date = [
+    value.getFullYear(),
+    padTimestampPart(value.getMonth() + 1),
+    padTimestampPart(value.getDate()),
+  ].join("-");
+  const time = [padTimestampPart(value.getHours()), padTimestampPart(value.getMinutes())].join(":");
+  return `${date}T${time}`;
+}
+
 // Renders elapsed time for both finished and still-running task runs.
 export function formatDuration(startedAt: number, endedAt?: number, now: number = Date.now()): string {
   const totalSeconds = Math.max(0, Math.floor(((endedAt ?? now) - startedAt) / 1000));
