@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -266,6 +267,64 @@ func TestCentianServerSetup_FiltersProjectsByAPIKeyScope(t *testing.T) {
 	rec := httptest.NewRecorder()
 	server.Mux.ServeHTTP(rec, req)
 
+	assert.Equal(t, rec.Code, http.StatusOK)
+	var response struct {
+		Projects []struct {
+			Slug string `json:"slug"`
+		} `json:"projects"`
+	}
+	assert.NilError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Equal(t, len(response.Projects), 1)
+	assert.Equal(t, response.Projects[0].Slug, "research")
+}
+
+func TestCentianServerSetup_SQLiteBackendResolvesScopedKey(t *testing.T) {
+	authEnabled := true
+	uiEnabled := true
+	taskVerificationEnabled := true
+	t.Setenv("HOME", t.TempDir())
+
+	// Given: a project-scoped key created through the default sqlite backend
+	dbPath, err := auth.DefaultPrincipalsDBPath()
+	assert.NilError(t, err)
+	created, err := auth.CreateAPIKey(context.Background(), "", "", auth.CreateAPIKeyParams{
+		Name:     "research bot",
+		Projects: []string{"research"},
+	})
+	assert.NilError(t, err)
+	assert.Equal(t, created.Store, dbPath)
+
+	// And: a server configured to use the sqlite backend (the default)
+	globalConfig := &config.GlobalConfig{
+		Name:        "Test",
+		Version:     "1.0.0",
+		AuthEnabled: &authEnabled,
+		Proxy: &config.ProxySettings{
+			Port:    "9000",
+			Timeout: 10,
+		},
+		Projects: map[string]*config.ProjectConfig{
+			config.DefaultProjectSlug: testProjectConfig(config.DefaultProjectSlug, "Default project", &authEnabled, &uiEnabled, &taskVerificationEnabled, filepath.Join(t.TempDir(), "default.sqlite")),
+			"research":                testProjectConfig("research", "Research project", &authEnabled, &uiEnabled, &taskVerificationEnabled, filepath.Join(t.TempDir(), "research.sqlite")),
+		},
+	}
+
+	server, err := NewCentianServer(globalConfig)
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		for _, closeErr := range server.Close() {
+			assert.NilError(t, closeErr)
+		}
+	})
+	assert.NilError(t, server.Setup())
+
+	// When: calling the projects API with the sqlite-stored token
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/projects", http.NoBody)
+	req.Header.Set(config.DefaultAuthHeader, "Bearer "+created.Token)
+	rec := httptest.NewRecorder()
+	server.Mux.ServeHTTP(rec, req)
+
+	// Then: the principal resolves and sees only its scoped project
 	assert.Equal(t, rec.Code, http.StatusOK)
 	var response struct {
 		Projects []struct {
