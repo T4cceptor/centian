@@ -48,13 +48,52 @@ Generate a key:
 centian auth new-key
 ```
 
-This prints the API key once and writes the hashed entry to `~/.centian/api_keys.json`.
+This prints the API key once and stores the hashed credential in the configured
+auth backend. By default this is the **SQLite principals database** at
+`~/.centian/principals.sqlite`.
 
 The printed key has the form `sk-<credentialId>.<secret>`, where `<credentialId>`
-matches the entry `id` and lets the proxy look the credential up in O(1) before
-verifying the secret. Only the secret is bcrypt-hashed; the file never stores the
-plaintext key. Each entry also records a stable `principal_id` (`pr_...`) that the
-credential resolves to. The on-disk shape is:
+lets the proxy look the credential up in O(1) before verifying the secret. Only the
+secret is bcrypt-hashed; the store never holds the plaintext key. Each credential
+resolves to a stable `principal_id` (`pr_...`), and authorization grants
+(gateways/projects) are stored per principal.
+
+#### Choosing a backend
+
+Principals are global, so the backend is configured once at the top level of
+`config.json`:
+
+```json
+{
+  "authBackend": {
+    "type": "sqlite",
+    "store": "~/.centian/principals.sqlite"
+  }
+}
+```
+
+- `type`: `sqlite` (default) or `file`.
+- `store`: backend location (SQLite db path, or `api_keys.json` path for `file`).
+  Omit it to use the default path for the chosen type.
+
+`centian auth new-key` writes to the same backend, reading the `authBackend` block
+for its defaults. Override per invocation with `--type` and `--store`:
+
+```bash
+# Restrict a key to specific projects, name its principal
+centian auth new-key --name "ci bot" --projects research
+
+# Use the legacy file backend explicitly
+centian auth new-key --type file
+```
+
+> **Upgrading from the file backend:** the default backend is now SQLite. To keep
+> using `~/.centian/api_keys.json`, set `"authBackend": {"type": "file"}` in your
+> config; otherwise recreate your keys with `centian auth new-key` (there is no
+> automatic import). Keys created before the token-format change are no longer
+> valid and must be regenerated regardless of backend.
+
+The `file` backend stores entries as JSON:
 
 ```json
 {
@@ -68,9 +107,6 @@ credential resolves to. The on-disk shape is:
   ]
 }
 ```
-
-> Keys created before the token-format change are no longer valid and must be
-> regenerated with `centian auth new-key`.
 
 If you disable auth for local testing, set `"auth": false` in your config instead.
 

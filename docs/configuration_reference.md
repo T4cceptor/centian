@@ -27,12 +27,30 @@ Centian validates config in two different ways:
 | `name` | string | No | `"Centian Server"` in default config | Human-readable server name. |
 | `version` | string | Yes | none | Must be non-empty. |
 | `proxy` | object | Yes | see below | Truly global proxy settings: bind address, port, logging, timeouts. |
+| `authBackend` | object | No | sqlite at `~/.centian/principals.sqlite` | Truly global principal/credential storage backend. See below. |
 | `projects` | object | No | none | Map of project slug to project config. Mutually exclusive with top-level `gateways`. |
 | `auth` | boolean | No | `true` | Controls proxy API-key auth (flat layout only; use per-project `auth` in project layout). |
 | `authHeader` | string | No | `X-Centian-Auth` | Auth header name (flat layout only). |
 | `gateways` | object | Strict mode: yes (flat layout) | `{}` | Map of gateway name to gateway config (flat layout only). |
 | `processors` | array | No | `[]` | Global processor chain (flat layout only). |
 | `metadata` | object | No | `{}` | Free-form metadata (flat layout only). |
+
+## `authBackend`
+
+Truly global: authentication resolves a token to a principal at the HTTP layer,
+before any project is selected, so principals and their credentials are stored in
+one global backend.
+
+| Field | Type | Required | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `type` | string | No | `sqlite` | Backend type: `sqlite` or `file`. |
+| `store` | string | No | per-type default | Backend location. `sqlite`: db path (default `~/.centian/principals.sqlite`); `file`: key file path (default `~/.centian/api_keys.json`). |
+
+Runtime notes:
+
+- `sqlite` keeps principals, credentials, and grants in `~/.centian/principals.sqlite` (a dedicated database, separate from the per-project event stores). Credentials are stored generically (`type` + JSON `data`); grants live in `principal_gateways`/`principal_projects`.
+- `file` keeps api-key principals in `~/.centian/api_keys.json` (legacy layout).
+- `centian auth new-key` reads this block for its defaults and accepts `--type`/`--store` overrides.
 
 ## `projects`
 
@@ -55,7 +73,7 @@ Runtime notes:
 - The `"default"` project slug is special: its routes have no prefix (`/mcp/<gateway>`), matching the flat layout behavior.
 - All other projects get a route prefix: `/<project_slug>/mcp/<gateway>`.
 - Each project gets its own SQLite database at `~/.centian/projects/<slug>/events.sqlite` (the default project uses the legacy global path `~/.centian/logs/events.sqlite`).
-- API keys can be scoped to specific projects via the `projects` field in `~/.centian/api_keys.json`.
+- API keys can be scoped to specific projects: per principal in the `sqlite` backend (`principal_projects`), or via the `projects` field of each entry in `~/.centian/api_keys.json` for the `file` backend.
 
 ## `proxy`
 
