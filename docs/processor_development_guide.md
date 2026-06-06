@@ -316,10 +316,11 @@ Edit `~/.centian/config.json`:
 | `config.args` | array | CLI only | Arguments including script path. |
 | `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST`. |
 | `config.headers` | object | Webhook only | Optional string headers. |
-| `config.processor` | string | Built-in only | Built-in processor identifier, for example `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, or `pii_redactor`. |
-| `config.mode` | string | Built-in optional | Built-in processor mode. The prompt injection guard supports `annotate`, `error`, `redact`, and `remove`; redactors support `redact` and `annotate`. |
+| `config.processor` | string | Built-in only | Built-in processor identifier, for example `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, `pii_redactor`, or `tool_call_guard`. |
+| `config.mode` | string | Built-in optional | Built-in processor mode. The prompt injection guard supports `annotate`, `error`, `redact`, and `remove`; redactors support `redact` and `annotate`; `tool_call_guard` supports `block` and `annotate`. |
 | `config.scope` | string | Redactor built-ins optional | `request`, `response`, or `both`. |
-| `config.rules` | array | Pattern redactor only | Custom regex rules with `name`, `pattern`, and literal `replacement`. |
+| `config.presets` | array | Tool-call guard optional | Built-in guard presets, currently `dangerous_commands`. |
+| `config.rules` | array | Pattern redactor or tool-call guard | Pattern redaction rules or tool-call guard deny rules. |
 
 Important runtime notes:
 
@@ -572,7 +573,7 @@ It demonstrates:
 - response redaction with a gateway-level processor
 - a local Docker Compose flow that builds the demo image and bundles the demo processor code
 
-The dependency-free built-in prompt injection guard lives in [internal/processor/prompt_injection_guard](../internal/processor/prompt_injection_guard).
+The dependency-free built-ins live in [internal/processor](../internal/processor). Shared helper logic for built-ins lives in [internal/processor/builtinutil](../internal/processor/builtinutil).
 
 ## Further Reading
 

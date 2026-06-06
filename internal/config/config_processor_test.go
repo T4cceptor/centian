@@ -601,6 +601,194 @@ func TestProcessorValidation(t *testing.T) {
 			errorMsg:  "config.rules is only supported for pattern_redaction_processor",
 		},
 		{
+			name: "valid tool call guard processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"mode":      "block",
+							"presets":   []interface{}{BuiltinToolGuardPresetDangerousCommands},
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":          "block_prod_environment",
+									"severity":      "medium",
+									"message":       "Production operations are blocked.",
+									"tool_patterns": []interface{}{"deploy___*"},
+									"argument_rules": []interface{}{
+										map[string]interface{}{
+											"path":    "environment",
+											"pattern": "^prod$",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "tool call guard validates mode",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"mode":      "redact",
+							"presets":   []interface{}{BuiltinToolGuardPresetDangerousCommands},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.mode must be 'block' or 'annotate'",
+		},
+		{
+			name: "tool call guard validates preset",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{"unknown"},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "unsupported preset",
+		},
+		{
+			name: "tool call guard validates glob",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":          "bad_glob",
+									"tool_patterns": []interface{}{"["},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "invalid glob",
+		},
+		{
+			name: "tool call guard validates argument regex",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name": "bad_regex",
+									"argument_rules": []interface{}{
+										map[string]interface{}{"pattern": "["},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "pattern is invalid",
+		},
+		{
+			name: "tool call guard validates malformed argument rule",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name": "malformed",
+									"argument_rules": []interface{}{
+										map[string]interface{}{},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires path or pattern",
+		},
+		{
+			name: "tool call guard requires routing part",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetDangerousCommands},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires part 'routing'",
+		},
+		{
 			name: "nil processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",

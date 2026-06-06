@@ -264,10 +264,11 @@ Webhook runtime behavior:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, `pii_redactor`. |
-| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. For redactors: `redact` or `annotate`. |
+| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, `pii_redactor`, `tool_call_guard`. |
+| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. For redactors: `redact` or `annotate`. For `tool_call_guard`: `block` or `annotate`. |
 | `scope` | string | No | Redactors only. `request`, `response`, or `both`. Defaults to `both` for pattern/secret redactors and `response` for PII. |
-| `rules` | array | Yes for `pattern_redaction_processor` | Custom redaction rules with `name`, `pattern`, and literal `replacement`. |
+| `presets` | array | No | `tool_call_guard` only. Supported preset: `dangerous_commands`. |
+| `rules` | array | Yes for `pattern_redaction_processor`; optional for `tool_call_guard` when `presets` is present | Custom redaction rules with `name`, `pattern`, and literal `replacement`, or tool-call guard deny rules with `name`, `severity`, `message`, `tool_patterns`, and `argument_rules`. |
 
 Built-in runtime behavior:
 
@@ -332,6 +333,39 @@ Secret/token and PII redactors use built-in deterministic pattern sets:
 ```
 
 Redactor annotations use `type: "governance_events"`. `secret_token_redactor` reports category `security` with high severity for request-phase matches and medium severity for response-phase matches. `pattern_redaction_processor` reports category `policy` with low severity. `pii_redactor` reports category `policy` with medium severity because it enforces a configured data-handling policy; its detection remains deterministic and heuristic, not a complete privacy classifier.
+
+Tool-call guard example:
+
+```json
+{
+  "name": "tool-call-guard",
+  "type": "builtin",
+  "enabled": true,
+  "required": true,
+  "parts": ["payload", "routing", "annotations"],
+  "config": {
+    "processor": "tool_call_guard",
+    "mode": "block",
+    "presets": ["dangerous_commands"],
+    "rules": [
+      {
+        "name": "block_prod_environment",
+        "severity": "medium",
+        "message": "Production environment operations are blocked.",
+        "tool_patterns": ["deploy___*"],
+        "argument_rules": [
+          {
+            "path": "environment",
+            "pattern": "^prod$"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`tool_call_guard` is request-phase only. It emits `type: "governance_events"`, category `policy`, and the rule severity. `tool_patterns` are glob patterns matched against routed, original, and request tool names. `argument_rules.path` is relative to `payload.request.Params.arguments`; `argument_rules.pattern` is a Go regex matched against stringified scalar argument values. If a guard rule omits `argument_rules`, the tool-name match alone is enough to block or annotate.
 
 ## Minimal Example
 

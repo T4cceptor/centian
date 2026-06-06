@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -12,6 +13,14 @@ import (
 type TextNode struct {
 	Path string
 	Text string
+}
+
+// ArgumentNode identifies one request argument JSON value.
+type ArgumentNode struct {
+	Path   string
+	Value  any
+	Text   string
+	Scalar bool
 }
 
 // TextReplacement is returned by string mutation callbacks.
@@ -37,6 +46,17 @@ func WalkRequestArguments(ctx *DataContext, visit func(TextNode)) error {
 		return err
 	}
 	walkTextValue(value, "payload.request.Params.arguments", visit)
+	return nil
+}
+
+// WalkRequestArgumentValues visits all JSON values in payload.request.Params.arguments.
+// Paths are relative to payload.request.Params.arguments.
+func WalkRequestArgumentValues(ctx *DataContext, visit func(ArgumentNode)) error {
+	value, ok, err := requestArgumentsValue(ctx)
+	if err != nil || !ok {
+		return err
+	}
+	walkArgumentValue(value, "", visit)
 	return nil
 }
 
@@ -213,6 +233,58 @@ func walkTextValue(value any, path string, visit func(TextNode)) {
 		for _, key := range keys {
 			walkTextValue(typed[key], path+"."+key, visit)
 		}
+	}
+}
+
+func walkArgumentValue(value any, path string, visit func(ArgumentNode)) {
+	if text, ok := scalarText(value); ok {
+		visit(ArgumentNode{Path: path, Value: value, Text: text, Scalar: true})
+		return
+	}
+	visit(ArgumentNode{Path: path, Value: value})
+	switch typed := value.(type) {
+	case []any:
+		for i, item := range typed {
+			walkArgumentValue(item, fmt.Sprintf("%s[%d]", path, i), visit)
+		}
+	case map[string]any:
+		keys := sortedKeys(typed)
+		for _, key := range keys {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			walkArgumentValue(typed[key], childPath, visit)
+		}
+	}
+}
+
+func scalarText(value any) (string, bool) {
+	switch typed := value.(type) {
+	case nil:
+		return "null", true
+	case string:
+		return typed, true
+	case bool:
+		return strconv.FormatBool(typed), true
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64), true
+	case float32:
+		return strconv.FormatFloat(float64(typed), 'f', -1, 32), true
+	case int:
+		return strconv.Itoa(typed), true
+	case int64:
+		return strconv.FormatInt(typed, 10), true
+	case int32:
+		return strconv.FormatInt(int64(typed), 10), true
+	case uint:
+		return strconv.FormatUint(uint64(typed), 10), true
+	case uint64:
+		return strconv.FormatUint(typed, 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(typed), 10), true
+	default:
+		return "", false
 	}
 }
 

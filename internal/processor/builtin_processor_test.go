@@ -1,6 +1,7 @@
 package processor
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/config"
@@ -154,6 +155,48 @@ func TestBuiltinProcessorPIIRedactor(t *testing.T) {
 	assert.Equal(t, text.Text, "[REDACTED_EMAIL]")
 }
 
+func TestBuiltinProcessorToolCallGuard(t *testing.T) {
+	cfg := &config.ProcessorConfig{
+		Name:     "tool-call-guard",
+		Type:     string(config.BuiltinProcessor),
+		Enabled:  true,
+		Required: true,
+		Parts:    []string{"payload", "routing", "annotations"},
+		Config: map[string]interface{}{
+			"processor": "tool_call_guard",
+			"mode":      "block",
+			"presets":   []interface{}{"dangerous_commands"},
+		},
+	}
+	processor, err := NewBuiltinProcessor(cfg)
+	assert.NilError(t, err)
+
+	rawArgs, err := json.Marshal(map[string]any{"command": "rm -rf /tmp/build"})
+	assert.NilError(t, err)
+	input := &DataContext{
+		Version: "1.0",
+		Payload: &PayloadPart{
+			Request: &mcp.CallToolRequest{
+				Params: &mcp.CallToolParamsRaw{
+					Name:      "desktop_commander___exec",
+					Arguments: rawArgs,
+				},
+			},
+		},
+		Routing: &RoutingPart{
+			ToolName:         "desktop_commander___exec",
+			OriginalToolname: "exec",
+		},
+	}
+
+	output, err := processor.Process(input)
+	assert.NilError(t, err)
+	assert.Assert(t, output.Annotations != nil)
+	assert.Equal(t, output.Annotations.Reports[0].Processor, "tool_call_guard")
+	assert.Equal(t, output.Annotations.Reports[0].Action, "blocked")
+	assert.Assert(t, output.Payload.Result.IsError)
+}
+
 func TestParseBuiltinProcessorSettings(t *testing.T) {
 	cfg := &config.ProcessorConfig{
 		Name:     "prompt-injection",
@@ -197,6 +240,37 @@ func TestParseBuiltinProcessorSettingsPatternRedaction(t *testing.T) {
 	assert.Equal(t, settings.Scope, "both")
 	assert.Equal(t, len(settings.Rules), 1)
 	assert.Equal(t, settings.Rules[0].Name, "internal_token")
+}
+
+func TestParseBuiltinProcessorSettingsToolCallGuard(t *testing.T) {
+	cfg := &config.ProcessorConfig{
+		Name:     "tool-call-guard",
+		Required: true,
+		Parts:    []string{"payload", "routing", "annotations"},
+		Config: map[string]interface{}{
+			"processor": "tool_call_guard",
+			"presets":   []interface{}{"dangerous_commands"},
+			"rules": []interface{}{
+				map[string]interface{}{
+					"name":          "block_prod_environment",
+					"severity":      "medium",
+					"tool_patterns": []interface{}{"deploy___*"},
+					"argument_rules": []interface{}{
+						map[string]interface{}{"path": "environment", "pattern": "^prod$"},
+					},
+				},
+			},
+		},
+	}
+
+	settings, err := config.ParseBuiltinProcessorSettings(cfg)
+
+	assert.NilError(t, err)
+	assert.Equal(t, settings.Processor, "tool_call_guard")
+	assert.Equal(t, settings.Mode, "block")
+	assert.Equal(t, len(settings.Presets), 1)
+	assert.Equal(t, len(settings.GuardRules), 1)
+	assert.Equal(t, settings.GuardRules[0].ArgumentRules[0].Path, "environment")
 }
 
 func TestBuiltinProcessorUnsupportedProcessor(t *testing.T) {
