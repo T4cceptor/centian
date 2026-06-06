@@ -119,6 +119,35 @@ func TestAuthNewKey_ConfigSelectsSQLiteStore(t *testing.T) {
 	}
 }
 
+func TestAuthNewKey_ConfigExpandsSQLiteStoreHomePath(t *testing.T) {
+	// Given: a config whose authBackend selects a sqlite store under HOME
+	cleanup := setupTestHome(t)
+	defer cleanup()
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir error = %v", err)
+	}
+	storePath := "~/.centian/custom-principals.sqlite"
+	expectedStorePath := filepath.Join(homeDir, ".centian", "custom-principals.sqlite")
+	configPath := writeConfigWithBackend(t, &config.AuthBackendSettings{Type: "sqlite", Store: storePath})
+
+	// When: minting a key with --config pointing at it
+	err = runNewKey(t, "--name", "bot", "--config", configPath)
+
+	// Then: the configured sqlite store is created under HOME, not cwd
+	if err != nil {
+		t.Fatalf("new-key error = %v", err)
+	}
+	if _, statErr := os.Stat(expectedStorePath); statErr != nil {
+		t.Fatalf("expected sqlite store at %s: %v", expectedStorePath, statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(workDir, "~")); !os.IsNotExist(statErr) {
+		t.Fatalf("literal tilde path was created under cwd: %v", statErr)
+	}
+}
+
 func TestAuthNewKey_MissingConfigIsFatal(t *testing.T) {
 	// Given: a home with no relevant state
 	cleanup := setupTestHome(t)

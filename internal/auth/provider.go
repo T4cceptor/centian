@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -78,7 +80,30 @@ func resolveBackend(backendType, store string) (BackendType, string, error) {
 	default:
 		return "", "", fmt.Errorf("unsupported auth backend type %q (want %q or %q)", backendType, BackendSQLite, BackendFile)
 	}
+	store, err := expandUserPath(store)
+	if err != nil {
+		return "", "", err
+	}
 	return bt, store, nil
+}
+
+func expandUserPath(path string) (string, error) {
+	switch {
+	case path == "~":
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		return homeDir, nil
+	case strings.HasPrefix(path, "~/"):
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get user home directory: %w", err)
+		}
+		return filepath.Join(homeDir, strings.TrimPrefix(path, "~/")), nil
+	default:
+		return path, nil
+	}
 }
 
 // NewPrincipalProvider builds a PrincipalProvider for the configured backend,
