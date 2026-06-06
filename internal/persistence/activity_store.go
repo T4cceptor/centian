@@ -8,10 +8,12 @@ import (
 	"strings"
 )
 
-// ActivityFilter bounds the activity aggregation to a time window (inclusive).
+// ActivityFilter bounds the activity aggregation to a time window (inclusive) and,
+// optionally, to a single principal.
 type ActivityFilter struct {
-	Start int64 // unix milli, inclusive
-	End   int64 // unix milli, inclusive
+	Start     int64  // unix milli, inclusive
+	End       int64  // unix milli, inclusive
+	Principal string // when set, restrict to this principal_id
 }
 
 // ActivitySummary is the aggregated payload backing the UI "Activity" view.
@@ -115,11 +117,11 @@ func (s *Store) ActivitySummary(ctx context.Context, filter *ActivityFilter) (*A
 		return nil, fmt.Errorf("activity window end must be after start")
 	}
 
-	interventions, err := s.activityInterventions(ctx, start, end)
+	interventions, err := s.activityInterventions(ctx, start, end, filter.Principal)
 	if err != nil {
 		return nil, err
 	}
-	volume, requestsInspected, err := s.activityVolume(ctx, start, end)
+	volume, requestsInspected, err := s.activityVolume(ctx, start, end, filter.Principal)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +178,7 @@ type rawGov struct {
 	serverName string
 }
 
-func (s *Store) activityInterventions(ctx context.Context, start, end int64) ([]ActivityIntervention, error) {
+func (s *Store) activityInterventions(ctx context.Context, start, end int64, principal string) ([]ActivityIntervention, error) {
 	records := make([]rawGov, 0)
 
 	// Source 1: governance annotations persisted against action events.
@@ -197,10 +199,14 @@ SELECT
 	ae.server_name
 FROM event_annotations a
 JOIN action_events ae ON ae.id = a.action_event_id
-WHERE ae.created_at_unix_milli >= ? AND ae.created_at_unix_milli <= ? AND a.type = 'governance_events'
-ORDER BY ae.created_at_unix_milli ASC, a.id ASC
-`
-	if err := s.db.NewRaw(annotationQuery, start, end).Scan(ctx, &annotationRows); err != nil {
+WHERE ae.created_at_unix_milli >= ? AND ae.created_at_unix_milli <= ? AND a.type = 'governance_events'`
+	annotationArgs := []any{start, end}
+	if principal != "" {
+		annotationQuery += " AND ae.principal_id = ?"
+		annotationArgs = append(annotationArgs, principal)
+	}
+	annotationQuery += "\nORDER BY ae.created_at_unix_milli ASC, a.id ASC"
+	if err := s.db.NewRaw(annotationQuery, annotationArgs...).Scan(ctx, &annotationRows); err != nil {
 		return nil, err
 	}
 	for idx := range annotationRows {
@@ -235,10 +241,14 @@ SELECT
 	te.payload_json
 FROM task_events te
 LEFT JOIN action_events ae ON ae.request_id = te.related_action_request_id
-WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.payload_json IS NOT NULL
-ORDER BY te.created_at_unix_milli ASC, te.id ASC
-`
-	if err := s.db.NewRaw(taskQuery, start, end).Scan(ctx, &taskRows); err != nil {
+WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.payload_json IS NOT NULL`
+	taskArgs := []any{start, end}
+	if principal != "" {
+		taskQuery += " AND te.principal_id = ?"
+		taskArgs = append(taskArgs, principal)
+	}
+	taskQuery += "\nORDER BY te.created_at_unix_milli ASC, te.id ASC"
+	if err := s.db.NewRaw(taskQuery, taskArgs...).Scan(ctx, &taskRows); err != nil {
 		return nil, err
 	}
 	for idx := range taskRows {
@@ -322,10 +332,15 @@ ORDER BY te.created_at_unix_milli ASC, te.id ASC
 // activityVolume buckets inspected request volume across the window and returns the
 // total number of inspected requests. Falls back to all action events when no rows
 // are explicitly tagged as requests.
-func (s *Store) activityVolume(ctx context.Context, start, end int64) ([]ActivityVolumePoint, int, error) {
+func (s *Store) activityVolume(ctx context.Context, start, end int64, principal string) ([]ActivityVolumePoint, int, error) {
 	rows := make([]activityVolumeRow, 0)
 	query := `SELECT created_at_unix_milli, message_type FROM action_events WHERE created_at_unix_milli >= ? AND created_at_unix_milli <= ?`
-	if err := s.db.NewRaw(query, start, end).Scan(ctx, &rows); err != nil {
+	args := []any{start, end}
+	if principal != "" {
+		query += " AND principal_id = ?"
+		args = append(args, principal)
+	}
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
 		return nil, 0, err
 	}
 
@@ -366,6 +381,35 @@ func (s *Store) activityVolume(ctx context.Context, start, end int64) ([]Activit
 		}
 	}
 	return volume, inspected, nil
+}
+
+// DistinctPrincipals returns the non-empty principal_ids that appear on action or
+// task events. When both start and end are > 0 the scan is bounded to that window;
+// otherwise it spans all events. Results are sorted and de-duplicated.
+func (s *Store) DistinctPrincipals(ctx context.Context, start, end int64) ([]string, error) {
+	windowed := start > 0 && end > 0
+	timeClause := func(column string) string {
+		if !windowed {
+			return ""
+		}
+		return fmt.Sprintf(" AND %s >= ? AND %s <= ?", column, column)
+	}
+	query := `SELECT DISTINCT principal_id FROM action_events WHERE principal_id != ''` +
+		timeClause("created_at_unix_milli") +
+		` UNION SELECT DISTINCT principal_id FROM task_events WHERE principal_id != ''` +
+		timeClause("created_at_unix_milli") +
+		` ORDER BY principal_id ASC`
+
+	args := []any{}
+	if windowed {
+		args = append(args, start, end, start, end)
+	}
+
+	principals := make([]string, 0)
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &principals); err != nil {
+		return nil, err
+	}
+	return principals, nil
 }
 
 // severityToScore maps stored severity strings to the 0..1 marker height the UI uses.

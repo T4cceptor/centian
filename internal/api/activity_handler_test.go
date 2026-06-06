@@ -129,6 +129,24 @@ func TestActivityHandler_Activity(t *testing.T) {
 		assert.Equal(t, store.calls, 0)
 	})
 
+	t.Run("passes the principal filter through", func(t *testing.T) {
+		store := &stubActivityStore{
+			summaryFn: func(_ context.Context, filter *persistence.ActivityFilter) (*persistence.ActivitySummary, error) {
+				return &persistence.ActivitySummary{}, nil
+			},
+		}
+		handler := NewActivityHandler(store)
+		mux := http.NewServeMux()
+		handler.RegisterRoutesWithMiddleware(mux, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/activity?range=1h&principal=alice", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusOK)
+		assert.Equal(t, store.filter.Principal, "alice")
+	})
+
 	t.Run("rejects a non-numeric start", func(t *testing.T) {
 		store := &stubActivityStore{}
 		handler := NewActivityHandler(store)

@@ -48,6 +48,89 @@ func appendGovernedEvent(t *testing.T, store *Store, requestID string, tsMillis 
 	assert.NilError(t, store.AppendActionEvent(entry))
 }
 
+// appendRequestEventAs stores a request event under a specific principal.
+func appendRequestEventAs(t *testing.T, store *Store, requestID string, tsMillis int64, principal string) {
+	t.Helper()
+	entry := &common.LogEntry{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:   time.UnixMilli(tsMillis).UTC(),
+			RequestID:   requestID,
+			MessageType: common.MessageTypeRequest,
+			Direction:   common.DirectionClientToServer,
+			Success:     true,
+			Metadata:    map[string]string{"principal_id": principal},
+		},
+		Routing: common.RoutingContext{Gateway: "gw", ServerName: "srv"},
+	}
+	entry.WithToolRequest("search", "search", json.RawMessage(`{"q":"x"}`))
+	assert.NilError(t, store.AppendActionEvent(entry))
+}
+
+// appendGovernedEventAs stores a governed response event under a specific principal.
+func appendGovernedEventAs(t *testing.T, store *Store, requestID string, tsMillis int64, principal string, annotation common.EventAnnotation) {
+	t.Helper()
+	entry := &common.LogEntry{
+		BaseMcpEvent: common.BaseMcpEvent{
+			Timestamp:   time.UnixMilli(tsMillis).UTC(),
+			RequestID:   requestID,
+			MessageType: common.MessageTypeResponse,
+			Direction:   common.DirectionServerToClient,
+			Success:     true,
+			Metadata:    map[string]string{"principal_id": principal},
+		},
+		Routing:     common.RoutingContext{Gateway: "gw", ServerName: "srv"},
+		Annotations: []common.EventAnnotation{annotation},
+	}
+	entry.WithToolRequest("delete_namespace", "delete_namespace", json.RawMessage(`{}`))
+	entry.WithToolResult(json.RawMessage(`{"content":[]}`), false)
+	assert.NilError(t, store.AppendActionEvent(entry))
+}
+
+func TestActivitySummaryPrincipalFilterAndDistinct(t *testing.T) {
+	// Given: events under two principals within the window
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	const start, end = int64(10_000), int64(100_000)
+
+	appendRequestEventAs(t, store, "a-req-1", 12_000, "alice")
+	appendRequestEventAs(t, store, "a-req-2", 40_000, "alice")
+	appendRequestEventAs(t, store, "b-req-1", 60_000, "bob")
+
+	appendGovernedEventAs(t, store, "a-gov", 20_000, "alice", common.EventAnnotation{
+		Type: "governance_events", Processor: "prompt_injection_guard", Action: "redacted",
+		Category: "security", Severity: "high", Message: "Redacted a secret.",
+		Findings: []common.EventAnnotationFinding{{Rule: "secret_exfiltration"}},
+	})
+	appendGovernedEventAs(t, store, "b-gov", 70_000, "bob", common.EventAnnotation{
+		Type: "governance_events", Processor: "policy_guard", Action: "blocked",
+		Category: "policy", Severity: "high", Message: "Blocked a tool.",
+		Findings: []common.EventAnnotationFinding{{Rule: "tool_allowlist"}},
+	})
+
+	// When/Then: distinct principals over the window lists both
+	principals, err := store.DistinctPrincipals(context.Background(), start, end)
+	assert.NilError(t, err)
+	assert.Equal(t, len(principals), 2)
+	assert.Equal(t, principals[0], "alice")
+	assert.Equal(t, principals[1], "bob")
+
+	// When/Then: filtering to alice scopes stats and interventions to alice
+	alice, err := store.ActivitySummary(context.Background(), &ActivityFilter{Start: start, End: end, Principal: "alice"})
+	assert.NilError(t, err)
+	assert.Equal(t, alice.Stats.RequestsInspected, 2)
+	assert.Equal(t, alice.Stats.Interventions, 1)
+	assert.Equal(t, alice.CategoryCounts.Security, 1)
+	assert.Equal(t, alice.CategoryCounts.Policy, 0)
+
+	// And: no filter sees everything
+	all, err := store.ActivitySummary(context.Background(), &ActivityFilter{Start: start, End: end})
+	assert.NilError(t, err)
+	assert.Equal(t, all.Stats.RequestsInspected, 3)
+	assert.Equal(t, all.Stats.Interventions, 2)
+}
+
 func TestActivitySummaryAggregatesInterventionsAndVolume(t *testing.T) {
 	// Given: a store seeded with proxied requests and three governed events
 	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))

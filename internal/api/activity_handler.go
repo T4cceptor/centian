@@ -59,6 +59,7 @@ func (h *ActivityHandler) handleActivity(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	window.Principal = strings.TrimSpace(r.URL.Query().Get("principal"))
 
 	summary, err := h.store.ActivitySummary(r.Context(), window)
 	if err != nil {

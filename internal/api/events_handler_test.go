@@ -64,7 +64,7 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 
 		req := httptest.NewRequest(
 			http.MethodGet,
-			"/api/events?gateway=gw&server=server-a&tool=shell__exec&direction=[CLIENT%20-%3E%20SERVER]&messageType=request&success=true&withGovernanceEvent=true&requestId=req-1&sessionId=sid-1&cursor="+cursor+"&limit=25",
+			"/api/events?gateway=gw&server=server-a&tool=shell__exec&direction=[CLIENT%20-%3E%20SERVER]&messageType=request&success=true&withGovernanceEvent=true&requestId=req-1&sessionId=sid-1&principal=alice&cursor="+cursor+"&limit=25",
 			http.NoBody,
 		)
 		rec := httptest.NewRecorder()
@@ -79,6 +79,7 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 		assert.Equal(t, store.filter.MessageType, "request")
 		assert.Equal(t, store.filter.RequestID, "req-1")
 		assert.Equal(t, store.filter.SessionID, "sid-1")
+		assert.Equal(t, store.filter.Principal, "alice")
 		assert.Equal(t, store.filter.Limit, 25)
 		assert.Equal(t, store.filter.WithGovernanceEvent, true)
 		assert.Assert(t, store.filter.Success != nil)

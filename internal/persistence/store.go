@@ -231,6 +231,7 @@ type EventListFilter struct {
 	MessageType string
 	RequestID   string
 	SessionID   string
+	Principal   string
 	Success     *bool
 	Cursor      *EventListCursor
 	Limit       int
@@ -447,6 +448,7 @@ func (s *Store) createTables(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_events_task_run_id ON task_events(task_run_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_events_created_at ON task_events(created_at_unix_milli)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_events_principal_id ON task_events(principal_id)`,
 		`CREATE TABLE IF NOT EXISTS action_events (
 			id TEXT PRIMARY KEY,
 			schema_version INTEGER NOT NULL,
@@ -468,6 +470,7 @@ func (s *Store) createTables(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_action_events_request_id ON action_events(request_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_action_events_created_at ON action_events(created_at_unix_milli)`,
+		`CREATE INDEX IF NOT EXISTS idx_action_events_principal_id ON action_events(principal_id)`,
 		`CREATE TABLE IF NOT EXISTS action_event_task_context (
 			request_id TEXT PRIMARY KEY,
 			task_run_id TEXT NOT NULL,
@@ -1213,6 +1216,7 @@ func buildEventListFilters(filter *EventListFilter) ([]string, []any) {
 	appendFilter("ae.message_type", filter.MessageType)
 	appendFilter("ae.request_id", filter.RequestID)
 	appendFilter("ae.session_id", filter.SessionID)
+	appendFilter("ae.principal_id", filter.Principal)
 
 	if filter.Success != nil {
 		clauses = append(clauses, "ae.success = ?")

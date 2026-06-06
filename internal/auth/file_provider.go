@@ -80,6 +80,26 @@ func (p *FilePrincipalProvider) GetPrincipal(_ context.Context, token string) (*
 	return entry.toPrincipal(), nil
 }
 
+// ListPrincipals returns the distinct principals across indexed credentials.
+func (p *FilePrincipalProvider) ListPrincipals(_ context.Context) ([]Principal, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	seen := make(map[string]struct{}, len(p.index))
+	principals := make([]Principal, 0, len(p.index))
+	for _, entry := range p.index {
+		principal := entry.toPrincipal()
+		if principal == nil || principal.ID == "" {
+			continue
+		}
+		if _, dup := seen[principal.ID]; dup {
+			continue
+		}
+		seen[principal.ID] = struct{}{}
+		principals = append(principals, *principal)
+	}
+	return principals, nil
+}
+
 // Count returns the number of indexed credentials (for startup logging).
 func (p *FilePrincipalProvider) Count() int {
 	p.mu.RLock()
