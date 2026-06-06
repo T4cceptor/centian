@@ -268,7 +268,7 @@ Webhook runtime behavior:
 | `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. For redactors: `redact` or `annotate`. For `tool_call_guard`: `block` or `annotate`. |
 | `scope` | string | No | Redactors only. `request`, `response`, or `both`. Defaults to `both` for pattern/secret redactors and `response` for PII. |
 | `presets` | array | No | `tool_call_guard` only. Supported presets: `dangerous_commands`, `path_boundary`. |
-| `rules` | array | Yes for `pattern_redaction_processor`; optional for `tool_call_guard` when `presets` is present | Custom redaction rules with `name`, `pattern`, and literal `replacement`, or tool-call guard deny rules with `name`, `severity`, `message`, `tool_patterns`, and `argument_rules`. |
+| `rules` | array | Yes for `pattern_redaction_processor`; optional for `tool_call_guard` when `presets` is present | Custom redaction rules with `name`, `pattern`, and literal `replacement`, or tool-call guard deny rules with `name`, optional `category`, `severity`, `message`, `tool_patterns`, and `argument_rules`. |
 | `path_boundary` | object | No | `tool_call_guard` only. Settings for the `path_boundary` preset: `allowed_roots`, `relative_base_root`, `tool_patterns`, `argument_paths`, and `denied_paths`. |
 
 Built-in runtime behavior:
@@ -356,6 +356,7 @@ Tool-call guard example:
     "rules": [
       {
         "name": "block_prod_environment",
+        "category": "policy",
         "severity": "medium",
         "message": "Production environment operations are blocked.",
         "tool_patterns": ["deploy___*"],
@@ -371,7 +372,7 @@ Tool-call guard example:
 }
 ```
 
-`tool_call_guard` is request-phase only. It emits `type: "governance_events"`, category `policy`, and the rule severity. `tool_patterns` are glob patterns matched against routed, original, and request tool names. `argument_rules.path` is relative to `payload.request.Params.arguments`; `argument_rules.pattern` is a Go regex matched against stringified scalar argument values. If a guard rule omits `argument_rules`, the tool-name match alone is enough to block or annotate.
+`tool_call_guard` is request-phase only. It emits `type: "governance_events"`, the matched rule category, and the matched rule severity. Custom rules default to category `policy` and severity `medium`; rule `category` may be `policy`, `security`, or `privacy`. The `dangerous_commands` and `path_boundary` presets emit category `security` with high severity. `tool_patterns` are glob patterns matched against routed, original, and request tool names. `argument_rules.path` is relative to `payload.request.Params.arguments`; `argument_rules.pattern` is a Go regex matched against stringified scalar argument values. If a guard rule omits `argument_rules`, the tool-name match alone is enough to block or annotate.
 
 The `path_boundary` preset applies only to filesystem-like tools by default. It scans scalar string arguments whose keys look like `path`, `file`, or `dir`, blocks traversal attempts, blocks sensitive path fragments such as `.env`, `.git/config`, `.ssh`, `.aws`, `id_rsa`, and `id_ed25519`, and can enforce lexical `allowed_roots`. Configured `denied_paths` add to the defaults. Path handling is lexical only: Centian normalizes separators and cleans paths, but does not call `EvalSymlinks` or inspect the downstream filesystem. Treat this as a proxy-boundary guardrail, not a filesystem sandbox.
 

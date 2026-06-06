@@ -257,6 +257,7 @@ func TestParseBuiltinProcessorSettingsToolCallGuard(t *testing.T) {
 			"rules": []interface{}{
 				map[string]interface{}{
 					"name":          "block_prod_environment",
+					"category":      "security",
 					"severity":      "medium",
 					"tool_patterns": []interface{}{"deploy___*"},
 					"argument_rules": []interface{}{
@@ -274,6 +275,7 @@ func TestParseBuiltinProcessorSettingsToolCallGuard(t *testing.T) {
 	assert.Equal(t, settings.Mode, "block")
 	assert.Equal(t, len(settings.Presets), 2)
 	assert.Equal(t, len(settings.GuardRules), 1)
+	assert.Equal(t, settings.GuardRules[0].Category, "security")
 	assert.Equal(t, settings.GuardRules[0].ArgumentRules[0].Path, "environment")
 	assert.Equal(t, settings.PathBoundary.AllowedRoots[0], "/workspace")
 }

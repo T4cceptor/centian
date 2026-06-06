@@ -619,6 +619,7 @@ func TestProcessorValidation(t *testing.T) {
 							"rules": []interface{}{
 								map[string]interface{}{
 									"name":          "block_prod_environment",
+									"category":      "policy",
 									"severity":      "medium",
 									"message":       "Production operations are blocked.",
 									"tool_patterns": []interface{}{"deploy___*"},
@@ -765,6 +766,33 @@ func TestProcessorValidation(t *testing.T) {
 			},
 			wantError: true,
 			errorMsg:  "pattern is invalid",
+		},
+		{
+			name: "tool call guard validates category",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":     "bad_category",
+									"category": "operational",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "category must be 'policy', 'security', or 'privacy'",
 		},
 		{
 			name: "tool call guard validates malformed argument rule",

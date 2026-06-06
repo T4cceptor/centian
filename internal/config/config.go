@@ -763,6 +763,7 @@ type BuiltinToolGuardArgumentRule struct {
 // BuiltinToolGuardRule contains one configurable tool-call deny rule.
 type BuiltinToolGuardRule struct {
 	Name          string
+	Category      string
 	Severity      string
 	Message       string
 	ToolPatterns  []string
@@ -1908,7 +1909,21 @@ func parseBuiltinToolGuardRule(processorName string, index int, value map[string
 
 	rule := BuiltinToolGuardRule{
 		Name:     name,
+		Category: "policy",
 		Severity: "medium",
+	}
+	if raw, exists := value["category"]; exists {
+		category, ok := raw.(string)
+		if !ok || strings.TrimSpace(category) == "" {
+			return BuiltinToolGuardRule{}, fmt.Errorf("processor '%s': config.rules[%d].category must be a non-empty string", processorName, index)
+		}
+		category = strings.TrimSpace(category)
+		switch category {
+		case "policy", "security", "privacy":
+			rule.Category = category
+		default:
+			return BuiltinToolGuardRule{}, fmt.Errorf("processor '%s': config.rules[%d].category must be 'policy', 'security', or 'privacy'", processorName, index)
+		}
 	}
 	if raw, exists := value["severity"]; exists {
 		severity, ok := raw.(string)

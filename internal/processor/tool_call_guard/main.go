@@ -56,6 +56,7 @@ func configRuleToBuiltinRule(rule config.BuiltinToolGuardRule) builtinutil.ToolG
 	}
 	return builtinutil.ToolGuardRule{
 		Name:          rule.Name,
+		Category:      rule.Category,
 		Severity:      rule.Severity,
 		Message:       rule.Message,
 		ToolPatterns:  rule.ToolPatterns,
@@ -81,6 +82,7 @@ func pathBoundaryRule(settings *config.BuiltinPathBoundarySettings) builtinutil.
 	}, settings.DeniedPaths...)
 	return builtinutil.ToolGuardRule{
 		Name:         "path_boundary",
+		Category:     "security",
 		Severity:     "high",
 		Message:      "Filesystem path access blocked.",
 		ToolPatterns: toolPatterns,
@@ -125,6 +127,7 @@ func dangerousCommandRules() []builtinutil.ToolGuardRule {
 func dangerousCommandRule(name string, message string, toolPatterns []string, pattern string) builtinutil.ToolGuardRule {
 	return builtinutil.ToolGuardRule{
 		Name:         name,
+		Category:     "security",
 		Severity:     "high",
 		Message:      message,
 		ToolPatterns: toolPatterns,

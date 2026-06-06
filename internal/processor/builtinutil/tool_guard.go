@@ -26,6 +26,7 @@ type ToolGuardArgumentRule struct {
 // ToolGuardRule describes one deny rule for tool calls.
 type ToolGuardRule struct {
 	Name          string
+	Category      string
 	Severity      string
 	Message       string
 	ToolPatterns  []string
@@ -103,7 +104,7 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 		Type:      "governance_events",
 		Processor: options.Processor,
 		Action:    action,
-		Category:  "policy",
+		Category:  ruleCategory(match.rule),
 		Severity:  ruleSeverity(match.rule),
 		Message:   message,
 		Findings:  match.findings,
@@ -137,7 +138,7 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 			Status:    403,
 			StructuredContent: map[string]any{
 				"blocked":        true,
-				"category":       "policy",
+				"category":       ruleCategory(match.rule),
 				"rule":           match.rule.Name,
 				"severity":       ruleSeverity(match.rule),
 				"tool_name":      match.toolName,
@@ -459,6 +460,13 @@ func ruleSeverity(rule ToolGuardRule) string {
 		return "medium"
 	}
 	return rule.Severity
+}
+
+func ruleCategory(rule ToolGuardRule) string {
+	if rule.Category == "" {
+		return "policy"
+	}
+	return rule.Category
 }
 
 func findingPaths(findings []common.EventAnnotationFinding) []string {

@@ -73,6 +73,7 @@ func TestProcessJSONDangerousCommandsPresetBlocksRepresentativeCommand(t *testin
 	assert.Equal(t, result["isError"], true)
 	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
 	assert.Equal(t, report["severity"], "high")
+	assert.Equal(t, report["category"], "security")
 	details := report["details"].(map[string]any)
 	assert.Equal(t, details["matched_rule"], "dangerous_rm_rf")
 }
@@ -127,6 +128,7 @@ func TestProcessJSONPathBoundaryPresetBlocksRepresentativePath(t *testing.T) {
 	result := output["payload"].(map[string]any)["result"].(map[string]any)
 	assert.Equal(t, result["isError"], true)
 	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
+	assert.Equal(t, report["category"], "security")
 	assert.Equal(t, report["severity"], "high")
 	findings := report["findings"].([]any)
 	assert.Equal(t, findings[0].(map[string]any)["rule"], "path_boundary_denied_path")
@@ -150,6 +152,7 @@ func TestProcessJSONPathBoundaryPresetHonorsCustomToolAndArgumentPaths(t *testin
 	})
 
 	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
+	assert.Equal(t, report["category"], "security")
 	findings := report["findings"].([]any)
 	assert.Equal(t, findings[0].(map[string]any)["rule"], "path_boundary_outside_allowed_roots")
 }

@@ -30,6 +30,30 @@ func TestApplyToolGuardBlocksToolOnlyMatch(t *testing.T) {
 	assert.Equal(t, ctx.Event.Status, 403)
 	assert.Equal(t, ctx.Annotations.Reports[0].Category, "policy")
 	assert.Equal(t, ctx.Annotations.Reports[0].Severity, "high")
+	structured := ctx.Payload.Result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["category"], "policy")
+}
+
+func TestApplyToolGuardUsesRuleCategory(t *testing.T) {
+	ctx := contextWithToolCall(t, "crm___delete_user", map[string]any{"id": "u_123"})
+
+	result, err := ApplyToolGuard(ctx, ToolGuardOptions{
+		Processor: "tool_call_guard",
+		Rules: []ToolGuardRule{
+			{
+				Name:         "block_delete_user_tool",
+				Category:     "security",
+				Severity:     "high",
+				ToolPatterns: []string{"crm___delete_user"},
+			},
+		},
+	})
+
+	assert.NilError(t, err)
+	assert.Assert(t, result.Blocked)
+	assert.Equal(t, ctx.Annotations.Reports[0].Category, "security")
+	structured := ctx.Payload.Result.StructuredContent.(map[string]any)
+	assert.Equal(t, structured["category"], "security")
 }
 
 func TestApplyToolGuardBlocksArgumentPathPresence(t *testing.T) {
