@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -512,6 +512,44 @@ describe("event list", () => {
     expect(await screen.findByRole("heading", { name: "Activity Timeline" })).toBeInTheDocument();
     expect(screen.getByText("Interventions")).toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/activity?range=6h", expect.anything());
+  });
+
+  it("filters activity by a custom start/end window from the timeframe picker", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          rangeStartUnixMilli: 1000,
+          rangeEndUnixMilli: 3_600_000,
+          stats: {
+            interventions: 0,
+            threatsNeutralized: 0,
+            piiRedacted: 0,
+            riskyActionsHeld: 0,
+            requestsInspected: 0,
+          },
+          categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+          volume: [],
+          interventions: [],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/default/activity"]);
+    await screen.findByRole("heading", { name: "Activity Timeline" });
+
+    // Open the unified timeframe picker and choose an explicit window.
+    await user.click(screen.getByRole("button", { name: /Custom/ }));
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-01-01T00:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/api\/default\/activity\?start=\d+&end=\d+$/),
+        expect.anything(),
+      );
+    });
   });
 
   it("renders the events route and primary nav", async () => {

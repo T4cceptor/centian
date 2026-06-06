@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import {
@@ -57,10 +57,35 @@ export function ActivityPage() {
   const [customStart, setCustomStart] = useState<string>("");
   const [customEnd, setCustomEnd] = useState<string>("");
   const [customError, setCustomError] = useState<string>("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const timeframeRef = useRef<HTMLDivElement>(null);
 
   const activeKey = queryKey(query);
+
+  // Close the timeframe popover on outside click or Escape.
+  useEffect(() => {
+    if (!pickerOpen) {
+      return;
+    }
+    const onPointerDown = (event: MouseEvent) => {
+      if (timeframeRef.current && !timeframeRef.current.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pickerOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -110,6 +135,7 @@ export function ActivityPage() {
       return;
     }
     setCustomError("");
+    setPickerOpen(false);
     setQuery({ kind: "custom", startUnixMilli: startMs, endUnixMilli: endMs });
   };
 
@@ -155,41 +181,8 @@ export function ActivityPage() {
     <div className="activity">
       <div className="activity__toolbar">
         <span className="activity__window">{windowLabel}</span>
-        <div className="activity__controls">
-          <div className="activity__custom" role="group" aria-label="Custom range">
-            <label className="activity__custom-field">
-              <span>From</span>
-              <input
-                type="datetime-local"
-                className="activity__datetime"
-                value={customStart}
-                max={customEnd || undefined}
-                onChange={(event) => setCustomStart(event.target.value)}
-              />
-            </label>
-            <label className="activity__custom-field">
-              <span>To</span>
-              <input
-                type="datetime-local"
-                className="activity__datetime"
-                value={customEnd}
-                min={customStart || undefined}
-                onChange={(event) => setCustomEnd(event.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              className={
-                query.kind === "custom"
-                  ? "activity__apply activity__apply--active"
-                  : "activity__apply"
-              }
-              onClick={applyCustomRange}
-            >
-              Apply
-            </button>
-          </div>
-          <div className="activity__range" role="group" aria-label="Quick range">
+        <div className="activity__timeframe" ref={timeframeRef}>
+          <div className="activity__range" role="group" aria-label="Timeframe">
             {RANGES.map((option) => (
               <button
                 key={option}
@@ -199,15 +192,66 @@ export function ActivityPage() {
                     ? "activity__range-btn activity__range-btn--active"
                     : "activity__range-btn"
                 }
-                onClick={() => setQuery({ kind: "preset", range: option })}
+                onClick={() => {
+                  setPickerOpen(false);
+                  setQuery({ kind: "preset", range: option });
+                }}
               >
                 {option}
               </button>
             ))}
+            <button
+              type="button"
+              className={
+                "activity__range-btn activity__range-btn--custom" +
+                (query.kind === "custom" ? " activity__range-btn--active" : "") +
+                (pickerOpen ? " activity__range-btn--open" : "")
+              }
+              aria-haspopup="dialog"
+              aria-expanded={pickerOpen}
+              onClick={() => setPickerOpen((open) => !open)}
+            >
+              Custom
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                <path d="M5 9l7 7 7-7" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
+          {pickerOpen ? (
+            <div className="activity__picker" role="dialog" aria-label="Custom timeframe">
+              <label className="activity__custom-field">
+                <span>From</span>
+                <input
+                  type="datetime-local"
+                  className="activity__datetime"
+                  value={customStart}
+                  max={customEnd || undefined}
+                  onChange={(event) => setCustomStart(event.target.value)}
+                />
+              </label>
+              <label className="activity__custom-field">
+                <span>To</span>
+                <input
+                  type="datetime-local"
+                  className="activity__datetime"
+                  value={customEnd}
+                  min={customStart || undefined}
+                  onChange={(event) => setCustomEnd(event.target.value)}
+                />
+              </label>
+              {customError ? <p className="activity__custom-error">{customError}</p> : null}
+              <div className="activity__picker-actions">
+                <button type="button" className="activity__picker-cancel" onClick={() => setPickerOpen(false)}>
+                  Cancel
+                </button>
+                <button type="button" className="activity__apply" onClick={applyCustomRange}>
+                  Apply
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
-      {customError ? <p className="activity__custom-error">{customError}</p> : null}
 
       <div className="activity__stats">
         {STAT_FIELDS.map((stat) => (
