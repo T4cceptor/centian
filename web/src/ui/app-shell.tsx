@@ -57,11 +57,11 @@ export function AppShell({ children }: PropsWithChildren) {
               <p className="app-header__eyebrow">Centian Monitor</p>
               <h1>{title}</h1>
               <nav className="app-header__nav" aria-label="Primary">
-                <Link className={!benchmarkSection && !eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/tasks`}>
-                  Tasks
-                </Link>
                 <Link className={eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/events`}>
                   Events
+                </Link>
+                <Link className={!benchmarkSection && !eventSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to={`/${currentProjectSlug}/tasks`}>
+                  Tasks
                 </Link>
                 {currentProjectSlug === defaultProjectSlug ? (
                   <Link className={benchmarkSection ? "app-header__nav-link app-header__nav-link--active" : "app-header__nav-link"} to="/benchmarks">

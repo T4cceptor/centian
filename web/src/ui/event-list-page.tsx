@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Eye, ListChecks, ScrollText, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Eye, ListChecks, ScrollText, SearchCheck, ShieldCheck, TriangleAlert, type LucideIcon } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { type EventListFilters, type EventListItem, fetchEvents } from "../api/events";
@@ -8,7 +8,7 @@ import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatTimestampCompact, humanizeIdentifier, humanizePhase } from "./format";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
-type EventSortColumn = "time" | "tool" | "server" | "direction" | "messageType" | "status" | "governance";
+type EventSortColumn = "time" | "tool" | "server" | "messageType" | "governance";
 type SortDirection = "asc" | "desc";
 type EventSortState = {
   column: EventSortColumn;
@@ -53,13 +53,11 @@ const defaultFilterForm: FilterFormState = {
   sessionId: "",
 };
 
-const eventColumns: Array<{ key: EventSortColumn; label: string }> = [
+const eventColumns: Array<{ key: EventSortColumn; label: string; compact?: boolean }> = [
   { key: "time", label: "Time" },
+  { key: "messageType", label: "Type", compact: true },
   { key: "tool", label: "Tool" },
   { key: "server", label: "Server" },
-  { key: "direction", label: "Direction" },
-  { key: "messageType", label: "Type" },
-  { key: "status", label: "Status" },
   { key: "governance", label: "Gov. Events" },
 ];
 
@@ -424,7 +422,7 @@ export function EventListPage() {
                         });
                       }}
                     >
-                      <span>{column.label}</span>
+                      <span className={column.compact ? "event-list__header-label--compact" : undefined}>{column.label}</span>
                       <span className="benchmark-sort-button__indicator" aria-hidden="true">
                         {isActive ? (sortState.direction === "asc" ? "▲" : "▼") : "↕"}
                       </span>
@@ -437,8 +435,6 @@ export function EventListPage() {
               const expanded = expandedEventID === item.id;
               const timestampParts = formatTimestampCompact(item.createdAtUnixMilli);
               const compactTimestamp = `${timestampParts.date} ${timestampParts.time}`;
-              const statusClass = item.success ? "status-badge status-badge--success" : "status-badge status-badge--failed";
-
               return (
                 <article key={item.id} className="event-card" role="listitem">
                   <button
@@ -447,13 +443,9 @@ export function EventListPage() {
                     onClick={() => setExpandedEventID(expanded ? undefined : item.id)}
                   >
                     <span className="event-card__timestamp" title={formatTimestamp(item.createdAtUnixMilli)}>{compactTimestamp}</span>
+                    <EventMessageTypeIcon messageType={item.messageType} success={item.success} />
                     <span className="event-card__tool">{item.toolName ?? item.originalToolName ?? "Unknown tool"}</span>
                     <span className="event-card__server">{[item.gateway, item.serverName].filter(Boolean).join(" / ") || "—"}</span>
-                    <span className="event-card__direction">{item.direction ?? "—"}</span>
-                    <span className="event-card__message">{item.messageType ?? "—"}</span>
-                    <span className="event-card__status">
-                      <span className={statusClass}>{item.success ? "success" : "failed"}</span>
-                    </span>
                     <EventCardGovernanceCategories item={item} />
                   </button>
 
@@ -554,6 +546,26 @@ export function EventListPage() {
       )}
     </div>
   );
+}
+
+function EventMessageTypeIcon({ messageType, success }: { messageType?: string; success?: boolean }) {
+  const normalized = messageType?.trim().toLowerCase();
+  const outcomeClass = success ? "event-card__message-type--success" : "event-card__message-type--failed";
+  if (normalized === "request") {
+    return (
+      <span className={`event-card__message-type ${outcomeClass}`} aria-label="Request" title="Request">
+        <ArrowRight aria-hidden="true" />
+      </span>
+    );
+  }
+  if (normalized === "response") {
+    return (
+      <span className={`event-card__message-type ${outcomeClass}`} aria-label="Response" title="Response">
+        <ArrowLeft aria-hidden="true" />
+      </span>
+    );
+  }
+  return <span className="event-card__message-type event-card__message-type--text">{messageType ?? "—"}</span>;
 }
 
 function EventCardGovernanceCategories({ item }: { item: EventListItem }) {
@@ -1000,12 +1012,8 @@ function comparePrimaryEventColumn(left: EventListItem, right: EventListItem, co
       return compareStrings(left.toolName ?? left.originalToolName ?? "", right.toolName ?? right.originalToolName ?? "");
     case "server":
       return compareStrings(serverLabel(left), serverLabel(right));
-    case "direction":
-      return compareStrings(left.direction ?? "", right.direction ?? "");
     case "messageType":
       return compareStrings(left.messageType ?? "", right.messageType ?? "");
-    case "status":
-      return compareNumbers(eventStatusRank(left), eventStatusRank(right));
     case "governance":
       return compareStrings(eventGovernanceSortValue(left), eventGovernanceSortValue(right));
   }
@@ -1021,10 +1029,6 @@ function compareStrings(left: string, right: string): number {
 
 function serverLabel(item: EventListItem): string {
   return [item.gateway, item.serverName].filter(Boolean).join(" / ");
-}
-
-function eventStatusRank(item: EventListItem): number {
-  return item.success ? 1 : 0;
 }
 
 function eventGovernanceSortValue(item: EventListItem): string {

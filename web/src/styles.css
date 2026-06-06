@@ -691,13 +691,11 @@ code,
   display: grid;
   grid-template-columns:
     minmax(0, 0.9fr)
+    34px
     minmax(0, 1fr)
     minmax(0, 1fr)
-    minmax(0, 1fr)
-    minmax(100px, 0.7fr)
-    minmax(100px, 0.7fr)
     minmax(0, 1.1fr);
-  gap: 16px;
+  gap: 14px;
   align-items: center;
 }
 
@@ -707,6 +705,10 @@ code,
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.event-list__header-label--compact {
+  display: none;
 }
 
 .event-card {
@@ -795,18 +797,35 @@ code,
   color: var(--text-muted);
 }
 
-.event-card__direction,
-.event-card__message {
+.event-card__message-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-dim);
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.2;
 }
 
-.event-card__summary .status-badge {
-  min-width: 74px;
-  padding: 3px 8px;
-  font-size: 0.68rem;
+.event-card__message-type svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+.event-card__message-type--text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-card__message-type--success {
+  color: #9cf0a5;
+}
+
+.event-card__message-type--failed {
+  color: var(--accent-danger);
 }
 
 .event-card__detail {

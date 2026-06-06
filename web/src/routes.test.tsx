@@ -487,6 +487,22 @@ describe("task run list", () => {
 });
 
 describe("event list", () => {
+  it("defaults the ui root to the default project events route", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/"]);
+
+    expect(await screen.findByText("No persisted events yet")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events", expect.anything());
+    expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
+  });
+
   it("renders the events route and primary nav", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
@@ -514,10 +530,19 @@ describe("event list", () => {
 
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Primary" })).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Events",
+      "Tasks",
+      "Benchmarks",
+    ]);
     expect(screen.queryByText("Observed MCP events")).not.toBeInTheDocument();
     expect(screen.queryByText("Global Feed")).not.toBeInTheDocument();
     expect(screen.queryByText("Newest first across all proxied traffic.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Time/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by Type/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sort by Direction/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Sort by Status/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Request")).toHaveClass("event-card__message-type--success");
     expect(screen.getByRole("button", { name: /Sort by Gov. Events/i })).toBeInTheDocument();
   });
 
