@@ -54,7 +54,8 @@ type GlobalConfig struct {
 	Version string `json:"version"` // Config schema version
 
 	// Truly global settings - apply to the whole server process.
-	Proxy *ProxySettings `json:"proxy,omitempty"` // Proxy-level settings (host, port, logLevel, logOutput, timeout)
+	Proxy       *ProxySettings       `json:"proxy,omitempty"`       // Proxy-level settings (host, port, logLevel, logOutput, timeout)
+	AuthBackend *AuthBackendSettings `json:"authBackend,omitempty"` // Global principal/credential storage backend
 
 	// Project-based layout: each project is an isolated tenant.
 	Projects map[string]*ProjectConfig `json:"projects,omitempty"` // Named project configs
@@ -240,6 +241,25 @@ const (
 	DefaultProxyLogOutput     = "file"
 	DefaultEventStorageDriver = "sqlite"
 )
+
+// AuthBackendSettings configures where principals and their credentials are
+// stored. This is a truly global setting because authentication resolves a token
+// to a principal at the HTTP layer, before any project is selected. Type and Store
+// may be empty; the auth package resolves empties to defaults (sqlite at the
+// default principals database path).
+type AuthBackendSettings struct {
+	Type  string `json:"type,omitempty"`  // "sqlite" (default) or "file"
+	Store string `json:"store,omitempty"` // Backend location (sqlite db path or key file path)
+}
+
+// GetAuthBackend returns the configured auth backend type and store. Both may be
+// empty when no backend block is configured; callers resolve empties to defaults.
+func (g *GlobalConfig) GetAuthBackend() (backendType, store string) {
+	if g == nil || g.AuthBackend == nil {
+		return "", ""
+	}
+	return g.AuthBackend.Type, g.AuthBackend.Store
+}
 
 // IsAuthEnabled returns true when auth is enabled or unset.
 // After ResolveProjects(), this checks the legacy flat field; prefer
