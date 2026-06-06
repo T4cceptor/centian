@@ -203,9 +203,11 @@ func (c *ToolCallContext) ToLogEntry() *common.LogEntry {
 	if entry.Metadata == nil {
 		entry.Metadata = make(map[string]string)
 	}
-	if c.upstreamSession != nil && c.upstreamSession.identityKey != "" {
-		entry.Metadata["principal_id"] = c.upstreamSession.identityKey
+	var identityKey string
+	if c.upstreamSession != nil {
+		identityKey = c.upstreamSession.identityKey
 	}
+	stampPrincipalMetadata(entry, identityKey, c.authData)
 
 	req := c.GetRequest()
 	if req != nil && req.Params != nil {
