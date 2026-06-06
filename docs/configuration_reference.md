@@ -264,14 +264,74 @@ Webhook runtime behavior:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`. |
-| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. |
+| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, `pii_redactor`. |
+| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. For redactors: `redact` or `annotate`. |
+| `scope` | string | No | Redactors only. `request`, `response`, or `both`. Defaults to `both` for pattern/secret redactors and `response` for PII. |
+| `rules` | array | Yes for `pattern_redaction_processor` | Custom redaction rules with `name`, `pattern`, and literal `replacement`. |
 
 Built-in runtime behavior:
 
 - Built-in processors are compiled into the Centian binary.
 - No additional executable, container build step, or runtime package install is required.
 - `timeout` is accepted for config consistency, but no subprocess or HTTP request is spawned.
+
+Custom pattern redaction example:
+
+```json
+{
+  "name": "custom-redactor",
+  "type": "builtin",
+  "enabled": true,
+  "required": true,
+  "parts": ["payload", "annotations"],
+  "config": {
+    "processor": "pattern_redaction_processor",
+    "mode": "redact",
+    "scope": "both",
+    "rules": [
+      {
+        "name": "internal_token",
+        "pattern": "it_[A-Za-z0-9]{20,}",
+        "replacement": "[REDACTED_INTERNAL_TOKEN]"
+      }
+    ]
+  }
+}
+```
+
+Secret/token and PII redactors use built-in deterministic pattern sets:
+
+```json
+{
+  "name": "secret-token-redactor",
+  "type": "builtin",
+  "enabled": true,
+  "required": true,
+  "parts": ["payload", "annotations"],
+  "config": {
+    "processor": "secret_token_redactor",
+    "mode": "redact",
+    "scope": "both"
+  }
+}
+```
+
+```json
+{
+  "name": "pii-redactor",
+  "type": "builtin",
+  "enabled": true,
+  "required": false,
+  "parts": ["payload", "annotations"],
+  "config": {
+    "processor": "pii_redactor",
+    "mode": "redact",
+    "scope": "response"
+  }
+}
+```
+
+PII redaction is deterministic and heuristic. It detects obvious email, phone-like, IBAN-like, and credit-card-like values; it is not a complete privacy classifier.
 
 ## Minimal Example
 

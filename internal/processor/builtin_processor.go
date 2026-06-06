@@ -4,7 +4,10 @@ import (
 	"fmt"
 
 	"github.com/T4cceptor/centian/internal/config"
+	patternredactionprocessor "github.com/T4cceptor/centian/internal/processor/pattern_redaction_processor"
+	piiredactor "github.com/T4cceptor/centian/internal/processor/pii_redactor"
 	promptinjectionguard "github.com/T4cceptor/centian/internal/processor/prompt_injection_guard"
+	secrettokenredactor "github.com/T4cceptor/centian/internal/processor/secret_token_redactor"
 )
 
 // BuiltinProcessor runs a processor implementation compiled into Centian.
@@ -41,6 +44,12 @@ func (b *BuiltinProcessor) Process(input *DataContext) (*DataContext, error) {
 	switch settings.Processor {
 	case config.BuiltinPromptInjectionGuard:
 		outputJSON, err = promptinjectionguard.ProcessJSON(inputJSON, settings.Mode)
+	case config.BuiltinPatternRedactionProcessor:
+		outputJSON, err = patternredactionprocessor.ProcessJSON(inputJSON, settings)
+	case config.BuiltinSecretTokenRedactor:
+		outputJSON, err = secrettokenredactor.ProcessJSON(inputJSON, settings)
+	case config.BuiltinPIIRedactor:
+		outputJSON, err = piiredactor.ProcessJSON(inputJSON, settings)
 	default:
 		return nil, fmt.Errorf("processor '%s': unsupported builtin processor %q", b.config.Name, settings.Processor)
 	}

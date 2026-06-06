@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -707,10 +708,37 @@ type WebhookProcessorSettings struct {
 type BuiltinProcessorSettings struct {
 	Processor string
 	Mode      string
+	Scope     string
+	Rules     []BuiltinRedactionRule
 }
 
 // BuiltinPromptInjectionGuard is the in-process prompt injection detection processor.
 const BuiltinPromptInjectionGuard = "prompt_injection_guard"
+
+const (
+	// BuiltinPatternRedactionProcessor redacts user-configured regex patterns.
+	BuiltinPatternRedactionProcessor = "pattern_redaction_processor"
+	// BuiltinSecretTokenRedactor redacts common secret and token patterns.
+	BuiltinSecretTokenRedactor = "secret_token_redactor"
+	// BuiltinPIIRedactor redacts deterministic PII-like patterns.
+	BuiltinPIIRedactor = "pii_redactor"
+)
+
+const (
+	BuiltinRedactionModeRedact   = "redact"
+	BuiltinRedactionModeAnnotate = "annotate"
+
+	BuiltinRedactionScopeRequest  = "request"
+	BuiltinRedactionScopeResponse = "response"
+	BuiltinRedactionScopeBoth     = "both"
+)
+
+// BuiltinRedactionRule contains one configurable pattern redaction rule.
+type BuiltinRedactionRule struct {
+	Name        string
+	Pattern     string
+	Replacement string
+}
 
 var allowedProcessorParts = map[string]bool{
 	"payload":     true,
@@ -1479,21 +1507,169 @@ func ParseBuiltinProcessorSettings(processor *ProcessorConfig) (*BuiltinProcesso
 		}
 		settings.Mode = strings.TrimSpace(mode)
 	}
-	if settings.Processor == BuiltinPromptInjectionGuard {
+	if scopeValue, exists := processor.Config["scope"]; exists {
+		scope, ok := scopeValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("processor '%s': config.scope must be a string", processor.Name)
+		}
+		settings.Scope = strings.TrimSpace(scope)
+	}
+
+	switch settings.Processor {
+	case BuiltinPromptInjectionGuard:
 		if !processor.Required {
 			return nil, fmt.Errorf("processor '%s': prompt_injection_guard must set required=true", processor.Name)
 		}
-		parts := map[string]bool{}
-		for _, part := range processor.GetParts() {
-			parts[part] = true
+		if err := validateBuiltinRequiredParts(processor, "prompt_injection_guard", []string{"payload", "annotations"}); err != nil {
+			return nil, err
 		}
-		for _, requiredPart := range []string{"payload", "annotations"} {
-			if !parts[requiredPart] {
-				return nil, fmt.Errorf("processor '%s': prompt_injection_guard requires part '%s'", processor.Name, requiredPart)
-			}
+	case BuiltinPatternRedactionProcessor:
+		if err := validateBuiltinRedactionSettings(processor, settings, BuiltinRedactionScopeBoth, true, true); err != nil {
+			return nil, err
+		}
+	case BuiltinSecretTokenRedactor:
+		if err := validateBuiltinRedactionSettings(processor, settings, BuiltinRedactionScopeBoth, false, false); err != nil {
+			return nil, err
+		}
+	case BuiltinPIIRedactor:
+		if err := validateBuiltinRedactionSettings(processor, settings, BuiltinRedactionScopeResponse, false, false); err != nil {
+			return nil, err
 		}
 	}
 	return settings, nil
+}
+
+func validateBuiltinRequiredParts(processor *ProcessorConfig, processorName string, requiredParts []string) error {
+	parts := map[string]bool{}
+	for _, part := range processor.GetParts() {
+		parts[part] = true
+	}
+	for _, requiredPart := range requiredParts {
+		if !parts[requiredPart] {
+			return fmt.Errorf("processor '%s': %s requires part '%s'", processor.Name, processorName, requiredPart)
+		}
+	}
+	return nil
+}
+
+func validateBuiltinRedactionSettings(processor *ProcessorConfig, settings *BuiltinProcessorSettings, defaultScope string, requiresRules bool, allowsRules bool) error {
+	if settings.Mode == "" {
+		settings.Mode = BuiltinRedactionModeRedact
+	}
+	switch settings.Mode {
+	case BuiltinRedactionModeRedact, BuiltinRedactionModeAnnotate:
+	default:
+		return fmt.Errorf("processor '%s': config.mode must be 'redact' or 'annotate'", processor.Name)
+	}
+
+	if settings.Scope == "" {
+		settings.Scope = defaultScope
+	}
+	switch settings.Scope {
+	case BuiltinRedactionScopeRequest, BuiltinRedactionScopeResponse, BuiltinRedactionScopeBoth:
+	default:
+		return fmt.Errorf("processor '%s': config.scope must be 'request', 'response', or 'both'", processor.Name)
+	}
+
+	if err := validateBuiltinRequiredParts(processor, settings.Processor, []string{"payload", "annotations"}); err != nil {
+		return err
+	}
+
+	if _, exists := processor.Config["rules"]; exists && !allowsRules {
+		return fmt.Errorf("processor '%s': config.rules is only supported for pattern_redaction_processor", processor.Name)
+	}
+
+	rules, err := parseBuiltinRedactionRules(processor)
+	if err != nil {
+		return err
+	}
+	if requiresRules && len(rules) == 0 {
+		return fmt.Errorf("processor '%s': config.rules must contain at least one rule", processor.Name)
+	}
+	settings.Rules = rules
+	return nil
+}
+
+func parseBuiltinRedactionRules(processor *ProcessorConfig) ([]BuiltinRedactionRule, error) {
+	rulesValue, exists := processor.Config["rules"]
+	if !exists {
+		return nil, nil
+	}
+
+	ruleMaps, err := processorConfigRuleMaps(rulesValue)
+	if err != nil {
+		return nil, fmt.Errorf("processor '%s': config.rules %w", processor.Name, err)
+	}
+
+	rules := make([]BuiltinRedactionRule, 0, len(ruleMaps))
+	for index, ruleMap := range ruleMaps {
+		rule, err := parseBuiltinRedactionRule(processor.Name, index, ruleMap)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func processorConfigRuleMaps(value interface{}) ([]map[string]interface{}, error) {
+	switch typed := value.(type) {
+	case []interface{}:
+		rules := make([]map[string]interface{}, 0, len(typed))
+		for _, item := range typed {
+			rule, ok := item.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("entries must be objects")
+			}
+			rules = append(rules, rule)
+		}
+		return rules, nil
+	case []map[string]interface{}:
+		return typed, nil
+	case []BuiltinRedactionRule:
+		rules := make([]map[string]interface{}, 0, len(typed))
+		for _, item := range typed {
+			rules = append(rules, map[string]interface{}{
+				"name":        item.Name,
+				"pattern":     item.Pattern,
+				"replacement": item.Replacement,
+			})
+		}
+		return rules, nil
+	default:
+		return nil, fmt.Errorf("must be an array")
+	}
+}
+
+func parseBuiltinRedactionRule(processorName string, index int, value map[string]interface{}) (BuiltinRedactionRule, error) {
+	name, err := requiredRuleString(processorName, index, value, "name")
+	if err != nil {
+		return BuiltinRedactionRule{}, err
+	}
+	pattern, err := requiredRuleString(processorName, index, value, "pattern")
+	if err != nil {
+		return BuiltinRedactionRule{}, err
+	}
+	replacement, err := requiredRuleString(processorName, index, value, "replacement")
+	if err != nil {
+		return BuiltinRedactionRule{}, err
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return BuiltinRedactionRule{}, fmt.Errorf("processor '%s': config.rules[%d].pattern is invalid: %w", processorName, index, err)
+	}
+	return BuiltinRedactionRule{Name: name, Pattern: pattern, Replacement: replacement}, nil
+}
+
+func requiredRuleString(processorName string, index int, value map[string]interface{}, key string) (string, error) {
+	raw, exists := value[key]
+	if !exists {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].%s is required", processorName, index, key)
+	}
+	text, ok := raw.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].%s must be a non-empty string", processorName, index, key)
+	}
+	return strings.TrimSpace(text), nil
 }
 
 // ParseCLIProcessorSettings validates and extracts CLI processor settings.

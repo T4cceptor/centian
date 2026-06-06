@@ -430,6 +430,177 @@ func TestProcessorValidation(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name: "valid pattern redaction processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "custom-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPatternRedactionProcessor,
+							"mode":      "redact",
+							"scope":     "both",
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":        "internal_token",
+									"pattern":     `it_[a-z]{20}`,
+									"replacement": "[REDACTED_INTERNAL_TOKEN]",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "pattern redaction processor requires rules",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "custom-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPatternRedactionProcessor,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.rules must contain at least one rule",
+		},
+		{
+			name: "pattern redaction processor validates regex",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "custom-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPatternRedactionProcessor,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":        "bad",
+									"pattern":     `[`,
+									"replacement": "[REDACTED]",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.rules[0].pattern is invalid",
+		},
+		{
+			name: "redaction processor validates mode",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "secret-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinSecretTokenRedactor,
+							"mode":      "remove",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.mode must be 'redact' or 'annotate'",
+		},
+		{
+			name: "redaction processor validates scope",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "pii-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: false,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPIIRedactor,
+							"scope":     "everything",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.scope must be 'request', 'response', or 'both'",
+		},
+		{
+			name: "redaction processor requires annotations part",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "secret-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload"},
+						Config: map[string]interface{}{
+							"processor": BuiltinSecretTokenRedactor,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires part 'annotations'",
+		},
+		{
+			name: "secret redactor rejects custom rules",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "secret-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinSecretTokenRedactor,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":        "custom",
+									"pattern":     `x+`,
+									"replacement": "[REDACTED]",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.rules is only supported for pattern_redaction_processor",
+		},
+		{
 			name: "nil processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",
