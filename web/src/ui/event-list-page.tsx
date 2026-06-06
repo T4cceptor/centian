@@ -36,6 +36,7 @@ type FilterFormState = {
   direction: string;
   messageType: string;
   success: string;
+  withGovernanceEvent: boolean;
   requestId: string;
   sessionId: string;
 };
@@ -47,6 +48,7 @@ const defaultFilterForm: FilterFormState = {
   direction: "",
   messageType: "",
   success: "",
+  withGovernanceEvent: false,
   requestId: "",
   sessionId: "",
 };
@@ -93,6 +95,7 @@ export function EventListPage() {
       direction: filters.direction ?? "",
       messageType: filters.messageType ?? "",
       success: typeof filters.success === "boolean" ? String(filters.success) : "",
+      withGovernanceEvent: filters.withGovernanceEvent === true,
       requestId: filters.requestId ?? "",
       sessionId: filters.sessionId ?? "",
     });
@@ -105,6 +108,7 @@ export function EventListPage() {
     filters.sessionId,
     filters.success,
     filters.tool,
+    filters.withGovernanceEvent,
   ]);
 
   useEffect(() => {
@@ -136,7 +140,7 @@ export function EventListPage() {
       });
 
     return () => controller.abort();
-  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, projectSlug, reloadToken]);
+  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, projectSlug, reloadToken]);
 
   useEffect(() => {
     if (loadState !== "ready" || !filters.cursor) {
@@ -169,7 +173,7 @@ export function EventListPage() {
       });
 
     return () => controller.abort();
-  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, filters.cursor, loadMoreToken, projectSlug, loadState]);
+  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, filters.cursor, loadMoreToken, projectSlug, loadState]);
 
   useEffect(() => {
     if (loadState !== "ready" || filters.cursor) {
@@ -212,7 +216,7 @@ export function EventListPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, filters.cursor, loadState, projectSlug]);
+  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, filters.cursor, loadState, projectSlug]);
 
   if (loadState === "loading") {
     return (
@@ -277,6 +281,7 @@ export function EventListPage() {
             setOrDelete(next, "direction", filterForm.direction);
             setOrDelete(next, "messageType", filterForm.messageType);
             setOrDelete(next, "success", filterForm.success);
+            setBooleanOrDelete(next, "withGovernanceEvent", filterForm.withGovernanceEvent);
             setOrDelete(next, "requestId", filterForm.requestId);
             setOrDelete(next, "sessionId", filterForm.sessionId);
             next.delete("cursor");
@@ -338,6 +343,14 @@ export function EventListPage() {
               <option value="true">Success</option>
               <option value="false">Failure</option>
             </select>
+          </label>
+          <label className="event-filter-checkbox">
+            <input
+              type="checkbox"
+              checked={filterForm.withGovernanceEvent}
+              onChange={(event) => setFilterForm((current) => ({ ...current, withGovernanceEvent: event.target.checked }))}
+            />
+            <span>With governance event</span>
           </label>
           <label className="event-filter-field">
             <span>Request ID</span>
@@ -904,6 +917,7 @@ function eventFiltersFromSearchParams(searchParams: URLSearchParams): EventListF
     direction: searchParams.get("direction")?.trim() || undefined,
     messageType: searchParams.get("messageType")?.trim() || undefined,
     success: rawSuccess === "true" ? true : rawSuccess === "false" ? false : undefined,
+    withGovernanceEvent: searchParams.get("withGovernanceEvent")?.trim() === "true" || undefined,
     requestId: searchParams.get("requestId")?.trim() || undefined,
     sessionId: searchParams.get("sessionId")?.trim() || undefined,
     cursor: searchParams.get("cursor")?.trim() || undefined,
@@ -919,9 +933,18 @@ function buildActiveFilterChips(filters: EventListFilters): Array<{ key: string;
   if (filters.direction) chips.push({ key: "direction", label: `Direction: ${filters.direction}` });
   if (filters.messageType) chips.push({ key: "messageType", label: `Type: ${filters.messageType}` });
   if (typeof filters.success === "boolean") chips.push({ key: "success", label: `Success: ${String(filters.success)}` });
+  if (filters.withGovernanceEvent) chips.push({ key: "withGovernanceEvent", label: "With governance event" });
   if (filters.requestId) chips.push({ key: "requestId", label: `Request: ${filters.requestId}` });
   if (filters.sessionId) chips.push({ key: "sessionId", label: `Session: ${filters.sessionId}` });
   return chips;
+}
+
+function setBooleanOrDelete(params: URLSearchParams, key: string, value: boolean) {
+  if (value) {
+    params.set(key, "true");
+    return;
+  }
+  params.delete(key);
 }
 
 function setOrDelete(params: URLSearchParams, key: string, value: string) {

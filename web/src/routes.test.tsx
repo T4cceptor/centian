@@ -524,13 +524,14 @@ describe("event list", () => {
   it("reflects URL filters in the request and active chips", async () => {
     globalThis.fetch = vi.fn(() => Promise.resolve(createFetchResponse({ items: [] }))) as typeof fetch;
 
-    renderApp(["/events?gateway=gw&server=server-a&success=false"]);
+    renderApp(["/events?gateway=gw&server=server-a&success=false&withGovernanceEvent=true"]);
 
     expect(await screen.findByText("No matching events")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?gateway=gw&server=server-a&success=false", expect.anything());
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events?gateway=gw&server=server-a&success=false&withGovernanceEvent=true", expect.anything());
     expect(screen.getByText("Gateway: gw")).toBeInTheDocument();
     expect(screen.getByText("Server: server-a")).toBeInTheDocument();
     expect(screen.getByText("Success: false")).toBeInTheDocument();
+    expect(screen.getAllByText("With governance event").length).toBeGreaterThan(0);
   });
 
   it("loads events from a project-scoped route", async () => {
@@ -582,6 +583,23 @@ describe("event list", () => {
                 },
               ],
             },
+            {
+              id: "ae_1742947201123_0000000002",
+              createdAtUnixMilli: 1742947201123,
+              toolName: "centian.task_complete_step",
+              requestId: "complete_step_2_early",
+              success: false,
+              isError: true,
+              annotations: [
+                {
+                  type: "governance_events",
+                  action: "stopped",
+                  category: "quality",
+                  severity: "medium",
+                  message: "Ticket was not updated.",
+                },
+              ],
+            },
           ],
         }),
       ),
@@ -589,13 +607,16 @@ describe("event list", () => {
 
     renderApp(["/events"]);
 
-    const governanceSection = await screen.findByLabelText("Governance Events: 1");
+    const governanceSection = await screen.findByLabelText("Governance Events: 2");
     expect(within(governanceSection).getAllByText("Security")).toHaveLength(2);
     expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
+    expect(within(governanceSection).getAllByText("Quality")).toHaveLength(2);
+    expect(within(governanceSection).getByTitle("Quality: 1")).toBeInTheDocument();
     expect(within(governanceSection).getByText("Redacted")).toBeInTheDocument();
     expect(within(governanceSection).getByText("shell__exec")).toBeInTheDocument();
     expect(within(governanceSection).getByText("masked secret output")).toBeInTheDocument();
     expect(screen.getByLabelText("Governance events: Security")).toBeInTheDocument();
+    expect(screen.getByLabelText("Governance events: Quality")).toBeInTheDocument();
   });
 
   it("collapses repeated governance annotations for the same request id", async () => {

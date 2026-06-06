@@ -405,6 +405,22 @@ code,
   gap: 6px;
 }
 
+.event-filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: end;
+  min-height: 40px;
+  color: var(--text-main);
+  font-size: 0.9rem;
+}
+
+.event-filter-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
 .event-filter-field span,
 .event-card__meta-label {
   color: var(--text-muted);
