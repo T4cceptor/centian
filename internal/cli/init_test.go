@@ -180,16 +180,41 @@ func TestApplyQuickstartConfig(t *testing.T) {
 }
 
 func TestCreateDefaultAPIKey(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Run("defaults to sqlite backend", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
 
-	key, err := createDefaultAPIKey()
-	assert.NilError(t, err)
-	assert.Assert(t, key != "")
+		// Given: a config with no explicit auth backend
+		cfg := &config.GlobalConfig{}
 
-	keysPath, err := auth.DefaultAPIKeysPath()
-	assert.NilError(t, err)
-	_, statErr := os.Stat(keysPath)
-	assert.NilError(t, statErr)
+		// When: creating the default key
+		key, err := createDefaultAPIKey(cfg)
+		assert.NilError(t, err)
+		assert.Assert(t, key != "")
+
+		// Then: the principals sqlite database is created
+		dbPath, err := auth.DefaultPrincipalsDBPath()
+		assert.NilError(t, err)
+		_, statErr := os.Stat(dbPath)
+		assert.NilError(t, statErr)
+	})
+
+	t.Run("honors file backend", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+
+		// Given: a config selecting the file backend
+		cfg := &config.GlobalConfig{AuthBackend: &config.AuthBackendSettings{Type: "file"}}
+
+		// When: creating the default key
+		key, err := createDefaultAPIKey(cfg)
+		assert.NilError(t, err)
+		assert.Assert(t, key != "")
+
+		// Then: the api_keys.json file is created
+		keysPath, err := auth.DefaultAPIKeysPath()
+		assert.NilError(t, err)
+		_, statErr := os.Stat(keysPath)
+		assert.NilError(t, statErr)
+	})
 }
 
 func TestHandleQuickstart(t *testing.T) {

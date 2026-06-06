@@ -296,17 +296,29 @@ func loadPrincipalProvider(globalConfig *config.GlobalConfig) (centauth.Principa
 		return nil, nil
 	}
 
-	provider, err := centauth.DefaultFilePrincipalProvider()
+	backendType, store := globalConfig.GetAuthBackend()
+	provider, err := centauth.NewPrincipalProvider(backendType, store)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve api key path: %w", err)
+		return nil, fmt.Errorf("failed to resolve auth backend: %w", err)
 	}
 	if err := provider.Setup(context.Background()); err != nil {
 		if errors.Is(err, centauth.ErrAPIKeysNotFound) {
 			return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
 		}
-		return nil, fmt.Errorf("failed to load api keys: %w", err)
+		return nil, fmt.Errorf("failed to load principals: %w", err)
 	}
-	common.LogInfo("Loaded %d API keys from %s\n", provider.Count(), provider.Path())
+	// Both providers expose Count/Path for startup logging. A sqlite store with no
+	// principals is valid on a fresh install (warn instead of failing).
+	if counter, ok := provider.(interface {
+		Count() int
+		Path() string
+	}); ok {
+		if count := counter.Count(); count == 0 {
+			common.LogWarn("Auth enabled but no principals found in %s - run `centian auth new-key`\n", counter.Path())
+		} else {
+			common.LogInfo("Loaded %d principal(s) from %s\n", count, counter.Path())
+		}
+	}
 	return provider, nil
 }
 

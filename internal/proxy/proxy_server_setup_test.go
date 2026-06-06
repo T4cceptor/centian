@@ -241,6 +241,7 @@ func TestCentianServerSetup_FiltersProjectsByAPIKeyScope(t *testing.T) {
 		Name:        "Test",
 		Version:     "1.0.0",
 		AuthEnabled: &authEnabled,
+		AuthBackend: &config.AuthBackendSettings{Type: "file"},
 		Proxy: &config.ProxySettings{
 			Port:    "9000",
 			Timeout: 10,
@@ -291,6 +292,7 @@ func TestCentianServerSetup_ProjectsAPIAllowAllKeySeesAllProjects(t *testing.T) 
 		Name:        "Test",
 		Version:     "1.0.0",
 		AuthEnabled: &authEnabled,
+		AuthBackend: &config.AuthBackendSettings{Type: "file"},
 		Proxy: &config.ProxySettings{
 			Port:    "9000",
 			Timeout: 10,
