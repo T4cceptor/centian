@@ -552,6 +552,46 @@ describe("event list", () => {
     });
   });
 
+  it("filters activity by principal from the dropdown", async () => {
+    const user = userEvent.setup();
+    const activityBody = {
+      rangeStartUnixMilli: 1000,
+      rangeEndUnixMilli: 3_600_000,
+      stats: {
+        interventions: 0,
+        threatsNeutralized: 0,
+        piiRedacted: 0,
+        riskyActionsHeld: 0,
+        requestsInspected: 0,
+      },
+      categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+      volume: [],
+      interventions: [],
+    };
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/principals")) {
+        return Promise.resolve(createFetchResponse({ principals: [{ id: "alice", displayName: "Alice" }] }));
+      }
+      return Promise.resolve(createFetchResponse(activityBody));
+    }) as typeof fetch;
+
+    renderApp(["/default/activity"]);
+    await screen.findByRole("heading", { name: "Activity Timeline" });
+
+    // The principal dropdown is populated from the windowed principals fetch.
+    const select = await screen.findByRole("combobox");
+    await screen.findByRole("option", { name: "Alice" });
+    await user.selectOptions(select, "alice");
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/api\/default\/activity\?range=6h&principal=alice$/),
+        expect.anything(),
+      );
+    });
+  });
+
   it("renders the events route and primary nav", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(

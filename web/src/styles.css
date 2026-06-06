@@ -2959,6 +2959,47 @@ code,
   color: var(--text-muted);
 }
 
+/* Principal filter dropdown */
+.activity__principal {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.activity__principal-label {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.activity__principal select {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(8, 20, 31, 0.6);
+  color: var(--text);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  padding: 6px 10px;
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.activity__principal select:focus {
+  outline: none;
+  border-color: var(--border-2);
+}
+
+.activity__hint {
+  margin: 0;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 /* Skyline chart */
 .activity__chart {
   position: relative;
@@ -3000,6 +3041,17 @@ code,
 .activity-skyline__grid {
   stroke: rgba(94, 234, 212, 0.06);
   stroke-width: 1;
+}
+
+.activity-skyline__surface {
+  cursor: crosshair;
+}
+
+.activity-skyline__select {
+  fill: rgba(94, 234, 212, 0.14);
+  stroke: rgba(94, 234, 212, 0.5);
+  stroke-width: 1;
+  pointer-events: none;
 }
 
 .activity-skyline__tick {

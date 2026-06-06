@@ -10,6 +10,7 @@ import {
   interventionCategories,
   isActivityRange,
 } from "../api/activity";
+import { type PrincipalRef, fetchPrincipals } from "../api/principals";
 import { ApiError, normalizeProjectSlug } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { CategoryIcon } from "./category-icon";
@@ -64,11 +65,36 @@ export function ActivityPage() {
   const [customEnd, setCustomEnd] = useState<string>("");
   const [customError, setCustomError] = useState<string>("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [principal, setPrincipal] = useState<string>("");
+  const [principals, setPrincipals] = useState<PrincipalRef[]>([]);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const timeframeRef = useRef<HTMLDivElement>(null);
+  // Stack of prior queries so double-clicking the chart can zoom back out.
+  const historyRef = useRef<ActivityQuery[]>([]);
 
   const activeKey = queryKey(query);
+
+  // Replace the active query, remembering the previous one for zoom-out.
+  const pushQuery = (next: ActivityQuery) => {
+    historyRef.current.push(query);
+    setQuery(next);
+  };
+
+  // Set a query without remembering history (preset/custom switches start fresh).
+  const resetQuery = (next: ActivityQuery) => {
+    historyRef.current = [];
+    setQuery(next);
+  };
+
+  const handleZoom = (startUnixMilli: number, endUnixMilli: number) => {
+    pushQuery({ kind: "custom", startUnixMilli, endUnixMilli });
+  };
+
+  const handleZoomOut = () => {
+    const previous = historyRef.current.pop();
+    setQuery(previous ?? DEFAULT_QUERY);
+  };
 
   // Close the timeframe popover on outside click or Escape.
   useEffect(() => {
@@ -99,7 +125,7 @@ export function ActivityPage() {
     setErrorMessage("");
     setPinnedId(null);
 
-    void fetchActivitySummary(projectSlug, query, controller.signal)
+    void fetchActivitySummary(projectSlug, query, principal || undefined, controller.signal)
       .then((result) => {
         setSummary(result);
         setLoadState("ready");
@@ -127,7 +153,31 @@ export function ActivityPage() {
     return () => controller.abort();
     // activeKey captures the meaningful contents of `query`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectSlug, activeKey, reloadToken]);
+  }, [projectSlug, activeKey, principal, reloadToken]);
+
+  // Populate the principal dropdown with principals seen in the resolved window.
+  // Runs on window change only (not on principal selection) so the list stays full.
+  useEffect(() => {
+    if (!summary) {
+      return;
+    }
+    const controller = new AbortController();
+    void fetchPrincipals(
+      projectSlug,
+      { start: summary.rangeStartUnixMilli, end: summary.rangeEndUnixMilli },
+      controller.signal,
+    )
+      .then((result) => {
+        setPrincipals(result);
+        // Drop the selected principal if it is absent from the new window.
+        setPrincipal((current) => (current && !result.some((p) => p.id === current) ? "" : current));
+      })
+      .catch(() => {
+        /* principals are a best-effort affordance; ignore failures */
+      });
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSlug, summary?.rangeStartUnixMilli, summary?.rangeEndUnixMilli]);
 
   const applyCustomRange = () => {
     const startMs = customStart ? new Date(customStart).getTime() : NaN;
@@ -142,7 +192,7 @@ export function ActivityPage() {
     }
     setCustomError("");
     setPickerOpen(false);
-    setQuery({ kind: "custom", startUnixMilli: startMs, endUnixMilli: endMs });
+    resetQuery({ kind: "custom", startUnixMilli: startMs, endUnixMilli: endMs });
   };
 
   if (loadState === "loading") {
@@ -200,7 +250,7 @@ export function ActivityPage() {
                 }
                 onClick={() => {
                   setPickerOpen(false);
-                  setQuery({ kind: "preset", range: option });
+                  resetQuery({ kind: "preset", range: option });
                 }}
               >
                 {option}
@@ -275,12 +325,30 @@ export function ActivityPage() {
             {categoryLabels[category]} {summary.categoryCounts[category]}
           </span>
         ))}
-        <span className="activity__legend-caption">marker height = severity · hover a marker, click to pin</span>
+        <label className="activity__principal">
+          <span className="activity__principal-label">Principal</span>
+          <select value={principal} onChange={(event) => setPrincipal(event.target.value)}>
+            <option value="">All principals</option>
+            {principals.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
+
+      <p className="activity__hint">marker height = severity · hover to inspect, click to pin · drag to zoom, double-click to zoom out</p>
 
       <div className="activity__chart">
         <span className="activity__chart-axis">↑ INTERVENTIONS</span>
-        <InterventionSkyline summary={summary} pinnedId={pinnedId ?? undefined} onPin={setPinnedId} />
+        <InterventionSkyline
+          summary={summary}
+          pinnedId={pinnedId ?? undefined}
+          onPin={setPinnedId}
+          onZoom={handleZoom}
+          onZoomOut={handleZoomOut}
+        />
         <span className="activity__chart-axis activity__chart-axis--bottom">↓ request volume</span>
         {hasInterventions ? null : (
           <p className="activity__empty">No interventions in this window. Centian stayed on the baseline.</p>

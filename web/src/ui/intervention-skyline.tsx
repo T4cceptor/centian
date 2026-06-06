@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { type ActivitySummary, type Intervention, categoryLabels } from "../api/activity";
 import { CategoryIcon } from "./category-icon";
@@ -8,7 +8,12 @@ type InterventionSkylineProps = {
   summary: ActivitySummary;
   pinnedId?: string;
   onPin: (id: string | null) => void;
+  onZoom: (startUnixMilli: number, endUnixMilli: number) => void;
+  onZoomOut: () => void;
 };
+
+// Minimum horizontal drag (in viewBox units) that counts as a zoom rather than a click.
+const MIN_DRAG_VBX = 8;
 
 // Plot geometry (SVG user units). The component scales to its container via the
 // viewBox, so these are just an internal coordinate system.
@@ -26,6 +31,13 @@ function markerTopY(severity: number): number {
   return Math.max(MARKER_MIN_TOP, BASELINE_Y - severity * MARKER_MAX);
 }
 
+// viewBoxXToTime inverts the time→x plot mapping: a viewBox x-coordinate within the
+// plot maps back to a timestamp in [start, end]. Exported for unit testing the zoom.
+export function viewBoxXToTime(start: number, end: number, vbX: number): number {
+  const clamped = Math.min(PLOT_RIGHT, Math.max(PLOT_LEFT, vbX));
+  return start + ((clamped - PLOT_LEFT) / (PLOT_RIGHT - PLOT_LEFT)) * (end - start);
+}
+
 // Whole-hour gridline positions within the window.
 function hourTicks(start: number, end: number): number[] {
   const ticks: number[] = [];
@@ -40,9 +52,12 @@ function hourTicks(start: number, end: number): number[] {
   return ticks;
 }
 
-export function InterventionSkyline({ summary, pinnedId, onPin }: InterventionSkylineProps) {
+export function InterventionSkyline({ summary, pinnedId, onPin, onZoom, onZoomOut }: InterventionSkylineProps) {
   const { rangeStartUnixMilli: start, rangeEndUnixMilli: end } = summary;
   const [hoveredId, setHoveredId] = useState<string>();
+  const svgRef = useRef<SVGSVGElement>(null);
+  // Drag selection in viewBox x-units; null when not dragging.
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
 
   // Pinned selection wins; otherwise the currently hovered/focused marker shows.
   const activeId = pinnedId ?? hoveredId;
@@ -85,15 +100,65 @@ export function InterventionSkyline({ summary, pinnedId, onPin }: InterventionSk
     [summary.interventions, activeId],
   );
 
+  // Convert a pointer's client X into a clamped viewBox x-coordinate. The SVG fills
+  // the container width, so the horizontal ratio maps directly onto the viewBox.
+  const clientToVbX = (clientX: number): number => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) {
+      return PLOT_LEFT;
+    }
+    const vbX = ((clientX - rect.left) / rect.width) * VIEW_W;
+    return Math.min(PLOT_RIGHT, Math.max(PLOT_LEFT, vbX));
+  };
+
+  // Invert xFor: viewBox x → timestamp.
+  const timeForVbX = (vbX: number): number => viewBoxXToTime(start, end, vbX);
+
+  const handlePointerDown = (event: ReactPointerEvent<SVGRectElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const vbX = clientToVbX(event.clientX);
+    setDrag({ from: vbX, to: vbX });
+  };
+
+  const handlePointerMove = (event: ReactPointerEvent<SVGRectElement>) => {
+    if (!drag) {
+      return;
+    }
+    setDrag({ from: drag.from, to: clientToVbX(event.clientX) });
+  };
+
+  const handlePointerUp = (event: ReactPointerEvent<SVGRectElement>) => {
+    if (!drag) {
+      return;
+    }
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    const { from, to } = drag;
+    setDrag(null);
+    if (Math.abs(to - from) < MIN_DRAG_VBX) {
+      return; // treat as a click, not a zoom
+    }
+    const t0 = timeForVbX(Math.min(from, to));
+    const t1 = timeForVbX(Math.max(from, to));
+    if (t1 - t0 >= 1000) {
+      onZoom(Math.round(t0), Math.round(t1));
+    }
+  };
+
+  const selectLeft = drag ? Math.min(drag.from, drag.to) : 0;
+  const selectWidth = drag ? Math.abs(drag.to - drag.from) : 0;
+
   return (
     <div className="activity-skyline" onMouseLeave={() => setHoveredId(undefined)}>
       <svg
+        ref={svgRef}
         className="activity-skyline__svg"
         width="100%"
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         preserveAspectRatio="xMidYMid meet"
         role="group"
         aria-label="Intervention skyline"
+        onDoubleClick={onZoomOut}
       >
         {/* Baseline */}
         <line x1={PLOT_LEFT} y1={BASELINE_Y} x2={PLOT_RIGHT} y2={BASELINE_Y} className="activity-skyline__baseline" />
@@ -113,6 +178,24 @@ export function InterventionSkyline({ summary, pinnedId, onPin }: InterventionSk
             </g>
           );
         })}
+
+        {/* Drag surface for zoom selection (below markers so they stay clickable) */}
+        <rect
+          className="activity-skyline__surface"
+          x={PLOT_LEFT}
+          y={28}
+          width={PLOT_RIGHT - PLOT_LEFT}
+          height={BASELINE_Y - 28}
+          fill="transparent"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        />
+
+        {/* Active drag selection */}
+        {drag && selectWidth > 0 ? (
+          <rect className="activity-skyline__select" x={selectLeft} y={28} width={selectWidth} height={BASELINE_Y - 28} />
+        ) : null}
 
         {/* Intervention markers */}
         {summary.interventions.map((item) => (

@@ -74,24 +74,28 @@ export type ActivityQuery =
   | { kind: "preset"; range: ActivityRange }
   | { kind: "custom"; startUnixMilli: number; endUnixMilli: number };
 
-function buildActivityQuery(query: ActivityQuery): string {
+function buildActivityQuery(query: ActivityQuery, principal?: string): string {
+  const params = new URLSearchParams();
   if (query.kind === "custom") {
-    const params = new URLSearchParams({
-      start: String(query.startUnixMilli),
-      end: String(query.endUnixMilli),
-    });
-    return `?${params.toString()}`;
+    params.set("start", String(query.startUnixMilli));
+    params.set("end", String(query.endUnixMilli));
+  } else {
+    params.set("range", query.range);
   }
-  return `?range=${encodeURIComponent(query.range)}`;
+  if (principal) {
+    params.set("principal", principal);
+  }
+  return `?${params.toString()}`;
 }
 
 export async function fetchActivitySummary(
   projectSlug: string | undefined,
   query: ActivityQuery,
+  principal?: string,
   signal?: AbortSignal,
 ): Promise<ActivitySummary> {
   const summary = await requestJSON<ActivitySummary>(
-    `${projectApiPath(projectSlug, "/activity")}${buildActivityQuery(query)}`,
+    `${projectApiPath(projectSlug, "/activity")}${buildActivityQuery(query, principal)}`,
     signal,
   );
   return {

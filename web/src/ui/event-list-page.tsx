@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Eye, ListChecks, ScrollText, SearchCheck, Shield
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { type EventListFilters, type EventListItem, fetchEvents } from "../api/events";
+import { type PrincipalRef, fetchPrincipals } from "../api/principals";
 import { ApiError, normalizeProjectSlug, type ProcessorAnnotation } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatTimestampCompact, humanizeIdentifier, humanizePhase } from "./format";
@@ -39,6 +40,7 @@ type FilterFormState = {
   withGovernanceEvent: boolean;
   requestId: string;
   sessionId: string;
+  principal: string;
 };
 
 const defaultFilterForm: FilterFormState = {
@@ -51,6 +53,7 @@ const defaultFilterForm: FilterFormState = {
   withGovernanceEvent: false,
   requestId: "",
   sessionId: "",
+  principal: "",
 };
 
 const eventColumns: Array<{ key: EventSortColumn; label: string; compact?: boolean }> = [
@@ -78,6 +81,18 @@ export function EventListPage() {
   const [loadMoreToken, setLoadMoreToken] = useState(0);
   const [loadMoreErrorMessage, setLoadMoreErrorMessage] = useState("");
   const [sortState, setSortState] = useState<EventSortState>({ column: "time", direction: "desc" });
+  const [principals, setPrincipals] = useState<PrincipalRef[]>([]);
+
+  // Load the principal options (all-time) for the filter dropdown.
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchPrincipals(projectSlug, {}, controller.signal)
+      .then(setPrincipals)
+      .catch(() => {
+        /* principals are a best-effort affordance; ignore failures */
+      });
+    return () => controller.abort();
+  }, [projectSlug]);
 
   const filters = eventFiltersFromSearchParams(searchParams);
   const baseFilters = eventBaseFilters(filters);
@@ -96,6 +111,7 @@ export function EventListPage() {
       withGovernanceEvent: filters.withGovernanceEvent === true,
       requestId: filters.requestId ?? "",
       sessionId: filters.sessionId ?? "",
+      principal: filters.principal ?? "",
     });
   }, [
     filters.direction,
@@ -107,6 +123,7 @@ export function EventListPage() {
     filters.success,
     filters.tool,
     filters.withGovernanceEvent,
+    filters.principal,
   ]);
 
   useEffect(() => {
@@ -138,7 +155,7 @@ export function EventListPage() {
       });
 
     return () => controller.abort();
-  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, projectSlug, reloadToken]);
+  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, baseFilters.principal, projectSlug, reloadToken]);
 
   useEffect(() => {
     if (loadState !== "ready" || !filters.cursor) {
@@ -171,7 +188,7 @@ export function EventListPage() {
       });
 
     return () => controller.abort();
-  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, filters.cursor, loadMoreToken, projectSlug, loadState]);
+  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, baseFilters.principal, filters.cursor, loadMoreToken, projectSlug, loadState]);
 
   useEffect(() => {
     if (loadState !== "ready" || filters.cursor) {
@@ -214,7 +231,7 @@ export function EventListPage() {
       window.clearInterval(timer);
       controller?.abort();
     };
-  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, filters.cursor, loadState, projectSlug]);
+  }, [baseFilters.direction, baseFilters.gateway, baseFilters.limit, baseFilters.messageType, baseFilters.requestId, baseFilters.server, baseFilters.sessionId, baseFilters.success, baseFilters.tool, baseFilters.withGovernanceEvent, baseFilters.principal, filters.cursor, loadState, projectSlug]);
 
   if (loadState === "loading") {
     return (
@@ -282,6 +299,7 @@ export function EventListPage() {
             setBooleanOrDelete(next, "withGovernanceEvent", filterForm.withGovernanceEvent);
             setOrDelete(next, "requestId", filterForm.requestId);
             setOrDelete(next, "sessionId", filterForm.sessionId);
+            setOrDelete(next, "principal", filterForm.principal);
             next.delete("cursor");
             setSearchParams(next);
           }}
@@ -363,6 +381,20 @@ export function EventListPage() {
               value={filterForm.sessionId}
               onChange={(event) => setFilterForm((current) => ({ ...current, sessionId: event.target.value }))}
             />
+          </label>
+          <label className="event-filter-field">
+            <span>Principal</span>
+            <select
+              value={filterForm.principal}
+              onChange={(event) => setFilterForm((current) => ({ ...current, principal: event.target.value }))}
+            >
+              <option value="">All principals</option>
+              {principals.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.displayName}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="event-filter-actions">
             <button type="submit" className="event-pagination__button">
@@ -932,6 +964,7 @@ function eventFiltersFromSearchParams(searchParams: URLSearchParams): EventListF
     withGovernanceEvent: searchParams.get("withGovernanceEvent")?.trim() === "true" || undefined,
     requestId: searchParams.get("requestId")?.trim() || undefined,
     sessionId: searchParams.get("sessionId")?.trim() || undefined,
+    principal: searchParams.get("principal")?.trim() || undefined,
     cursor: searchParams.get("cursor")?.trim() || undefined,
     limit: rawLimit && Number(rawLimit) > 0 ? Number(rawLimit) : undefined,
   };
@@ -948,6 +981,7 @@ function buildActiveFilterChips(filters: EventListFilters): Array<{ key: string;
   if (filters.withGovernanceEvent) chips.push({ key: "withGovernanceEvent", label: "With governance event" });
   if (filters.requestId) chips.push({ key: "requestId", label: `Request: ${filters.requestId}` });
   if (filters.sessionId) chips.push({ key: "sessionId", label: `Session: ${filters.sessionId}` });
+  if (filters.principal) chips.push({ key: "principal", label: `Principal: ${filters.principal}` });
   return chips;
 }
 
