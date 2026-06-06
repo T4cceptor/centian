@@ -40,3 +40,34 @@ func TestMCPServerConfigGetTransport(t *testing.T) {
 		assert.Equal(t, cfg.GetTransport(), common.UnknownTransport)
 	})
 }
+
+func TestGetAuthBackend(t *testing.T) {
+	t.Run("returns empty values when unset", func(t *testing.T) {
+		// Given: a config without an auth backend block
+		cfg := &GlobalConfig{}
+		// When: reading the backend
+		bt, store := cfg.GetAuthBackend()
+		// Then: both are empty (callers resolve defaults)
+		assert.Equal(t, bt, "")
+		assert.Equal(t, store, "")
+	})
+
+	t.Run("returns configured values", func(t *testing.T) {
+		// Given: a config with an explicit auth backend block
+		cfg := &GlobalConfig{AuthBackend: &AuthBackendSettings{Type: "file", Store: "/tmp/keys.json"}}
+		// When: reading the backend
+		bt, store := cfg.GetAuthBackend()
+		// Then: the configured values are returned verbatim
+		assert.Equal(t, bt, "file")
+		assert.Equal(t, store, "/tmp/keys.json")
+	})
+
+	t.Run("nil receiver is safe", func(t *testing.T) {
+		// Given: a nil config
+		var cfg *GlobalConfig
+		// When/Then: reading the backend does not panic and yields empties
+		bt, store := cfg.GetAuthBackend()
+		assert.Equal(t, bt, "")
+		assert.Equal(t, store, "")
+	})
+}

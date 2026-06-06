@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/config"
 	"github.com/urfave/cli/v3"
 )
 
@@ -42,8 +43,15 @@ var AuthNewKeyCommand = &cli.Command{
 	Usage: "centian auth new-key",
 	Description: `Generate a new API key for the HTTP proxy.
 
-The key is printed once to the console, then hashed with bcrypt and stored in:
-  ~/.centian/api_keys.json
+The key is printed once to the console, then hashed with bcrypt and stored in the
+auth backend defined by your Centian config (the global "authBackend" block).
+By default this is the principals SQLite database:
+  ~/.centian/principals.sqlite
+
+Use --config to point at a specific config file; its authBackend decides where the
+key is stored, keeping this command in sync with the server that reads it. When
+omitted, the default config (~/.centian/config.json) is used, falling back to the
+sqlite default if no config exists yet.
 
 Use --projects to restrict the key to specific projects (comma-separated slugs).
 Omit the flag to allow all projects.
@@ -59,73 +67,90 @@ Use --name to label the key's principal. If omitted, you are prompted for one.
 			Name:  "name",
 			Usage: "Human-friendly name for this key's principal (prompted if omitted)",
 		},
+		&cli.StringFlag{
+			Name:  "config",
+			Usage: "Path to a Centian config whose authBackend selects where the key is stored (defaults to ~/.centian/config.json)",
+		},
 	},
 	Action: handleAuthNewKeyCommand,
 }
 
 // handleAuthNewKeyCommand generates and stores a new API key.
-func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
-	path, err := auth.DefaultAPIKeysPath()
-	if err != nil {
-		return fmt.Errorf("failed to resolve api key path: %w", err)
-	}
-
+func handleAuthNewKeyCommand(ctx context.Context, cmd *cli.Command) error {
 	name := strings.TrimSpace(cmd.String("name"))
 	if name == "" {
+		var err error
 		name, err = promptLine(os.Stdin, os.Stdout, "Enter a name for this key (optional): ")
 		if err != nil {
 			return err
 		}
 	}
 
-	gen, err := auth.GenerateAPIKey()
+	backendType, store, err := resolveNewKeyBackend(cmd)
+	if err != nil {
+		return err
+	}
+
+	var projects []string
+	if p := cmd.String("projects"); p != "" {
+		projects = parseCommaSeparated(p)
+	}
+
+	created, err := auth.CreateAPIKey(ctx, backendType, store, auth.CreateAPIKeyParams{
+		Name:     name,
+		Projects: projects,
+	})
 	if err != nil {
 		return err
 	}
 
 	var pErr error
-	_, pErr = fmt.Fprintln(os.Stdout, "New API key (store this now, it won't be shown again):")
-	if pErr != nil {
+	if _, pErr = fmt.Fprintln(os.Stdout, "New API key (store this now, it won't be shown again):"); pErr != nil {
 		return pErr
 	}
-	_, pErr = fmt.Fprintln(os.Stdout, gen.Token)
-	if pErr != nil {
+	if _, pErr = fmt.Fprintln(os.Stdout, created.Token); pErr != nil {
 		return pErr
 	}
-
-	entry, err := auth.NewAPIKeyEntry(gen)
-	if err != nil {
-		return err
-	}
-	entry.Name = name
-
-	if projects := cmd.String("projects"); projects != "" {
-		entry.Projects = parseCommaSeparated(projects)
-	}
-
-	if _, err := auth.AppendAPIKey(path, &entry); err != nil {
-		return err
-	}
-
-	if entry.Name != "" {
-		_, pErr = fmt.Fprintf(os.Stdout, "Name: %s\n", entry.Name)
-		if pErr != nil {
+	if name != "" {
+		if _, pErr = fmt.Fprintf(os.Stdout, "Name: %s\n", name); pErr != nil {
 			return pErr
 		}
 	}
-
-	if len(entry.Projects) > 0 {
-		_, pErr = fmt.Fprintf(os.Stdout, "Projects: %s\n", strings.Join(entry.Projects, ", "))
-		if pErr != nil {
+	if len(projects) > 0 {
+		if _, pErr = fmt.Fprintf(os.Stdout, "Projects: %s\n", strings.Join(projects, ", ")); pErr != nil {
 			return pErr
 		}
 	}
-
-	_, pErr = fmt.Fprintf(os.Stdout, "Stored hashed key in %s\n", path)
-	if pErr != nil {
+	if _, pErr = fmt.Fprintf(os.Stdout, "Stored hashed key in %s (%s backend)\n", created.Store, created.BackendType); pErr != nil {
 		return pErr
 	}
 	return nil
+}
+
+// resolveNewKeyBackend derives the auth backend (type, store) for new-key from a
+// Centian config so the command always writes where the server reads.
+//
+// With --config, the named file's authBackend block is used and load failures are
+// fatal (the operator explicitly pointed at it). Without --config, the default
+// config is used when present; a missing/invalid default config is not fatal so a
+// key can still be minted with backend defaults (sqlite) before `centian init`.
+func resolveNewKeyBackend(cmd *cli.Command) (backendType, store string, err error) {
+	if configPath := strings.TrimSpace(cmd.String("config")); configPath != "" {
+		cfg, loadErr := config.LoadConfigFromPath(configPath)
+		if loadErr != nil {
+			return "", "", fmt.Errorf("failed to load config %q: %w", configPath, loadErr)
+		}
+		backendType, store = cfg.GetAuthBackend()
+		return backendType, store, nil
+	}
+
+	// Best-effort: a missing/invalid default config falls back to backend defaults.
+	cfg, _ := config.LoadConfig()
+	if cfg == nil {
+		return "", "", nil
+	}
+	backendType, store = cfg.GetAuthBackend()
+	return backendType, store, nil
 }
 
 // promptLine writes a label to out and reads a single trimmed line from in.

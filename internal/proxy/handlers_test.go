@@ -37,7 +37,7 @@ func newHandlerTestCallContext() *ToolCallContext {
 			AuthHeaderName: "Authorization",
 			Gateway:        "gateway-a",
 			Headers:        http.Header{"Authorization": []string{"Bearer sk-key_1.secret"}},
-			Principal:      &auth.Principal{ID: "pr_1", CredentialID: "key_1"},
+			Principal:      &auth.Principal{ID: "pr_1", CredentialID: "key_1", DisplayName: "ci bot"},
 		},
 	}
 }
@@ -245,6 +245,9 @@ func TestToolCallContextToLogEntry(t *testing.T) {
 		assert.Equal(t, entry.ToolCall.OriginalName, "tool-current")
 		assert.Equal(t, string(entry.ToolCall.Arguments), `{"k":"v"}`)
 		assert.Equal(t, entry.Routing.ServerName, "server-current")
+		// The resolved principal's human name is captured as metadata so it
+		// survives even if the principal id can no longer be resolved later.
+		assert.Equal(t, entry.Metadata["principal_name"], "ci bot")
 	})
 
 	t.Run("response entry includes tool result and error state", func(t *testing.T) {
