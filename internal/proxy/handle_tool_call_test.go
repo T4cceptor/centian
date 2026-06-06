@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/T4cceptor/centian/internal/auth"
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/logging"
@@ -298,18 +299,19 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	proxy.connectionFactory = func(_ string, _ *config.MCPServerConfig) DownstreamConnectionInterface {
 		return mockDownstream
 	}
-	proxy.server.APIKeys = createTestAPIKeyStore(t)
+	proxy.server.Principals = createTestAPIKeyStore(t)
+	proxy.server.Authorizer = auth.DirectGrantAuthorizer{}
 	proxy.server.AuthHeader = "Authorization"
 	proxy.server.Config = &config.GlobalConfig{Version: "1.0.0"}
 
-	handler := apiKeyMiddlewareWithHeader(proxy.server.APIKeys, proxy.server.AuthHeader, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := principalAuthMiddleware(proxy.server.Principals, proxy.server.Authorizer, proxy.server.AuthHeader, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		server := proxy.GetOrCreateServerForRequest(r)
 		assert.Assert(t, server != nil)
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	request := httptest.NewRequest(http.MethodPost, "http://example.com/mcp/gateway-a/test-server", http.NoBody)
-	request.Header.Set("Authorization", "Bearer plain-key")
+	request.Header.Set("Authorization", "Bearer "+testToken)
 	request.Header.Set("Mcp-Session-Id", "sess-auth")
 	recorder := httptest.NewRecorder()
 
@@ -326,8 +328,8 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	assert.Assert(t, session.authData != nil)
 	assert.Equal(t, session.authData.AuthHeaderName, "Authorization")
 	assert.Equal(t, session.authData.Gateway, "gateway-a")
-	assert.Assert(t, session.authData.KeyEntry != nil)
-	assert.Equal(t, session.authData.KeyEntry.ID, "key_test")
+	assert.Assert(t, session.authData.Principal != nil)
+	assert.Equal(t, session.authData.Principal.CredentialID, "key_test")
 
 	req := &mcp.CallToolRequest{
 		Params: &mcp.CallToolParamsRaw{
@@ -349,8 +351,8 @@ func TestHandleToolCall_ProcessorReceivesAuthContextFromMiddlewareSession(t *tes
 	assert.Equal(t, mockProcessor.lastInput.Auth.AuthHeader, "Authorization")
 	assert.Equal(t, mockProcessor.lastInput.Auth.InternalSessionID, "sess-auth")
 	assert.Equal(t, mockProcessor.lastInput.Auth.TransportSessionID, "sess-auth")
-	assert.Equal(t, mockProcessor.lastInput.Auth.PrincipalID, getPrincipalID("key_test", "gateway-a"))
-	assert.Equal(t, mockProcessor.lastInput.Auth.CredentialFingerprint, getCredentialFingerprint("plain-key"))
+	assert.Equal(t, mockProcessor.lastInput.Auth.PrincipalID, testPrincipalID)
+	assert.Equal(t, mockProcessor.lastInput.Auth.CredentialFingerprint, getCredentialFingerprint(testToken))
 	assert.Equal(t, mockDownstream.CapturedToolName, "test-tool")
 	assert.Equal(t, mockDownstream.CapturedArgs["hello"], "world")
 }

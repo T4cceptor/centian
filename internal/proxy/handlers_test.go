@@ -36,8 +36,8 @@ func newHandlerTestCallContext() *ToolCallContext {
 		authData: &AuthData{
 			AuthHeaderName: "Authorization",
 			Gateway:        "gateway-a",
-			Headers:        http.Header{"Authorization": []string{"Bearer plain-key"}},
-			KeyEntry:       &auth.APIKeyEntry{ID: "key_1"},
+			Headers:        http.Header{"Authorization": []string{"Bearer sk-key_1.secret"}},
+			Principal:      &auth.Principal{ID: "pr_1", CredentialID: "key_1"},
 		},
 	}
 }
@@ -219,7 +219,7 @@ func TestDefaultAuthHandlerAttachPartAndApply(t *testing.T) {
 	err := handler.Apply(callCtx, output)
 	assert.NilError(t, err)
 	assert.Assert(t, callCtx.GetAuthData() != nil)
-	assert.Equal(t, callCtx.GetAuthData().KeyEntry.ID, "key_1")
+	assert.Equal(t, callCtx.GetAuthData().Principal.CredentialID, "key_1")
 }
 
 func TestToolCallContextToLogEntry(t *testing.T) {

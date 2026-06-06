@@ -169,9 +169,9 @@ func (h *DefaultAuthHandler) buildAuthContext(callCtx CallContext) *common.AuthC
 		InternalSessionID: callCtx.GetSessionID(),
 	}
 
-	if authData.KeyEntry != nil {
-		authCtx.KeyID = authData.KeyEntry.ID
-		authCtx.PrincipalID = getPrincipalID(authData.KeyEntry.ID, authData.Gateway)
+	if authData.Principal != nil {
+		authCtx.KeyID = authData.Principal.CredentialID
+		authCtx.PrincipalID = authData.Principal.ID
 	}
 
 	token := ""

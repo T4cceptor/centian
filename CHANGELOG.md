@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Major
+- Introduced a `PrincipalProvider` authentication abstraction and an `Authorizer` authorization seam. Authentication now resolves a token to a first-class `Principal` (with a stable, persisted `pr_` id), and the proxy keys request identity, downstream-pool reuse, and authorization off that principal. The file-based provider (backed by `~/.centian/api_keys.json`) is the only implementation for now; SQL/external providers and RBAC roles are designed as additive follow-ups.
+- Replaced the O(n) bcrypt scan on every authenticated request with an O(1) credential-id lookup plus a single bcrypt verification.
+
+### Breaking changes
+- **API key token format changed** to `sk-<credentialId>.<secret>`, and only the secret is bcrypt-hashed. Existing `api_keys.json` keys are invalidated; regenerate them with `centian auth new-key`. Pre-principal tokens are rejected with a clear "regenerate" error.
+- **Stored key entries gain a persisted `principal_id`** field; keys created before this change must be regenerated to receive one.
+- **Processor `AuthContext.principal_id` changed** from a gateway-scoped `sha256(keyID:gateway)` hex value to the stable, gateway-independent `pr_` principal id (`key_id` remains the credential id).
+- **Persisted downstream OAuth bindings are orphaned on upgrade** because they were keyed on the old `auth:<keyId>` identity; affected downstreams must be re-authorized.
+
 ## v0.4.3 - 2026-06-01
 
 ### Major

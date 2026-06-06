@@ -15,8 +15,11 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -44,11 +47,17 @@ The key is printed once to the console, then hashed with bcrypt and stored in:
 
 Use --projects to restrict the key to specific projects (comma-separated slugs).
 Omit the flag to allow all projects.
+
+Use --name to label the key's principal. If omitted, you are prompted for one.
 `,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "projects",
 			Usage: "Comma-separated list of project slugs this key is allowed to access (empty = all)",
+		},
+		&cli.StringFlag{
+			Name:  "name",
+			Usage: "Human-friendly name for this key's principal (prompted if omitted)",
 		},
 	},
 	Action: handleAuthNewKeyCommand,
@@ -61,7 +70,15 @@ func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("failed to resolve api key path: %w", err)
 	}
 
-	key, err := auth.GenerateAPIKey()
+	name := strings.TrimSpace(cmd.String("name"))
+	if name == "" {
+		name, err = promptLine(os.Stdin, os.Stdout, "Enter a name for this key (optional): ")
+		if err != nil {
+			return err
+		}
+	}
+
+	gen, err := auth.GenerateAPIKey()
 	if err != nil {
 		return err
 	}
@@ -71,15 +88,16 @@ func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
 	if pErr != nil {
 		return pErr
 	}
-	_, pErr = fmt.Fprintln(os.Stdout, key)
+	_, pErr = fmt.Fprintln(os.Stdout, gen.Token)
 	if pErr != nil {
 		return pErr
 	}
 
-	entry, err := auth.NewAPIKeyEntry(key)
+	entry, err := auth.NewAPIKeyEntry(gen)
 	if err != nil {
 		return err
 	}
+	entry.Name = name
 
 	if projects := cmd.String("projects"); projects != "" {
 		entry.Projects = parseCommaSeparated(projects)
@@ -87,6 +105,13 @@ func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
 
 	if _, err := auth.AppendAPIKey(path, &entry); err != nil {
 		return err
+	}
+
+	if entry.Name != "" {
+		_, pErr = fmt.Fprintf(os.Stdout, "Name: %s\n", entry.Name)
+		if pErr != nil {
+			return pErr
+		}
 	}
 
 	if len(entry.Projects) > 0 {
@@ -101,6 +126,20 @@ func handleAuthNewKeyCommand(_ context.Context, cmd *cli.Command) error {
 		return pErr
 	}
 	return nil
+}
+
+// promptLine writes a label to out and reads a single trimmed line from in.
+// An EOF (e.g. non-interactive/piped input with no data) yields an empty string
+// rather than an error, so the name simply remains unset.
+func promptLine(in io.Reader, out io.Writer, label string) (string, error) {
+	if _, err := fmt.Fprint(out, label); err != nil {
+		return "", err
+	}
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
 }
 
 // parseCommaSeparated splits a comma-separated string into trimmed, non-empty parts.

@@ -15,6 +15,15 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/identifiers"
+)
+
+const (
+	// apiKeyTokenPrefix is the stable, human-recognizable prefix on every token.
+	apiKeyTokenPrefix = "sk-"
+	// tokenSeparator splits the public credential id from the secret. It is
+	// outside the base64url alphabet so it cannot appear inside the secret.
+	tokenSeparator = "."
 )
 
 var (
@@ -34,18 +43,48 @@ type APIKeyFile struct {
 }
 
 // APIKeyEntry represents a stored API key hash and metadata.
+//
+// ID is the credential id embedded (public) in the token; Hash is the bcrypt of
+// the token's secret portion only. PrincipalID is the stable principal identity
+// this credential resolves to and must be persisted (never regenerated on load)
+// so downstream pool reuse and OAuth bindings stay stable across restarts.
 type APIKeyEntry struct {
-	ID        string   `json:"id"`
-	Hash      string   `json:"hash"`
-	CreatedAt string   `json:"created_at"`
-	Gateways  []string `json:"gateways,omitempty"`
-	Projects  []string `json:"projects,omitempty"` // Allowed project slugs (empty = allow all, "*" = allow all)
+	ID          string   `json:"id"`
+	Hash        string   `json:"hash"`
+	PrincipalID string   `json:"principal_id,omitempty"`
+	Name        string   `json:"name,omitempty"` // Human-friendly principal name (optional)
+	CreatedAt   string   `json:"created_at"`
+	Gateways    []string `json:"gateways,omitempty"`
+	Projects    []string `json:"projects,omitempty"` // Allowed project slugs (empty = allow all, "*" = allow all)
+}
+
+// toPrincipal maps a stored credential entry to its resolved Principal.
+func (e *APIKeyEntry) toPrincipal() *Principal {
+	if e == nil {
+		return nil
+	}
+	displayName := e.Name
+	if displayName == "" {
+		// Fall back to the credential id when no human-friendly name was provided.
+		displayName = e.ID
+	}
+	return &Principal{
+		ID:           e.PrincipalID,
+		DisplayName:  displayName,
+		CredentialID: e.ID,
+		Gateways:     append([]string(nil), e.Gateways...),
+		Projects:     append([]string(nil), e.Projects...),
+	}
 }
 
 // APIKeyStore stores API keys loaded from disk for quick validation.
+//
+// Deprecated: superseded by the FilePrincipalProvider. Retained until the proxy
+// is fully migrated to PrincipalProvider, then removed.
 type APIKeyStore struct {
 	path    string
 	entries []APIKeyEntry
+	index   map[string]*APIKeyEntry // keyed by credential id for O(1) lookup
 }
 
 // DefaultAPIKeysPath returns the default path to the API keys file (~/.centian/api_keys.json).
@@ -77,69 +116,76 @@ func LoadAPIKeys(path string) (*APIKeyStore, error) {
 		return nil, fmt.Errorf("%w: %s", ErrAPIKeysEmpty, path)
 	}
 
-	for _, entry := range file.Keys {
+	index := make(map[string]*APIKeyEntry, len(file.Keys))
+	for i := range file.Keys {
+		entry := &file.Keys[i]
 		if strings.TrimSpace(entry.Hash) == "" {
 			return nil, fmt.Errorf("%w: empty hash", ErrAPIKeysInvalid)
 		}
+		index[entry.ID] = entry
 	}
 
 	return &APIKeyStore{
 		path:    path,
 		entries: file.Keys,
+		index:   index,
 	}, nil
 }
 
-// Lookup returns the matching API key entry for the provided plaintext key.
+// Lookup returns the matching API key entry for the provided token.
+// It resolves the credential id embedded in the token to a single entry (O(1))
+// and verifies the secret with one bcrypt comparison.
 func (s *APIKeyStore) Lookup(key string) (*APIKeyEntry, bool) {
 	if s == nil {
 		return nil, false
 	}
-	for i := range s.entries {
-		entry := &s.entries[i]
-		if err := bcrypt.CompareHashAndPassword([]byte(entry.Hash), []byte(key)); err == nil {
-			return entry, true
-		}
+	credID, secret, err := parseToken(key)
+	if err != nil {
+		return nil, false
 	}
-	return nil, false
+	entry, ok := s.index[credID]
+	if !ok {
+		return nil, false
+	}
+	if bcrypt.CompareHashAndPassword([]byte(entry.Hash), []byte(secret)) != nil {
+		return nil, false
+	}
+	return entry, true
+}
+
+// parseToken splits a token of the form "sk-<credId>.<secret>" into its parts.
+// Tokens without the embedded credential id (the pre-principal format) are
+// rejected with ErrLegacyTokenFormat.
+func parseToken(token string) (credID, secret string, err error) {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(token), apiKeyTokenPrefix)
+	sepIndex := strings.Index(trimmed, tokenSeparator)
+	if sepIndex < 0 {
+		return "", "", ErrLegacyTokenFormat
+	}
+	credID = trimmed[:sepIndex]
+	secret = trimmed[sepIndex+len(tokenSeparator):]
+	if credID == "" || secret == "" {
+		return "", "", ErrLegacyTokenFormat
+	}
+	return credID, secret, nil
 }
 
 // AllowsGateway checks whether this key is allowed to access the given gateway.
-//
-// Backward compatibility:
-// - Empty Gateway lists are treated as allow-all.
-// - "*" is treated as allow-all.
+// Empty list or "*" means allow-all (see allowMatch).
 func (e *APIKeyEntry) AllowsGateway(gateway string) bool {
 	if e == nil {
 		return false
 	}
-	if len(e.Gateways) == 0 {
-		return true
-	}
-	for _, gw := range e.Gateways {
-		if gw == "*" || strings.EqualFold(strings.TrimSpace(gw), strings.TrimSpace(gateway)) {
-			return true
-		}
-	}
-	return false
+	return allowMatch(e.Gateways, gateway)
 }
 
 // AllowsProject checks whether this key is allowed to access the given project.
-//
-// - Empty Projects list is treated as allow-all.
-// - "*" is treated as allow-all.
+// Empty list or "*" means allow-all (see allowMatch).
 func (e *APIKeyEntry) AllowsProject(project string) bool {
 	if e == nil {
 		return false
 	}
-	if len(e.Projects) == 0 {
-		return true
-	}
-	for _, p := range e.Projects {
-		if p == "*" || strings.EqualFold(strings.TrimSpace(p), strings.TrimSpace(project)) {
-			return true
-		}
-	}
-	return false
+	return allowMatch(e.Projects, project)
 }
 
 // Validate returns true if the provided API key exists in the store.
@@ -220,33 +266,49 @@ func AppendAPIKey(path string, entry *APIKeyEntry) (*APIKeyFile, error) {
 	return file, nil
 }
 
-// GenerateAPIKey creates a new API key string with a stable prefix.
-func GenerateAPIKey() (string, error) {
-	tokenBytes := make([]byte, 32)
-	if _, err := rand.Read(tokenBytes); err != nil {
-		return "", fmt.Errorf("failed to generate api key: %w", err)
-	}
-	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
-	return "sk-" + token, nil
+// GeneratedKey holds the material produced when minting a new API key. Only the
+// Token is shown to the user (once); CredID and Secret are used to build the
+// stored entry (the credential id is public, the secret is bcrypt-hashed).
+type GeneratedKey struct {
+	Token  string
+	CredID string
+	Secret string
 }
 
-// NewAPIKeyEntry hashes a plaintext API key and returns a stored entry.
-func NewAPIKeyEntry(plainKey string) (APIKeyEntry, error) {
-	if strings.TrimSpace(plainKey) == "" {
-		return APIKeyEntry{}, fmt.Errorf("%w: empty api key", ErrAPIKeysInvalid)
+// GenerateAPIKey mints a new API key token of the form "sk-<credId>.<secret>".
+func GenerateAPIKey() (GeneratedKey, error) {
+	credID, err := generateKeyID()
+	if err != nil {
+		return GeneratedKey{}, err
 	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(plainKey), bcrypt.DefaultCost)
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return GeneratedKey{}, fmt.Errorf("failed to generate api key: %w", err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
+	return GeneratedKey{
+		Token:  apiKeyTokenPrefix + credID + tokenSeparator + secret,
+		CredID: credID,
+		Secret: secret,
+	}, nil
+}
+
+// NewAPIKeyEntry builds a stored entry from generated key material. The secret
+// (not the whole token) is bcrypt-hashed, and a fresh persisted principal id is
+// assigned so the credential resolves to a stable principal across restarts.
+func NewAPIKeyEntry(gen GeneratedKey) (APIKeyEntry, error) {
+	if strings.TrimSpace(gen.Secret) == "" || strings.TrimSpace(gen.CredID) == "" {
+		return APIKeyEntry{}, fmt.Errorf("%w: empty api key material", ErrAPIKeysInvalid)
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(gen.Secret), bcrypt.DefaultCost)
 	if err != nil {
 		return APIKeyEntry{}, fmt.Errorf("failed to hash api key: %w", err)
 	}
-	id, err := generateKeyID()
-	if err != nil {
-		return APIKeyEntry{}, err
-	}
 	return APIKeyEntry{
-		ID:        id,
-		Hash:      string(hash),
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		ID:          gen.CredID,
+		Hash:        string(hash),
+		PrincipalID: identifiers.New(identifiers.KindPrincipal),
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 

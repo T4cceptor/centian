@@ -24,6 +24,7 @@ func TestNewGeneratesCanonicalIDsForAllKinds(t *testing.T) {
 		KindSession,
 		KindServer,
 		KindOAuthPending,
+		KindPrincipal,
 	}
 
 	for _, kind := range kinds {

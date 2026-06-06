@@ -16,7 +16,8 @@ type AuthData struct {
 	Project        string
 	Gateway        string
 	Headers        http.Header
-	KeyEntry       *auth.APIKeyEntry
+	Principal      *auth.Principal
+	CredentialID   string
 }
 
 // Clone creates a deep copy of AuthData to ensure immutability when attached to contexts.
@@ -28,23 +29,13 @@ func (a *AuthData) Clone() *AuthData {
 	if a.Headers != nil {
 		headersCopy = a.Headers.Clone()
 	}
-	var keyEntryCopy *auth.APIKeyEntry
-	if a.KeyEntry != nil {
-		entry := *a.KeyEntry
-		if entry.Gateways != nil {
-			entry.Gateways = append([]string(nil), entry.Gateways...)
-		}
-		if entry.Projects != nil {
-			entry.Projects = append([]string(nil), entry.Projects...)
-		}
-		keyEntryCopy = &entry
-	}
 	return &AuthData{
 		AuthHeaderName: a.AuthHeaderName,
 		Project:        a.Project,
 		Gateway:        a.Gateway,
 		Headers:        headersCopy,
-		KeyEntry:       keyEntryCopy,
+		Principal:      a.Principal.Clone(),
+		CredentialID:   a.CredentialID,
 	}
 }
 

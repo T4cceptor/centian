@@ -326,14 +326,15 @@ func applyQuickstartConfig(cfg *config.GlobalConfig) {
 
 // createDefaultAPIKey generates and persists one default API key for a fresh setup.
 func createDefaultAPIKey() (string, error) {
-	key, err := auth.GenerateAPIKey()
+	gen, err := auth.GenerateAPIKey()
 	if err != nil {
 		return "", fmt.Errorf("failed to generate api key: %w", err)
 	}
-	entry, err := auth.NewAPIKeyEntry(key)
+	entry, err := auth.NewAPIKeyEntry(gen)
 	if err != nil {
 		return "", fmt.Errorf("failed to create api key entry: %w", err)
 	}
+	entry.Name = "default"
 	path, err := auth.DefaultAPIKeysPath()
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve api key path: %w", err)
@@ -341,7 +342,7 @@ func createDefaultAPIKey() (string, error) {
 	if _, err := auth.AppendAPIKey(path, &entry); err != nil {
 		return "", fmt.Errorf("failed to persist api key: %w", err)
 	}
-	return key, nil
+	return gen.Token, nil
 }
 
 // handleQuickstart finalizes quickstart setup and prints ready-to-paste client snippets.

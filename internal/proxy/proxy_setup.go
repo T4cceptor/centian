@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -76,9 +77,13 @@ func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options Cent
 		return nil, fmt.Errorf("failed to create base logger: %w", err)
 	}
 
-	apiKeyStore, err := loadAPIKeyStore(globalConfig)
+	principals, err := loadPrincipalProvider(globalConfig)
 	if err != nil {
 		return nil, err
+	}
+	var authorizer centauth.Authorizer
+	if principals != nil {
+		authorizer = centauth.DirectGrantAuthorizer{}
 	}
 
 	workingDir, err := os.Getwd()
@@ -87,13 +92,14 @@ func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options Cent
 	}
 
 	centianServer := &CentianServer{
-		Config:   globalConfig,
-		Mux:      mux,
-		Server:   server,
-		Logger:   logger,
-		ServerID: getServerID(),
-		Projects: make(map[string]*CentianProject),
-		APIKeys:  apiKeyStore,
+		Config:     globalConfig,
+		Mux:        mux,
+		Server:     server,
+		Logger:     logger,
+		ServerID:   getServerID(),
+		Projects:   make(map[string]*CentianProject),
+		Principals: principals,
+		Authorizer: authorizer,
 		// AuthHeader is set per-project now, but keep a default for global middleware.
 		AuthHeader: config.DefaultAuthHeader,
 		// Legacy fields - will be populated from the default project below.
@@ -269,7 +275,7 @@ func resolveProjectLogDir(projectSlug string) (string, error) {
 	return filepath.Join(configDir, "projects", projectSlug, "logs"), nil
 }
 
-func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, error) {
+func loadPrincipalProvider(globalConfig *config.GlobalConfig) (centauth.PrincipalProvider, error) {
 	// Check if any project has auth enabled.
 	anyAuthEnabled := false
 	if len(globalConfig.Projects) > 0 {
@@ -286,23 +292,22 @@ func loadAPIKeyStore(globalConfig *config.GlobalConfig) (*centauth.APIKeyStore, 
 
 	if !anyAuthEnabled {
 		common.LogInfo("API key auth disabled via config\n")
-		//nolint:nilnil // nil store is the sentinel that downstream auth middleware is disabled.
+		//nolint:nilnil // nil provider is the sentinel that downstream auth middleware is disabled.
 		return nil, nil
 	}
 
-	apiKeyStore, err := centauth.LoadDefaultAPIKeys()
+	provider, err := centauth.DefaultFilePrincipalProvider()
 	if err != nil {
+		return nil, fmt.Errorf("failed to resolve api key path: %w", err)
+	}
+	if err := provider.Setup(context.Background()); err != nil {
 		if errors.Is(err, centauth.ErrAPIKeysNotFound) {
 			return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
 		}
 		return nil, fmt.Errorf("failed to load api keys: %w", err)
 	}
-	if apiKeyStore.Count() == 0 {
-		common.LogWarn("Auth enabled but no API keys available from %s\n", apiKeyStore.Path())
-	} else {
-		common.LogInfo("Loaded %d API keys from %s\n", apiKeyStore.Count(), apiKeyStore.Path())
-	}
-	return apiKeyStore, nil
+	common.LogInfo("Loaded %d API keys from %s\n", provider.Count(), provider.Path())
+	return provider, nil
 }
 
 type noopCloser struct{}
@@ -430,10 +435,10 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 
 	centapi.NewProjectsHandler(c.projectSummaries()).WithFilter(func(r *http.Request, project centapi.ProjectSummary) bool {
 		authData := getAuthData(r.Context())
-		if authData == nil || authData.KeyEntry == nil {
+		if authData == nil || authData.Principal == nil || c.Authorizer == nil {
 			return true
 		}
-		return authData.KeyEntry.AllowsProject(project.Slug)
+		return c.Authorizer.Authorize(r.Context(), authData.Principal, centauth.ActionAccess, centauth.ProjectResource(project.Slug)) == nil
 	}).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 		return wrapWithAPIKeyAuth(c, "", next)
 	})
@@ -521,6 +526,13 @@ func (c *CentianServer) Close() []error {
 	}
 
 	errs := make([]error, 0)
+
+	// Close the principal provider (releases any backend resources).
+	if c.Principals != nil {
+		if err := c.Principals.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 
 	// Close project-scoped resources.
 	for _, project := range c.Projects {

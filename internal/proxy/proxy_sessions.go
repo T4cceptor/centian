@@ -108,12 +108,12 @@ func (p *CentianEndpoint) createUpstreamSession(id string, r *http.Request, iden
 
 // resolveIdentityKey maps a request to the pool identity used for downstream reuse decisions.
 func (p *CentianEndpoint) resolveIdentityKey(r *http.Request) (string, error) {
-	if p.server == nil || p.server.APIKeys == nil {
+	if p.server == nil || p.server.Principals == nil {
 		return sharedLocalIdentity, nil
 	}
 	identity, ok := requestIdentityFromContext(r.Context())
 	if !ok {
-		return "", fmt.Errorf("authenticated request missing resolved API key identity")
+		return "", fmt.Errorf("authenticated request missing resolved principal identity")
 	}
 	return identity, nil
 }
