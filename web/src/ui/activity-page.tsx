@@ -4,11 +4,14 @@ import { useParams, useSearchParams } from "react-router-dom";
 import {
   type ActivityQuery,
   type ActivitySummary,
+  LIVE_REFRESH_MS,
   activityRanges,
   categoryLabels,
   fetchActivitySummary,
   interventionCategories,
   isActivityRange,
+  rangeDurationsMs,
+  rangeLabels,
 } from "../api/activity";
 import { type PrincipalRef, fetchPrincipals } from "../api/principals";
 import { ApiError, normalizeProjectSlug } from "../api/task-runs";
@@ -26,6 +29,21 @@ const DEFAULT_QUERY: ActivityQuery = { kind: "preset", range: "6h" };
 // A stable string key so the fetch effect re-runs only when the window changes.
 function queryKey(query: ActivityQuery): string {
   return query.kind === "custom" ? `c:${query.startUnixMilli}:${query.endUnixMilli}` : `p:${query.range}`;
+}
+
+// isLiveQuery reports whether a query is the auto-refreshing Live preset.
+function isLiveQuery(query: ActivityQuery): boolean {
+  return query.kind === "preset" && query.range === "live";
+}
+
+// windowForQuery derives an absolute [start, end] (unix milli) for a query so the
+// principals dropdown can be scoped without waiting on the activity response.
+function windowForQuery(query: ActivityQuery): { start: number; end: number } {
+  if (query.kind === "custom") {
+    return { start: query.startUnixMilli, end: query.endUnixMilli };
+  }
+  const end = Date.now();
+  return { start: end - rangeDurationsMs[query.range], end };
 }
 
 // Renders the window header compactly, expanding to full dates when it spans days.
@@ -56,7 +74,7 @@ export function ActivityPage() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [authHeaderName, setAuthHeaderName] = useState<string>();
-  // Seed the timeframe from a ?range= query param (e.g. `centian demo` opens 60s).
+  // Seed the timeframe from a ?range= query param (e.g. `centian demo` opens Live).
   const [query, setQuery] = useState<ActivityQuery>(() => {
     const requested = searchParams.get("range");
     return isActivityRange(requested) ? { kind: "preset", range: requested } : DEFAULT_QUERY;
@@ -155,29 +173,53 @@ export function ActivityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectSlug, activeKey, principal, reloadToken]);
 
-  // Populate the principal dropdown with principals seen in the resolved window.
-  // Runs on window change only (not on principal selection) so the list stays full.
+  // Populate the principal dropdown with principals seen in the selected window.
+  // Keyed on the timeframe (activeKey), not the sliding summary, so Live polling
+  // does not churn the list or clear the current selection.
   useEffect(() => {
-    if (!summary) {
-      return;
-    }
     const controller = new AbortController();
-    void fetchPrincipals(
-      projectSlug,
-      { start: summary.rangeStartUnixMilli, end: summary.rangeEndUnixMilli },
-      controller.signal,
-    )
+    const principalWindow = windowForQuery(query);
+    void fetchPrincipals(projectSlug, principalWindow, controller.signal)
       .then((result) => {
         setPrincipals(result);
-        // Drop the selected principal if it is absent from the new window.
+        // Drop the selected principal if it is absent from the new timeframe.
         setPrincipal((current) => (current && !result.some((p) => p.id === current) ? "" : current));
       })
       .catch(() => {
         /* principals are a best-effort affordance; ignore failures */
       });
     return () => controller.abort();
+    // activeKey captures the meaningful contents of `query`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectSlug, summary?.rangeStartUnixMilli, summary?.rangeEndUnixMilli]);
+  }, [projectSlug, activeKey]);
+
+  // Live mode: silently re-poll the rolling window every few seconds. The interval
+  // is torn down when a different timeframe is selected and re-armed when Live is
+  // chosen again. Polling pauses while the tab is hidden.
+  useEffect(() => {
+    if (!isLiveQuery(query)) {
+      return;
+    }
+    let controller: AbortController | null = null;
+    const tick = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      controller?.abort();
+      controller = new AbortController();
+      void fetchActivitySummary(projectSlug, query, principal || undefined, controller.signal)
+        .then((result) => setSummary(result))
+        .catch(() => {
+          /* transient errors are ignored; the next tick retries */
+        });
+    };
+    const interval = window.setInterval(tick, LIVE_REFRESH_MS);
+    return () => {
+      window.clearInterval(interval);
+      controller?.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectSlug, activeKey, principal]);
 
   const applyCustomRange = () => {
     const startMs = customStart ? new Date(customStart).getTime() : NaN;
@@ -245,7 +287,7 @@ export function ActivityPage() {
                 type="button"
                 className={
                   query.kind === "preset" && query.range === option
-                    ? "activity__range-btn activity__range-btn--active"
+                    ? `activity__range-btn activity__range-btn--active${option === "live" ? " activity__range-btn--live" : ""}`
                     : "activity__range-btn"
                 }
                 onClick={() => {
@@ -253,7 +295,10 @@ export function ActivityPage() {
                   resetQuery({ kind: "preset", range: option });
                 }}
               >
-                {option}
+                {option === "live" && query.kind === "preset" && query.range === "live" ? (
+                  <span className="activity__live-dot" aria-hidden="true" />
+                ) : null}
+                {rangeLabels[option]}
               </button>
             ))}
             <button

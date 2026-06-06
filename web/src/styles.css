@@ -2770,6 +2770,40 @@ code,
   color: var(--accent-strong);
 }
 
+/* Live preset: a small pulsing dot signals the auto-refresh loop is running. */
+.activity__range-btn--live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity__live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-strong, #5eead4);
+  box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.6);
+  animation: activity-live-pulse 1.6s ease-out infinite;
+}
+
+@keyframes activity-live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(94, 234, 212, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(94, 234, 212, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity__live-dot {
+    animation: none;
+  }
+}
+
 /* Timeframe selector (presets + custom popover) */
 .activity__timeframe {
   position: relative;

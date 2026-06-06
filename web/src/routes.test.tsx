@@ -592,6 +592,55 @@ describe("event list", () => {
     });
   });
 
+  it("auto-refreshes in Live mode and stops the loop when another timeframe is selected", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const activityBody = {
+        rangeStartUnixMilli: 1000,
+        rangeEndUnixMilli: 3_600_000,
+        stats: { interventions: 0, threatsNeutralized: 0, piiRedacted: 0, riskyActionsHeld: 0, requestsInspected: 0 },
+        categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+        volume: [],
+        interventions: [],
+      };
+      globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/principals")) {
+          return Promise.resolve(createFetchResponse({ principals: [] }));
+        }
+        return Promise.resolve(createFetchResponse(activityBody));
+      }) as typeof fetch;
+
+      const liveCalls = () =>
+        vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => /\/activity\?range=live/.test(String(url))).length;
+
+      renderApp(["/default/activity?range=live"]);
+      await screen.findByRole("heading", { name: "Activity Timeline" });
+      await waitFor(() => expect(liveCalls()).toBeGreaterThan(0));
+
+      // A tick of the live interval triggers another fetch of the rolling window.
+      const beforeTick = liveCalls();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      await waitFor(() => expect(liveCalls()).toBeGreaterThan(beforeTick));
+
+      // Switching to a fixed timeframe tears the loop down.
+      await user.click(screen.getByRole("button", { name: "5m" }));
+      await waitFor(() =>
+        expect(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => /\/activity\?range=5m/.test(String(url)))).toBe(true),
+      );
+      const afterSwitch = liveCalls();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000);
+      });
+      expect(liveCalls()).toBe(afterSwitch);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders the events route and primary nav", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(

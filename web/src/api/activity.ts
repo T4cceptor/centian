@@ -5,9 +5,33 @@
 
 import { projectApiPath, requestJSON } from "./task-runs";
 
-export type ActivityRange = "60s" | "5m" | "1h" | "6h" | "1d" | "1w";
+export type ActivityRange = "live" | "5m" | "1h" | "6h" | "1d" | "1w";
 
-export const activityRanges: ActivityRange[] = ["60s", "5m", "1h", "6h", "1d", "1w"];
+export const activityRanges: ActivityRange[] = ["live", "5m", "1h", "6h", "1d", "1w"];
+
+// Button labels per range. "live" is a rolling, auto-refreshing 90s window.
+export const rangeLabels: Record<ActivityRange, string> = {
+  live: "Live",
+  "5m": "5m",
+  "1h": "1h",
+  "6h": "6h",
+  "1d": "1d",
+  "1w": "1w",
+};
+
+// Window length per range (ms), mirroring the server's range resolution so the
+// client can derive a window without waiting for a summary response.
+export const rangeDurationsMs: Record<ActivityRange, number> = {
+  live: 90 * 1000,
+  "5m": 5 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "6h": 6 * 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+  "1w": 7 * 24 * 60 * 60 * 1000,
+};
+
+// LIVE_REFRESH_MS is how often Live mode re-polls the activity window.
+export const LIVE_REFRESH_MS = 5 * 1000;
 
 export function isActivityRange(value: string | null | undefined): value is ActivityRange {
   return value != null && (activityRanges as string[]).includes(value);

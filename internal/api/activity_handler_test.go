@@ -72,7 +72,7 @@ func TestActivityHandler_Activity(t *testing.T) {
 			rangeParam string
 			spanMillis int64
 		}{
-			{"60s", 60 * 1000},
+			{"live", 90 * 1000},
 			{"5m", 5 * 60 * 1000},
 		} {
 			store := &stubActivityStore{

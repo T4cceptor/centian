@@ -109,8 +109,9 @@ func activityWindowFromQuery(r *http.Request, now time.Time) (*persistence.Activ
 	}
 	var duration time.Duration
 	switch rawRange {
-	case "60s":
-		duration = time.Minute
+	case "live":
+		// "Live" mode shows a rolling 90-second window and is polled by the UI.
+		duration = 90 * time.Second
 	case "5m":
 		duration = 5 * time.Minute
 	case "1h":
