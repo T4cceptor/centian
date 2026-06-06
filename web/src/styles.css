@@ -349,31 +349,6 @@ code,
   gap: 18px;
 }
 
-.event-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: end;
-  gap: 16px;
-}
-
-.event-toolbar h2,
-.event-toolbar__subtitle {
-  margin: 0;
-}
-
-.event-toolbar__subtitle {
-  margin-top: 8px;
-  color: var(--text-dim);
-}
-
-.event-toolbar__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
 .event-filter-disclosure {
   border: 1px solid rgba(140, 230, 216, 0.14);
   border-radius: 16px;
@@ -480,14 +455,31 @@ code,
 
 .event-governance__header {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 12px 14px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.event-governance__header:hover {
+  background: rgba(140, 230, 216, 0.04);
+}
+
+.event-governance__header:focus-visible {
+  outline: 1px solid rgba(140, 230, 216, 0.5);
+  outline-offset: -2px;
 }
 
 .event-governance__title {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
   color: var(--accent-strong);
@@ -498,6 +490,60 @@ code,
 .event-governance__count {
   font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   font-weight: 600;
+}
+
+.event-governance__header-meta {
+  display: inline-flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.event-governance__category-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.event-governance__category-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 8px 2px 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.event-governance__category-count .event-governance__category-icon {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+  background: transparent;
+  box-shadow: none;
+}
+
+.event-governance__category-count .event-governance__category-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.event-governance__category-count-value {
+  color: currentColor;
+}
+
+.event-governance__toggle-action {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: 0.78rem;
 }
 
 .event-governance__body {
@@ -684,6 +730,53 @@ code,
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.2;
+}
+
+.event-card__governance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.event-card__governance-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 2px 7px 2px 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.event-card__governance-category .event-governance__category-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  color: currentColor;
+  background: transparent;
+  box-shadow: none;
+}
+
+.event-card__governance-category .event-governance__category-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.event-card__governance-category > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-card__governance-empty {
+  color: var(--text-muted);
 }
 
 .event-card__direction,
@@ -2453,7 +2546,6 @@ code,
 @media (max-width: 980px) {
   .app-header,
   .task-run-list__toolbar,
-  .event-toolbar,
   .task-run-detail__header,
   .task-run-detail__header-actions,
   .timeline-event__body,

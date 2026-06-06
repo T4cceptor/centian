@@ -514,10 +514,11 @@ describe("event list", () => {
 
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
-    expect(screen.getByText("Observed MCP events")).toBeInTheDocument();
+    expect(screen.queryByText("Observed MCP events")).not.toBeInTheDocument();
+    expect(screen.queryByText("Global Feed")).not.toBeInTheDocument();
     expect(screen.queryByText("Newest first across all proxied traffic.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Sort by Time/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Sort by Request/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Sort by Gov. Events/i })).toBeInTheDocument();
   });
 
   it("reflects URL filters in the request and active chips", async () => {
@@ -589,13 +590,16 @@ describe("event list", () => {
     renderApp(["/events"]);
 
     const governanceSection = await screen.findByLabelText("Governance Events: 1");
-    expect(within(governanceSection).getByText("Security")).toBeInTheDocument();
+    expect(within(governanceSection).getAllByText("Security")).toHaveLength(2);
+    expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
     expect(within(governanceSection).getByText("Redacted")).toBeInTheDocument();
     expect(within(governanceSection).getByText("shell__exec")).toBeInTheDocument();
     expect(within(governanceSection).getByText("masked secret output")).toBeInTheDocument();
+    expect(screen.getByLabelText("Governance events: Security")).toBeInTheDocument();
   });
 
-  it("counts repeated governance annotations as separate events", async () => {
+  it("collapses repeated governance annotations for the same request id", async () => {
+    const user = userEvent.setup();
     const duplicateGovernanceAnnotation = {
       type: "governance_events",
       action: "redacted",
@@ -611,6 +615,8 @@ describe("event list", () => {
               id: "ae_1742947200123_0000000001",
               createdAtUnixMilli: 1742947200123,
               toolName: "shell__exec",
+              requestId: "req-1",
+              messageType: "request",
               success: true,
               isError: false,
               annotations: [duplicateGovernanceAnnotation],
@@ -619,6 +625,54 @@ describe("event list", () => {
               id: "ae_1742947201123_0000000002",
               createdAtUnixMilli: 1742947201123,
               toolName: "shell__exec",
+              requestId: "req-1",
+              messageType: "response",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/events"]);
+
+    const governanceSection = await screen.findByLabelText("Governance Events: 1");
+    expect(within(governanceSection).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
+
+    await user.click(within(governanceSection).getByRole("button", { name: /Governance Events: 1/i }));
+    expect(within(governanceSection).queryByText("masked secret output")).not.toBeInTheDocument();
+    expect(within(governanceSection).getByTitle("Security: 1")).toBeInTheDocument();
+  });
+
+  it("counts repeated governance annotations separately across request ids", async () => {
+    const duplicateGovernanceAnnotation = {
+      type: "governance_events",
+      action: "redacted",
+      category: "security",
+      severity: "high",
+      message: "masked secret output",
+    };
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          items: [
+            {
+              id: "ae_1742947200123_0000000001",
+              createdAtUnixMilli: 1742947200123,
+              toolName: "shell__exec",
+              requestId: "req-1",
+              success: true,
+              isError: false,
+              annotations: [duplicateGovernanceAnnotation],
+            },
+            {
+              id: "ae_1742947201123_0000000002",
+              createdAtUnixMilli: 1742947201123,
+              toolName: "shell__exec",
+              requestId: "req-2",
               success: true,
               isError: false,
               annotations: [duplicateGovernanceAnnotation],
@@ -632,6 +686,7 @@ describe("event list", () => {
 
     const governanceSection = await screen.findByLabelText("Governance Events: 2");
     expect(within(governanceSection).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(governanceSection).getByTitle("Security: 2")).toBeInTheDocument();
     expect(within(governanceSection).getAllByText("masked secret output")).toHaveLength(2);
   });
 

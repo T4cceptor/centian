@@ -8,7 +8,7 @@ import { ApiAuthCard } from "./api-auth-card";
 import { formatTimestamp, formatTimestampCompact, humanizeIdentifier, humanizePhase } from "./format";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
-type EventSortColumn = "time" | "tool" | "server" | "direction" | "messageType" | "status" | "request";
+type EventSortColumn = "time" | "tool" | "server" | "direction" | "messageType" | "status" | "governance";
 type SortDirection = "asc" | "desc";
 type EventSortState = {
   column: EventSortColumn;
@@ -20,7 +20,13 @@ type EventGovernanceDescription = {
   action: string;
   category: string;
   eventLabel: string;
+  requestKey: string;
   reason: string;
+  severity: GovernanceSeverity;
+};
+type EventGovernanceCategoryCount = {
+  category: string;
+  count: number;
   severity: GovernanceSeverity;
 };
 type FilterFormState = {
@@ -52,7 +58,7 @@ const eventColumns: Array<{ key: EventSortColumn; label: string }> = [
   { key: "direction", label: "Direction" },
   { key: "messageType", label: "Type" },
   { key: "status", label: "Status" },
-  { key: "request", label: "Request" },
+  { key: "governance", label: "Gov. Events" },
 ];
 
 export function EventListPage() {
@@ -242,13 +248,6 @@ export function EventListPage() {
 
   return (
     <div className="event-page">
-      <div className="event-toolbar">
-        <div>
-          <p className="state-card__eyebrow">Global Feed</p>
-          <h2>Observed MCP events</h2>
-        </div>
-      </div>
-
       <details
         className="event-filter-disclosure"
         open={filtersExpanded}
@@ -426,7 +425,6 @@ export function EventListPage() {
               const timestampParts = formatTimestampCompact(item.createdAtUnixMilli);
               const compactTimestamp = `${timestampParts.date} ${timestampParts.time}`;
               const statusClass = item.success ? "status-badge status-badge--success" : "status-badge status-badge--failed";
-              const identityLabel = item.requestId ?? item.sessionId ?? "—";
 
               return (
                 <article key={item.id} className="event-card" role="listitem">
@@ -443,9 +441,7 @@ export function EventListPage() {
                     <span className="event-card__status">
                       <span className={statusClass}>{item.success ? "success" : "failed"}</span>
                     </span>
-                    <span className="event-card__identity" title={identityLabel}>
-                      {formatEventIdentity(identityLabel)}
-                    </span>
+                    <EventCardGovernanceCategories item={item} />
                   </button>
 
                   {expanded ? (
@@ -547,45 +543,98 @@ export function EventListPage() {
   );
 }
 
+function EventCardGovernanceCategories({ item }: { item: EventListItem }) {
+  const categories = getEventGovernanceCategories(item);
+  return (
+    <span className="event-card__governance" aria-label={categories.length > 0 ? `Governance events: ${formatGovernanceCategoryList(categories)}` : "Governance events: none"}>
+      {categories.length > 0 ? (
+        categories.map((category) => (
+          <span
+            key={category.category.toLowerCase()}
+            className={`event-card__governance-category event-governance__category--${getGovernanceCategoryTone(category.category)}`}
+            title={formatGovernanceCategory(category.category)}
+          >
+            <GovernanceCategoryIcon category={category.category} decorative />
+            <span>{formatGovernanceCategory(category.category)}</span>
+          </span>
+        ))
+      ) : (
+        <span className="event-card__governance-empty">—</span>
+      )}
+    </span>
+  );
+}
+
 function EventGovernancePanel({ events }: { events: EventGovernanceDescription[] }) {
+  const [expanded, setExpanded] = useState(true);
+  const panelID = "event-governance-events";
+  const categoryCounts = useMemo(() => deriveGovernanceCategoryCounts(events), [events]);
+
   return (
     <section className="event-governance" aria-label={`Governance Events: ${events.length}`}>
-      <div className="event-governance__header">
+      <button
+        type="button"
+        className="event-governance__header"
+        aria-expanded={expanded}
+        aria-controls={panelID}
+        onClick={() => setExpanded((current) => !current)}
+      >
         <span className="event-governance__title">
           Governance Events: <span className="event-governance__count">{events.length}</span>
         </span>
-      </div>
-      <div className="event-governance__body">
-        {events.length > 0 ? (
-          <ul className="event-governance__list">
-            {events.map((event) => (
-              <li
-                key={event.id}
-                className={`event-governance__item event-governance__item--${event.severity}`}
-                aria-label={`${formatGovernanceCategory(event.category)}: ${event.action} ${event.eventLabel} - ${event.reason}`}
-              >
-                <GovernanceCategoryIcon category={event.category} />
-                <span className={`event-governance__category event-governance__category--${getGovernanceCategoryTone(event.category)}`}>
-                  {formatGovernanceCategory(event.category)}
+        <span className="event-governance__header-meta">
+          {categoryCounts.length > 0 ? (
+            <span className="event-governance__category-counts" aria-label="Governance events by category">
+              {categoryCounts.map((categoryCount) => (
+                <span
+                  key={categoryCount.category}
+                  className={`event-governance__category-count event-governance__category--${getGovernanceCategoryTone(categoryCount.category)}`}
+                  title={`${formatGovernanceCategory(categoryCount.category)}: ${categoryCount.count}`}
+                >
+                  <GovernanceCategoryIcon category={categoryCount.category} decorative />
+                  <span>{formatGovernanceCategory(categoryCount.category)}</span>
+                  <span className="event-governance__category-count-value">{categoryCount.count}</span>
                 </span>
-                <span className="event-governance__separator">:</span>
-                <span className="event-governance__action">{event.action}</span>
-                <code>{event.eventLabel}</code>
-                <span className="event-governance__separator">-</span>
-                <span>{event.reason}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="event-governance__empty">No governance events recorded.</p>
-        )}
-      </div>
+              ))}
+            </span>
+          ) : null}
+          <span className="event-governance__toggle-action">{expanded ? "Hide" : "Show"}</span>
+        </span>
+      </button>
+      {expanded ? (
+        <div id={panelID} className="event-governance__body">
+          {events.length > 0 ? (
+            <ul className="event-governance__list">
+              {events.map((event) => (
+                <li
+                  key={event.id}
+                  className={`event-governance__item event-governance__item--${event.severity}`}
+                  aria-label={`${formatGovernanceCategory(event.category)}: ${event.action} ${event.eventLabel} - ${event.reason}`}
+                >
+                  <GovernanceCategoryIcon category={event.category} />
+                  <span className={`event-governance__category event-governance__category--${getGovernanceCategoryTone(event.category)}`}>
+                    {formatGovernanceCategory(event.category)}
+                  </span>
+                  <span className="event-governance__separator">:</span>
+                  <span className="event-governance__action">{event.action}</span>
+                  <code>{event.eventLabel}</code>
+                  <span className="event-governance__separator">-</span>
+                  <span>{event.reason}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="event-governance__empty">No governance events recorded.</p>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
 
 function deriveEventGovernanceEvents(items: EventListItem[]): EventGovernanceDescription[] {
   const descriptions: EventGovernanceDescription[] = [];
+  const seen = new Set<string>();
 
   for (const item of items) {
     let annotationIndex = 0;
@@ -602,11 +651,18 @@ function deriveEventGovernanceEvents(items: EventListItem[]): EventGovernanceDes
 
       const eventLabel = getEventGovernanceLabel(item);
       const reason = getProcessorGovernanceReason(annotation);
+      const requestKey = getEventGovernanceRequestKey(item);
+      const key = `${requestKey}:${action}:${category}:${eventLabel}:${reason}:${severity}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
       descriptions.push({
         id: `${item.id}:${annotationIndex}`,
         action,
         category,
         eventLabel,
+        requestKey,
         reason,
         severity,
       });
@@ -625,12 +681,41 @@ function deriveEventGovernanceEvents(items: EventListItem[]): EventGovernanceDes
   return descriptions.sort((left, right) => (actionOrder[left.action] ?? 3) - (actionOrder[right.action] ?? 3));
 }
 
+function deriveGovernanceCategoryCounts(events: EventGovernanceDescription[]): EventGovernanceCategoryCount[] {
+  const byCategory = new Map<string, EventGovernanceCategoryCount>();
+  for (const event of events) {
+    const category = event.category.trim();
+    if (!category) {
+      continue;
+    }
+    const key = category.toLowerCase();
+    const current = byCategory.get(key);
+    if (!current) {
+      byCategory.set(key, { category, count: 1, severity: event.severity });
+      continue;
+    }
+    current.count += 1;
+    if (governanceSeverityRank(event.severity) < governanceSeverityRank(current.severity)) {
+      current.severity = event.severity;
+    }
+  }
+  return [...byCategory.values()].sort((left, right) => governanceSeverityRank(left.severity) - governanceSeverityRank(right.severity));
+}
+
 function getEventAnnotations(event: EventListItem): ProcessorAnnotation[] {
   const payloadAnnotations = readPayloadAnnotations(event.payloadJson);
   if (!event.annotations || event.annotations.length === 0) {
     return payloadAnnotations;
   }
   return [...event.annotations, ...payloadAnnotations];
+}
+
+function getEventGovernanceCategories(item: EventListItem): EventGovernanceCategoryCount[] {
+  return deriveGovernanceCategoryCounts(deriveEventGovernanceEvents([item]));
+}
+
+function formatGovernanceCategoryList(categories: EventGovernanceCategoryCount[]): string {
+  return categories.map((category) => formatGovernanceCategory(category.category)).join(", ");
 }
 
 function readPayloadAnnotations(payload: unknown): ProcessorAnnotation[] {
@@ -662,6 +747,10 @@ function getEventGovernanceLabel(item: EventListItem): string {
     return getProcessActionLabelForToolName(toolName);
   }
   return item.originalToolName?.trim() || toolName || humanizeIdentifier(item.messageType ?? "event");
+}
+
+function getEventGovernanceRequestKey(item: EventListItem): string {
+  return item.requestId?.trim() || item.id;
 }
 
 function getProcessActionLabelForToolName(toolName?: string): string {
@@ -728,6 +817,17 @@ function normalizeGovernanceSeverity(severity?: string): GovernanceSeverity | un
   return undefined;
 }
 
+function governanceSeverityRank(severity: GovernanceSeverity): number {
+  switch (severity) {
+    case "high":
+      return 0;
+    case "medium":
+      return 1;
+    case "low":
+      return 2;
+  }
+}
+
 function getGovernanceCategoryTone(category: string): string | undefined {
   switch (category.trim().toLowerCase()) {
     case "security":
@@ -761,14 +861,14 @@ function getGovernanceCategoryIcon(category: string): LucideIcon | undefined {
   }
 }
 
-function GovernanceCategoryIcon({ category }: { category: string }) {
+function GovernanceCategoryIcon({ category, decorative = false }: { category: string; decorative?: boolean }) {
   const Icon = getGovernanceCategoryIcon(category);
   const tone = getGovernanceCategoryTone(category);
   if (!Icon) {
     return null;
   }
   return (
-    <span className={`event-governance__category-icon event-governance__category--${tone}`} title={`Category: ${category}`}>
+    <span className={`event-governance__category-icon event-governance__category--${tone}`} title={decorative ? undefined : `Category: ${category}`}>
       <Icon aria-hidden="true" />
     </span>
   );
@@ -845,16 +945,6 @@ function formatPayloadJSON(value: unknown): string {
   }
 }
 
-function formatEventIdentity(value: string): string {
-  if (!value || value === "—") {
-    return "—";
-  }
-  if (value.length <= 22) {
-    return value;
-  }
-  return `${value.slice(0, 8)}…${value.slice(-8)}`;
-}
-
 function defaultEventSortDirection(column: EventSortColumn): SortDirection {
   switch (column) {
     case "time":
@@ -893,8 +983,8 @@ function comparePrimaryEventColumn(left: EventListItem, right: EventListItem, co
       return compareStrings(left.messageType ?? "", right.messageType ?? "");
     case "status":
       return compareNumbers(eventStatusRank(left), eventStatusRank(right));
-    case "request":
-      return compareStrings(eventIdentityValue(left), eventIdentityValue(right));
+    case "governance":
+      return compareStrings(eventGovernanceSortValue(left), eventGovernanceSortValue(right));
   }
 }
 
@@ -914,6 +1004,8 @@ function eventStatusRank(item: EventListItem): number {
   return item.success ? 1 : 0;
 }
 
-function eventIdentityValue(item: EventListItem): string {
-  return item.requestId ?? item.sessionId ?? "";
+function eventGovernanceSortValue(item: EventListItem): string {
+  return getEventGovernanceCategories(item)
+    .map((category) => category.category.toLowerCase())
+    .join(",");
 }

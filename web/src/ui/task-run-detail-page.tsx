@@ -909,16 +909,23 @@ function readPayloadPath(payload: unknown, path: string[]): unknown {
 
 function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescription[] {
   const descriptions: GovernanceEventDescription[] = [];
+  const seen = new Set<string>();
 
   const addDescription = (
     id: string,
     itemId: string,
+    requestKey: string,
     action: string,
     category: string,
     event: string,
     reason: string,
     severity: GovernanceSeverity,
   ) => {
+    const key = `${requestKey}:${action}:${category}:${event}:${reason}:${severity}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
     descriptions.push({ id, itemId, action, category, event, reason, severity });
   };
 
@@ -962,6 +969,7 @@ function addAnnotationGovernanceDescriptions(
   addDescription: (
     id: string,
     itemId: string,
+    requestKey: string,
     action: string,
     category: string,
     event: string,
@@ -984,6 +992,7 @@ function addAnnotationGovernanceDescriptions(
       addDescription(
         `${itemId}:${event?.id ?? "event"}:${index}`,
         itemId,
+        getTaskRunGovernanceRequestKey(event, itemId),
         action,
         category,
         eventLabel,
@@ -993,6 +1002,10 @@ function addAnnotationGovernanceDescriptions(
       index += 1;
     }
   }
+}
+
+function getTaskRunGovernanceRequestKey(event: TaskRunEvent | undefined, itemId: string): string {
+  return event?.requestId?.trim() || event?.relatedActionRequestId?.trim() || event?.id || itemId;
 }
 
 export function getEventAnnotations(event: TaskRunEvent | undefined): ProcessorAnnotation[] {
