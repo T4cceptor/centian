@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -487,20 +487,158 @@ describe("task run list", () => {
 });
 
 describe("event list", () => {
-  it("defaults the ui root to the default project events route", async () => {
+  it("defaults the ui root to the default project activity route", async () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse({
-          items: [],
+          rangeStartUnixMilli: 1000,
+          rangeEndUnixMilli: 2000,
+          stats: {
+            interventions: 0,
+            threatsNeutralized: 0,
+            piiRedacted: 0,
+            riskyActionsHeld: 0,
+            requestsInspected: 0,
+          },
+          categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+          volume: [],
+          interventions: [],
         }),
       ),
     ) as typeof fetch;
 
     renderApp(["/"]);
 
-    expect(await screen.findByText("No persisted events yet")).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/events", expect.anything());
-    expect(screen.getByRole("heading", { name: "Events" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Activity Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("Interventions")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/activity?range=6h", expect.anything());
+  });
+
+  it("filters activity by a custom start/end window from the timeframe picker", async () => {
+    const user = userEvent.setup();
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          rangeStartUnixMilli: 1000,
+          rangeEndUnixMilli: 3_600_000,
+          stats: {
+            interventions: 0,
+            threatsNeutralized: 0,
+            piiRedacted: 0,
+            riskyActionsHeld: 0,
+            requestsInspected: 0,
+          },
+          categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+          volume: [],
+          interventions: [],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/default/activity"]);
+    await screen.findByRole("heading", { name: "Activity Timeline" });
+
+    // Open the unified timeframe picker and choose an explicit window.
+    await user.click(screen.getByRole("button", { name: /Custom/ }));
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-01-01T00:00" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-01-02T00:00" } });
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/api\/default\/activity\?start=\d+&end=\d+$/),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("filters activity by principal from the dropdown", async () => {
+    const user = userEvent.setup();
+    const activityBody = {
+      rangeStartUnixMilli: 1000,
+      rangeEndUnixMilli: 3_600_000,
+      stats: {
+        interventions: 0,
+        threatsNeutralized: 0,
+        piiRedacted: 0,
+        riskyActionsHeld: 0,
+        requestsInspected: 0,
+      },
+      categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+      volume: [],
+      interventions: [],
+    };
+    globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/principals")) {
+        return Promise.resolve(createFetchResponse({ principals: [{ id: "alice", displayName: "Alice" }] }));
+      }
+      return Promise.resolve(createFetchResponse(activityBody));
+    }) as typeof fetch;
+
+    renderApp(["/default/activity"]);
+    await screen.findByRole("heading", { name: "Activity Timeline" });
+
+    // The principal dropdown is populated from the windowed principals fetch.
+    const select = await screen.findByRole("combobox");
+    await screen.findByRole("option", { name: "Alice" });
+    await user.selectOptions(select, "alice");
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/api\/default\/activity\?range=6h&principal=alice$/),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("auto-refreshes in Live mode and stops the loop when another timeframe is selected", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const activityBody = {
+        rangeStartUnixMilli: 1000,
+        rangeEndUnixMilli: 3_600_000,
+        stats: { interventions: 0, threatsNeutralized: 0, piiRedacted: 0, riskyActionsHeld: 0, requestsInspected: 0 },
+        categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+        volume: [],
+        interventions: [],
+      };
+      globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/principals")) {
+          return Promise.resolve(createFetchResponse({ principals: [] }));
+        }
+        return Promise.resolve(createFetchResponse(activityBody));
+      }) as typeof fetch;
+
+      const liveCalls = () =>
+        vi.mocked(globalThis.fetch).mock.calls.filter(([url]) => /\/activity\?range=live/.test(String(url))).length;
+
+      renderApp(["/default/activity?range=live"]);
+      await screen.findByRole("heading", { name: "Activity Timeline" });
+      await waitFor(() => expect(liveCalls()).toBeGreaterThan(0));
+
+      // A tick of the live interval triggers another fetch of the rolling window.
+      const beforeTick = liveCalls();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      await waitFor(() => expect(liveCalls()).toBeGreaterThan(beforeTick));
+
+      // Switching to a fixed timeframe tears the loop down.
+      await user.click(screen.getByRole("button", { name: "5m" }));
+      await waitFor(() =>
+        expect(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => /\/activity\?range=5m/.test(String(url)))).toBe(true),
+      );
+      const afterSwitch = liveCalls();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000);
+      });
+      expect(liveCalls()).toBe(afterSwitch);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders the events route and primary nav", async () => {
@@ -531,6 +669,7 @@ describe("event list", () => {
     expect(await screen.findByText("shell__exec")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Primary" })).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Activity",
       "Events",
       "Tasks",
       "Benchmarks",

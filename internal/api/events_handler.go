@@ -88,6 +88,7 @@ func eventFiltersFromQuery(r *http.Request) (*persistence.EventListFilter, error
 		MessageType: strings.TrimSpace(query.Get("messageType")),
 		RequestID:   strings.TrimSpace(query.Get("requestId")),
 		SessionID:   strings.TrimSpace(query.Get("sessionId")),
+		Principal:   strings.TrimSpace(query.Get("principal")),
 		Limit:       defaultEventPageLimit,
 	}
 

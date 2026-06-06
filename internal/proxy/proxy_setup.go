@@ -439,6 +439,30 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 	return nil
 }
 
+// principalProviderNamer adapts the auth PrincipalProvider to the api.PrincipalNamer
+// seam, resolving principal ids to display names for filter dropdowns. A nil
+// provider (auth disabled) yields an empty map so callers fall back to raw ids.
+type principalProviderNamer struct {
+	provider centauth.PrincipalProvider
+}
+
+func (n principalProviderNamer) PrincipalNames(ctx context.Context) (map[string]string, error) {
+	if n.provider == nil {
+		return map[string]string{}, nil
+	}
+	principals, err := n.provider.ListPrincipals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(principals))
+	for idx := range principals {
+		if principals[idx].DisplayName != "" {
+			names[principals[idx].ID] = principals[idx].DisplayName
+		}
+	}
+	return names, nil
+}
+
 // registerProjectHTTPRoutes registers project-aware API routes and the shared UI.
 func (c *CentianServer) registerProjectHTTPRoutes() {
 	if c == nil || c.Mux == nil {
@@ -468,6 +492,12 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 		centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
 			return wrapWithAPIKeyAuth(c, slug, next)
 		})
+		centapi.NewActivityHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
+		centapi.NewPrincipalsHandler(project.PersistenceStore, principalProviderNamer{provider: c.Principals}).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
 
 		if project.Config != nil && project.Config.UIEnabled() {
 			uiEnabled = true
@@ -479,6 +509,12 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
 		})
 		centapi.NewEventsHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewActivityHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewPrincipalsHandler(defaultProject.PersistenceStore, principalProviderNamer{provider: c.Principals}).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
 		})
 		centapi.NewBenchmarkHandler(benchmarks.NewReadService(defaultProject.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {

@@ -163,7 +163,7 @@ func serveInMemoryDemo(ctx context.Context, server *proxy.CentianServer, stdout,
 		errCh <- nil
 	}()
 
-	uiURL := fmt.Sprintf("http://%s/ui/%s/tasks/%s", listener.Addr().String(), demoProjectSlug, demoRunID)
+	uiURL := fmt.Sprintf("http://%s/ui/%s/activity?range=live", listener.Addr().String(), demoProjectSlug)
 	if err := demoOpenBrowser(uiURL); err != nil && stderr != nil {
 		_, _ = fmt.Fprintf(stderr, "warning: open browser: %v\n", err)
 	}

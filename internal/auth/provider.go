@@ -33,6 +33,9 @@ var (
 type PrincipalProvider interface {
 	Setup(ctx context.Context) error
 	GetPrincipal(ctx context.Context, token string) (*Principal, error)
+	// ListPrincipals returns the known principals (id + display name) for labeling
+	// purposes. Secrets are never included and order is unspecified.
+	ListPrincipals(ctx context.Context) ([]Principal, error)
 	Close() error
 }
 

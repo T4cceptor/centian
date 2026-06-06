@@ -11,6 +11,7 @@ export type EventListFilters = {
   withGovernanceEvent?: boolean;
   requestId?: string;
   sessionId?: string;
+  principal?: string;
   cursor?: string;
   limit?: number;
 };
@@ -71,6 +72,7 @@ function buildQuery(filters: EventListFilters = {}): string {
   if (filters.withGovernanceEvent) params.set("withGovernanceEvent", "true");
   if (filters.requestId) params.set("requestId", filters.requestId);
   if (filters.sessionId) params.set("sessionId", filters.sessionId);
+  if (filters.principal) params.set("principal", filters.principal);
   if (filters.cursor) params.set("cursor", filters.cursor);
   if (typeof filters.limit === "number" && Number.isFinite(filters.limit) && filters.limit > 0) {
     params.set("limit", String(filters.limit));

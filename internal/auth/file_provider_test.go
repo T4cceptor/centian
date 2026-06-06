@@ -40,6 +40,27 @@ func TestFilePrincipalProviderGetPrincipal(t *testing.T) {
 	assert.DeepEqual(t, principal.Projects, []string{"acme"})
 }
 
+// Given: a file provider with a named credential
+// When: listing principals
+// Then: the principal's id and display name are returned for labeling.
+func TestFilePrincipalProviderListPrincipals(t *testing.T) {
+	entry := APIKeyEntry{
+		ID:          "key_abc",
+		Hash:        hashKey(t, "the-secret"),
+		PrincipalID: "pr_0000000000000_principal0",
+		Name:        "Alice",
+	}
+	provider := NewFilePrincipalProvider(writeProviderFile(t, entry))
+	assert.NilError(t, provider.Setup(context.Background()))
+	t.Cleanup(func() { _ = provider.Close() })
+
+	principals, err := provider.ListPrincipals(context.Background())
+	assert.NilError(t, err)
+	assert.Equal(t, len(principals), 1)
+	assert.Equal(t, principals[0].ID, "pr_0000000000000_principal0")
+	assert.Equal(t, principals[0].DisplayName, "Alice")
+}
+
 // Given: a file provider
 // When: presenting a wrong secret, unknown credential id, or legacy-format token
 // Then: the appropriate sentinel error is returned (and the index is O(1)).

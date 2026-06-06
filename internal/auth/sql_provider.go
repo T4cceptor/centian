@@ -227,6 +227,22 @@ func (s *sqlPrincipalStore) principalCount(ctx context.Context) (int, error) {
 	return s.db.NewSelect().Model((*principalRow)(nil)).Count(ctx)
 }
 
+// listPrincipals returns all stored principals (id + display name) for labeling.
+func (s *sqlPrincipalStore) listPrincipals(ctx context.Context) ([]Principal, error) {
+	rows := make([]principalRow, 0)
+	if err := s.db.NewSelect().Model(&rows).Column("principal_id", "display_name").Scan(ctx); err != nil {
+		return nil, err
+	}
+	principals := make([]Principal, 0, len(rows))
+	for idx := range rows {
+		principals = append(principals, Principal{
+			ID:          rows[idx].PrincipalID,
+			DisplayName: rows[idx].DisplayName,
+		})
+	}
+	return principals, nil
+}
+
 // getPrincipalByCredential resolves a credential id + secret to its Principal.
 // Unknown credential ids, non-api_key credentials, secret mismatches, and orphaned
 // credentials all map to ErrPrincipalNotFound (callers return unauthorized).
@@ -383,6 +399,14 @@ func (p *SQLPrincipalProvider) GetPrincipal(ctx context.Context, token string) (
 		return nil, ErrPrincipalNotFound
 	}
 	return p.store.getPrincipalByCredential(ctx, credID, secret)
+}
+
+// ListPrincipals returns all stored principals (id + display name) for labeling.
+func (p *SQLPrincipalProvider) ListPrincipals(ctx context.Context) ([]Principal, error) {
+	if p.store == nil {
+		return nil, nil
+	}
+	return p.store.listPrincipals(ctx)
 }
 
 // Count returns the number of stored principals (best-effort, for startup logging).
