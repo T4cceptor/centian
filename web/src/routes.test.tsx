@@ -491,16 +491,27 @@ describe("event list", () => {
     globalThis.fetch = vi.fn(() =>
       Promise.resolve(
         createFetchResponse({
-          items: [],
+          rangeStartUnixMilli: 1000,
+          rangeEndUnixMilli: 2000,
+          stats: {
+            interventions: 0,
+            threatsNeutralized: 0,
+            piiRedacted: 0,
+            riskyActionsHeld: 0,
+            requestsInspected: 0,
+          },
+          categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
+          volume: [],
+          interventions: [],
         }),
       ),
     ) as typeof fetch;
 
     renderApp(["/"]);
 
-    // Activity is the landing view and serves mocked data, so it does not hit fetch.
     expect(await screen.findByRole("heading", { name: "Activity Timeline" })).toBeInTheDocument();
     expect(screen.getByText("Interventions")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/activity?range=6h", expect.anything());
   });
 
   it("renders the events route and primary nav", async () => {
