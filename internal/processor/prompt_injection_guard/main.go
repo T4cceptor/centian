@@ -2,12 +2,14 @@ package promptinjectionguard
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/T4cceptor/centian/internal/common"
+	"github.com/T4cceptor/centian/internal/processor/builtinutil"
 )
 
 type detection struct {
@@ -57,18 +59,23 @@ var patterns = []scanPattern{
 
 // ProcessJSON processes one serialized Centian processor DataContext.
 func ProcessJSON(input []byte, mode string) ([]byte, error) {
-	var ctx map[string]any
-	if err := json.Unmarshal(input, &ctx); err != nil {
+	ctx, err := builtinutil.DecodeContext(input)
+	if err != nil {
 		return nil, fmt.Errorf("decode processor input: %w", err)
 	}
 
 	mode = NormalizeMode(mode)
-	detections := scanContext(ctx)
+	detections, err := scanContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if len(detections) > 0 {
-		applyAction(ctx, detections, mode)
+		if err := applyAction(ctx, detections, mode); err != nil {
+			return nil, err
+		}
 	}
 
-	output, err := json.Marshal(ctx)
+	output, err := builtinutil.EncodeContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("encode processor output: %w", err)
 	}
@@ -86,88 +93,52 @@ func NormalizeMode(mode string) string {
 	}
 }
 
-func applyAction(ctx map[string]any, detections []detection, mode string) {
+func applyAction(ctx *builtinutil.DataContext, detections []detection, mode string) error {
 	addAnnotation(ctx, detections, mode)
 	switch mode {
 	case modeAnnotate:
 		// Observe-only mode intentionally leaves the MCP payload and event status unchanged.
 	case modeRedact, modeRemove:
-		mutatePayload(ctx, mode)
-		markModified(ctx)
+		if err := mutatePayload(ctx, mode); err != nil {
+			return err
+		}
+		builtinutil.MarkModified(ctx)
 	default:
 		block(ctx, detections)
-	}
-}
-
-func scanContext(ctx map[string]any) []detection {
-	payload, ok := childMap(ctx, "payload")
-	if !ok {
-		return nil
-	}
-
-	if result, ok := childMap(payload, "result"); ok {
-		return scanResult(result)
-	}
-
-	if request, ok := childMap(payload, "request"); ok {
-		return scanRequest(request)
 	}
 	return nil
 }
 
-func scanRequest(request map[string]any) []detection {
-	params, ok := childMap(request, "Params")
-	if !ok {
-		return nil
+func scanContext(ctx *builtinutil.DataContext) ([]detection, error) {
+	if ctx == nil || ctx.Payload == nil {
+		return nil, nil
 	}
-	arguments, ok := params["arguments"]
-	if !ok {
-		return nil
+	if ctx.Payload.Result != nil {
+		return scanResult(ctx), nil
 	}
-	return scanValue(arguments, "payload.request.Params.arguments")
+	if ctx.Payload.Request != nil {
+		return scanRequest(ctx)
+	}
+	return nil, nil
 }
 
-func scanResult(result map[string]any) []detection {
+func scanRequest(ctx *builtinutil.DataContext) ([]detection, error) {
 	var detections []detection
-	if content, ok := result["content"].([]any); ok {
-		for i, item := range content {
-			entry, ok := item.(map[string]any)
-			if !ok || entry["type"] != "text" {
-				continue
-			}
-			text, ok := entry["text"].(string)
-			if !ok {
-				continue
-			}
-			path := fmt.Sprintf("payload.result.content[%d].text", i)
-			detections = append(detections, scanText(text, path)...)
-		}
-	}
-	if structured, ok := result["structuredContent"]; ok {
-		detections = append(detections, scanValue(structured, "payload.result.structuredContent")...)
-	}
-	return detections
+	err := builtinutil.WalkRequestArguments(ctx, func(node builtinutil.TextNode) {
+		detections = append(detections, scanText(node.Text, node.Path)...)
+	})
+	return detections, err
 }
 
-func scanValue(value any, path string) []detection {
-	switch typed := value.(type) {
-	case string:
-		return scanText(typed, path)
-	case []any:
-		var detections []detection
-		for i, item := range typed {
-			detections = append(detections, scanValue(item, fmt.Sprintf("%s[%d]", path, i))...)
-		}
-		return detections
-	case map[string]any:
-		var detections []detection
-		for key, item := range typed {
-			detections = append(detections, scanValue(item, path+"."+key)...)
-		}
-		return detections
-	default:
-		return nil
-	}
+func scanResult(ctx *builtinutil.DataContext) []detection {
+	var detections []detection
+	builtinutil.WalkResultText(ctx, func(node builtinutil.TextNode) {
+		detections = append(detections, scanText(node.Text, node.Path)...)
+	})
+	builtinutil.WalkStructuredContent(ctx, func(node builtinutil.TextNode) {
+		detections = append(detections, scanText(node.Text, node.Path)...)
+	})
+	return detections
 }
 
 func scanText(text, path string) []detection {
@@ -195,101 +166,44 @@ func scanText(text, path string) []detection {
 	return detections
 }
 
-func mutatePayload(ctx map[string]any, mode string) {
-	payload, ok := childMap(ctx, "payload")
-	if !ok {
-		return
+func mutatePayload(ctx *builtinutil.DataContext, mode string) error {
+	if ctx == nil || ctx.Payload == nil {
+		return nil
 	}
-
-	if result, ok := childMap(payload, "result"); ok {
-		sanitizeResult(result, mode)
-		return
+	if ctx.Payload.Result != nil {
+		sanitizeResult(ctx, mode)
+		return nil
 	}
-	if request, ok := childMap(payload, "request"); ok {
-		sanitizeRequest(request, mode)
+	if ctx.Payload.Request != nil {
+		return sanitizeRequest(ctx, mode)
 	}
+	return nil
 }
 
-func sanitizeRequest(request map[string]any, mode string) {
-	params, ok := childMap(request, "Params")
-	if !ok {
-		return
-	}
-	arguments, ok := params["arguments"]
-	if !ok {
-		return
-	}
-	sanitized, keep := sanitizeValue(arguments, mode)
-	if keep {
-		params["arguments"] = sanitized
-		return
-	}
-	delete(params, "arguments")
+func sanitizeRequest(ctx *builtinutil.DataContext, mode string) error {
+	_, err := builtinutil.ReplaceRequestArgumentStrings(ctx, func(node builtinutil.TextNode) builtinutil.TextReplacement {
+		return sanitizeText(node.Text, mode)
+	})
+	return err
 }
 
-func sanitizeResult(result map[string]any, mode string) {
-	if content, ok := result["content"].([]any); ok {
-		sanitized := make([]any, 0, len(content))
-		for _, item := range content {
-			entry, ok := item.(map[string]any)
-			if !ok || entry["type"] != "text" {
-				sanitized = append(sanitized, item)
-				continue
-			}
-			text, ok := entry["text"].(string)
-			if !ok || len(scanText(text, "")) == 0 {
-				sanitized = append(sanitized, item)
-				continue
-			}
-			if mode == modeRedact {
-				entry["text"] = "[PROMPT_INJECTION_REDACTED]"
-				sanitized = append(sanitized, entry)
-			}
-		}
-		result["content"] = sanitized
-	}
-
-	if structured, ok := result["structuredContent"]; ok {
-		sanitized, keep := sanitizeValue(structured, mode)
-		if keep {
-			result["structuredContent"] = sanitized
-			return
-		}
-		delete(result, "structuredContent")
-	}
+func sanitizeResult(ctx *builtinutil.DataContext, mode string) {
+	builtinutil.ReplaceResultText(ctx, func(node builtinutil.TextNode) builtinutil.TextReplacement {
+		return sanitizeText(node.Text, mode)
+	})
+	builtinutil.ReplaceStructuredContentStrings(ctx, func(node builtinutil.TextNode) builtinutil.TextReplacement {
+		return sanitizeText(node.Text, mode)
+	})
 }
 
-func sanitizeValue(value any, mode string) (any, bool) {
-	switch typed := value.(type) {
-	case string:
-		if len(scanText(typed, "")) == 0 {
-			return typed, true
-		}
-		if mode == modeRedact {
-			return "[PROMPT_INJECTION_REDACTED]", true
-		}
-		return nil, false
-	case []any:
-		sanitized := make([]any, 0, len(typed))
-		for _, item := range typed {
-			next, keep := sanitizeValue(item, mode)
-			if keep {
-				sanitized = append(sanitized, next)
-			}
-		}
-		return sanitized, true
-	case map[string]any:
-		sanitized := make(map[string]any, len(typed))
-		for key, item := range typed {
-			next, keep := sanitizeValue(item, mode)
-			if keep {
-				sanitized[key] = next
-			}
-		}
-		return sanitized, true
-	default:
-		return typed, true
+func sanitizeText(text string, mode string) builtinutil.TextReplacement {
+	if len(scanText(text, "")) == 0 {
+		return builtinutil.KeepText(text)
 	}
+	if mode == modeRedact {
+		return builtinutil.KeepText("[PROMPT_INJECTION_REDACTED]")
+	}
+	return builtinutil.DropText()
 }
 
 func urlDecode(text string) (string, bool) {
@@ -354,49 +268,31 @@ func mostlyPrintable(value []byte) bool {
 	return float64(printable)/float64(len(value)) > 0.85
 }
 
-func block(ctx map[string]any, detections []detection) {
-	payload := ensureMap(ctx, "payload")
-	payload["result"] = map[string]any{
-		"content": []any{
-			map[string]any{
-				"type": "text",
-				"text": "Blocked by Centian prompt injection guard: obvious prompt injection markers were detected in tool data.",
-			},
-		},
-		"isError": true,
-		"structuredContent": map[string]any{
+func block(ctx *builtinutil.DataContext, detections []detection) {
+	builtinutil.BlockWithTextResult(ctx, builtinutil.BlockResultOptions{
+		Processor: "prompt_injection_guard",
+		Message:   "Blocked by Centian prompt injection guard: obvious prompt injection markers were detected in tool data.",
+		Status:    403,
+		StructuredContent: map[string]any{
 			"blocked":    true,
 			"processor":  "prompt_injection_guard",
 			"detections": detectionSummary(detections),
 		},
-	}
-
-	event := ensureMap(ctx, "event")
-	event["status"] = float64(403)
-	event["success"] = false
-	event["modified"] = true
-}
-
-func markModified(ctx map[string]any) {
-	event := ensureMap(ctx, "event")
-	event["modified"] = true
-}
-
-func addAnnotation(ctx map[string]any, detections []detection, mode string) {
-	annotations := ensureMap(ctx, "annotations")
-	reports, _ := annotations["reports"].([]any)
-	details := annotationDetails(ctx, detections, mode)
-	reports = append(reports, map[string]any{
-		"type":      "governance_events",
-		"processor": "prompt_injection_guard",
-		"action":    actionName(mode),
-		"category":  "security",
-		"severity":  severityFor(detections, details),
-		"message":   annotationMessage(detections, details),
-		"findings":  findingSummary(detections),
-		"details":   details,
 	})
-	annotations["reports"] = reports
+}
+
+func addAnnotation(ctx *builtinutil.DataContext, detections []detection, mode string) {
+	details := annotationDetails(ctx, detections, mode)
+	builtinutil.AppendReport(ctx, common.EventAnnotation{
+		Type:      "governance_events",
+		Processor: "prompt_injection_guard",
+		Action:    actionName(mode),
+		Category:  "security",
+		Severity:  severityFor(detections, details),
+		Message:   annotationMessage(detections, details),
+		Findings:  findingSummary(detections),
+		Details:   details,
+	})
 }
 
 func actionName(mode string) string {
@@ -431,19 +327,19 @@ func annotationMessage(detections []detection, details map[string]any) string {
 	)
 }
 
-func findingSummary(detections []detection) []map[string]string {
-	summary := make([]map[string]string, 0, len(detections))
+func findingSummary(detections []detection) []common.EventAnnotationFinding {
+	summary := make([]common.EventAnnotationFinding, 0, len(detections))
 	for _, detection := range detections {
-		summary = append(summary, map[string]string{
-			"rule": detection.Pattern,
-			"path": detection.Path,
+		summary = append(summary, common.EventAnnotationFinding{
+			Rule: detection.Pattern,
+			Path: detection.Path,
 		})
 	}
 	return summary
 }
 
-func annotationDetails(ctx map[string]any, detections []detection, mode string) map[string]any {
-	totalBytes := totalScannedTextBytes(ctx)
+func annotationDetails(ctx *builtinutil.DataContext, detections []detection, mode string) map[string]any {
+	totalBytes := builtinutil.TotalScannedTextBytes(ctx)
 	flaggedBytes := flaggedTextBytes(detections)
 	ratio := 0.0
 	if totalBytes > 0 {
@@ -463,62 +359,6 @@ func annotationDetails(ctx map[string]any, detections []detection, mode string) 
 		"total_scanned_text_bytes": totalBytes,
 		"flagged_text_ratio":       ratio,
 		"source":                   detectionSource(detections),
-	}
-}
-
-func totalScannedTextBytes(ctx map[string]any) int {
-	payload, ok := childMap(ctx, "payload")
-	if !ok {
-		return 0
-	}
-	if result, ok := childMap(payload, "result"); ok {
-		return resultTextBytes(result)
-	}
-	if request, ok := childMap(payload, "request"); ok {
-		params, ok := childMap(request, "Params")
-		if !ok {
-			return 0
-		}
-		return valueTextBytes(params["arguments"])
-	}
-	return 0
-}
-
-func resultTextBytes(result map[string]any) int {
-	total := 0
-	if content, ok := result["content"].([]any); ok {
-		for _, item := range content {
-			entry, ok := item.(map[string]any)
-			if !ok || entry["type"] != "text" {
-				continue
-			}
-			if text, ok := entry["text"].(string); ok {
-				total += len(text)
-			}
-		}
-	}
-	total += valueTextBytes(result["structuredContent"])
-	return total
-}
-
-func valueTextBytes(value any) int {
-	switch typed := value.(type) {
-	case string:
-		return len(typed)
-	case []any:
-		total := 0
-		for _, item := range typed {
-			total += valueTextBytes(item)
-		}
-		return total
-	case map[string]any:
-		total := 0
-		for _, item := range typed {
-			total += valueTextBytes(item)
-		}
-		return total
-	default:
-		return 0
 	}
 }
 
@@ -616,22 +456,4 @@ func detectionSummary(detections []detection) []map[string]string {
 		})
 	}
 	return summary
-}
-
-func childMap(parent map[string]any, key string) (map[string]any, bool) {
-	value, ok := parent[key]
-	if !ok {
-		return nil, false
-	}
-	child, ok := value.(map[string]any)
-	return child, ok
-}
-
-func ensureMap(parent map[string]any, key string) map[string]any {
-	if child, ok := childMap(parent, key); ok {
-		return child
-	}
-	child := map[string]any{}
-	parent[key] = child
-	return child
 }

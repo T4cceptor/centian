@@ -430,6 +430,522 @@ func TestProcessorValidation(t *testing.T) {
 			wantError: false,
 		},
 		{
+			name: "valid pattern redaction processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "custom-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPatternRedactionProcessor,
+							"mode":      "redact",
+							"scope":     "both",
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":        "internal_token",
+									"pattern":     `it_[a-z]{20}`,
+									"replacement": "[REDACTED_INTERNAL_TOKEN]",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "pattern redaction processor requires rules",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "custom-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPatternRedactionProcessor,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.rules must contain at least one rule",
+		},
+		{
+			name: "pattern redaction processor validates regex",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "custom-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPatternRedactionProcessor,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":        "bad",
+									"pattern":     `[`,
+									"replacement": "[REDACTED]",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.rules[0].pattern is invalid",
+		},
+		{
+			name: "redaction processor validates mode",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "secret-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinSecretTokenRedactor,
+							"mode":      "remove",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.mode must be 'redact' or 'annotate'",
+		},
+		{
+			name: "redaction processor validates scope",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "pii-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: false,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinPIIRedactor,
+							"scope":     "everything",
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.scope must be 'request', 'response', or 'both'",
+		},
+		{
+			name: "redaction processor requires annotations part",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "secret-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload"},
+						Config: map[string]interface{}{
+							"processor": BuiltinSecretTokenRedactor,
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires part 'annotations'",
+		},
+		{
+			name: "secret redactor rejects custom rules",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "secret-redactor",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinSecretTokenRedactor,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":        "custom",
+									"pattern":     `x+`,
+									"replacement": "[REDACTED]",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.rules is only supported for pattern_redaction_processor",
+		},
+		{
+			name: "valid tool call guard processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"mode":      "block",
+							"presets":   []interface{}{BuiltinToolGuardPresetDangerousCommands},
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":          "block_prod_environment",
+									"category":      "policy",
+									"severity":      "medium",
+									"message":       "Production operations are blocked.",
+									"tool_patterns": []interface{}{"deploy___*"},
+									"argument_rules": []interface{}{
+										map[string]interface{}{
+											"path":    "environment",
+											"pattern": "^prod$",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "valid tool call guard path boundary processor",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"mode":      "block",
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots":      []interface{}{"/workspace", "/tmp/centian-demo"},
+								"relative_base_root": "/workspace",
+								"tool_patterns":      []interface{}{"repo___*"},
+								"argument_paths":     []interface{}{"target"},
+								"denied_paths":       []interface{}{".npmrc", ".pypirc"},
+							},
+						},
+					},
+				},
+			},
+			wantError: false,
+		},
+		{
+			name: "tool call guard validates mode",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"mode":      "redact",
+							"presets":   []interface{}{BuiltinToolGuardPresetDangerousCommands},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.mode must be 'block' or 'annotate'",
+		},
+		{
+			name: "tool call guard validates preset",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{"unknown"},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "unsupported preset",
+		},
+		{
+			name: "tool call guard validates glob",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":          "bad_glob",
+									"tool_patterns": []interface{}{"["},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "invalid glob",
+		},
+		{
+			name: "tool call guard validates argument regex",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name": "bad_regex",
+									"argument_rules": []interface{}{
+										map[string]interface{}{"pattern": "["},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "pattern is invalid",
+		},
+		{
+			name: "tool call guard validates category",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name":     "bad_category",
+									"category": "operational",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "category must be 'policy', 'security', or 'privacy'",
+		},
+		{
+			name: "tool call guard validates malformed argument rule",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"rules": []interface{}{
+								map[string]interface{}{
+									"name": "malformed",
+									"argument_rules": []interface{}{
+										map[string]interface{}{},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires path or pattern",
+		},
+		{
+			name: "tool call guard requires routing part",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetDangerousCommands},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "requires part 'routing'",
+		},
+		{
+			name: "tool call guard path boundary validates unknown fields",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"unknown": true,
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.unknown is unsupported",
+		},
+		{
+			name: "tool call guard path boundary validates root types",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots": []interface{}{123},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.allowed_roots must contain only non-empty strings",
+		},
+		{
+			name: "tool call guard path boundary validates empty roots",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots": []interface{}{""},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.allowed_roots must contain only non-empty strings",
+		},
+		{
+			name: "tool call guard path boundary validates absolute roots",
+			config: &GlobalConfig{
+				Version:  "1.0.0",
+				Gateways: defaultGateways,
+				Processors: []*ProcessorConfig{
+					{
+						Name:     "tool-call-guard",
+						Type:     "builtin",
+						Enabled:  true,
+						Required: true,
+						Parts:    []string{"payload", "routing", "annotations"},
+						Config: map[string]interface{}{
+							"processor": BuiltinToolCallGuard,
+							"presets":   []interface{}{BuiltinToolGuardPresetPathBoundary},
+							"path_boundary": map[string]interface{}{
+								"allowed_roots": []interface{}{"workspace"},
+							},
+						},
+					},
+				},
+			},
+			wantError: true,
+			errorMsg:  "config.path_boundary.allowed_roots must contain absolute lexical roots",
+		},
+		{
 			name: "nil processor list is valid",
 			config: &GlobalConfig{
 				Version:    "1.0.0",

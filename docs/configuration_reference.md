@@ -264,14 +264,117 @@ Webhook runtime behavior:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`. |
-| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. |
+| `processor` | string | Yes | Built-in processor identifier. Currently supported: `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, `pii_redactor`, `tool_call_guard`. |
+| `mode` | string | No | Processor-specific mode. For `prompt_injection_guard`: `annotate`, `error`, `redact`, or `remove`. For redactors: `redact` or `annotate`. For `tool_call_guard`: `block` or `annotate`. |
+| `scope` | string | No | Redactors only. `request`, `response`, or `both`. Defaults to `both` for pattern/secret redactors and `response` for PII. |
+| `presets` | array | No | `tool_call_guard` only. Supported presets: `dangerous_commands`, `path_boundary`. |
+| `rules` | array | Yes for `pattern_redaction_processor`; optional for `tool_call_guard` when `presets` is present | Custom redaction rules with `name`, `pattern`, and literal `replacement`, or tool-call guard deny rules with `name`, optional `category`, `severity`, `message`, `tool_patterns`, and `argument_rules`. |
+| `path_boundary` | object | No | `tool_call_guard` only. Settings for the `path_boundary` preset: `allowed_roots`, `relative_base_root`, `tool_patterns`, `argument_paths`, and `denied_paths`. |
 
 Built-in runtime behavior:
 
 - Built-in processors are compiled into the Centian binary.
 - No additional executable, container build step, or runtime package install is required.
 - `timeout` is accepted for config consistency, but no subprocess or HTTP request is spawned.
+
+Custom pattern redaction example:
+
+```json
+{
+  "name": "custom-redactor",
+  "type": "builtin",
+  "enabled": true,
+  "required": true,
+  "parts": ["payload", "annotations"],
+  "config": {
+    "processor": "pattern_redaction_processor",
+    "mode": "redact",
+    "scope": "both",
+    "rules": [
+      {
+        "name": "internal_token",
+        "pattern": "it_[A-Za-z0-9]{20,}",
+        "replacement": "[REDACTED_INTERNAL_TOKEN]"
+      }
+    ]
+  }
+}
+```
+
+Secret/token and PII redactors use built-in deterministic pattern sets:
+
+```json
+{
+  "name": "secret-token-redactor",
+  "type": "builtin",
+  "enabled": true,
+  "required": true,
+  "parts": ["payload", "annotations"],
+  "config": {
+    "processor": "secret_token_redactor",
+    "mode": "redact",
+    "scope": "both"
+  }
+}
+```
+
+```json
+{
+  "name": "pii-redactor",
+  "type": "builtin",
+  "enabled": true,
+  "required": false,
+  "parts": ["payload", "annotations"],
+  "config": {
+    "processor": "pii_redactor",
+    "mode": "redact",
+    "scope": "response"
+  }
+}
+```
+
+Redactor annotations use `type: "governance_events"`. `secret_token_redactor` reports category `security` with high severity for request-phase matches and medium severity for response-phase matches. `pattern_redaction_processor` reports category `policy` with low severity. `pii_redactor` reports category `policy` with medium severity because it enforces a configured data-handling policy; its detection remains deterministic and heuristic, not a complete privacy classifier.
+
+Tool-call guard example:
+
+```json
+{
+  "name": "tool-call-guard",
+  "type": "builtin",
+  "enabled": true,
+  "required": true,
+  "parts": ["payload", "routing", "annotations"],
+  "config": {
+    "processor": "tool_call_guard",
+    "mode": "block",
+    "presets": ["dangerous_commands", "path_boundary"],
+    "path_boundary": {
+      "allowed_roots": ["/workspace", "/tmp/centian-demo"],
+      "relative_base_root": "/workspace",
+      "denied_paths": [".npmrc", ".pypirc"]
+    },
+    "rules": [
+      {
+        "name": "block_prod_environment",
+        "category": "policy",
+        "severity": "medium",
+        "message": "Production environment operations are blocked.",
+        "tool_patterns": ["deploy___*"],
+        "argument_rules": [
+          {
+            "path": "environment",
+            "pattern": "^prod$"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+`tool_call_guard` is request-phase only. It emits `type: "governance_events"`, the matched rule category, and the matched rule severity. Custom rules default to category `policy` and severity `medium`; rule `category` may be `policy`, `security`, or `privacy`. The `dangerous_commands` and `path_boundary` presets emit category `security` with high severity. `tool_patterns` are glob patterns matched against routed, original, and request tool names. `argument_rules.path` is relative to `payload.request.Params.arguments`; `argument_rules.pattern` is a Go regex matched against stringified scalar argument values. If a guard rule omits `argument_rules`, the tool-name match alone is enough to block or annotate.
+
+The `path_boundary` preset applies only to filesystem-like tools by default. It scans scalar string arguments whose keys look like `path`, `file`, or `dir`, blocks traversal attempts, blocks sensitive path fragments such as `.env`, `.git/config`, `.ssh`, `.aws`, `id_rsa`, and `id_ed25519`, and can enforce lexical `allowed_roots`. Configured `denied_paths` add to the defaults. Path handling is lexical only: Centian normalizes separators and cleans paths, but does not call `EvalSymlinks` or inspect the downstream filesystem. Treat this as a proxy-boundary guardrail, not a filesystem sandbox.
 
 ## Minimal Example
 
