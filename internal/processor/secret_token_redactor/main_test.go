@@ -29,7 +29,9 @@ func TestProcessJSONRedactsKnownSecretFamilies(t *testing.T) {
 	assert.Assert(t, strings.Contains(text, "[REDACTED_GITHUB_TOKEN]"))
 	assert.Assert(t, strings.Contains(text, "[REDACTED_AWS_ACCESS_KEY]"))
 	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
-	assert.Equal(t, report["severity"], "high")
+	assert.Equal(t, report["type"], "governance_events")
+	assert.Equal(t, report["category"], "security")
+	assert.Equal(t, report["severity"], "medium")
 }
 
 func TestProcessJSONRedactsRequestToken(t *testing.T) {
@@ -51,6 +53,10 @@ func TestProcessJSONRedactsRequestToken(t *testing.T) {
 	output := runSecretProcessor(t, input, config.BuiltinRedactionScopeBoth)
 	args := output["payload"].(map[string]any)["request"].(map[string]any)["Params"].(map[string]any)["arguments"].(map[string]any)
 	assert.Equal(t, args["authorization"], "[REDACTED_BEARER_TOKEN]")
+	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
+	assert.Equal(t, report["type"], "governance_events")
+	assert.Equal(t, report["category"], "security")
+	assert.Equal(t, report["severity"], "high")
 }
 
 func runSecretProcessor(t *testing.T, input string, scope string) map[string]any {

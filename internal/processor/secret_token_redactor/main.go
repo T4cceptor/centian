@@ -3,6 +3,7 @@ package secrettokenredactor
 import (
 	"fmt"
 
+	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/config"
 	"github.com/T4cceptor/centian/internal/processor/builtinutil"
 )
@@ -57,7 +58,7 @@ func ProcessJSON(input []byte, settings *config.BuiltinProcessorSettings) ([]byt
 		Mode:      settings.Mode,
 		Scope:     settings.Scope,
 		Category:  "security",
-		Severity:  "high",
+		Severity:  severityForContext(ctx),
 		Message:   "Potential secrets were redacted from MCP traffic.",
 		Rules:     secretTokenRules,
 	})
@@ -70,4 +71,19 @@ func ProcessJSON(input []byte, settings *config.BuiltinProcessorSettings) ([]byt
 		return nil, fmt.Errorf("encode processor output: %w", err)
 	}
 	return output, nil
+}
+
+func severityForContext(ctx *builtinutil.DataContext) string {
+	if ctx != nil && ctx.Event != nil {
+		switch ctx.Event.Direction {
+		case common.DirectionClientToServer:
+			return "high"
+		case common.DirectionServerToClient:
+			return "medium"
+		}
+	}
+	if ctx != nil && ctx.Payload != nil && ctx.Payload.Result != nil {
+		return "medium"
+	}
+	return "high"
 }

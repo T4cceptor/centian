@@ -30,7 +30,9 @@ func TestProcessJSONRedactsDeterministicPII(t *testing.T) {
 	assert.Assert(t, strings.Contains(text, "[REDACTED_IBAN]"))
 	assert.Assert(t, strings.Contains(text, "[REDACTED_CARD_LIKE_NUMBER]"))
 	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
-	assert.Equal(t, report["category"], "privacy")
+	assert.Equal(t, report["type"], "governance_events")
+	assert.Equal(t, report["category"], "policy")
+	assert.Equal(t, report["severity"], "medium")
 }
 
 func TestProcessJSONPassesBenignText(t *testing.T) {

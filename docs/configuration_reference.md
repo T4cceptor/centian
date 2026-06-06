@@ -331,7 +331,7 @@ Secret/token and PII redactors use built-in deterministic pattern sets:
 }
 ```
 
-PII redaction is deterministic and heuristic. It detects obvious email, phone-like, IBAN-like, and credit-card-like values; it is not a complete privacy classifier.
+Redactor annotations use `type: "governance_events"`. `secret_token_redactor` reports category `security` with high severity for request-phase matches and medium severity for response-phase matches. `pattern_redaction_processor` reports category `policy` with low severity. `pii_redactor` reports category `policy` with medium severity because it enforces a configured data-handling policy; its detection remains deterministic and heuristic, not a complete privacy classifier.
 
 ## Minimal Example
 

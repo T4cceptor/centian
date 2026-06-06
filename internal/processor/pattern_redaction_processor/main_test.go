@@ -38,6 +38,9 @@ func TestProcessJSONRedactsConfiguredRules(t *testing.T) {
 	report := output["annotations"].(map[string]any)["reports"].([]any)[0].(map[string]any)
 	assert.Equal(t, report["processor"], config.BuiltinPatternRedactionProcessor)
 	assert.Equal(t, report["action"], "redacted")
+	assert.Equal(t, report["type"], "governance_events")
+	assert.Equal(t, report["category"], "policy")
+	assert.Equal(t, report["severity"], "low")
 	details := report["details"].(map[string]any)
 	assert.Equal(t, details["match_count"], float64(2))
 }

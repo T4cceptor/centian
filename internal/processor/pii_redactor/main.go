@@ -41,7 +41,7 @@ func ProcessJSON(input []byte, settings *config.BuiltinProcessorSettings) ([]byt
 		Processor: config.BuiltinPIIRedactor,
 		Mode:      settings.Mode,
 		Scope:     settings.Scope,
-		Category:  "privacy",
+		Category:  "policy",
 		Severity:  "medium",
 		Message:   "Potential PII was redacted from tool response content.",
 		Rules:     piiRules,

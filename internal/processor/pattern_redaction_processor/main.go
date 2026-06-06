@@ -18,8 +18,8 @@ func ProcessJSON(input []byte, settings *config.BuiltinProcessorSettings) ([]byt
 		Processor: config.BuiltinPatternRedactionProcessor,
 		Mode:      settings.Mode,
 		Scope:     settings.Scope,
-		Category:  "security",
-		Severity:  "medium",
+		Category:  "policy",
+		Severity:  "low",
 		Message:   "Configured redaction patterns matched MCP traffic.",
 		Rules:     configRulesToBuiltinRules(settings.Rules),
 	})

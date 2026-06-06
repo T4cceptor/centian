@@ -35,6 +35,12 @@ func TestRunBlocksObviousResultInjection(t *testing.T) {
 	annotations := output["annotations"].(map[string]any)
 	reports := annotations["reports"].([]any)
 	report := reports[0].(map[string]any)
+	if report["type"] != "governance_events" {
+		t.Fatalf("expected governance event annotation, got %#v", report)
+	}
+	if report["category"] != "security" {
+		t.Fatalf("expected security category, got %#v", report)
+	}
 	if report["action"] != "blocked" {
 		t.Fatalf("expected blocked annotation, got %#v", report)
 	}
