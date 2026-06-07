@@ -72,7 +72,7 @@ const STAT_FIELDS: {
   { key: "redacted", label: "Redacted", value: (s) => s.redacted.toLocaleString() },
   {
     key: "context",
-    label: "Context Monitored (in/out)",
+    label: "Context (in/out)",
     value: (s) => `${formatCompactNumber(s.contextCharsIn)}/${formatCompactNumber(s.contextCharsOut)}`,
     title: (s) => `${s.contextCharsIn.toLocaleString()} chars in / ${s.contextCharsOut.toLocaleString()} chars out`,
   },

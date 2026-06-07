@@ -513,7 +513,7 @@ describe("event list", () => {
     expect(await screen.findByRole("heading", { name: "Activity Timeline" })).toBeInTheDocument();
     expect(screen.getByText("Interventions")).toBeInTheDocument();
     expect(screen.getByText("Actions Blocked")).toBeInTheDocument();
-    expect(screen.getByText("Context Monitored (in/out)")).toBeInTheDocument();
+    expect(screen.getByText("Context (in/out)")).toBeInTheDocument();
     // With no interventions: the watching message shows and no category badges render.
     expect(screen.getByText(/Centian is watching/)).toBeInTheDocument();
     expect(screen.queryByText("Risk")).not.toBeInTheDocument();
