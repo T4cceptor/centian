@@ -2,13 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## v0.4.4 - 2026-06-07
 
 ### Major
 - Introduced a `PrincipalProvider` authentication abstraction and an `Authorizer` authorization seam. Authentication now resolves a token to a first-class `Principal` (with a stable, persisted `pr_` id), and the proxy keys request identity, downstream-pool reuse, and authorization off that principal. Two providers ship: a file-based one (backed by `~/.centian/api_keys.json`) and a SQL-backed one (see below); external providers and RBAC roles are designed as additive follow-ups.
 - Added a SQL-backed `PrincipalProvider` that stores principals and credentials in a dedicated global SQLite database (`~/.centian/principals.sqlite` by default), independent of the per-project event store. Credentials are modelled generically (a `type` discriminator plus an opaque JSON `data` blob) so future credential types are additive, and authorization grants live in symmetric `principal_gateways`/`principal_projects` tables. The backend is selected via the new global `authBackend` config block (`type` + `store`), and `centian auth new-key` writes to that same backend (use `--config` to target a specific config file), so the CLI and server never drift. SQLite is the default for both the server and key creation.
 - Captured the resolved principal's display name as `principal_name` event metadata (in the existing payload, no schema change) alongside `principal_id`, so the human name survives even if the principal id can no longer be resolved to a live principal.
 - Replaced the O(n) bcrypt scan on every authenticated request with an O(1) credential-id lookup plus a single bcrypt verification.
+- Added a built-in processor toolkit: new redaction processors (`pattern_redaction_processor`, `pii_redactor`, `secret_token_redactor`) and a `tool_call_guard` that can block or annotate tool calls (including path-boundary enforcement), all built on a shared `builtinutil` package (text scanning, redaction, tool-guard, and result helpers). The existing `prompt_injection_guard` was refactored onto the same toolkit, and the processor config surface gained schema definitions and validation for the new processors.
+- Added the per-project Activity view ("Intervention Skyline") and its backing API: a timeline that visualizes where Centian intervened on proxied MCP traffic, with headline stats (Interventions, Actions Blocked, Redacted, Context in/out, Requests inspected), a category legend that hides empty categories, an interactive SVG skyline (severity-scaled, category-colored markers over a request-volume baseline) with hoverable/pinnable detail popovers, drag-to-zoom plus double-click zoom-out, a "Live" auto-refreshing 90-second window, and a principal filter. Served by new `GET /api/{projectSlug}/activity` and `GET /api/{projectSlug}/principals` endpoints, with a `ListPrincipals` capability added to both the file- and SQLite-backed principal providers. Activity is now the default landing route and first nav tab.
+
+### Minor
+- Refactored the global Events view (`/ui/{projectSlug}/events`): a reworked layout with a dedicated governance-events section and a "with governance event" filter (`withGovernanceEvent`), backed by a new persistence query, making it easier to find events where a processor intervened.
 
 ### Breaking changes
 - **The default auth backend is now SQLite** (`~/.centian/principals.sqlite`). Existing file-based deployments must either set `"authBackend": {"type": "file"}` in config (to keep reading `api_keys.json`) or recreate their keys with `centian auth new-key`, which now writes to SQLite by default. There is no automatic `api_keys.json` → SQLite import.
