@@ -39,16 +39,20 @@ type CentianProject struct {
 //
 // CentianServer is the main process for providing routes and delegating endpoint creation.
 type CentianServer struct {
-	Name       string
-	ServerID   string
-	Config     *config.GlobalConfig
-	Mux        *http.ServeMux
-	Server     *http.Server
-	Logger     *logging.Logger
-	Projects   map[string]*CentianProject
-	Principals centauth.PrincipalProvider
-	Authorizer centauth.Authorizer
-	AuthHeader string
+	Name     string
+	ServerID string
+	Config   *config.GlobalConfig
+	// ConfigProvider is the seam through which per-project config is fetched on
+	// demand. The file-backed provider serves from a preloaded map; an I/O-backed
+	// provider may load lazily.
+	ConfigProvider config.ConfigProvider
+	Mux            *http.ServeMux
+	Server         *http.Server
+	Logger         *logging.Logger
+	Projects       map[string]*CentianProject
+	Principals     centauth.PrincipalProvider
+	Authorizer     centauth.Authorizer
+	AuthHeader     string
 
 	// Legacy flat-access fields - point to the default project's data for backwards compatibility.
 	Gateways         map[string]*CentianEndpoint

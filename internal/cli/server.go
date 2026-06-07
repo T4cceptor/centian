@@ -167,13 +167,20 @@ func printProjectEndpoints(slug string, project *config.ProjectConfig, host, por
 func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	configPath := cmd.String("config-path")
 
-	// Load configuration.
-	var globalConfig *config.GlobalConfig
-	var err error
+	// Build a file-backed config provider. This is the seam through which the
+	// server fetches per-project config on demand; the file provider preloads and
+	// serves from memory, so behavior is unchanged.
 	if configPath == "" {
 		configPath, _ = config.GetConfigPath()
 	}
-	globalConfig, err = config.LoadConfigFromPath(configPath)
+	provider, err := config.NewFileConfigProvider(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
+	}
+
+	// Read the global settings for the operational validation, logging, and the
+	// startup banner below.
+	globalConfig, err := provider.Global(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
@@ -197,8 +204,8 @@ func handleServerStartCommand(_ context.Context, cmd *cli.Command) error {
 	}()
 	common.LogInfo("Loaded config from: %s", configPath)
 
-	// Create HTTP proxy server.
-	server, err := proxy.NewCentianServer(globalConfig)
+	// Create HTTP proxy server from the config provider.
+	server, err := proxy.NewCentianServerWithOptions(provider, proxy.CentianServerOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to create centian server: %w", err)
 	}

@@ -429,7 +429,7 @@ func TestNewCentianServerWithOptionsUsesLoggerFactory(t *testing.T) {
 	}
 	calls := make(map[string]int)
 
-	server, err := NewCentianServerWithOptions(globalConfig, CentianServerOptions{
+	server, err := NewCentianServerWithOptions(config.NewConfigProviderFromConfig(globalConfig), CentianServerOptions{
 		LoggerFactory: func(projectSlug string) (*logging.Logger, error) {
 			calls[projectSlug]++
 			return logging.NewDiscardLogger()
