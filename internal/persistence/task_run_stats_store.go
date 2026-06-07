@@ -227,7 +227,7 @@ WITH task_agg AS (
 			AND NOT EXISTS (
 				SELECT 1 FROM action_events ae
 				WHERE ae.request_id = task_events.related_action_request_id
-				AND ae.is_error = 1
+				AND ae.is_error
 			)
 			THEN 1 ELSE 0 END) AS step_failure_count
 	FROM task_events

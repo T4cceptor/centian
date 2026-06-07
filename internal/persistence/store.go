@@ -483,23 +483,26 @@ func (s *Store) createTables(ctx context.Context) error {
 			return fmt.Errorf("failed to bootstrap event store schema: %w", err)
 		}
 	}
+	// Order matters: Postgres requires a foreign key's referenced table to exist
+	// at CREATE TABLE time (SQLite does not). task_runs and benchmark_runs must be
+	// created before the link table that references both.
 	if err := createEventAnnotationTables(ctx, exec); err != nil {
 		return err
 	}
 	if err := createBenchmarkRunTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
-	if err := createBenchmarkRunTaskRunLinkTables(ctx, exec); err != nil {
-		return fmt.Errorf("failed to bootstrap benchmark run task-run link schema: %w", err)
-	}
-	if err := createBenchmarkRunScoreTables(ctx, exec); err != nil {
-		return fmt.Errorf("failed to bootstrap benchmark run score schema: %w", err)
-	}
 	if err := createTaskRunSnapshotTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
 	}
 	if err := createTaskRunStatsTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap task run stats schema: %w", err)
+	}
+	if err := createBenchmarkRunTaskRunLinkTables(ctx, exec); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run task-run link schema: %w", err)
+	}
+	if err := createBenchmarkRunScoreTables(ctx, exec); err != nil {
+		return fmt.Errorf("failed to bootstrap benchmark run score schema: %w", err)
 	}
 	return nil
 }
