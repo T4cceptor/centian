@@ -124,7 +124,7 @@ type BenchmarkRunFilter struct {
 	TemplateVariant string
 }
 
-func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
+func createBenchmarkRunTables(ctx context.Context, db sqlExecutor) error {
 	for _, stmt := range benchmarkRunTableStatementsV6() {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
@@ -133,7 +133,7 @@ func createBenchmarkRunTables(ctx context.Context, db bun.IDB) error {
 	return nil
 }
 
-func createLegacyBenchmarkRunTablesV5(ctx context.Context, db bun.IDB) error {
+func createLegacyBenchmarkRunTablesV5(ctx context.Context, db sqlExecutor) error {
 	for _, stmt := range benchmarkRunTableStatementsV5() {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)

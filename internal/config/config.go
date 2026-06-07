@@ -242,6 +242,8 @@ const (
 	DefaultProxyLogLevel      = "info"
 	DefaultProxyLogOutput     = "file"
 	DefaultEventStorageDriver = "sqlite"
+	// EventStorageDriverPostgres selects a PostgreSQL event-storage backend.
+	EventStorageDriverPostgres = "postgres"
 )
 
 // AuthBackendSettings configures where principals and their credentials are
@@ -250,8 +252,8 @@ const (
 // may be empty; the auth package resolves empties to defaults (sqlite at the
 // default principals database path).
 type AuthBackendSettings struct {
-	Type  string `json:"type,omitempty"`  // "sqlite" (default) or "file"
-	Store string `json:"store,omitempty"` // Backend location (sqlite db path or key file path)
+	Type  string `json:"type,omitempty"`  // "sqlite" (default), "postgres", or "file"
+	Store string `json:"store,omitempty"` // Backend location (sqlite db path, postgres DSN, or key file path)
 }
 
 // GetAuthBackend returns the configured auth backend type and store. Both may be
@@ -417,10 +419,15 @@ type TaskVerificationCapabilitySettings struct {
 }
 
 // EventStorageCapabilitySettings controls durable storage for task and action events.
+//
+// Driver selects the backend ("sqlite" default, or "postgres"). For sqlite, Path
+// is an optional file path override. For postgres, DSN is the (required)
+// connection string.
 type EventStorageCapabilitySettings struct {
 	Enabled *bool  `json:"enabled,omitempty"`
 	Driver  string `json:"driver,omitempty"`
 	Path    string `json:"path,omitempty"`
+	DSN     string `json:"dsn,omitempty"`
 }
 
 // TestToolsCapabilitySettings controls Centian-owned test/debug tools.

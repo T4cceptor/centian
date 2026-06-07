@@ -46,13 +46,8 @@ func CreateAPIKey(ctx context.Context, backendType, store string, params CreateA
 	entry.Gateways = params.Gateways
 	entry.Projects = params.Projects
 
-	switch bt {
-	case BackendFile:
-		if _, err := AppendAPIKey(resolved, &entry); err != nil {
-			return CreatedAPIKey{}, err
-		}
-	case BackendSQLite:
-		store, err := openSQLPrincipalStore(resolved)
+	if driver, ok := sqlDriverForBackend(bt); ok {
+		store, err := openSQLPrincipalStoreWithDriver(driver, resolved)
 		if err != nil {
 			return CreatedAPIKey{}, err
 		}
@@ -60,8 +55,15 @@ func CreateAPIKey(ctx context.Context, backendType, store string, params CreateA
 		if err := store.createAPIKeyPrincipal(ctx, &entry, params.Name, params.Gateways, params.Projects); err != nil {
 			return CreatedAPIKey{}, err
 		}
-	default:
-		return CreatedAPIKey{}, fmt.Errorf("unsupported auth backend type %q", backendType)
+	} else {
+		switch bt {
+		case BackendFile:
+			if _, err := AppendAPIKey(resolved, &entry); err != nil {
+				return CreatedAPIKey{}, err
+			}
+		default:
+			return CreatedAPIKey{}, fmt.Errorf("unsupported auth backend type %q", backendType)
+		}
 	}
 
 	return CreatedAPIKey{

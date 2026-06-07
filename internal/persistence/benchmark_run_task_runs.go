@@ -30,7 +30,7 @@ type BenchmarkRunTaskRunLinkFilter struct {
 	TaskRunID       string
 }
 
-func createBenchmarkRunTaskRunLinkTables(ctx context.Context, db bun.IDB) error {
+func createBenchmarkRunTaskRunLinkTables(ctx context.Context, db sqlExecutor) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS benchmark_run_task_runs (
 			benchmark_run_id TEXT NOT NULL,

@@ -6,16 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/T4cceptor/centian/internal/sqldb"
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/sqlitedialect"
-	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
 // This file defines the SQL-backed PrincipalProvider and its underlying store.
@@ -108,40 +105,42 @@ type principalSchemaVersionRow struct {
 
 // sqlPrincipalStore wraps the bun-backed principals database. It owns schema
 // bootstrap/migration and the read/write queries used by the provider and CLI.
+// It targets either SQLite or Postgres; the driver is recorded so schema
+// bootstrap can adapt DDL.
 type sqlPrincipalStore struct {
-	db *bun.DB
+	db     *bun.DB
+	driver sqldb.Driver
 }
 
-// openSQLPrincipalStore opens (creating if needed) the principals database at path
-// and bootstraps its schema. path may be a file path or ":memory:" for tests.
+// openSQLPrincipalStore opens (creating if needed) a SQLite principals database
+// at path and bootstraps its schema. path may be a file path or ":memory:" for
+// tests. It is a thin wrapper over openSQLPrincipalStoreWithDriver.
 func openSQLPrincipalStore(path string) (*sqlPrincipalStore, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, fmt.Errorf("sqlite principal store path is required")
 	}
-	if !isSQLiteMemoryPath(path) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return nil, fmt.Errorf("failed to create principal store directory: %w", err)
-		}
-	}
+	return openSQLPrincipalStoreWithDriver(sqldb.SQLite, path)
+}
 
-	sqldb, err := sql.Open(sqliteshim.ShimName, path)
+// openSQLPrincipalStoreWithDriver opens (creating if needed) the principals
+// database for the given driver and DSN and bootstraps its schema.
+func openSQLPrincipalStoreWithDriver(driver sqldb.Driver, dsn string) (*sqlPrincipalStore, error) {
+	db, err := sqldb.Open(driver, dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open sqlite principal store: %w", err)
+		return nil, fmt.Errorf("failed to open principal store: %w", err)
 	}
-	// Keep the principal store on one SQLite connection so bootstrap/migration and
-	// concurrent readers all observe one consistent sqliteshim-backed handle.
-	sqldb.SetMaxOpenConns(1)
-
-	store := &sqlPrincipalStore{db: bun.NewDB(sqldb, sqlitedialect.New())}
+	store := &sqlPrincipalStore{db: db, driver: driver}
 	if err := store.bootstrap(context.Background()); err != nil {
-		_ = sqldb.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
 }
 
-func isSQLiteMemoryPath(path string) bool {
-	return path == ":memory:" || strings.HasPrefix(path, "file::memory:")
+// ddlExec returns an executor that adapts canonical SQLite DDL to this store's
+// driver before executing it.
+func (s *sqlPrincipalStore) ddlExec() sqldb.Execer {
+	return sqldb.DDLExecer(s.db, s.driver)
 }
 
 // Close releases the underlying database handle.
@@ -153,7 +152,7 @@ func (s *sqlPrincipalStore) Close() error {
 }
 
 func (s *sqlPrincipalStore) bootstrap(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS principal_store_schema (
+	if _, err := s.ddlExec().ExecContext(ctx, `CREATE TABLE IF NOT EXISTS principal_store_schema (
 		name TEXT PRIMARY KEY,
 		version INTEGER NOT NULL
 	)`); err != nil {
@@ -214,8 +213,9 @@ func (s *sqlPrincipalStore) createTables(ctx context.Context) error {
 			PRIMARY KEY (principal_id, project_slug)
 		)`,
 	}
+	exec := s.ddlExec()
 	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := exec.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("failed to bootstrap principal store schema: %w", err)
 		}
 	}
@@ -366,20 +366,27 @@ func (s *sqlPrincipalStore) createAPIKeyPrincipal(ctx context.Context, entry *AP
 // principals via an indexed (primary-key) credential lookup plus one bcrypt verify,
 // querying live so revoked credentials take effect without a restart.
 type SQLPrincipalProvider struct {
-	path  string
-	store *sqlPrincipalStore
+	driver sqldb.Driver
+	dsn    string
+	store  *sqlPrincipalStore
 }
 
 // NewSQLPrincipalProvider creates a provider backed by the sqlite file at path.
 func NewSQLPrincipalProvider(path string) *SQLPrincipalProvider {
-	return &SQLPrincipalProvider{path: path}
+	return &SQLPrincipalProvider{driver: sqldb.SQLite, dsn: path}
+}
+
+// NewSQLPrincipalProviderWithDriver creates a provider backed by the given driver
+// and DSN (a file path for sqlite, a connection string for postgres).
+func NewSQLPrincipalProviderWithDriver(driver sqldb.Driver, dsn string) *SQLPrincipalProvider {
+	return &SQLPrincipalProvider{driver: driver, dsn: dsn}
 }
 
 // Setup opens the database and bootstraps/migrates the schema. An empty store is
 // valid (a fresh install has no principals yet), so Setup does not error on zero
 // rows; callers may warn based on Count.
 func (p *SQLPrincipalProvider) Setup(_ context.Context) error {
-	store, err := openSQLPrincipalStore(p.path)
+	store, err := openSQLPrincipalStoreWithDriver(p.driver, p.dsn)
 	if err != nil {
 		return err
 	}
@@ -421,9 +428,10 @@ func (p *SQLPrincipalProvider) Count() int {
 	return count
 }
 
-// Path returns the sqlite file path the provider reads from.
+// Path returns the DSN the provider reads from (a file path for sqlite, a
+// connection string for postgres).
 func (p *SQLPrincipalProvider) Path() string {
-	return p.path
+	return p.dsn
 }
 
 // Close releases the database handle.

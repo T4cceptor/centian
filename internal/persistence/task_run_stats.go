@@ -45,7 +45,7 @@ type TaskRunStatsRecord struct {
 	TimeoutCount             int    `json:"timeoutCount"`
 }
 
-func createTaskRunStatsTables(ctx context.Context, db bun.IDB) error {
+func createTaskRunStatsTables(ctx context.Context, db sqlExecutor) error {
 	// TODO: move to migration
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS task_run_stats (

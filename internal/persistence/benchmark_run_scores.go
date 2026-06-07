@@ -68,7 +68,7 @@ type BenchmarkRunScoreRecord struct {
 	ErrorActionabilityScore   *int            `json:"errorActionabilityScore,omitempty"`
 }
 
-func createBenchmarkRunScoreTables(ctx context.Context, db bun.IDB) error {
+func createBenchmarkRunScoreTables(ctx context.Context, db sqlExecutor) error {
 	// TODO: move to migration?
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS benchmark_run_scores (

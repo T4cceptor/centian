@@ -20,6 +20,7 @@ import (
 	"github.com/T4cceptor/centian/internal/logging"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
 	"github.com/T4cceptor/centian/internal/persistence"
+	"github.com/T4cceptor/centian/internal/sqldb"
 	"github.com/T4cceptor/centian/internal/taskverification"
 	centui "github.com/T4cceptor/centian/internal/ui"
 )
@@ -236,8 +237,8 @@ func newProjectTaskVerificationService(
 		templateDir,
 		workingDir,
 		eventStorage == nil || eventStorage.IsEnabled(),
-		func() (string, error) {
-			return resolveProjectEventStorePath(eventStorage, projectSlug)
+		func() (sqldb.Driver, string, error) {
+			return resolveProjectEventStore(eventStorage, projectSlug)
 		},
 	)
 }
@@ -257,39 +258,54 @@ func resolveProjectTaskTemplatesPath(projectConfig *config.ProjectConfig, workin
 	return filepath.Join(workingDir, templatesPath)
 }
 
-// resolveProjectEventStorePath determines the SQLite path for a project.
-// For the "default" project, this falls back to the global default path.
-// For named projects, it uses ~/.centian/projects/<slug>/events.sqlite.
-func resolveProjectEventStorePath(settings *config.EventStorageCapabilitySettings, projectSlug string) (string, error) {
-	driver := config.DefaultEventStorageDriver
+// resolveProjectEventStore determines the event-store backend (driver + DSN) for
+// a project.
+//
+// For sqlite (the default), the DSN is a file path: the "default" project falls
+// back to the global default path, named projects use
+// ~/.centian/projects/<slug>/events.sqlite, and an explicit Path overrides both.
+// For postgres, the DSN comes from the project's configured connection string
+// (one database per project for now).
+func resolveProjectEventStore(settings *config.EventStorageCapabilitySettings, projectSlug string) (sqldb.Driver, string, error) {
+	rawDriver := config.DefaultEventStorageDriver
 	if settings != nil {
-		driver = settings.GetDriver()
+		rawDriver = settings.GetDriver()
 	}
-	if driver != config.DefaultEventStorageDriver {
-		return "", fmt.Errorf("unsupported event storage driver %q", driver)
+	driver, err := sqldb.ParseDriver(rawDriver)
+	if err != nil {
+		return "", "", err
 	}
+
+	if driver == sqldb.Postgres {
+		if settings == nil || strings.TrimSpace(settings.DSN) == "" {
+			return "", "", fmt.Errorf("event storage driver %q requires a dsn", config.EventStorageDriverPostgres)
+		}
+		return sqldb.Postgres, settings.DSN, nil
+	}
+
+	// SQLite: resolve a file path.
 	// Explicit path overrides everything.
 	if settings != nil && settings.Path != "" {
-		return settings.Path, nil
+		return sqldb.SQLite, settings.Path, nil
 	}
 	// Default project uses the legacy global path.
 	if projectSlug == config.DefaultProjectSlug {
 		storePath, err := logging.GetDefaultEventStorePath()
 		if err != nil {
-			return "", fmt.Errorf("failed to determine default event storage path: %w", err)
+			return "", "", fmt.Errorf("failed to determine default event storage path: %w", err)
 		}
-		return storePath, nil
+		return sqldb.SQLite, storePath, nil
 	}
 	// Named projects get their own directory.
 	configDir, err := config.GetConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine config directory: %w", err)
+		return "", "", fmt.Errorf("failed to determine config directory: %w", err)
 	}
 	projectDir := filepath.Join(configDir, "projects", projectSlug)
 	if err := os.MkdirAll(projectDir, 0o750); err != nil {
-		return "", fmt.Errorf("failed to create project directory: %w", err)
+		return "", "", fmt.Errorf("failed to create project directory: %w", err)
 	}
-	return filepath.Join(projectDir, "events.sqlite"), nil
+	return sqldb.SQLite, filepath.Join(projectDir, "events.sqlite"), nil
 }
 
 func resolveProjectLogDir(projectSlug string) (string, error) {
@@ -361,18 +377,18 @@ func buildTaskVerificationService(
 	templateDir string,
 	workingDir string,
 	eventStorageEnabled bool,
-	resolveStorePath func() (string, error),
+	resolveStore func() (sqldb.Driver, string, error),
 ) (*taskverification.Service, *persistence.Store, io.Closer, error) {
 	taskService := taskverification.NewService(templateDir, workingDir)
 	if !eventStorageEnabled {
 		return taskService, nil, noopCloser{}, nil
 	}
 
-	storePath, err := resolveStorePath()
+	driver, dsn, err := resolveStore()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	store, err := persistence.NewSQLiteStore(storePath)
+	store, err := persistence.NewStore(driver, dsn)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to initialize event storage: %w", err)
 	}

@@ -7,21 +7,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	"github.com/T4cceptor/centian/internal/identifiers"
+	"github.com/T4cceptor/centian/internal/sqldb"
 	"github.com/T4cceptor/centian/internal/taskruns"
 
 	// TODO: refactor this out of here so persistence only deals with database access.
 	"github.com/T4cceptor/centian/internal/taskverification"
 	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/dialect/sqlitedialect"
-	"github.com/uptrace/bun/driver/sqliteshim"
 )
 
 const schemaVersion = 7
@@ -341,42 +338,42 @@ type eventListRow struct {
 	InvocationNodeKind  sql.NullString
 }
 
-// Store persists task and action events to SQLite using Bun.
+// Store persists task and action events using Bun. It targets either SQLite or
+// Postgres; the driver is recorded so schema bootstrap can adapt DDL.
 type Store struct {
-	db *bun.DB
+	db     *bun.DB
+	driver sqldb.Driver
 }
 
-// NewSQLiteStore creates a Bun-backed SQLite store and bootstraps the schema.
-func NewSQLiteStore(path string) (*Store, error) {
-	if path == "" {
-		return nil, fmt.Errorf("sqlite event store path is required")
-	}
-	if !isSQLiteMemoryPath(path) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-			return nil, fmt.Errorf("failed to create event store directory: %w", err)
-		}
-	}
-
-	sqldb, err := sql.Open(sqliteshim.ShimName, path)
+// NewStore opens a Bun-backed event store for the given driver and DSN and
+// bootstraps the schema. For SQLite, dsn is a file path (or ":memory:"); for
+// Postgres, dsn is a connection string.
+func NewStore(driver sqldb.Driver, dsn string) (*Store, error) {
+	db, err := sqldb.Open(driver, dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open sqlite event store: %w", err)
+		return nil, fmt.Errorf("failed to open event store: %w", err)
 	}
-	// Keep the event store on one SQLite connection so bootstrap/migration and
-	// concurrent readers all observe one consistent sqliteshim-backed handle.
-	sqldb.SetMaxOpenConns(1)
-
-	store := &Store{
-		db: bun.NewDB(sqldb, sqlitedialect.New()),
-	}
+	store := &Store{db: db, driver: driver}
 	if err := store.bootstrap(context.Background()); err != nil {
-		_ = sqldb.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return store, nil
 }
 
-func isSQLiteMemoryPath(path string) bool {
-	return path == ":memory:" || strings.HasPrefix(path, "file::memory:")
+// NewSQLiteStore opens a SQLite-backed event store at path. It is a thin wrapper
+// over NewStore retained for existing callers and tests.
+func NewSQLiteStore(path string) (*Store, error) {
+	if path == "" {
+		return nil, fmt.Errorf("sqlite event store path is required")
+	}
+	return NewStore(sqldb.SQLite, path)
+}
+
+// ddlExec returns an executor that adapts canonical SQLite DDL to this store's
+// driver before executing it.
+func (s *Store) ddlExec() sqldb.Execer {
+	return sqldb.DDLExecer(s.db, s.driver)
 }
 
 // Close releases the underlying database handle.
@@ -388,7 +385,7 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) bootstrap(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS event_store_schema (
+	if _, err := s.ddlExec().ExecContext(ctx, `CREATE TABLE IF NOT EXISTS event_store_schema (
 		name TEXT PRIMARY KEY,
 		version INTEGER NOT NULL
 	)`); err != nil {
@@ -480,27 +477,28 @@ func (s *Store) createTables(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_action_event_task_context_task_run_id ON action_event_task_context(task_run_id)`,
 	}
+	exec := s.ddlExec()
 	for _, stmt := range stmts {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+		if _, err := exec.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("failed to bootstrap event store schema: %w", err)
 		}
 	}
-	if err := createEventAnnotationTables(ctx, s.db); err != nil {
+	if err := createEventAnnotationTables(ctx, exec); err != nil {
 		return err
 	}
-	if err := createBenchmarkRunTables(ctx, s.db); err != nil {
+	if err := createBenchmarkRunTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run schema: %w", err)
 	}
-	if err := createBenchmarkRunTaskRunLinkTables(ctx, s.db); err != nil {
+	if err := createBenchmarkRunTaskRunLinkTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run task-run link schema: %w", err)
 	}
-	if err := createBenchmarkRunScoreTables(ctx, s.db); err != nil {
+	if err := createBenchmarkRunScoreTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap benchmark run score schema: %w", err)
 	}
-	if err := createTaskRunSnapshotTables(ctx, s.db); err != nil {
+	if err := createTaskRunSnapshotTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap task run snapshot schema: %w", err)
 	}
-	if err := createTaskRunStatsTables(ctx, s.db); err != nil {
+	if err := createTaskRunStatsTables(ctx, exec); err != nil {
 		return fmt.Errorf("failed to bootstrap task run stats schema: %w", err)
 	}
 	return nil
