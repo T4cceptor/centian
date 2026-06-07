@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Major
+- Added **PostgreSQL** as a backend alongside SQLite for all SQL models (task/action events, task runs, benchmarks) and the SQL-backed auth principal store. A new `internal/sqldb` connector selects the driver (SQLite via sqliteshim, Postgres via the pgx stdlib driver + Bun `pgdialect`) and adapts the canonical SQLite DDL to Postgres at bootstrap (`BLOB → JSONB`, `INTEGER → BIGINT`, `REAL → DOUBLE PRECISION`); JSON payload columns become queryable `jsonb`. Event storage selects Postgres per project via `capabilities.eventStorage` (`driver: "postgres"` + `dsn`, one database per project), and the global `authBackend` gains a `postgres` type (`store` = DSN). SQLite remains the default; nothing changes unless `driver`/`type` is set to `postgres`. See [docs/postgres.md](docs/postgres.md).
+
 ## v0.4.4 - 2026-06-07
 
 ### Major
