@@ -149,6 +149,7 @@ type ddlExecer struct {
 	driver Driver
 }
 
+// ExecContext rewrites query for the target dialect via PortableDDL, then runs it.
 func (d ddlExecer) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	return d.exec.ExecContext(ctx, PortableDDL(query, d.driver), args...)
 }
