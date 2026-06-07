@@ -17,7 +17,7 @@ import { type PrincipalRef, fetchPrincipals } from "../api/principals";
 import { ApiError, normalizeProjectSlug } from "../api/task-runs";
 import { ApiAuthCard } from "./api-auth-card";
 import { CategoryIcon } from "./category-icon";
-import { formatClockTime, formatTimestampCompact, toDatetimeLocalValue } from "./format";
+import { formatClockTime, formatCompactNumber, formatTimestampCompact, toDatetimeLocalValue } from "./format";
 import { InterventionSkyline } from "./intervention-skyline";
 
 type LoadState = "loading" | "ready" | "error" | "unauthorized";
@@ -58,12 +58,25 @@ function formatWindowLabel(startUnixMilli: number, endUnixMilli: number): string
   return `${start.date} ${startClock} → ${end.date} ${endClock}`;
 }
 
-const STAT_FIELDS: { key: keyof ActivitySummary["stats"]; label: string }[] = [
-  { key: "interventions", label: "Interventions" },
-  { key: "threatsNeutralized", label: "Threats neutralized" },
-  { key: "piiRedacted", label: "PII / secrets redacted" },
-  { key: "riskyActionsHeld", label: "Risky actions held" },
-  { key: "requestsInspected", label: "Requests inspected" },
+type ActivityStats = ActivitySummary["stats"];
+
+// Each headline stat renders a value (and optional hover title) from the stats.
+const STAT_FIELDS: {
+  key: string;
+  label: string;
+  value: (stats: ActivityStats) => string;
+  title?: (stats: ActivityStats) => string;
+}[] = [
+  { key: "interventions", label: "Interventions", value: (s) => s.interventions.toLocaleString() },
+  { key: "actionsBlocked", label: "Actions Blocked", value: (s) => s.actionsBlocked.toLocaleString() },
+  { key: "redacted", label: "Redacted", value: (s) => s.redacted.toLocaleString() },
+  {
+    key: "context",
+    label: "Context Monitored (in/out)",
+    value: (s) => `${formatCompactNumber(s.contextCharsIn)}/${formatCompactNumber(s.contextCharsOut)}`,
+    title: (s) => `${s.contextCharsIn.toLocaleString()} chars in / ${s.contextCharsOut.toLocaleString()} chars out`,
+  },
+  { key: "requestsInspected", label: "Requests inspected", value: (s) => s.requestsInspected.toLocaleString() },
 ];
 
 export function ActivityPage() {
@@ -357,19 +370,23 @@ export function ActivityPage() {
       <div className="activity__stats">
         {STAT_FIELDS.map((stat) => (
           <div className="activity__stat" key={stat.key}>
-            <div className="activity__stat-value">{summary.stats[stat.key].toLocaleString()}</div>
+            <div className="activity__stat-value" title={stat.title?.(summary.stats)}>
+              {stat.value(summary.stats)}
+            </div>
             <div className="activity__stat-label">{stat.label}</div>
           </div>
         ))}
       </div>
 
       <div className="activity__legend">
-        {interventionCategories.map((category) => (
-          <span className={`activity__pill activity__pill--${category}`} key={category}>
-            <CategoryIcon category={category} />
-            {categoryLabels[category]} {summary.categoryCounts[category]}
-          </span>
-        ))}
+        {interventionCategories
+          .filter((category) => summary.categoryCounts[category] > 0)
+          .map((category) => (
+            <span className={`activity__pill activity__pill--${category}`} key={category}>
+              <CategoryIcon category={category} />
+              {categoryLabels[category]} {summary.categoryCounts[category]}
+            </span>
+          ))}
         <label className="activity__principal">
           <span className="activity__principal-label">Principal</span>
           <select value={principal} onChange={(event) => setPrincipal(event.target.value)}>
@@ -395,9 +412,6 @@ export function ActivityPage() {
           onZoomOut={handleZoomOut}
         />
         <span className="activity__chart-axis activity__chart-axis--bottom">↓ request volume</span>
-        {hasInterventions ? null : (
-          <p className="activity__empty">No interventions in this window. Centian stayed on the baseline.</p>
-        )}
       </div>
 
       {hasInterventions ? (

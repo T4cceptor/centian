@@ -30,11 +30,12 @@ type ActivitySummary struct {
 
 // ActivityStats holds the headline counters shown above the skyline chart.
 type ActivityStats struct {
-	Interventions      int `json:"interventions"`
-	ThreatsNeutralized int `json:"threatsNeutralized"`
-	PIIRedacted        int `json:"piiRedacted"`
-	RiskyActionsHeld   int `json:"riskyActionsHeld"`
-	RequestsInspected  int `json:"requestsInspected"`
+	Interventions     int   `json:"interventions"`
+	ActionsBlocked    int   `json:"actionsBlocked"`
+	Redacted          int   `json:"redacted"`
+	ContextCharsIn    int64 `json:"contextCharsIn"`
+	ContextCharsOut   int64 `json:"contextCharsOut"`
+	RequestsInspected int   `json:"requestsInspected"`
 }
 
 // ActivityCategoryCounts is a fixed-key map so every category is always present.
@@ -66,8 +67,6 @@ type ActivityIntervention struct {
 	Gateway            string  `json:"gateway"`
 	ServerName         string  `json:"serverName"`
 	Label              string  `json:"label,omitempty"`
-
-	action string // raw action verb, retained for stat classification (not serialized)
 }
 
 const activityVolumeBuckets = 64
@@ -117,11 +116,15 @@ func (s *Store) ActivitySummary(ctx context.Context, filter *ActivityFilter) (*A
 		return nil, fmt.Errorf("activity window end must be after start")
 	}
 
-	interventions, err := s.activityInterventions(ctx, start, end, filter.Principal)
+	interventions, totals, err := s.activityInterventions(ctx, start, end, filter.Principal)
 	if err != nil {
 		return nil, err
 	}
 	volume, requestsInspected, err := s.activityVolume(ctx, start, end, filter.Principal)
+	if err != nil {
+		return nil, err
+	}
+	contextIn, contextOut, err := s.activityContextChars(ctx, start, end, filter.Principal)
 	if err != nil {
 		return nil, err
 	}
@@ -134,9 +137,12 @@ func (s *Store) ActivitySummary(ctx context.Context, filter *ActivityFilter) (*A
 	}
 	summary.Stats.Interventions = len(interventions)
 	summary.Stats.RequestsInspected = requestsInspected
+	summary.Stats.ActionsBlocked = totals.blocked
+	summary.Stats.Redacted = totals.redacted
+	summary.Stats.ContextCharsIn = contextIn
+	summary.Stats.ContextCharsOut = contextOut
 	for idx := range interventions {
-		item := &interventions[idx]
-		switch item.Category {
+		switch interventions[idx].Category {
 		case "security":
 			summary.CategoryCounts.Security++
 		case "policy":
@@ -147,16 +153,6 @@ func (s *Store) ActivitySummary(ctx context.Context, filter *ActivityFilter) (*A
 			summary.CategoryCounts.Quality++
 		case "compliance":
 			summary.CategoryCounts.Compliance++
-		}
-		action := strings.ToLower(item.action)
-		if item.Category == "security" {
-			summary.Stats.ThreatsNeutralized++
-		}
-		if strings.Contains(action, "redact") {
-			summary.Stats.PIIRedacted++
-		}
-		if strings.Contains(action, "hold") || strings.Contains(action, "held") {
-			summary.Stats.RiskyActionsHeld++
 		}
 	}
 	return summary, nil
@@ -178,7 +174,15 @@ type rawGov struct {
 	serverName string
 }
 
-func (s *Store) activityInterventions(ctx context.Context, start, end int64, principal string) ([]ActivityIntervention, error) {
+// annotationTotals are counts taken over the raw governance annotations (before
+// they are deduped into one intervention per event), so an event carrying several
+// annotations contributes to each relevant count.
+type annotationTotals struct {
+	blocked  int
+	redacted int
+}
+
+func (s *Store) activityInterventions(ctx context.Context, start, end int64, principal string) ([]ActivityIntervention, annotationTotals, error) {
 	records := make([]rawGov, 0)
 
 	// Source 1: governance annotations persisted against action events.
@@ -207,7 +211,7 @@ WHERE ae.created_at_unix_milli >= ? AND ae.created_at_unix_milli <= ? AND a.type
 	}
 	annotationQuery += "\nORDER BY ae.created_at_unix_milli ASC, a.id ASC"
 	if err := s.db.NewRaw(annotationQuery, annotationArgs...).Scan(ctx, &annotationRows); err != nil {
-		return nil, err
+		return nil, annotationTotals{}, err
 	}
 	for idx := range annotationRows {
 		row := &annotationRows[idx]
@@ -249,7 +253,7 @@ WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.pay
 	}
 	taskQuery += "\nORDER BY te.created_at_unix_milli ASC, te.id ASC"
 	if err := s.db.NewRaw(taskQuery, taskArgs...).Scan(ctx, &taskRows); err != nil {
-		return nil, err
+		return nil, annotationTotals{}, err
 	}
 	for idx := range taskRows {
 		row := &taskRows[idx]
@@ -279,6 +283,19 @@ WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.pay
 				gateway:    row.Gateway,
 				serverName: row.ServerName,
 			})
+		}
+	}
+
+	// Tally blocked/redacted over every annotation (pre-dedup), so an event with
+	// several annotations counts toward each action it took.
+	totals := annotationTotals{}
+	for idx := range records {
+		action := strings.ToLower(records[idx].action)
+		if strings.Contains(action, "block") {
+			totals.blocked++
+		}
+		if strings.Contains(action, "redact") {
+			totals.redacted++
 		}
 	}
 
@@ -319,14 +336,50 @@ WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.pay
 			Gateway:            record.gateway,
 			ServerName:         record.serverName,
 			Label:              label,
-			action:             record.action,
 		})
 	}
 	// Order by time so the skyline plots markers left-to-right.
 	sort.SliceStable(interventions, func(i, j int) bool {
 		return interventions[i].TimestampUnixMilli < interventions[j].TimestampUnixMilli
 	})
-	return interventions, nil
+	return interventions, totals, nil
+}
+
+// contextCharsRow is one message_type total from the context-chars aggregation.
+type contextCharsRow struct {
+	MessageType string `bun:"message_type"`
+	Chars       int64  `bun:"chars"`
+}
+
+// activityContextChars sums the stored payload size of action events in the window,
+// split by direction: request payloads count as inbound, response payloads as
+// outbound. Other message types are ignored. LENGTH on the JSON payload tracks
+// character count closely for predominantly-ASCII content and needs no unmarshal.
+func (s *Store) activityContextChars(ctx context.Context, start, end int64, principal string) (int64, int64, error) {
+	rows := make([]contextCharsRow, 0)
+	query := `SELECT message_type, COALESCE(SUM(LENGTH(payload_json)), 0) AS chars
+FROM action_events
+WHERE created_at_unix_milli >= ? AND created_at_unix_milli <= ?`
+	args := []any{start, end}
+	if principal != "" {
+		query += " AND principal_id = ?"
+		args = append(args, principal)
+	}
+	query += " GROUP BY message_type"
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
+		return 0, 0, err
+	}
+
+	var in, out int64
+	for idx := range rows {
+		switch rows[idx].MessageType {
+		case "request":
+			in += rows[idx].Chars
+		case "response":
+			out += rows[idx].Chars
+		}
+	}
+	return in, out, nil
 }
 
 // activityVolume buckets inspected request volume across the window and returns the

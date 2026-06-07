@@ -157,6 +157,11 @@ func TestActivitySummaryAggregatesInterventionsAndVolume(t *testing.T) {
 		Type: "governance_events", Processor: "confidence_floor", Action: "flag",
 		Category: "quality", Severity: "low", Message: "Flagged a low-confidence result.",
 	})
+	appendGovernedEvent(t, store, "gov-pol", 85_000, common.EventAnnotation{
+		Type: "governance_events", Processor: "policy_guard", Action: "blocked",
+		Category: "policy", Severity: "high", Message: "Blocked a disallowed tool call.",
+		Findings: []common.EventAnnotationFinding{{Rule: "tool_allowlist"}},
+	})
 
 	// When: aggregating activity over the window
 	summary, err := store.ActivitySummary(context.Background(), &ActivityFilter{Start: start, End: end})
@@ -166,19 +171,22 @@ func TestActivitySummaryAggregatesInterventionsAndVolume(t *testing.T) {
 	assert.Equal(t, summary.RangeStartUnixMilli, start)
 	assert.Equal(t, summary.RangeEndUnixMilli, end)
 
-	assert.Equal(t, summary.Stats.Interventions, 3)
+	assert.Equal(t, summary.Stats.Interventions, 4)
 	assert.Equal(t, summary.Stats.RequestsInspected, 3)
-	assert.Equal(t, summary.Stats.ThreatsNeutralized, 1) // security
-	assert.Equal(t, summary.Stats.PIIRedacted, 1)        // redacted action
-	assert.Equal(t, summary.Stats.RiskyActionsHeld, 1)   // hold action
+	assert.Equal(t, summary.Stats.ActionsBlocked, 1) // blocked action
+	assert.Equal(t, summary.Stats.Redacted, 1)       // redacted action
+	// Context chars cover all action-event payloads, split by direction: the seeded
+	// requests are inbound and the governed responses are outbound.
+	assert.Assert(t, summary.Stats.ContextCharsIn > 0)
+	assert.Assert(t, summary.Stats.ContextCharsOut > 0)
 
 	assert.Equal(t, summary.CategoryCounts.Security, 1)
 	assert.Equal(t, summary.CategoryCounts.Risk, 1)
 	assert.Equal(t, summary.CategoryCounts.Quality, 1)
-	assert.Equal(t, summary.CategoryCounts.Policy, 0)
+	assert.Equal(t, summary.CategoryCounts.Policy, 1)
 	assert.Equal(t, summary.CategoryCounts.Compliance, 0)
 
-	assert.Equal(t, len(summary.Interventions), 3)
+	assert.Equal(t, len(summary.Interventions), 4)
 	// Ordered ascending by timestamp; first is the high-severity security intervention.
 	first := summary.Interventions[0]
 	assert.Equal(t, first.Category, "security")

@@ -3143,11 +3143,20 @@ code,
   position: relative;
 }
 
-.activity__empty {
-  margin: 12px 0 0;
+/* Centered "watching" message shown over the plot when no interventions exist.
+   pointer-events: none keeps drag-to-zoom working through it. */
+.activity-skyline__watching {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  max-width: 30rem;
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
   color: var(--text-muted);
+  pointer-events: none;
 }
 
 /* Floating intervention detail popover */
