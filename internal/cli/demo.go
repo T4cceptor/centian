@@ -124,7 +124,7 @@ func runInMemoryDemo(ctx context.Context, stdout, stderr io.Writer) error {
 }
 
 func newInMemoryDemoServer(ctx context.Context) (*proxy.CentianServer, error) {
-	server, err := proxy.NewCentianServerWithOptions(newDemoConfig(), proxy.CentianServerOptions{
+	server, err := proxy.NewCentianServerWithOptions(config.NewConfigProviderFromConfig(newDemoConfig()), proxy.CentianServerOptions{
 		LoggerFactory: func(string) (*logging.Logger, error) {
 			return logging.NewDiscardLogger()
 		},

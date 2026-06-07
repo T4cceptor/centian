@@ -33,23 +33,41 @@ type CentianServerOptions struct {
 }
 
 // NewCentianServer takes a GlobalConfig struct and returns a new CentianServer.
-// It resolves the config into the project-based layout and initializes per-project
-// services (persistence, task verification) for each project.
+// It wraps the config in a file-backed ConfigProvider, resolves the config into
+// the project-based layout, and initializes per-project services (persistence,
+// task verification) for each project. Retained for backwards compatibility with
+// callers and tests that already hold a fully-loaded config.
 func NewCentianServer(globalConfig *config.GlobalConfig) (*CentianServer, error) {
-	return NewCentianServerWithOptions(globalConfig, CentianServerOptions{})
+	return NewCentianServerWithOptions(config.NewConfigProviderFromConfig(globalConfig), CentianServerOptions{})
 }
 
-// NewCentianServerWithOptions takes a GlobalConfig struct and explicit runtime
-// dependencies, then returns a new CentianServer.
+// NewCentianServerWithOptions consumes config through a ConfigProvider seam and,
+// together with explicit runtime dependencies, returns a new CentianServer. It
+// fetches each project's config on demand via provider.GetProject; the file-backed
+// provider serves these from a preloaded map, while an I/O-backed provider may
+// load them lazily.
 //
 //nolint:gocyclo // Server startup coordinates several subsystems; helpers keep the branches local and explicit.
-func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options CentianServerOptions) (*CentianServer, error) {
+func NewCentianServerWithOptions(provider config.ConfigProvider, options CentianServerOptions) (*CentianServer, error) {
+	if provider == nil {
+		return nil, fmt.Errorf("config provider is required")
+	}
+
+	// Setup runs at startup with no request scope, so use a background context.
+	ctx := context.Background()
+
+	globalConfig, err := provider.Global(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load global config: %w", err)
+	}
 	if globalConfig == nil || globalConfig.Proxy == nil {
 		return nil, fmt.Errorf("proxy settings are required")
 	}
 
-	// Normalize config to project-based layout.
-	globalConfig.ResolveProjects()
+	projectSlugs, err := provider.ListProjects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
 
 	host := globalConfig.Proxy.Host
 	if host == "" {
@@ -57,7 +75,11 @@ func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options Cent
 	}
 	if host == "0.0.0.0" {
 		// When binding to all interfaces, all projects must have auth explicitly configured.
-		for slug, project := range globalConfig.Projects {
+		for _, slug := range projectSlugs {
+			project, projErr := provider.GetProject(ctx, slug)
+			if projErr != nil {
+				return nil, fmt.Errorf("project '%s': %w", slug, projErr)
+			}
 			if project != nil && project.AuthEnabled == nil {
 				return nil, fmt.Errorf("auth must be explicitly set when binding to 0.0.0.0 (project '%s')", slug)
 			}
@@ -92,14 +114,15 @@ func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options Cent
 	}
 
 	centianServer := &CentianServer{
-		Config:     globalConfig,
-		Mux:        mux,
-		Server:     server,
-		Logger:     logger,
-		ServerID:   getServerID(),
-		Projects:   make(map[string]*CentianProject),
-		Principals: principals,
-		Authorizer: authorizer,
+		Config:         globalConfig,
+		ConfigProvider: provider,
+		Mux:            mux,
+		Server:         server,
+		Logger:         logger,
+		ServerID:       getServerID(),
+		Projects:       make(map[string]*CentianProject),
+		Principals:     principals,
+		Authorizer:     authorizer,
 		// AuthHeader is set per-project now, but keep a default for global middleware.
 		AuthHeader: config.DefaultAuthHeader,
 		// Legacy fields - will be populated from the default project below.
@@ -107,11 +130,16 @@ func NewCentianServerWithOptions(globalConfig *config.GlobalConfig, options Cent
 		Endpoints: []*CentianEndpoint{},
 	}
 
-	// Initialize per-project state.
-	for slug, projectConfig := range globalConfig.Projects {
-		project, err := newCentianProject(slug, projectConfig, workingDir, logger, loggerFactory)
-		if err != nil {
-			return nil, fmt.Errorf("project '%s': %w", slug, err)
+	// Initialize per-project state. Each project's config is fetched on demand via
+	// the provider; the file-backed provider serves it from its preloaded map.
+	for _, slug := range projectSlugs {
+		projectConfig, projErr := provider.GetProject(ctx, slug)
+		if projErr != nil {
+			return nil, fmt.Errorf("project '%s': %w", slug, projErr)
+		}
+		project, projErr := newCentianProject(slug, projectConfig, workingDir, logger, loggerFactory)
+		if projErr != nil {
+			return nil, fmt.Errorf("project '%s': %w", slug, projErr)
 		}
 		centianServer.Projects[slug] = project
 	}
