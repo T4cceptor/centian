@@ -119,10 +119,12 @@ Additional control tools are also available:
 - `centian.task_restart`
 - `centian.task_fail`
 
-Before a task is registered, only these two task tools are allowed:
+Before a task is registered, only these task tools are allowed:
 
 - `centian.task_list_templates`
 - `centian.task_register`
+- `centian.task_resume` (with a `runId`, to restore a persisted run into the session)
+- `centian.task_fail` (with a `runId`, to abandon a persisted run the principal owns)
 
 ### 6. Inspect persisted runs
 
@@ -329,8 +331,10 @@ That next node may be:
 
 `centian.task_resume`:
 
-- reactivates a timed-out run
+- with no `runId`: reactivates the timed-out run loaded in the current session
+- with a `runId`: restores a persisted run (active or timed-out) into a fresh session, rebuilding the frozen runtime template and step state from the snapshot, so work continues across server restarts or reconnects
 - preserves workflow progress
+- when auth is enabled, only the principal that owns the run may restore it
 
 `centian.task_restart`:
 
@@ -342,6 +346,11 @@ That next node may be:
 
 - marks the task failed
 - stores an explicit failure reason
+- with a `runId`: fails a persisted run the principal owns, even if it is not loaded in the current session (how a returning principal abandons a stale run)
+
+### One open run per principal
+
+A principal may hold at most one `active` or `timed_out` run at a time. While such a run exists, `centian.task_register` is rejected with structured guidance to either resume the open run (`centian.task_resume {runId}`) or fail it (`centian.task_fail {runId}`) before registering a new task. Enforcement applies only when a principal identity is present (auth enabled); runs without a recorded owner do not participate.
 
 When a run enters an approval-wait node, Centian records the lifecycle event type `approval_wait_entered`. That event is persisted like other lifecycle events and shows up in the task run timeline when event storage is enabled.
 

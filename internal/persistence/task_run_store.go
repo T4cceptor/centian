@@ -118,7 +118,7 @@ func (s *Store) FindOpenRunForPrincipal(ctx context.Context, principalID string)
 	err := s.db.NewSelect().
 		Model(row).
 		Where("owner_principal_id = ?", principalID).
-		Where("status IN (?)", bun.In([]string{string(taskverification.TaskStatusActive), string(taskverification.TaskStatusTimedOut)})).
+		Where("status IN (?)", bun.List([]string{string(taskverification.TaskStatusActive), string(taskverification.TaskStatusTimedOut)})).
 		OrderExpr("updated_at_unix_milli DESC, run_id ASC").
 		Limit(1).
 		Scan(ctx)

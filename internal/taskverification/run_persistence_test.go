@@ -48,14 +48,20 @@ func (s *captureRunStore) LoadTaskRunSnapshot(_ context.Context, runID string) (
 	return nil, nil
 }
 
-// FindOpenRunForPrincipal returns the most recent active/timed-out snapshot owned by principalID.
+// FindOpenRunForPrincipal returns the most recent active/timed-out snapshot owned
+// by principalID, considering only the latest snapshot recorded per run id.
 func (s *captureRunStore) FindOpenRunForPrincipal(_ context.Context, principalID string) (*taskruns.PersistedRunSnapshot, error) {
 	if principalID == "" {
 		//nolint:nilnil // An empty principal owns no attributable run.
 		return nil, nil
 	}
+	seen := make(map[string]struct{})
 	for i := len(s.snapshots) - 1; i >= 0; i-- {
 		snapshot := s.snapshots[i]
+		if _, ok := seen[snapshot.RunID]; ok {
+			continue // an older snapshot of a run whose latest state we already evaluated
+		}
+		seen[snapshot.RunID] = struct{}{}
 		if snapshot.OwnerPrincipalID != principalID {
 			continue
 		}
