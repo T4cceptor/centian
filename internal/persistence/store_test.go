@@ -1415,7 +1415,7 @@ func seedSchemaVersion5Store(t *testing.T, db *sql.DB) {
 	bundb := bun.NewDB(db, sqlitedialect.New())
 	assert.NilError(t, createLegacyBenchmarkRunTablesV5(ctx, bundb))
 	assert.NilError(t, createBenchmarkRunScoreTables(ctx, bundb))
-	assert.NilError(t, createTaskRunSnapshotTables(ctx, bundb))
+	assert.NilError(t, createLegacyTaskRunSnapshotTablesV5(ctx, bundb))
 
 	_, err = db.Exec(`
 INSERT INTO benchmark_sessions (
@@ -1603,6 +1603,12 @@ func seedSchemaVersion6Store(t *testing.T, db *sql.DB) {
 		_, err = db.Exec(stmt)
 		assert.NilError(t, err)
 	}
+
+	// A real v6 database carries task_runs (introduced in v5); recreate it in the
+	// legacy v5 shape so the v7->v8 migration has a table to add the owner column to.
+	ctx := context.Background()
+	bundb := bun.NewDB(db, sqlitedialect.New())
+	assert.NilError(t, createLegacyTaskRunSnapshotTablesV5(ctx, bundb))
 }
 
 func insertTaskRunSnapshotRow(t *testing.T, db *sql.DB, runID string, status string) {

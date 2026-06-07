@@ -8,9 +8,13 @@ import (
 	"github.com/T4cceptor/centian/internal/taskruns"
 )
 
-// RunStore persists the latest snapshot for one task run.
+// RunStore persists and retrieves snapshots for task runs.
 type RunStore interface {
 	UpsertTaskRunSnapshot(context.Context, *taskruns.PersistedRunSnapshot) error
+	// LoadTaskRunSnapshot returns the persisted snapshot for runID, or (nil, nil) when none exists.
+	LoadTaskRunSnapshot(context.Context, string) (*taskruns.PersistedRunSnapshot, error)
+	// FindOpenRunForPrincipal returns the most recent active/timed-out run owned by principalID, or (nil, nil) when none exists.
+	FindOpenRunForPrincipal(context.Context, string) (*taskruns.PersistedRunSnapshot, error)
 }
 
 type noopRunStore struct{}
@@ -18,6 +22,18 @@ type noopRunStore struct{}
 // UpsertTaskRunSnapshot satisfies RunStore for non-persistent service setups.
 func (noopRunStore) UpsertTaskRunSnapshot(context.Context, *taskruns.PersistedRunSnapshot) error {
 	return nil
+}
+
+// LoadTaskRunSnapshot satisfies RunStore for non-persistent service setups.
+func (noopRunStore) LoadTaskRunSnapshot(context.Context, string) (*taskruns.PersistedRunSnapshot, error) {
+	//nolint:nilnil // A non-persistent store never has a snapshot to return.
+	return nil, nil
+}
+
+// FindOpenRunForPrincipal satisfies RunStore for non-persistent service setups.
+func (noopRunStore) FindOpenRunForPrincipal(context.Context, string) (*taskruns.PersistedRunSnapshot, error) {
+	//nolint:nilnil // A non-persistent store never has a snapshot to return.
+	return nil, nil
 }
 
 func (s *Service) persistRunSnapshot(ctx context.Context, run *RunState) error {
@@ -61,6 +77,7 @@ func snapshotRunState(run *RunState) (*taskruns.PersistedRunSnapshot, error) {
 
 	return &taskruns.PersistedRunSnapshot{
 		RunID:                   run.RunID,
+		OwnerPrincipalID:        run.OwnerPrincipalID,
 		TemplateID:              run.TemplateID,
 		TemplateName:            run.SelectedTemplate.Task.Name,
 		TaskDescription:         run.TaskDescription,

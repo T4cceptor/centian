@@ -18,6 +18,7 @@ type taskRunSnapshotRow struct {
 	UpdatedAtUnixMilli int64
 	TemplateID         string
 	TemplateName       string
+	OwnerPrincipalID   string
 	Status             string
 	Phase              string
 	PayloadJSON        json.RawMessage
@@ -30,13 +31,46 @@ type TaskRunSnapshotRecord struct {
 	UpdatedAtUnixMilli int64                          `json:"updatedAtUnixMilli"`
 	TemplateID         string                         `json:"templateId"`
 	TemplateName       string                         `json:"templateName"`
+	OwnerPrincipalID   string                         `json:"ownerPrincipalId,omitempty"`
 	Status             string                         `json:"status"`
 	Phase              string                         `json:"phase"`
 	Payload            *taskruns.PersistedRunSnapshot `json:"payload"`
 }
 
+// createTaskRunSnapshotTables creates the current-shape task_runs schema used by
+// fresh-database bootstrap. Existing databases reach this shape via migrations
+// (the owner_principal_id column is added in v7->v8).
 func createTaskRunSnapshotTables(ctx context.Context, db sqlExecutor) error {
-	// TODO: move to migration
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS task_runs (
+			run_id TEXT PRIMARY KEY,
+			schema_version INTEGER NOT NULL,
+			created_at_unix_milli INTEGER NOT NULL,
+			updated_at_unix_milli INTEGER NOT NULL,
+			template_id TEXT NOT NULL,
+			template_name TEXT NOT NULL,
+			owner_principal_id TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			phase TEXT NOT NULL,
+			payload_json BLOB NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_runs_updated_at ON task_runs(updated_at_unix_milli DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_runs_template_updated_at ON task_runs(template_id, updated_at_unix_milli DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_runs_status_updated_at ON task_runs(status, updated_at_unix_milli DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_runs_owner_status ON task_runs(owner_principal_id, status, updated_at_unix_milli DESC)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createLegacyTaskRunSnapshotTablesV5 creates the original v5-shape task_runs
+// schema (before owner_principal_id existed). It is used by the v4->v5 migration;
+// the v7->v8 migration later adds the owner column on top of this shape.
+func createLegacyTaskRunSnapshotTablesV5(ctx context.Context, db sqlExecutor) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS task_runs (
 			run_id TEXT PRIMARY KEY,
@@ -76,6 +110,7 @@ func (row *taskRunSnapshotRow) toRecord() (*TaskRunSnapshotRecord, error) {
 		UpdatedAtUnixMilli: row.UpdatedAtUnixMilli,
 		TemplateID:         row.TemplateID,
 		TemplateName:       row.TemplateName,
+		OwnerPrincipalID:   row.OwnerPrincipalID,
 		Status:             row.Status,
 		Phase:              row.Phase,
 		Payload:            &payload,

@@ -508,6 +508,117 @@ func TestGatewayVerificationOptionalEnforcesWorkflowGovernanceAfterTaskRegistrat
 	assert.Assert(t, downstream.CapturedRequest == nil)
 }
 
+// advancePersistedRunToActiveStep registers a run and advances it through
+// onboarding, planning and the start of step one, returning the run id. All
+// snapshots are persisted to the proxy's store.
+func advancePersistedRunToActiveStep(t *testing.T, clientSession *mcp.ClientSession) string {
+	t.Helper()
+	ctx := context.Background()
+
+	registerResult, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task"},
+	})
+	assert.NilError(t, err)
+	runID, _ := registerResult.StructuredContent.(map[string]any)["taskRunId"].(string)
+	assert.Assert(t, runID != "")
+
+	_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      taskCompleteOnboardingTool,
+		Arguments: map[string]any{"onboarding": map[string]any{"taskSummary": "Ready to plan and execute the task."}},
+	})
+	assert.NilError(t, err)
+
+	_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      taskCompletePlanningTool,
+		Arguments: map[string]any{"planning": map[string]any{"planSummary": "Stored plan", "parameters": map[string]any{}}},
+	})
+	assert.NilError(t, err)
+
+	_, err = clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      taskStartStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	return runID
+}
+
+func TestTaskResumeRestoresPersistedRunIntoFreshSession(t *testing.T) {
+	// Given: a run advanced into an active step and persisted to the store
+	_, session, _ := newPersistentTaskToolTestProxy(t, basicTaskTemplate())
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+	runID := advancePersistedRunToActiveStep(t, clientSession)
+
+	// When: the in-memory run is gone (server restart / reconnect) and the agent
+	// resumes by runId
+	session.taskRun = nil
+	resumeResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskResumeTool,
+		Arguments: map[string]any{"runId": runID},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, !resumeResult.IsError)
+	resumeStructured := resumeResult.StructuredContent.(map[string]any)
+	assert.Equal(t, resumeStructured["taskRunId"], runID)
+	assert.Equal(t, resumeStructured["status"], string(taskverification.TaskStatusActive))
+	assert.Equal(t, resumeStructured["phase"], "execution.step_one")
+
+	// Then: normal task tools continue from the restored state
+	completeResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskCompleteStepTool,
+		Arguments: map[string]any{"step": 1},
+	})
+	assert.NilError(t, err)
+	completeStructured := completeResult.StructuredContent.(map[string]any)
+	assert.Equal(t, completeStructured["stepStatus"], string(taskverification.StepStatusPassed))
+	assert.Equal(t, completeStructured["status"], string(taskverification.TaskStatusCompleted))
+}
+
+func TestTaskRegisterBlockedByExistingOpenRun(t *testing.T) {
+	// Given: a principal with a persisted open run
+	_, session, _ := newPersistentTaskToolTestProxy(t, basicTaskTemplate())
+	clientSession, cleanup := connectUpstreamTestClient(t, session, &mcp.ClientOptions{})
+	defer cleanup()
+	runID := advancePersistedRunToActiveStep(t, clientSession)
+
+	// When: the same principal reconnects (empty session) and tries to register again
+	session.taskRun = nil
+	blockedResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task"},
+	})
+	assert.NilError(t, err)
+
+	// Then: registration is blocked with guidance naming the open run
+	assert.Assert(t, blockedResult.IsError)
+	blockedStructured := blockedResult.StructuredContent.(map[string]any)
+	assert.Equal(t, blockedStructured["reason"], "open_task_exists")
+	assert.Equal(t, blockedStructured["openTaskRunId"], runID)
+
+	// When: the agent abandons the stale run by id
+	failResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskFailTool,
+		Arguments: map[string]any{"runId": runID, "reason": "abandoned"},
+	})
+	assert.NilError(t, err)
+	failStructured := failResult.StructuredContent.(map[string]any)
+	assert.Equal(t, failStructured["taskRunId"], runID)
+	assert.Equal(t, failStructured["status"], string(taskverification.TaskStatusFailed))
+
+	// Then: a fresh registration now succeeds
+	session.taskRun = nil
+	registerResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      taskRegisterTool,
+		Arguments: map[string]any{"templateId": "task"},
+	})
+	assert.NilError(t, err)
+	assert.Assert(t, !registerResult.IsError)
+	registerStructured := registerResult.StructuredContent.(map[string]any)
+	assert.Assert(t, registerStructured["taskRunId"] != "")
+	assert.Assert(t, registerStructured["taskRunId"] != runID)
+}
+
 func TestTaskToolFlowAndRestartFail(t *testing.T) {
 	endpoint, session := newTaskToolTestProxy(t, basicTaskTemplate())
 

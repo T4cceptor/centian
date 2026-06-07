@@ -82,6 +82,80 @@ func TestTaskRunSnapshotStoreUpsertAndRoundTrip(t *testing.T) {
 	assert.Equal(t, record.Payload.Steps[0].InvariantBaselines["stable"], "same")
 }
 
+func minimalRunSnapshot(runID, owner, status string) *taskruns.PersistedRunSnapshot {
+	return &taskruns.PersistedRunSnapshot{
+		RunID:            runID,
+		OwnerPrincipalID: owner,
+		TemplateID:       "simple_tdd",
+		TemplateName:     "Simple TDD Task",
+		Status:           status,
+		Phase:            "execution.step_one",
+		SelectedTemplate: taskruns.PersistedTemplateSnapshot{
+			Version: "0.1",
+			Task:    taskruns.PersistedTaskSnapshot{ID: "simple_tdd", Name: "Simple TDD Task", Description: "Test task"},
+		},
+	}
+}
+
+func TestTaskRunSnapshotStorePersistsOwnerPrincipal(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	err = store.UpsertTaskRunSnapshot(context.Background(), minimalRunSnapshot("run-1", "pr_owner", "active"))
+	assert.NilError(t, err)
+
+	record, err := store.GetTaskRunSnapshot(context.Background(), "run-1")
+	assert.NilError(t, err)
+	assert.Equal(t, record.OwnerPrincipalID, "pr_owner")
+	assert.Equal(t, record.Payload.OwnerPrincipalID, "pr_owner")
+
+	payload, err := store.LoadTaskRunSnapshot(context.Background(), "run-1")
+	assert.NilError(t, err)
+	assert.Equal(t, payload.OwnerPrincipalID, "pr_owner")
+
+	missing, err := store.LoadTaskRunSnapshot(context.Background(), "run-missing")
+	assert.NilError(t, err)
+	assert.Assert(t, missing == nil)
+}
+
+func TestFindOpenRunForPrincipal(t *testing.T) {
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	ctx := context.Background()
+
+	// Given: open and terminal runs across two principals
+	assert.NilError(t, store.UpsertTaskRunSnapshot(ctx, minimalRunSnapshot("run-a-active", "pr_a", "active")))
+	assert.NilError(t, store.UpsertTaskRunSnapshot(ctx, minimalRunSnapshot("run-a-done", "pr_a", "completed")))
+	assert.NilError(t, store.UpsertTaskRunSnapshot(ctx, minimalRunSnapshot("run-b-timeout", "pr_b", "timed_out")))
+	assert.NilError(t, store.UpsertTaskRunSnapshot(ctx, minimalRunSnapshot("run-c-failed", "pr_c", "failed")))
+
+	// Then: each principal's open run (or absence thereof) is reported correctly
+	openA, err := store.FindOpenRunForPrincipal(ctx, "pr_a")
+	assert.NilError(t, err)
+	assert.Assert(t, openA != nil)
+	assert.Equal(t, openA.RunID, "run-a-active")
+
+	openB, err := store.FindOpenRunForPrincipal(ctx, "pr_b")
+	assert.NilError(t, err)
+	assert.Assert(t, openB != nil)
+	assert.Equal(t, openB.RunID, "run-b-timeout")
+
+	openC, err := store.FindOpenRunForPrincipal(ctx, "pr_c")
+	assert.NilError(t, err)
+	assert.Assert(t, openC == nil)
+
+	none, err := store.FindOpenRunForPrincipal(ctx, "pr_unknown")
+	assert.NilError(t, err)
+	assert.Assert(t, none == nil)
+
+	// An empty principal owns no attributable run.
+	empty, err := store.FindOpenRunForPrincipal(ctx, "")
+	assert.NilError(t, err)
+	assert.Assert(t, empty == nil)
+}
+
 func TestTaskRunSnapshotStoreUpsertOverwritesExistingRow(t *testing.T) {
 	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
 	assert.NilError(t, err)
