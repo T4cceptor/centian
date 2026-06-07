@@ -212,6 +212,13 @@ export function InterventionSkyline({ summary, pinnedId, onPin, onZoom, onZoomOu
       </svg>
 
       {active ? <InterventionPopover intervention={active} x={xFor(active.timestampUnixMilli)} pinned={active.id === pinnedId} onClose={() => onPin(null)} /> : null}
+
+      {summary.interventions.length === 0 ? (
+        <p className="activity-skyline__watching">
+          Centian is watching — routine traffic will sit here, interventions will rise above. No
+          interventions yet.
+        </p>
+      ) : null}
     </div>
   );
 }

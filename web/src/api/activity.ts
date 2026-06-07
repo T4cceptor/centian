@@ -77,9 +77,10 @@ export type VolumePoint = {
 
 export type ActivityStats = {
   interventions: number;
-  threatsNeutralized: number;
-  piiRedacted: number;
-  riskyActionsHeld: number;
+  actionsBlocked: number;
+  redacted: number;
+  contextCharsIn: number;
+  contextCharsOut: number;
   requestsInspected: number;
 };
 
@@ -127,9 +128,10 @@ export async function fetchActivitySummary(
     rangeEndUnixMilli: summary?.rangeEndUnixMilli ?? 0,
     stats: summary?.stats ?? {
       interventions: 0,
-      threatsNeutralized: 0,
-      piiRedacted: 0,
-      riskyActionsHeld: 0,
+      actionsBlocked: 0,
+      redacted: 0,
+      contextCharsIn: 0,
+      contextCharsOut: 0,
       requestsInspected: 0,
     },
     categoryCounts: summary?.categoryCounts ?? {

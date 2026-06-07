@@ -495,9 +495,10 @@ describe("event list", () => {
           rangeEndUnixMilli: 2000,
           stats: {
             interventions: 0,
-            threatsNeutralized: 0,
-            piiRedacted: 0,
-            riskyActionsHeld: 0,
+            actionsBlocked: 0,
+            redacted: 0,
+            contextCharsIn: 0,
+            contextCharsOut: 0,
             requestsInspected: 0,
           },
           categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
@@ -511,7 +512,61 @@ describe("event list", () => {
 
     expect(await screen.findByRole("heading", { name: "Activity Timeline" })).toBeInTheDocument();
     expect(screen.getByText("Interventions")).toBeInTheDocument();
+    expect(screen.getByText("Actions Blocked")).toBeInTheDocument();
+    expect(screen.getByText("Context (in/out)")).toBeInTheDocument();
+    // With no interventions: the watching message shows and no category badges render.
+    expect(screen.getByText(/Centian is watching/)).toBeInTheDocument();
+    expect(screen.queryByText("Risk")).not.toBeInTheDocument();
+    expect(screen.queryByText("Security")).not.toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenCalledWith("/api/default/activity?range=6h", expect.anything());
+  });
+
+  it("hides zero-count category badges and shows non-zero ones", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve(
+        createFetchResponse({
+          rangeStartUnixMilli: 1000,
+          rangeEndUnixMilli: 2000,
+          stats: {
+            interventions: 1,
+            actionsBlocked: 1,
+            redacted: 0,
+            contextCharsIn: 1234,
+            contextCharsOut: 5_600_000,
+            requestsInspected: 9,
+          },
+          categoryCounts: { security: 2, policy: 0, risk: 0, quality: 0, compliance: 0 },
+          volume: [],
+          interventions: [
+            {
+              id: "iv-1",
+              category: "security",
+              timestampUnixMilli: 1500,
+              severity: 0.8,
+              title: "Blocked a tool",
+              summary: "",
+              ruleId: "rule",
+              ruleExplanation: "",
+              toolName: "shell__exec",
+              gateway: "gw",
+              serverName: "srv",
+            },
+          ],
+        }),
+      ),
+    ) as typeof fetch;
+
+    renderApp(["/default/activity"]);
+    await screen.findByRole("heading", { name: "Activity Timeline" });
+
+    // Non-zero category renders (label + count); zero-count ones do not.
+    expect(screen.getByText("Security 2")).toBeInTheDocument();
+    expect(screen.queryByText(/Compliance/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Risk/)).not.toBeInTheDocument();
+    // Compact in/out value with exact counts available on hover.
+    expect(screen.getByText("1.23k/5.6M")).toBeInTheDocument();
+    // Interventions present → no watching message.
+    expect(screen.queryByText(/Centian is watching/)).not.toBeInTheDocument();
   });
 
   it("filters activity by a custom start/end window from the timeframe picker", async () => {
@@ -523,9 +578,10 @@ describe("event list", () => {
           rangeEndUnixMilli: 3_600_000,
           stats: {
             interventions: 0,
-            threatsNeutralized: 0,
-            piiRedacted: 0,
-            riskyActionsHeld: 0,
+            actionsBlocked: 0,
+            redacted: 0,
+            contextCharsIn: 0,
+            contextCharsOut: 0,
             requestsInspected: 0,
           },
           categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
@@ -559,9 +615,10 @@ describe("event list", () => {
       rangeEndUnixMilli: 3_600_000,
       stats: {
         interventions: 0,
-        threatsNeutralized: 0,
-        piiRedacted: 0,
-        riskyActionsHeld: 0,
+        actionsBlocked: 0,
+        redacted: 0,
+        contextCharsIn: 0,
+        contextCharsOut: 0,
         requestsInspected: 0,
       },
       categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
@@ -599,7 +656,7 @@ describe("event list", () => {
       const activityBody = {
         rangeStartUnixMilli: 1000,
         rangeEndUnixMilli: 3_600_000,
-        stats: { interventions: 0, threatsNeutralized: 0, piiRedacted: 0, riskyActionsHeld: 0, requestsInspected: 0 },
+        stats: { interventions: 0, actionsBlocked: 0, redacted: 0, contextCharsIn: 0, contextCharsOut: 0, requestsInspected: 0 },
         categoryCounts: { security: 0, policy: 0, risk: 0, quality: 0, compliance: 0 },
         volume: [],
         interventions: [],
