@@ -35,7 +35,7 @@ type TaskRunSnapshotRecord struct {
 	Payload            *taskruns.PersistedRunSnapshot `json:"payload"`
 }
 
-func createTaskRunSnapshotTables(ctx context.Context, db bun.IDB) error {
+func createTaskRunSnapshotTables(ctx context.Context, db sqlExecutor) error {
 	// TODO: move to migration
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS task_runs (

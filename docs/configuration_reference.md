@@ -43,12 +43,13 @@ one global backend.
 
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `type` | string | No | `sqlite` | Backend type: `sqlite` or `file`. |
-| `store` | string | No | per-type default | Backend location. `sqlite`: db path (default `~/.centian/principals.sqlite`); `file`: key file path (default `~/.centian/api_keys.json`). |
+| `type` | string | No | `sqlite` | Backend type: `sqlite`, `postgres`, or `file`. |
+| `store` | string | No | per-type default | Backend location. `sqlite`: db path (default `~/.centian/principals.sqlite`); `postgres`: connection string/DSN (required, no default); `file`: key file path (default `~/.centian/api_keys.json`). |
 
 Runtime notes:
 
 - `sqlite` keeps principals, credentials, and grants in `~/.centian/principals.sqlite` (a dedicated database, separate from the per-project event stores). Credentials are stored generically (`type` + JSON `data`); grants live in `principal_gateways`/`principal_projects`.
+- `postgres` stores the same `principals`, `principal_credentials`, `principal_gateways`, and `principal_projects` tables in a PostgreSQL database. Set `store` to a DSN (for example `postgres://user:pass@host:5432/centian?sslmode=disable`). See the [PostgreSQL backend guide](postgres.md).
 - `file` keeps api-key principals in `~/.centian/api_keys.json` (legacy layout).
 - `centian auth new-key` writes to the backend defined by this block, reading `~/.centian/config.json` by default or the file named by `--config`.
 
@@ -117,13 +118,16 @@ Runtime notes:
 | Field | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
 | `enabled` | boolean | No | `true` | Enables durable event persistence. |
-| `driver` | string | No | `sqlite` | Only `sqlite` is currently supported. |
-| `path` | string | No | `~/.centian/logs/events.sqlite` | SQLite file path override. |
+| `driver` | string | No | `sqlite` | `sqlite` or `postgres`. |
+| `path` | string | No | `~/.centian/logs/events.sqlite` | SQLite file path override (sqlite driver only). |
+| `dsn` | string | Required when `driver` is `postgres` | none | PostgreSQL connection string. Ignored for sqlite. |
 
 Runtime notes:
 
 - If event storage is disabled, the task run API is not registered.
 - The embedded UI also depends on event storage being available.
+- `sqlite` (default): each project gets its own file (see `projects` runtime notes). `path` overrides the location.
+- `postgres`: events, task runs, and benchmarks are stored in PostgreSQL. Configure `dsn` per project (one database per project for now). JSON payload columns use `jsonb`, so they can be queried directly. See the [PostgreSQL backend guide](postgres.md).
 
 ### `testTools`
 

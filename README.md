@@ -198,7 +198,7 @@ Centian is usable and actively developed, but it's pre-1.0 with deliberate gaps.
 - Project-based isolation: per-project databases, route prefixes, capabilities, and auth (multi-tenancy preparation)
 - Programmable processor chain (CLI and webhook)
 - Process verification with template-based workflows, frozen execution contracts, and per-phase tool governance
-- SQLite event persistence with task/action correlation
+- SQLite (default) or PostgreSQL event persistence with task/action correlation — see [docs/postgres.md](docs/postgres.md)
 - Embedded read-only UI for task run inspection
 - Structured JSONL request logging
 - Auto-discovery of existing MCP configs (`centian init -p <path>`)
@@ -207,7 +207,7 @@ Centian is usable and actively developed, but it's pre-1.0 with deliberate gaps.
 **Known limitations:**
 - Task run state is in-memory only (not restorable after restart)
 - Governance is tool-level, not semantic (no read vs. write distinction within a tool)
-- SQLite is the only storage backend (Postgres planned)
+- Postgres event storage uses one database per project (shared-database/schema-per-project is not supported yet)
 - OAuth support or downstream MCP servers is limited, not all flows are supported yet
 - The UI is read-only (no task control actions from the UI yet)
 - Approval-wait phases block tools but have no dedicated approve/resume mechanism yet

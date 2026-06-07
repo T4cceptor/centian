@@ -89,10 +89,33 @@ func TestNewPrincipalProvider_DefaultsToSQLite(t *testing.T) {
 
 func TestNewPrincipalProvider_UnsupportedType(t *testing.T) {
 	// Given/When: an unknown backend type
-	_, err := NewPrincipalProvider("postgres", "dsn")
+	_, err := NewPrincipalProvider("mysql", "dsn")
 
 	// Then: it is rejected
 	if err == nil {
 		t.Errorf("expected error for unsupported backend type")
+	}
+}
+
+func TestNewPrincipalProvider_Postgres(t *testing.T) {
+	// Given/When: the postgres backend type with a DSN
+	provider, err := NewPrincipalProvider("postgres", "postgres://localhost/centian")
+	if err != nil {
+		t.Fatalf("NewPrincipalProvider() error = %v", err)
+	}
+
+	// Then: it is the SQL provider (Setup would connect; not exercised here)
+	if _, ok := provider.(*SQLPrincipalProvider); !ok {
+		t.Errorf("provider type = %T, want *SQLPrincipalProvider", provider)
+	}
+}
+
+func TestNewPrincipalProvider_PostgresRequiresDSN(t *testing.T) {
+	// Given/When: the postgres backend type without a store/DSN
+	_, err := NewPrincipalProvider("postgres", "")
+
+	// Then: it is rejected (postgres has no default location)
+	if err == nil {
+		t.Errorf("expected error for postgres backend without a dsn")
 	}
 }

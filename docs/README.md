@@ -7,6 +7,7 @@ This directory is the canonical documentation surface for Centian. The top-level
 - [Getting Started](getting_started.md) for first-run setup, proxy startup, and MCP client hookup.
 - [Configuration Reference](configuration_reference.md) for the full config surface and validation rules.
 - [HTTP Proxy Setup](HTTP_PROXY_SETUP.md) for transport and deployment-oriented setup guidance.
+- [PostgreSQL Backend](postgres.md) for using Postgres (instead of SQLite) for event storage and auth, including a local Docker setup.
 
 ## Core Guides
 
