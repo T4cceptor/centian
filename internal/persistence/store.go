@@ -1095,9 +1095,9 @@ func (s *Store) listEventsWithGovernanceFilter(ctx context.Context, filter *Even
 		if err != nil {
 			return nil, err
 		}
-		for _, item := range page.Items {
-			if hasGovernanceEventAnnotation(item.Annotations) {
-				accepted = append(accepted, item)
+		for idx := range page.Items {
+			if hasGovernanceEventAnnotation(page.Items[idx].Annotations) {
+				accepted = append(accepted, page.Items[idx])
 				if len(accepted) > limit {
 					break
 				}
@@ -1127,8 +1127,8 @@ func (s *Store) listEventsWithGovernanceFilter(ctx context.Context, filter *Even
 }
 
 func hasGovernanceEventAnnotation(annotations []common.EventAnnotation) bool {
-	for _, annotation := range annotations {
-		if annotation.Type == "governance_events" {
+	for idx := range annotations {
+		if annotations[idx].Type == "governance_events" {
 			return true
 		}
 	}
@@ -1145,7 +1145,7 @@ func (s *Store) taskGovernanceAnnotationsByRelatedRequestID(ctx context.Context,
 	if err := s.db.NewSelect().
 		Model(&rows).
 		Column("related_action_request_id", "payload_json").
-		Where("related_action_request_id IN (?)", bun.In(requestIDs)).
+		Where("related_action_request_id IN (?)", bun.List(requestIDs)).
 		Where("payload_json IS NOT NULL").
 		Order("created_at_unix_milli ASC", "id ASC").
 		Scan(ctx); err != nil {
@@ -1154,9 +1154,11 @@ func (s *Store) taskGovernanceAnnotationsByRelatedRequestID(ctx context.Context,
 
 	for idx := range rows {
 		row := &rows[idx]
-		for _, annotation := range governanceAnnotationsFromPayload(row.PayloadJSON) {
-			annotations[row.RelatedActionRequestID] = append(annotations[row.RelatedActionRequestID], annotation)
+		payloadAnnotations := governanceAnnotationsFromPayload(row.PayloadJSON)
+		if len(payloadAnnotations) == 0 {
+			continue
 		}
+		annotations[row.RelatedActionRequestID] = append(annotations[row.RelatedActionRequestID], payloadAnnotations...)
 	}
 	return annotations, nil
 }
@@ -1172,9 +1174,9 @@ func governanceAnnotationsFromPayload(payload json.RawMessage) []common.EventAnn
 		return nil
 	}
 	governanceAnnotations := make([]common.EventAnnotation, 0, len(value.Annotations))
-	for _, annotation := range value.Annotations {
-		if annotation.Type == "governance_events" {
-			governanceAnnotations = append(governanceAnnotations, annotation)
+	for idx := range value.Annotations {
+		if value.Annotations[idx].Type == "governance_events" {
+			governanceAnnotations = append(governanceAnnotations, value.Annotations[idx])
 		}
 	}
 	return governanceAnnotations

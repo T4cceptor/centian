@@ -14,7 +14,7 @@ func ProcessJSON(input []byte, settings *config.BuiltinProcessorSettings) ([]byt
 		return nil, fmt.Errorf("decode processor input: %w", err)
 	}
 
-	_, err = builtinutil.ApplyPatternRedactions(ctx, builtinutil.RedactionOptions{
+	_, err = builtinutil.ApplyPatternRedactions(ctx, &builtinutil.RedactionOptions{
 		Processor: config.BuiltinPatternRedactionProcessor,
 		Mode:      settings.Mode,
 		Scope:     settings.Scope,

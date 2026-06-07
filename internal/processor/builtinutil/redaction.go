@@ -72,24 +72,24 @@ func CompileRedactionRules(rules []RedactionRule) ([]RedactionRule, error) {
 
 // ApplyPatternRedactions applies regex redaction rules and appends one annotation
 // report when at least one match is found.
-func ApplyPatternRedactions(ctx *DataContext, options RedactionOptions) (*RedactionResult, error) {
-	options = normalizeRedactionOptions(options)
-	compiledRules, err := CompileRedactionRules(options.Rules)
+func ApplyPatternRedactions(ctx *DataContext, options *RedactionOptions) (*RedactionResult, error) {
+	opts := normalizeRedactionOptions(options)
+	compiledRules, err := CompileRedactionRules(opts.Rules)
 	if err != nil {
 		return nil, err
 	}
-	options.Rules = compiledRules
+	opts.Rules = compiledRules
 
 	result := &RedactionResult{}
-	if scansRequest(options.Scope) {
-		modified, err := applyRequestRedactions(ctx, options, result)
+	if scansRequest(opts.Scope) {
+		modified, err := applyRequestRedactions(ctx, &opts, result)
 		if err != nil {
 			return nil, err
 		}
 		result.Modified = result.Modified || modified
 	}
-	if scansResponse(options.Scope) {
-		result.Modified = applyResponseRedactions(ctx, options, result) || result.Modified
+	if scansResponse(opts.Scope) {
+		result.Modified = applyResponseRedactions(ctx, &opts, result) || result.Modified
 	}
 	if !result.Matched {
 		return result, nil
@@ -99,15 +99,15 @@ func ApplyPatternRedactions(ctx *DataContext, options RedactionOptions) (*Redact
 	result.Paths = sortedStringSet(pathSet(result.Findings))
 	report := common.EventAnnotation{
 		Type:      "governance_events",
-		Processor: options.Processor,
-		Action:    redactionAction(options.Mode),
-		Category:  options.Category,
-		Severity:  options.Severity,
-		Message:   redactionMessage(options, result),
+		Processor: opts.Processor,
+		Action:    redactionAction(opts.Mode),
+		Category:  opts.Category,
+		Severity:  opts.Severity,
+		Message:   redactionMessage(&opts, result),
 		Findings:  result.Findings,
 		Details: map[string]any{
-			"mode":                options.Mode,
-			"scope":               options.Scope,
+			"mode":                opts.Mode,
+			"scope":               opts.Scope,
 			"match_count":         result.MatchCount,
 			"unique_rule_count":   len(result.RuleNames),
 			"rules":               result.RuleNames,
@@ -115,7 +115,7 @@ func ApplyPatternRedactions(ctx *DataContext, options RedactionOptions) (*Redact
 			"affected_paths":      result.Paths,
 		},
 	}
-	AppendReport(ctx, report)
+	AppendReport(ctx, &report)
 	result.Annotations = append(result.Annotations, report)
 	if result.Modified {
 		MarkModified(ctx)
@@ -123,7 +123,7 @@ func ApplyPatternRedactions(ctx *DataContext, options RedactionOptions) (*Redact
 	return result, nil
 }
 
-func applyRequestRedactions(ctx *DataContext, options RedactionOptions, result *RedactionResult) (bool, error) {
+func applyRequestRedactions(ctx *DataContext, options *RedactionOptions, result *RedactionResult) (bool, error) {
 	if options.Mode == RedactionModeAnnotate {
 		err := WalkRequestArguments(ctx, func(node TextNode) {
 			recordRedactionMatches(node, options.Rules, result)
@@ -135,7 +135,7 @@ func applyRequestRedactions(ctx *DataContext, options RedactionOptions, result *
 	})
 }
 
-func applyResponseRedactions(ctx *DataContext, options RedactionOptions, result *RedactionResult) bool {
+func applyResponseRedactions(ctx *DataContext, options *RedactionOptions, result *RedactionResult) bool {
 	if options.Mode == RedactionModeAnnotate {
 		WalkResultText(ctx, func(node TextNode) {
 			recordRedactionMatches(node, options.Rules, result)
@@ -186,20 +186,21 @@ func recordRuleMatch(path, ruleName string, count int, result *RedactionResult) 
 	})
 }
 
-func normalizeRedactionOptions(options RedactionOptions) RedactionOptions {
-	if options.Mode == "" {
-		options.Mode = RedactionModeRedact
+func normalizeRedactionOptions(options *RedactionOptions) RedactionOptions {
+	opts := *options
+	if opts.Mode == "" {
+		opts.Mode = RedactionModeRedact
 	}
-	if options.Scope == "" {
-		options.Scope = RedactionScopeBoth
+	if opts.Scope == "" {
+		opts.Scope = RedactionScopeBoth
 	}
-	if options.Category == "" {
-		options.Category = "security"
+	if opts.Category == "" {
+		opts.Category = "security"
 	}
-	if options.Severity == "" {
-		options.Severity = "medium"
+	if opts.Severity == "" {
+		opts.Severity = "medium"
 	}
-	return options
+	return opts
 }
 
 func redactionAction(mode string) string {
@@ -209,7 +210,7 @@ func redactionAction(mode string) string {
 	return "redacted"
 }
 
-func redactionMessage(options RedactionOptions, result *RedactionResult) string {
+func redactionMessage(options *RedactionOptions, result *RedactionResult) string {
 	if options.Message != "" {
 		return options.Message
 	}

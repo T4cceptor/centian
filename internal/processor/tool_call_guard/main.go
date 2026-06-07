@@ -41,12 +41,12 @@ func guardRules(settings *config.BuiltinProcessorSettings) []builtinutil.ToolGua
 		}
 	}
 	for _, rule := range settings.GuardRules {
-		rules = append(rules, configRuleToBuiltinRule(rule))
+		rules = append(rules, configRuleToBuiltinRule(&rule))
 	}
 	return rules
 }
 
-func configRuleToBuiltinRule(rule config.BuiltinToolGuardRule) builtinutil.ToolGuardRule {
+func configRuleToBuiltinRule(rule *config.BuiltinToolGuardRule) builtinutil.ToolGuardRule {
 	argumentRules := make([]builtinutil.ToolGuardArgumentRule, 0, len(rule.ArgumentRules))
 	for _, argumentRule := range rule.ArgumentRules {
 		argumentRules = append(argumentRules, builtinutil.ToolGuardArgumentRule{
@@ -124,7 +124,7 @@ func dangerousCommandRules() []builtinutil.ToolGuardRule {
 	}
 }
 
-func dangerousCommandRule(name string, message string, toolPatterns []string, pattern string) builtinutil.ToolGuardRule {
+func dangerousCommandRule(name, message string, toolPatterns []string, pattern string) builtinutil.ToolGuardRule {
 	return builtinutil.ToolGuardRule{
 		Name:         name,
 		Category:     "security",

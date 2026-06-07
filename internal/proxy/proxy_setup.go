@@ -446,6 +446,7 @@ type principalProviderNamer struct {
 	provider centauth.PrincipalProvider
 }
 
+// PrincipalNames returns an id-to-display-name map for the configured provider.
 func (n principalProviderNamer) PrincipalNames(ctx context.Context) (map[string]string, error) {
 	if n.provider == nil {
 		return map[string]string{}, nil

@@ -13,7 +13,7 @@ func TestApplyPatternRedactionsRedactsRequestArguments(t *testing.T) {
 		"token": "it_abcdefghijklmnopqrst",
 	})
 
-	result, err := ApplyPatternRedactions(ctx, RedactionOptions{
+	result, err := ApplyPatternRedactions(ctx, &RedactionOptions{
 		Processor: "pattern_redaction_processor",
 		Mode:      RedactionModeRedact,
 		Scope:     RedactionScopeRequest,
@@ -46,7 +46,7 @@ func TestApplyPatternRedactionsRedactsResponseTextAndStructuredContent(t *testin
 		},
 	}
 
-	result, err := ApplyPatternRedactions(ctx, RedactionOptions{
+	result, err := ApplyPatternRedactions(ctx, &RedactionOptions{
 		Processor: "pii_redactor",
 		Mode:      RedactionModeRedact,
 		Scope:     RedactionScopeResponse,
@@ -68,7 +68,7 @@ func TestApplyPatternRedactionsRedactsResponseTextAndStructuredContent(t *testin
 func TestApplyPatternRedactionsAnnotateModeDoesNotMutate(t *testing.T) {
 	ctx := contextWithRequestArgs(t, map[string]any{"token": "it_abcdefghijklmnopqrst"})
 
-	result, err := ApplyPatternRedactions(ctx, RedactionOptions{
+	result, err := ApplyPatternRedactions(ctx, &RedactionOptions{
 		Processor: "pattern_redaction_processor",
 		Mode:      RedactionModeAnnotate,
 		Scope:     RedactionScopeBoth,
@@ -105,7 +105,7 @@ func TestApplyPatternRedactionsScopeControlsPayloadSide(t *testing.T) {
 		},
 	}
 
-	result, err := ApplyPatternRedactions(ctx, RedactionOptions{
+	result, err := ApplyPatternRedactions(ctx, &RedactionOptions{
 		Processor: "pattern_redaction_processor",
 		Mode:      RedactionModeRedact,
 		Scope:     RedactionScopeResponse,
@@ -122,7 +122,7 @@ func TestApplyPatternRedactionsScopeControlsPayloadSide(t *testing.T) {
 }
 
 func TestApplyPatternRedactionsInvalidRegex(t *testing.T) {
-	_, err := ApplyPatternRedactions(&DataContext{}, RedactionOptions{
+	_, err := ApplyPatternRedactions(&DataContext{}, &RedactionOptions{
 		Processor: "pattern_redaction_processor",
 		Rules: []RedactionRule{
 			{Name: "bad", Pattern: `[`, Replacement: "[REDACTED]"},

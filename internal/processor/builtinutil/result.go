@@ -16,14 +16,14 @@ type BlockResultOptions struct {
 }
 
 // AppendReport appends an annotation report, initializing the annotation part.
-func AppendReport(ctx *DataContext, report common.EventAnnotation) {
-	if ctx == nil {
+func AppendReport(ctx *DataContext, report *common.EventAnnotation) {
+	if ctx == nil || report == nil {
 		return
 	}
 	if ctx.Annotations == nil {
 		ctx.Annotations = &AnnotationPart{}
 	}
-	ctx.Annotations.Reports = append(ctx.Annotations.Reports, report)
+	ctx.Annotations.Reports = append(ctx.Annotations.Reports, *report)
 }
 
 // MarkModified marks the processor event as modified.

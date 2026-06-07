@@ -11,7 +11,7 @@ import (
 func TestAppendReportInitializesAnnotations(t *testing.T) {
 	ctx := &DataContext{}
 
-	AppendReport(ctx, common.EventAnnotation{
+	AppendReport(ctx, &common.EventAnnotation{
 		Processor: "test",
 		Action:    "annotated",
 	})

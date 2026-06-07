@@ -196,7 +196,7 @@ func sanitizeResult(ctx *builtinutil.DataContext, mode string) {
 	})
 }
 
-func sanitizeText(text string, mode string) builtinutil.TextReplacement {
+func sanitizeText(text, mode string) builtinutil.TextReplacement {
 	if len(scanText(text, "")) == 0 {
 		return builtinutil.KeepText(text)
 	}
@@ -283,7 +283,7 @@ func block(ctx *builtinutil.DataContext, detections []detection) {
 
 func addAnnotation(ctx *builtinutil.DataContext, detections []detection, mode string) {
 	details := annotationDetails(ctx, detections, mode)
-	builtinutil.AppendReport(ctx, common.EventAnnotation{
+	builtinutil.AppendReport(ctx, &common.EventAnnotation{
 		Type:      "governance_events",
 		Processor: "prompt_injection_guard",
 		Action:    actionName(mode),

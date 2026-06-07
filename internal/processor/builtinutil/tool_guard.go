@@ -104,8 +104,8 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 		Type:      "governance_events",
 		Processor: options.Processor,
 		Action:    action,
-		Category:  ruleCategory(match.rule),
-		Severity:  ruleSeverity(match.rule),
+		Category:  ruleCategory(&match.rule),
+		Severity:  ruleSeverity(&match.rule),
 		Message:   message,
 		Findings:  match.findings,
 		Details: map[string]any{
@@ -122,7 +122,7 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 	for key, value := range match.details {
 		report.Details[key] = value
 	}
-	AppendReport(ctx, report)
+	AppendReport(ctx, &report)
 
 	result.Matched = true
 	result.Blocked = options.Mode == ToolGuardModeBlock
@@ -138,9 +138,9 @@ func ApplyToolGuard(ctx *DataContext, options ToolGuardOptions) (*ToolGuardResul
 			Status:    403,
 			StructuredContent: map[string]any{
 				"blocked":        true,
-				"category":       ruleCategory(match.rule),
+				"category":       ruleCategory(&match.rule),
 				"rule":           match.rule.Name,
-				"severity":       ruleSeverity(match.rule),
+				"severity":       ruleSeverity(&match.rule),
 				"tool_name":      match.toolName,
 				"tool_name_path": match.toolPath,
 				"findings":       match.findings,
@@ -196,11 +196,11 @@ func isRequestPhaseToolCall(ctx *DataContext) bool {
 func firstToolGuardMatch(ctx *DataContext, rules []ToolGuardRule) (toolGuardMatch, bool, error) {
 	candidates := toolNameCandidates(ctx)
 	for _, rule := range rules {
-		toolName, ok := matchingToolName(rule, candidates)
+		toolName, ok := matchingToolName(&rule, candidates)
 		if !ok {
 			continue
 		}
-		findings, details, ok, err := matchingArgumentFindings(ctx, rule)
+		findings, details, ok, err := matchingArgumentFindings(ctx, &rule)
 		if err != nil || !ok {
 			return toolGuardMatch{}, false, err
 		}
@@ -224,14 +224,14 @@ func toolNameCandidates(ctx *DataContext) []toolNameCandidate {
 	return values
 }
 
-func appendNonEmptyToolName(values []toolNameCandidate, candidatePath string, value string) []toolNameCandidate {
+func appendNonEmptyToolName(values []toolNameCandidate, candidatePath, value string) []toolNameCandidate {
 	if value == "" {
 		return values
 	}
 	return append(values, toolNameCandidate{Path: candidatePath, Value: value})
 }
 
-func matchingToolName(rule ToolGuardRule, candidates []toolNameCandidate) (toolNameCandidate, bool) {
+func matchingToolName(rule *ToolGuardRule, candidates []toolNameCandidate) (toolNameCandidate, bool) {
 	if len(rule.ToolPatterns) == 0 {
 		if len(candidates) == 0 {
 			return toolNameCandidate{}, true
@@ -255,7 +255,7 @@ func (candidate toolNameCandidate) pathOrDefault() string {
 	return candidate.Path
 }
 
-func matchingArgumentFindings(ctx *DataContext, rule ToolGuardRule) ([]common.EventAnnotationFinding, map[string]any, bool, error) {
+func matchingArgumentFindings(ctx *DataContext, rule *ToolGuardRule) ([]common.EventAnnotationFinding, map[string]any, bool, error) {
 	if rule.PathBoundary != nil {
 		return matchingPathBoundaryFindings(ctx, rule)
 	}
@@ -295,7 +295,7 @@ func argumentRuleMatchesNode(rule ToolGuardArgumentRule, node ArgumentNode) bool
 	return node.Scalar && rule.Regex.MatchString(node.Text)
 }
 
-func matchingPathBoundaryFindings(ctx *DataContext, rule ToolGuardRule) ([]common.EventAnnotationFinding, map[string]any, bool, error) {
+func matchingPathBoundaryFindings(ctx *DataContext, rule *ToolGuardRule) ([]common.EventAnnotationFinding, map[string]any, bool, error) {
 	var nodes []ArgumentNode
 	if err := WalkRequestArgumentValues(ctx, func(node ArgumentNode) {
 		if node.Scalar {
@@ -390,7 +390,7 @@ func containsPathTraversal(value string) bool {
 	return strings.Contains(value, "/../") || strings.HasSuffix(value, "/..")
 }
 
-func boundaryPathContains(value string, deniedPath string) bool {
+func boundaryPathContains(value, deniedPath string) bool {
 	deniedPath = path.Clean(normalizeBoundaryPathInput(deniedPath))
 	if deniedPath == "" {
 		return false
@@ -400,7 +400,7 @@ func boundaryPathContains(value string, deniedPath string) bool {
 	return strings.Contains(value, deniedPath)
 }
 
-func resolveBoundaryPath(value string, relativeBaseRoot string) string {
+func resolveBoundaryPath(value, relativeBaseRoot string) string {
 	if strings.HasPrefix(value, "/") {
 		return path.Clean(value)
 	}
@@ -448,21 +448,21 @@ func matchesGlob(pattern, value string) bool {
 	return err == nil && matched
 }
 
-func requestArgumentPath(path string) string {
-	if path == "" {
+func requestArgumentPath(argPath string) string {
+	if argPath == "" {
 		return "payload.request.Params.arguments"
 	}
-	return "payload.request.Params.arguments." + path
+	return "payload.request.Params.arguments." + argPath
 }
 
-func ruleSeverity(rule ToolGuardRule) string {
+func ruleSeverity(rule *ToolGuardRule) string {
 	if rule.Severity == "" {
 		return "medium"
 	}
 	return rule.Severity
 }
 
-func ruleCategory(rule ToolGuardRule) string {
+func ruleCategory(rule *ToolGuardRule) string {
 	if rule.Category == "" {
 		return "policy"
 	}

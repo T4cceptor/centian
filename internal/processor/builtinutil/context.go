@@ -53,5 +53,9 @@ func EncodeContext(ctx *DataContext) ([]byte, error) {
 	if ctx == nil {
 		ctx = &DataContext{}
 	}
-	return json.Marshal(ctx)
+	// mcp.CallToolRequest carries a RequestExtra.CloseSSEStream func field with no
+	// json tag, which staticcheck (SA1026) flags as unmarshalable. In the processor
+	// contract Extra is always nil (only Params is populated), so Marshal succeeds at
+	// runtime; reshaping the shared contract type to drop the field is out of scope.
+	return json.Marshal(ctx) //nolint:staticcheck // SA1026: Extra func field is always nil here
 }

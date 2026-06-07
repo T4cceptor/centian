@@ -185,9 +185,26 @@ type annotationTotals struct {
 func (s *Store) activityInterventions(ctx context.Context, start, end int64, principal string) ([]ActivityIntervention, annotationTotals, error) {
 	records := make([]rawGov, 0)
 
-	// Source 1: governance annotations persisted against action events.
+	annotationRecords, err := s.annotationGovernanceRecords(ctx, start, end, principal)
+	if err != nil {
+		return nil, annotationTotals{}, err
+	}
+	records = append(records, annotationRecords...)
+
+	taskRecords, err := s.taskGovernanceRecords(ctx, start, end, principal)
+	if err != nil {
+		return nil, annotationTotals{}, err
+	}
+	records = append(records, taskRecords...)
+
+	return interventionsFromRecords(records), tallyAnnotationTotals(records), nil
+}
+
+// annotationGovernanceRecords loads governance annotations persisted against action
+// events within the window (Source 1).
+func (s *Store) annotationGovernanceRecords(ctx context.Context, start, end int64, principal string) ([]rawGov, error) {
 	annotationRows := make([]activityInterventionRow, 0)
-	annotationQuery := `
+	query := `
 SELECT
 	a.id AS annotation_id,
 	a.action_event_id,
@@ -204,15 +221,17 @@ SELECT
 FROM event_annotations a
 JOIN action_events ae ON ae.id = a.action_event_id
 WHERE ae.created_at_unix_milli >= ? AND ae.created_at_unix_milli <= ? AND a.type = 'governance_events'`
-	annotationArgs := []any{start, end}
+	args := []any{start, end}
 	if principal != "" {
-		annotationQuery += " AND ae.principal_id = ?"
-		annotationArgs = append(annotationArgs, principal)
+		query += " AND ae.principal_id = ?"
+		args = append(args, principal)
 	}
-	annotationQuery += "\nORDER BY ae.created_at_unix_milli ASC, a.id ASC"
-	if err := s.db.NewRaw(annotationQuery, annotationArgs...).Scan(ctx, &annotationRows); err != nil {
-		return nil, annotationTotals{}, err
+	query += "\nORDER BY ae.created_at_unix_milli ASC, a.id ASC"
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &annotationRows); err != nil {
+		return nil, err
 	}
+
+	records := make([]rawGov, 0, len(annotationRows))
 	for idx := range annotationRows {
 		row := &annotationRows[idx]
 		records = append(records, rawGov{
@@ -229,11 +248,15 @@ WHERE ae.created_at_unix_milli >= ? AND ae.created_at_unix_milli <= ? AND a.type
 			serverName: row.ServerName,
 		})
 	}
+	return records, nil
+}
 
-	// Source 2: governance annotations embedded in task-event payloads, related to
-	// an action event by request id (mirrors how the Events view surfaces them).
+// taskGovernanceRecords loads governance annotations embedded in task-event payloads
+// within the window, related to an action event by request id (Source 2; mirrors how
+// the Events view surfaces them).
+func (s *Store) taskGovernanceRecords(ctx context.Context, start, end int64, principal string) ([]rawGov, error) {
 	taskRows := make([]activityTaskGovRow, 0)
-	taskQuery := `
+	query := `
 SELECT
 	te.id AS task_event_id,
 	te.created_at_unix_milli AS task_created_at,
@@ -246,48 +269,62 @@ SELECT
 FROM task_events te
 LEFT JOIN action_events ae ON ae.request_id = te.related_action_request_id
 WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.payload_json IS NOT NULL`
-	taskArgs := []any{start, end}
+	args := []any{start, end}
 	if principal != "" {
-		taskQuery += " AND te.principal_id = ?"
-		taskArgs = append(taskArgs, principal)
+		query += " AND te.principal_id = ?"
+		args = append(args, principal)
 	}
-	taskQuery += "\nORDER BY te.created_at_unix_milli ASC, te.id ASC"
-	if err := s.db.NewRaw(taskQuery, taskArgs...).Scan(ctx, &taskRows); err != nil {
-		return nil, annotationTotals{}, err
-	}
-	for idx := range taskRows {
-		row := &taskRows[idx]
-		key := row.ActionEventID
-		timestamp := row.ActionCreatedAt
-		if key == "" {
-			key = "task:" + row.TaskEventID
-		}
-		if timestamp == 0 {
-			timestamp = row.TaskCreatedAt
-		}
-		for _, annotation := range governanceAnnotationsFromPayload(row.PayloadJSON) {
-			rule := ""
-			if len(annotation.Findings) > 0 {
-				rule = annotation.Findings[0].Rule
-			}
-			records = append(records, rawGov{
-				key:        key,
-				timestamp:  timestamp,
-				category:   annotation.Category,
-				severity:   annotation.Severity,
-				action:     annotation.Action,
-				processor:  annotation.Processor,
-				message:    annotation.Message,
-				rule:       rule,
-				toolName:   row.ToolName,
-				gateway:    row.Gateway,
-				serverName: row.ServerName,
-			})
-		}
+	query += "\nORDER BY te.created_at_unix_milli ASC, te.id ASC"
+	if err := s.db.NewRaw(query, args...).Scan(ctx, &taskRows); err != nil {
+		return nil, err
 	}
 
-	// Tally blocked/redacted over every annotation (pre-dedup), so an event with
-	// several annotations counts toward each action it took.
+	records := make([]rawGov, 0, len(taskRows))
+	for idx := range taskRows {
+		records = append(records, taskRowRecords(&taskRows[idx])...)
+	}
+	return records, nil
+}
+
+// taskRowRecords expands one task-event row into its governance records.
+func taskRowRecords(row *activityTaskGovRow) []rawGov {
+	key := row.ActionEventID
+	timestamp := row.ActionCreatedAt
+	if key == "" {
+		key = "task:" + row.TaskEventID
+	}
+	if timestamp == 0 {
+		timestamp = row.TaskCreatedAt
+	}
+
+	payloadAnnotations := governanceAnnotationsFromPayload(row.PayloadJSON)
+	records := make([]rawGov, 0, len(payloadAnnotations))
+	for idx := range payloadAnnotations {
+		annotation := &payloadAnnotations[idx]
+		rule := ""
+		if len(annotation.Findings) > 0 {
+			rule = annotation.Findings[0].Rule
+		}
+		records = append(records, rawGov{
+			key:        key,
+			timestamp:  timestamp,
+			category:   annotation.Category,
+			severity:   annotation.Severity,
+			action:     annotation.Action,
+			processor:  annotation.Processor,
+			message:    annotation.Message,
+			rule:       rule,
+			toolName:   row.ToolName,
+			gateway:    row.Gateway,
+			serverName: row.ServerName,
+		})
+	}
+	return records
+}
+
+// tallyAnnotationTotals counts blocked/redacted actions over every annotation
+// (pre-dedup), so an event with several annotations counts toward each action it took.
+func tallyAnnotationTotals(records []rawGov) annotationTotals {
 	totals := annotationTotals{}
 	for idx := range records {
 		action := strings.ToLower(records[idx].action)
@@ -298,8 +335,12 @@ WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.pay
 			totals.redacted++
 		}
 	}
+	return totals
+}
 
-	// Collapse to a single intervention per key, keeping the highest severity.
+// interventionsFromRecords collapses records to one intervention per key (keeping the
+// highest severity) and returns them ordered by time for left-to-right plotting.
+func interventionsFromRecords(records []rawGov) []ActivityIntervention {
 	order := make([]string, 0)
 	byKey := make(map[string]*rawGov)
 	for idx := range records {
@@ -338,11 +379,10 @@ WHERE te.created_at_unix_milli >= ? AND te.created_at_unix_milli <= ? AND te.pay
 			Label:              label,
 		})
 	}
-	// Order by time so the skyline plots markers left-to-right.
 	sort.SliceStable(interventions, func(i, j int) bool {
 		return interventions[i].TimestampUnixMilli < interventions[j].TimestampUnixMilli
 	})
-	return interventions, totals, nil
+	return interventions
 }
 
 // contextCharsRow is one message_type total from the context-chars aggregation.
