@@ -215,8 +215,8 @@ export function InterventionSkyline({ summary, pinnedId, onPin, onZoom, onZoomOu
 
       {summary.interventions.length === 0 ? (
         <p className="activity-skyline__watching">
-          Centian is watching — routine traffic will sit here, interventions will rise above. Nothing's
-          needed your attention yet.
+          Centian is watching — routine traffic will sit here, interventions will rise above. No
+          interventions yet.
         </p>
       ) : null}
     </div>
