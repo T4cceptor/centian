@@ -231,9 +231,12 @@ type EventListFilter struct {
 	MessageType string
 	RequestID   string
 	SessionID   string
+	Principal   string
 	Success     *bool
 	Cursor      *EventListCursor
 	Limit       int
+	// WithGovernanceEvent restricts the feed to events with direct or related task governance annotations.
+	WithGovernanceEvent bool
 }
 
 // EventListItem is one row in the global action-event feed.
@@ -445,6 +448,7 @@ func (s *Store) createTables(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_events_task_run_id ON task_events(task_run_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_task_events_created_at ON task_events(created_at_unix_milli)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_events_principal_id ON task_events(principal_id)`,
 		`CREATE TABLE IF NOT EXISTS action_events (
 			id TEXT PRIMARY KEY,
 			schema_version INTEGER NOT NULL,
@@ -466,6 +470,7 @@ func (s *Store) createTables(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_action_events_request_id ON action_events(request_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_action_events_created_at ON action_events(created_at_unix_milli)`,
+		`CREATE INDEX IF NOT EXISTS idx_action_events_principal_id ON action_events(principal_id)`,
 		`CREATE TABLE IF NOT EXISTS action_event_task_context (
 			request_id TEXT PRIMARY KEY,
 			task_run_id TEXT NOT NULL,
@@ -984,7 +989,19 @@ func (s *Store) ListEvents(ctx context.Context, filter *EventListFilter) (*Event
 		limit = 100
 	}
 
-	rows := make([]eventListRow, 0, limit+1)
+	if filter.WithGovernanceEvent {
+		return s.listEventsWithGovernanceFilter(ctx, filter, limit)
+	}
+
+	rows, err := s.listEventRows(ctx, filter, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	return s.eventListPageFromRows(ctx, rows, limit)
+}
+
+func (s *Store) listEventRows(ctx context.Context, filter *EventListFilter, queryLimit int) ([]eventListRow, error) {
+	rows := make([]eventListRow, 0, queryLimit)
 	query := `
 SELECT
 	ae.id,
@@ -1014,12 +1031,15 @@ LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
 		query += " WHERE " + strings.Join(clauses, " AND ")
 	}
 	query += " ORDER BY ae.created_at_unix_milli DESC, ae.id DESC LIMIT ?"
-	args = append(args, limit+1)
+	args = append(args, queryLimit)
 
 	if err := s.db.NewRaw(query, args...).Scan(ctx, &rows); err != nil {
 		return nil, err
 	}
+	return rows, nil
+}
 
+func (s *Store) eventListPageFromRows(ctx context.Context, rows []eventListRow, limit int) (*EventListPage, error) {
 	page := &EventListPage{
 		Items: make([]EventListItem, 0, min(limit, len(rows))),
 	}
@@ -1043,8 +1063,140 @@ LEFT JOIN action_event_task_context ctx ON ctx.request_id = ae.request_id
 			page.Items[idx].Annotations = eventAnnotations
 		}
 	}
+	taskAnnotations, err := s.taskGovernanceAnnotationsByRelatedRequestID(ctx, requestIDsFromListItems(page.Items))
+	if err != nil {
+		return nil, err
+	}
+	for idx := range page.Items {
+		if eventAnnotations := taskAnnotations[page.Items[idx].RequestID]; len(eventAnnotations) > 0 {
+			page.Items[idx].Annotations = append(page.Items[idx].Annotations, eventAnnotations...)
+		}
+	}
 
 	return page, nil
+}
+
+func (s *Store) listEventsWithGovernanceFilter(ctx context.Context, filter *EventListFilter, limit int) (*EventListPage, error) {
+	scanFilter := *filter
+	scanFilter.WithGovernanceEvent = false
+	accepted := make([]EventListItem, 0, limit+1)
+	batchLimit := limit + 1
+
+	for len(accepted) <= limit {
+		rows, err := s.listEventRows(ctx, &scanFilter, batchLimit)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+
+		page, err := s.eventListPageFromRows(ctx, rows, len(rows))
+		if err != nil {
+			return nil, err
+		}
+		for idx := range page.Items {
+			if hasGovernanceEventAnnotation(page.Items[idx].Annotations) {
+				accepted = append(accepted, page.Items[idx])
+				if len(accepted) > limit {
+					break
+				}
+			}
+		}
+
+		if len(accepted) > limit || len(rows) < batchLimit {
+			break
+		}
+		last := rows[len(rows)-1]
+		cursor := EventListCursor{
+			CreatedAtUnixMilli: last.CreatedAtUnixMilli,
+			ID:                 last.ID,
+		}
+		scanFilter.Cursor = &cursor
+	}
+
+	page := &EventListPage{Items: accepted}
+	if len(page.Items) > limit {
+		page.NextCursor = EventListCursor{
+			CreatedAtUnixMilli: page.Items[limit-1].CreatedAtUnixMilli,
+			ID:                 page.Items[limit-1].ID,
+		}.Encode()
+		page.Items = page.Items[:limit]
+	}
+	return page, nil
+}
+
+func hasGovernanceEventAnnotation(annotations []common.EventAnnotation) bool {
+	for idx := range annotations {
+		if annotations[idx].Type == "governance_events" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) taskGovernanceAnnotationsByRelatedRequestID(ctx context.Context, requestIDs []string) (map[string][]common.EventAnnotation, error) {
+	annotations := make(map[string][]common.EventAnnotation)
+	if len(requestIDs) == 0 {
+		return annotations, nil
+	}
+
+	rows := make([]taskEventRow, 0)
+	if err := s.db.NewSelect().
+		Model(&rows).
+		Column("related_action_request_id", "payload_json").
+		Where("related_action_request_id IN (?)", bun.List(requestIDs)).
+		Where("payload_json IS NOT NULL").
+		Order("created_at_unix_milli ASC", "id ASC").
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+
+	for idx := range rows {
+		row := &rows[idx]
+		payloadAnnotations := governanceAnnotationsFromPayload(row.PayloadJSON)
+		if len(payloadAnnotations) == 0 {
+			continue
+		}
+		annotations[row.RelatedActionRequestID] = append(annotations[row.RelatedActionRequestID], payloadAnnotations...)
+	}
+	return annotations, nil
+}
+
+func governanceAnnotationsFromPayload(payload json.RawMessage) []common.EventAnnotation {
+	if len(payload) == 0 {
+		return nil
+	}
+	var value struct {
+		Annotations []common.EventAnnotation `json:"annotations"`
+	}
+	if err := json.Unmarshal(payload, &value); err != nil {
+		return nil
+	}
+	governanceAnnotations := make([]common.EventAnnotation, 0, len(value.Annotations))
+	for idx := range value.Annotations {
+		if value.Annotations[idx].Type == "governance_events" {
+			governanceAnnotations = append(governanceAnnotations, value.Annotations[idx])
+		}
+	}
+	return governanceAnnotations
+}
+
+func requestIDsFromListItems(items []EventListItem) []string {
+	seen := make(map[string]struct{}, len(items))
+	requestIDs := make([]string, 0, len(items))
+	for idx := range items {
+		requestID := strings.TrimSpace(items[idx].RequestID)
+		if requestID == "" {
+			continue
+		}
+		if _, exists := seen[requestID]; exists {
+			continue
+		}
+		seen[requestID] = struct{}{}
+		requestIDs = append(requestIDs, requestID)
+	}
+	return requestIDs
 }
 
 func buildEventListFilters(filter *EventListFilter) ([]string, []any) {
@@ -1066,6 +1218,7 @@ func buildEventListFilters(filter *EventListFilter) ([]string, []any) {
 	appendFilter("ae.message_type", filter.MessageType)
 	appendFilter("ae.request_id", filter.RequestID)
 	appendFilter("ae.session_id", filter.SessionID)
+	appendFilter("ae.principal_id", filter.Principal)
 
 	if filter.Success != nil {
 		clauses = append(clauses, "ae.success = ?")

@@ -914,13 +914,14 @@ function deriveGovernanceEvents(items: TimelineItem[]): GovernanceEventDescripti
   const addDescription = (
     id: string,
     itemId: string,
+    requestKey: string,
     action: string,
     category: string,
     event: string,
     reason: string,
     severity: GovernanceSeverity,
   ) => {
-    const key = `${action}:${category}:${event}:${reason}:${severity}`;
+    const key = `${requestKey}:${action}:${category}:${event}:${reason}:${severity}`;
     if (seen.has(key)) {
       return;
     }
@@ -968,6 +969,7 @@ function addAnnotationGovernanceDescriptions(
   addDescription: (
     id: string,
     itemId: string,
+    requestKey: string,
     action: string,
     category: string,
     event: string,
@@ -990,6 +992,7 @@ function addAnnotationGovernanceDescriptions(
       addDescription(
         `${itemId}:${event?.id ?? "event"}:${index}`,
         itemId,
+        getTaskRunGovernanceRequestKey(event, itemId),
         action,
         category,
         eventLabel,
@@ -999,6 +1002,10 @@ function addAnnotationGovernanceDescriptions(
       index += 1;
     }
   }
+}
+
+function getTaskRunGovernanceRequestKey(event: TaskRunEvent | undefined, itemId: string): string {
+  return event?.requestId?.trim() || event?.relatedActionRequestId?.trim() || event?.id || itemId;
 }
 
 export function getEventAnnotations(event: TaskRunEvent | undefined): ProcessorAnnotation[] {

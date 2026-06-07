@@ -316,8 +316,12 @@ Edit `~/.centian/config.json`:
 | `config.args` | array | CLI only | Arguments including script path. |
 | `config.url` | string | Webhook only | HTTP(S) endpoint invoked with `POST`. |
 | `config.headers` | object | Webhook only | Optional string headers. |
-| `config.processor` | string | Built-in only | Built-in processor identifier, for example `prompt_injection_guard`. |
-| `config.mode` | string | Built-in optional | Built-in processor mode. The prompt injection guard supports `annotate`, `error`, `redact`, and `remove`. |
+| `config.processor` | string | Built-in only | Built-in processor identifier, for example `prompt_injection_guard`, `pattern_redaction_processor`, `secret_token_redactor`, `pii_redactor`, or `tool_call_guard`. |
+| `config.mode` | string | Built-in optional | Built-in processor mode. The prompt injection guard supports `annotate`, `error`, `redact`, and `remove`; redactors support `redact` and `annotate`; `tool_call_guard` supports `block` and `annotate`. |
+| `config.scope` | string | Redactor built-ins optional | `request`, `response`, or `both`. |
+| `config.presets` | array | Tool-call guard optional | Built-in guard presets, currently `dangerous_commands` and `path_boundary`. |
+| `config.rules` | array | Pattern redactor or tool-call guard | Pattern redaction rules or tool-call guard deny rules. Tool-call guard rules may set `category` to `policy`, `security`, or `privacy`; custom rules default to `policy`. |
+| `config.path_boundary` | object | Tool-call guard optional | Lexical path policy for the `path_boundary` preset, including `allowed_roots`, `relative_base_root`, `tool_patterns`, `argument_paths`, and additional `denied_paths`. |
 
 Important runtime notes:
 
@@ -325,6 +329,8 @@ Important runtime notes:
 - supported parts are only `payload`, `meta`, `routing`, `auth`, and `annotations`
 - webhook `config` only supports `url` and `headers`
 - built-in processors are compiled into Centian and do not require a separate executable
+- `tool_call_guard` presets emit `security` events; custom rules default to `policy` unless configured otherwise
+- `tool_call_guard` path-boundary checks are lexical only and do not resolve symlinks or inspect downstream filesystems
 
 ### Timeout behavior
 
@@ -570,7 +576,7 @@ It demonstrates:
 - response redaction with a gateway-level processor
 - a local Docker Compose flow that builds the demo image and bundles the demo processor code
 
-The dependency-free built-in prompt injection guard lives in [internal/processor/prompt_injection_guard](../internal/processor/prompt_injection_guard).
+The dependency-free built-ins live in [internal/processor](../internal/processor). Shared helper logic for built-ins lives in [internal/processor/builtinutil](../internal/processor/builtinutil).
 
 ## Further Reading
 

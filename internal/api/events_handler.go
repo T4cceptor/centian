@@ -88,6 +88,7 @@ func eventFiltersFromQuery(r *http.Request) (*persistence.EventListFilter, error
 		MessageType: strings.TrimSpace(query.Get("messageType")),
 		RequestID:   strings.TrimSpace(query.Get("requestId")),
 		SessionID:   strings.TrimSpace(query.Get("sessionId")),
+		Principal:   strings.TrimSpace(query.Get("principal")),
 		Limit:       defaultEventPageLimit,
 	}
 
@@ -105,6 +106,14 @@ func eventFiltersFromQuery(r *http.Request) (*persistence.EventListFilter, error
 			return nil, fmt.Errorf("invalid success")
 		}
 		filter.Success = &success
+	}
+
+	if rawWithGovernanceEvent := strings.TrimSpace(query.Get("withGovernanceEvent")); rawWithGovernanceEvent != "" {
+		withGovernanceEvent, err := strconv.ParseBool(rawWithGovernanceEvent)
+		if err != nil {
+			return nil, fmt.Errorf("invalid withGovernanceEvent")
+		}
+		filter.WithGovernanceEvent = withGovernanceEvent
 	}
 
 	cursor, hasCursor, err := persistence.ParseEventCursor(query.Get("cursor"))

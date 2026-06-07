@@ -296,17 +296,29 @@ func loadPrincipalProvider(globalConfig *config.GlobalConfig) (centauth.Principa
 		return nil, nil
 	}
 
-	provider, err := centauth.DefaultFilePrincipalProvider()
+	backendType, store := globalConfig.GetAuthBackend()
+	provider, err := centauth.NewPrincipalProvider(backendType, store)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve api key path: %w", err)
+		return nil, fmt.Errorf("failed to resolve auth backend: %w", err)
 	}
 	if err := provider.Setup(context.Background()); err != nil {
 		if errors.Is(err, centauth.ErrAPIKeysNotFound) {
 			return nil, fmt.Errorf("api key auth enabled but key file not found \n - run `centian auth new-key` to create a new api key\nError: %w", err)
 		}
-		return nil, fmt.Errorf("failed to load api keys: %w", err)
+		return nil, fmt.Errorf("failed to load principals: %w", err)
 	}
-	common.LogInfo("Loaded %d API keys from %s\n", provider.Count(), provider.Path())
+	// Both providers expose Count/Path for startup logging. A sqlite store with no
+	// principals is valid on a fresh install (warn instead of failing).
+	if counter, ok := provider.(interface {
+		Count() int
+		Path() string
+	}); ok {
+		if count := counter.Count(); count == 0 {
+			common.LogWarn("Auth enabled but no principals found in %s - run `centian auth new-key`\n", counter.Path())
+		} else {
+			common.LogInfo("Loaded %d principal(s) from %s\n", count, counter.Path())
+		}
+	}
 	return provider, nil
 }
 
@@ -427,6 +439,31 @@ func (c *CentianServer) setupProject(slug string, project *CentianProject) error
 	return nil
 }
 
+// principalProviderNamer adapts the auth PrincipalProvider to the api.PrincipalNamer
+// seam, resolving principal ids to display names for filter dropdowns. A nil
+// provider (auth disabled) yields an empty map so callers fall back to raw ids.
+type principalProviderNamer struct {
+	provider centauth.PrincipalProvider
+}
+
+// PrincipalNames returns an id-to-display-name map for the configured provider.
+func (n principalProviderNamer) PrincipalNames(ctx context.Context) (map[string]string, error) {
+	if n.provider == nil {
+		return map[string]string{}, nil
+	}
+	principals, err := n.provider.ListPrincipals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(principals))
+	for idx := range principals {
+		if principals[idx].DisplayName != "" {
+			names[principals[idx].ID] = principals[idx].DisplayName
+		}
+	}
+	return names, nil
+}
+
 // registerProjectHTTPRoutes registers project-aware API routes and the shared UI.
 func (c *CentianServer) registerProjectHTTPRoutes() {
 	if c == nil || c.Mux == nil {
@@ -456,6 +493,12 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 		centapi.NewEventsHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
 			return wrapWithAPIKeyAuth(c, slug, next)
 		})
+		centapi.NewActivityHandler(project.PersistenceStore).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
+		centapi.NewPrincipalsHandler(project.PersistenceStore, principalProviderNamer{provider: c.Principals}).RegisterRoutesWithPrefix(c.Mux, prefix, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, slug, next)
+		})
 
 		if project.Config != nil && project.Config.UIEnabled() {
 			uiEnabled = true
@@ -467,6 +510,12 @@ func (c *CentianServer) registerProjectHTTPRoutes() {
 			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
 		})
 		centapi.NewEventsHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewActivityHandler(defaultProject.PersistenceStore).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
+			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
+		})
+		centapi.NewPrincipalsHandler(defaultProject.PersistenceStore, principalProviderNamer{provider: c.Principals}).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {
 			return wrapWithAPIKeyAuth(c, config.DefaultProjectSlug, next)
 		})
 		centapi.NewBenchmarkHandler(benchmarks.NewReadService(defaultProject.PersistenceStore)).RegisterRoutesWithMiddleware(c.Mux, func(next http.Handler) http.Handler {

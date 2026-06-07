@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/T4cceptor/centian/internal/common"
@@ -54,7 +56,8 @@ type GlobalConfig struct {
 	Version string `json:"version"` // Config schema version
 
 	// Truly global settings - apply to the whole server process.
-	Proxy *ProxySettings `json:"proxy,omitempty"` // Proxy-level settings (host, port, logLevel, logOutput, timeout)
+	Proxy       *ProxySettings       `json:"proxy,omitempty"`       // Proxy-level settings (host, port, logLevel, logOutput, timeout)
+	AuthBackend *AuthBackendSettings `json:"authBackend,omitempty"` // Global principal/credential storage backend
 
 	// Project-based layout: each project is an isolated tenant.
 	Projects map[string]*ProjectConfig `json:"projects,omitempty"` // Named project configs
@@ -240,6 +243,25 @@ const (
 	DefaultProxyLogOutput     = "file"
 	DefaultEventStorageDriver = "sqlite"
 )
+
+// AuthBackendSettings configures where principals and their credentials are
+// stored. This is a truly global setting because authentication resolves a token
+// to a principal at the HTTP layer, before any project is selected. Type and Store
+// may be empty; the auth package resolves empties to defaults (sqlite at the
+// default principals database path).
+type AuthBackendSettings struct {
+	Type  string `json:"type,omitempty"`  // "sqlite" (default) or "file"
+	Store string `json:"store,omitempty"` // Backend location (sqlite db path or key file path)
+}
+
+// GetAuthBackend returns the configured auth backend type and store. Both may be
+// empty when no backend block is configured; callers resolve empties to defaults.
+func (g *GlobalConfig) GetAuthBackend() (backendType, store string) {
+	if g == nil || g.AuthBackend == nil {
+		return "", ""
+	}
+	return g.AuthBackend.Type, g.AuthBackend.Store
+}
 
 // IsAuthEnabled returns true when auth is enabled or unset.
 // After ResolveProjects(), this checks the legacy flat field; prefer
@@ -685,12 +707,79 @@ type WebhookProcessorSettings struct {
 
 // BuiltinProcessorSettings contains parsed runtime settings for a built-in processor.
 type BuiltinProcessorSettings struct {
-	Processor string
-	Mode      string
+	Processor    string
+	Mode         string
+	Scope        string
+	Rules        []BuiltinRedactionRule
+	Presets      []string
+	GuardRules   []BuiltinToolGuardRule
+	PathBoundary *BuiltinPathBoundarySettings
 }
 
 // BuiltinPromptInjectionGuard is the in-process prompt injection detection processor.
 const BuiltinPromptInjectionGuard = "prompt_injection_guard"
+
+const (
+	// BuiltinPatternRedactionProcessor redacts user-configured regex patterns.
+	BuiltinPatternRedactionProcessor = "pattern_redaction_processor"
+	// BuiltinSecretTokenRedactor redacts common secret and token patterns.
+	BuiltinSecretTokenRedactor = "secret_token_redactor"
+	// BuiltinPIIRedactor redacts deterministic PII-like patterns.
+	BuiltinPIIRedactor = "pii_redactor"
+	// BuiltinToolCallGuard blocks or annotates configured tool-call policy matches.
+	BuiltinToolCallGuard = "tool_call_guard"
+)
+
+// Builtin redaction modes and scopes for pattern-based redaction processors.
+const (
+	BuiltinRedactionModeRedact   = "redact"
+	BuiltinRedactionModeAnnotate = "annotate"
+
+	BuiltinRedactionScopeRequest  = "request"
+	BuiltinRedactionScopeResponse = "response"
+	BuiltinRedactionScopeBoth     = "both"
+)
+
+// Builtin tool-guard modes and rule presets for the tool-call guard processor.
+const (
+	BuiltinToolGuardModeBlock    = "block"
+	BuiltinToolGuardModeAnnotate = "annotate"
+
+	BuiltinToolGuardPresetDangerousCommands = "dangerous_commands"
+	BuiltinToolGuardPresetPathBoundary      = "path_boundary"
+)
+
+// BuiltinRedactionRule contains one configurable pattern redaction rule.
+type BuiltinRedactionRule struct {
+	Name        string
+	Pattern     string
+	Replacement string
+}
+
+// BuiltinToolGuardArgumentRule contains one tool-call argument matcher.
+type BuiltinToolGuardArgumentRule struct {
+	Path    string
+	Pattern string
+}
+
+// BuiltinToolGuardRule contains one configurable tool-call deny rule.
+type BuiltinToolGuardRule struct {
+	Name          string
+	Category      string
+	Severity      string
+	Message       string
+	ToolPatterns  []string
+	ArgumentRules []BuiltinToolGuardArgumentRule
+}
+
+// BuiltinPathBoundarySettings contains path-aware tool guard settings.
+type BuiltinPathBoundarySettings struct {
+	AllowedRoots     []string
+	RelativeBaseRoot string
+	ToolPatterns     []string
+	ArgumentPaths    []string
+	DeniedPaths      []string
+}
 
 var allowedProcessorParts = map[string]bool{
 	"payload":     true,
@@ -1441,6 +1530,19 @@ func validateProcessorTypeConfig(processor *ProcessorConfig) error {
 
 // ParseBuiltinProcessorSettings validates and extracts built-in processor settings.
 func ParseBuiltinProcessorSettings(processor *ProcessorConfig) (*BuiltinProcessorSettings, error) {
+	settings, err := parseBuiltinSettingsHeader(processor)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateBuiltinProcessorByType(processor, settings); err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
+// parseBuiltinSettingsHeader parses the processor/mode/scope fields shared by all
+// builtin processors.
+func parseBuiltinSettingsHeader(processor *ProcessorConfig) (*BuiltinProcessorSettings, error) {
 	value, ok := processor.Config["processor"]
 	if !ok {
 		return nil, fmt.Errorf("processor '%s': config.processor is required for builtin type", processor.Name)
@@ -1459,21 +1561,553 @@ func ParseBuiltinProcessorSettings(processor *ProcessorConfig) (*BuiltinProcesso
 		}
 		settings.Mode = strings.TrimSpace(mode)
 	}
-	if settings.Processor == BuiltinPromptInjectionGuard {
-		if !processor.Required {
-			return nil, fmt.Errorf("processor '%s': prompt_injection_guard must set required=true", processor.Name)
+	if scopeValue, exists := processor.Config["scope"]; exists {
+		scope, ok := scopeValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("processor '%s': config.scope must be a string", processor.Name)
 		}
-		parts := map[string]bool{}
-		for _, part := range processor.GetParts() {
-			parts[part] = true
-		}
-		for _, requiredPart := range []string{"payload", "annotations"} {
-			if !parts[requiredPart] {
-				return nil, fmt.Errorf("processor '%s': prompt_injection_guard requires part '%s'", processor.Name, requiredPart)
-			}
-		}
+		settings.Scope = strings.TrimSpace(scope)
 	}
 	return settings, nil
+}
+
+// validateBuiltinProcessorByType applies the per-processor validation rules.
+func validateBuiltinProcessorByType(processor *ProcessorConfig, settings *BuiltinProcessorSettings) error {
+	switch settings.Processor {
+	case BuiltinPromptInjectionGuard:
+		if !processor.Required {
+			return fmt.Errorf("processor '%s': prompt_injection_guard must set required=true", processor.Name)
+		}
+		return validateBuiltinRequiredParts(processor, "prompt_injection_guard", []string{"payload", "annotations"})
+	case BuiltinPatternRedactionProcessor:
+		return validateBuiltinRedactionSettings(processor, settings, BuiltinRedactionScopeBoth, true, true)
+	case BuiltinSecretTokenRedactor:
+		return validateBuiltinRedactionSettings(processor, settings, BuiltinRedactionScopeBoth, false, false)
+	case BuiltinPIIRedactor:
+		return validateBuiltinRedactionSettings(processor, settings, BuiltinRedactionScopeResponse, false, false)
+	case BuiltinToolCallGuard:
+		return validateBuiltinToolGuardSettings(processor, settings)
+	}
+	return nil
+}
+
+func validateBuiltinRequiredParts(processor *ProcessorConfig, processorName string, requiredParts []string) error {
+	parts := map[string]bool{}
+	for _, part := range processor.GetParts() {
+		parts[part] = true
+	}
+	for _, requiredPart := range requiredParts {
+		if !parts[requiredPart] {
+			return fmt.Errorf("processor '%s': %s requires part '%s'", processor.Name, processorName, requiredPart)
+		}
+	}
+	return nil
+}
+
+func validateBuiltinRedactionSettings(processor *ProcessorConfig, settings *BuiltinProcessorSettings, defaultScope string, requiresRules, allowsRules bool) error {
+	if settings.Mode == "" {
+		settings.Mode = BuiltinRedactionModeRedact
+	}
+	switch settings.Mode {
+	case BuiltinRedactionModeRedact, BuiltinRedactionModeAnnotate:
+	default:
+		return fmt.Errorf("processor '%s': config.mode must be 'redact' or 'annotate'", processor.Name)
+	}
+
+	if settings.Scope == "" {
+		settings.Scope = defaultScope
+	}
+	switch settings.Scope {
+	case BuiltinRedactionScopeRequest, BuiltinRedactionScopeResponse, BuiltinRedactionScopeBoth:
+	default:
+		return fmt.Errorf("processor '%s': config.scope must be 'request', 'response', or 'both'", processor.Name)
+	}
+
+	if err := validateBuiltinRequiredParts(processor, settings.Processor, []string{"payload", "annotations"}); err != nil {
+		return err
+	}
+
+	if _, exists := processor.Config["rules"]; exists && !allowsRules {
+		return fmt.Errorf("processor '%s': config.rules is only supported for pattern_redaction_processor", processor.Name)
+	}
+
+	rules, err := parseBuiltinRedactionRules(processor)
+	if err != nil {
+		return err
+	}
+	if requiresRules && len(rules) == 0 {
+		return fmt.Errorf("processor '%s': config.rules must contain at least one rule", processor.Name)
+	}
+	settings.Rules = rules
+	return nil
+}
+
+func parseBuiltinRedactionRules(processor *ProcessorConfig) ([]BuiltinRedactionRule, error) {
+	rulesValue, exists := processor.Config["rules"]
+	if !exists {
+		return nil, nil
+	}
+
+	ruleMaps, err := processorConfigRuleMaps(rulesValue)
+	if err != nil {
+		return nil, fmt.Errorf("processor '%s': config.rules %w", processor.Name, err)
+	}
+
+	rules := make([]BuiltinRedactionRule, 0, len(ruleMaps))
+	for index, ruleMap := range ruleMaps {
+		rule, err := parseBuiltinRedactionRule(processor.Name, index, ruleMap)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func processorConfigRuleMaps(value interface{}) ([]map[string]interface{}, error) {
+	switch typed := value.(type) {
+	case []interface{}:
+		rules := make([]map[string]interface{}, 0, len(typed))
+		for _, item := range typed {
+			rule, ok := item.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("entries must be objects")
+			}
+			rules = append(rules, rule)
+		}
+		return rules, nil
+	case []map[string]interface{}:
+		return typed, nil
+	case []BuiltinRedactionRule:
+		rules := make([]map[string]interface{}, 0, len(typed))
+		for _, item := range typed {
+			rules = append(rules, map[string]interface{}{
+				"name":        item.Name,
+				"pattern":     item.Pattern,
+				"replacement": item.Replacement,
+			})
+		}
+		return rules, nil
+	default:
+		return nil, fmt.Errorf("must be an array")
+	}
+}
+
+func parseBuiltinRedactionRule(processorName string, index int, value map[string]interface{}) (BuiltinRedactionRule, error) {
+	name, err := requiredRuleString(processorName, index, value, "name")
+	if err != nil {
+		return BuiltinRedactionRule{}, err
+	}
+	pattern, err := requiredRuleString(processorName, index, value, "pattern")
+	if err != nil {
+		return BuiltinRedactionRule{}, err
+	}
+	replacement, err := requiredRuleString(processorName, index, value, "replacement")
+	if err != nil {
+		return BuiltinRedactionRule{}, err
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return BuiltinRedactionRule{}, fmt.Errorf("processor '%s': config.rules[%d].pattern is invalid: %w", processorName, index, err)
+	}
+	return BuiltinRedactionRule{Name: name, Pattern: pattern, Replacement: replacement}, nil
+}
+
+func validateBuiltinToolGuardSettings(processor *ProcessorConfig, settings *BuiltinProcessorSettings) error {
+	if settings.Mode == "" {
+		settings.Mode = BuiltinToolGuardModeBlock
+	}
+	switch settings.Mode {
+	case BuiltinToolGuardModeBlock, BuiltinToolGuardModeAnnotate:
+	default:
+		return fmt.Errorf("processor '%s': config.mode must be 'block' or 'annotate'", processor.Name)
+	}
+
+	if settings.Scope != "" {
+		return fmt.Errorf("processor '%s': config.scope is not supported for tool_call_guard", processor.Name)
+	}
+	if err := validateBuiltinRequiredParts(processor, settings.Processor, []string{"payload", "routing", "annotations"}); err != nil {
+		return err
+	}
+
+	presets, err := parseBuiltinToolGuardPresets(processor)
+	if err != nil {
+		return err
+	}
+	rules, err := parseBuiltinToolGuardRules(processor)
+	if err != nil {
+		return err
+	}
+	presetPathBoundary := containsString(presets, BuiltinToolGuardPresetPathBoundary)
+	if _, hasPathBoundary := processor.Config["path_boundary"]; presetPathBoundary || hasPathBoundary {
+		pathBoundary, err := parseBuiltinPathBoundarySettings(processor)
+		if err != nil {
+			return err
+		}
+		settings.PathBoundary = pathBoundary
+	}
+	if len(presets) == 0 && len(rules) == 0 {
+		return fmt.Errorf("processor '%s': config.presets or config.rules must contain at least one entry", processor.Name)
+	}
+	settings.Presets = presets
+	settings.GuardRules = rules
+	return nil
+}
+
+func parseBuiltinToolGuardPresets(processor *ProcessorConfig) ([]string, error) {
+	raw, exists := processor.Config["presets"]
+	if !exists {
+		return nil, nil
+	}
+	presets, err := processorConfigNamedStringSlice(processor.Name, "presets", raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, preset := range presets {
+		switch preset {
+		case BuiltinToolGuardPresetDangerousCommands, BuiltinToolGuardPresetPathBoundary:
+		default:
+			return nil, fmt.Errorf("processor '%s': config.presets contains unsupported preset %q", processor.Name, preset)
+		}
+	}
+	return presets, nil
+}
+
+// parseBuiltinPathBoundarySettings parses config.path_boundary. It is only called when
+// the field is present or the path_boundary preset is enabled, so an absent field yields
+// empty (preset-default) settings rather than a nil result.
+func parseBuiltinPathBoundarySettings(processor *ProcessorConfig) (*BuiltinPathBoundarySettings, error) {
+	raw, exists := processor.Config["path_boundary"]
+	if !exists {
+		return &BuiltinPathBoundarySettings{}, nil
+	}
+	value, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.path_boundary must be an object", processor.Name)
+	}
+	if err := validatePathBoundaryKeys(processor.Name, value); err != nil {
+		return nil, err
+	}
+
+	settings := &BuiltinPathBoundarySettings{}
+	if err := applyPathBoundaryFields(processor.Name, value, settings); err != nil {
+		return nil, err
+	}
+	return settings, nil
+}
+
+func validatePathBoundaryKeys(processorName string, value map[string]interface{}) error {
+	allowedKeys := map[string]bool{
+		"allowed_roots":      true,
+		"relative_base_root": true,
+		"tool_patterns":      true,
+		"argument_paths":     true,
+		"denied_paths":       true,
+	}
+	for key := range value {
+		if !allowedKeys[key] {
+			return fmt.Errorf("processor '%s': config.path_boundary.%s is unsupported", processorName, key)
+		}
+	}
+	return nil
+}
+
+func applyPathBoundaryFields(processorName string, value map[string]interface{}, settings *BuiltinPathBoundarySettings) error {
+	var err error
+	if settings.AllowedRoots, err = parsePathBoundaryRoots(processorName, value); err != nil {
+		return err
+	}
+	if settings.RelativeBaseRoot, err = parsePathBoundaryRelativeBase(processorName, value); err != nil {
+		return err
+	}
+	if settings.RelativeBaseRoot == "" && len(settings.AllowedRoots) > 0 {
+		settings.RelativeBaseRoot = settings.AllowedRoots[0]
+	}
+	if settings.ToolPatterns, err = parsePathBoundaryGlobList(processorName, value, "tool_patterns"); err != nil {
+		return err
+	}
+	if settings.ArgumentPaths, err = parsePathBoundaryGlobList(processorName, value, "argument_paths"); err != nil {
+		return err
+	}
+	if settings.DeniedPaths, err = parsePathBoundaryStringList(processorName, value, "denied_paths"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func parsePathBoundaryRoots(processorName string, value map[string]interface{}) ([]string, error) {
+	raw, ok := value["allowed_roots"]
+	if !ok {
+		return nil, nil
+	}
+	return parseLexicalRoots(processorName, "path_boundary.allowed_roots", raw)
+}
+
+func parsePathBoundaryRelativeBase(processorName string, value map[string]interface{}) (string, error) {
+	raw, ok := value["relative_base_root"]
+	if !ok {
+		return "", nil
+	}
+	relativeBaseRoot, ok := raw.(string)
+	if !ok || strings.TrimSpace(relativeBaseRoot) == "" {
+		return "", fmt.Errorf("processor '%s': config.path_boundary.relative_base_root must be a non-empty string", processorName)
+	}
+	return cleanLexicalRoot(processorName, "path_boundary.relative_base_root", relativeBaseRoot)
+}
+
+func parsePathBoundaryStringList(processorName string, value map[string]interface{}, key string) ([]string, error) {
+	raw, ok := value[key]
+	if !ok {
+		return nil, nil
+	}
+	return processorConfigNamedStringSlice(processorName, "path_boundary."+key, raw)
+}
+
+func parsePathBoundaryGlobList(processorName string, value map[string]interface{}, key string) ([]string, error) {
+	list, err := parsePathBoundaryStringList(processorName, value, key)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateGlobList(processorName, "path_boundary."+key, list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func parseLexicalRoots(processorName, fieldName string, value interface{}) ([]string, error) {
+	rawRoots, err := processorConfigNamedStringSlice(processorName, fieldName, value)
+	if err != nil {
+		return nil, err
+	}
+	roots := make([]string, 0, len(rawRoots))
+	for _, root := range rawRoots {
+		cleanedRoot, err := cleanLexicalRoot(processorName, fieldName, root)
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, cleanedRoot)
+	}
+	return roots, nil
+}
+
+func cleanLexicalRoot(processorName, fieldName, root string) (string, error) {
+	root = strings.TrimSpace(root)
+	root = strings.ReplaceAll(root, "\\", "/")
+	if root == "" {
+		return "", fmt.Errorf("processor '%s': config.%s must contain only non-empty strings", processorName, fieldName)
+	}
+	if !strings.HasPrefix(root, "/") {
+		return "", fmt.Errorf("processor '%s': config.%s must contain absolute lexical roots", processorName, fieldName)
+	}
+	return pathpkg.Clean(root), nil
+}
+
+func validateGlobList(processorName, fieldName string, values []string) error {
+	for _, value := range values {
+		if _, err := pathpkg.Match(value, ""); err != nil {
+			return fmt.Errorf("processor '%s': config.%s contains invalid glob %q: %w", processorName, fieldName, value, err)
+		}
+	}
+	return nil
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func parseBuiltinToolGuardRules(processor *ProcessorConfig) ([]BuiltinToolGuardRule, error) {
+	rulesValue, exists := processor.Config["rules"]
+	if !exists {
+		return nil, nil
+	}
+	ruleMaps, err := processorConfigRuleMaps(rulesValue)
+	if err != nil {
+		return nil, fmt.Errorf("processor '%s': config.rules %w", processor.Name, err)
+	}
+
+	rules := make([]BuiltinToolGuardRule, 0, len(ruleMaps))
+	for index, ruleMap := range ruleMaps {
+		rule, err := parseBuiltinToolGuardRule(processor.Name, index, ruleMap)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func parseBuiltinToolGuardRule(processorName string, index int, value map[string]interface{}) (BuiltinToolGuardRule, error) {
+	name, err := requiredRuleString(processorName, index, value, "name")
+	if err != nil {
+		return BuiltinToolGuardRule{}, err
+	}
+
+	rule := BuiltinToolGuardRule{
+		Name:     name,
+		Category: "policy",
+		Severity: "medium",
+	}
+	category, err := parseToolGuardCategory(processorName, index, value)
+	if err != nil {
+		return BuiltinToolGuardRule{}, err
+	}
+	if category != "" {
+		rule.Category = category
+	}
+	severity, err := parseToolGuardSeverity(processorName, index, value)
+	if err != nil {
+		return BuiltinToolGuardRule{}, err
+	}
+	if severity != "" {
+		rule.Severity = severity
+	}
+	message, err := parseToolGuardMessage(processorName, index, value)
+	if err != nil {
+		return BuiltinToolGuardRule{}, err
+	}
+	if message != "" {
+		rule.Message = message
+	}
+	if raw, exists := value["tool_patterns"]; exists {
+		toolPatterns, err := parseToolGuardToolPatterns(processorName, index, raw)
+		if err != nil {
+			return BuiltinToolGuardRule{}, err
+		}
+		rule.ToolPatterns = toolPatterns
+	}
+	if raw, exists := value["argument_rules"]; exists {
+		argumentRules, err := parseBuiltinToolGuardArgumentRules(processorName, index, raw)
+		if err != nil {
+			return BuiltinToolGuardRule{}, err
+		}
+		rule.ArgumentRules = argumentRules
+	}
+	return rule, nil
+}
+
+func parseToolGuardCategory(processorName string, index int, value map[string]interface{}) (string, error) {
+	raw, exists := value["category"]
+	if !exists {
+		return "", nil
+	}
+	category, ok := raw.(string)
+	if !ok || strings.TrimSpace(category) == "" {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].category must be a non-empty string", processorName, index)
+	}
+	category = strings.TrimSpace(category)
+	switch category {
+	case "policy", "security", "privacy":
+		return category, nil
+	default:
+		return "", fmt.Errorf("processor '%s': config.rules[%d].category must be 'policy', 'security', or 'privacy'", processorName, index)
+	}
+}
+
+func parseToolGuardSeverity(processorName string, index int, value map[string]interface{}) (string, error) {
+	raw, exists := value["severity"]
+	if !exists {
+		return "", nil
+	}
+	severity, ok := raw.(string)
+	if !ok || strings.TrimSpace(severity) == "" {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].severity must be a non-empty string", processorName, index)
+	}
+	severity = strings.TrimSpace(severity)
+	switch severity {
+	case "low", "medium", "high", "critical":
+		return severity, nil
+	default:
+		return "", fmt.Errorf("processor '%s': config.rules[%d].severity must be 'low', 'medium', 'high', or 'critical'", processorName, index)
+	}
+}
+
+func parseToolGuardMessage(processorName string, index int, value map[string]interface{}) (string, error) {
+	raw, exists := value["message"]
+	if !exists {
+		return "", nil
+	}
+	message, ok := raw.(string)
+	if !ok || strings.TrimSpace(message) == "" {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].message must be a non-empty string", processorName, index)
+	}
+	return strings.TrimSpace(message), nil
+}
+
+func parseToolGuardToolPatterns(processorName string, index int, raw interface{}) ([]string, error) {
+	toolPatterns, err := processorConfigNamedStringSlice(processorName, fmt.Sprintf("rules[%d].tool_patterns", index), raw)
+	if err != nil {
+		return nil, err
+	}
+	for _, pattern := range toolPatterns {
+		if _, err := pathpkg.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("processor '%s': config.rules[%d].tool_patterns contains invalid glob %q: %w", processorName, index, pattern, err)
+		}
+	}
+	return toolPatterns, nil
+}
+
+func parseBuiltinToolGuardArgumentRules(processorName string, ruleIndex int, raw interface{}) ([]BuiltinToolGuardArgumentRule, error) {
+	items, ok := raw.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("processor '%s': config.rules[%d].argument_rules must be an array", processorName, ruleIndex)
+	}
+	rules := make([]BuiltinToolGuardArgumentRule, 0, len(items))
+	for index, item := range items {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("processor '%s': config.rules[%d].argument_rules[%d] must be an object", processorName, ruleIndex, index)
+		}
+		rule, err := parseBuiltinToolGuardArgumentRule(processorName, ruleIndex, index, itemMap)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func parseBuiltinToolGuardArgumentRule(processorName string, ruleIndex, index int, value map[string]interface{}) (BuiltinToolGuardArgumentRule, error) {
+	rule := BuiltinToolGuardArgumentRule{}
+	if raw, exists := value["path"]; exists {
+		pathValue, ok := raw.(string)
+		if !ok || strings.TrimSpace(pathValue) == "" {
+			return BuiltinToolGuardArgumentRule{}, fmt.Errorf("processor '%s': config.rules[%d].argument_rules[%d].path must be a non-empty string", processorName, ruleIndex, index)
+		}
+		rule.Path = strings.TrimSpace(pathValue)
+		if _, err := pathpkg.Match(rule.Path, ""); err != nil {
+			return BuiltinToolGuardArgumentRule{}, fmt.Errorf("processor '%s': config.rules[%d].argument_rules[%d].path contains invalid glob: %w", processorName, ruleIndex, index, err)
+		}
+	}
+	if raw, exists := value["pattern"]; exists {
+		pattern, ok := raw.(string)
+		if !ok || strings.TrimSpace(pattern) == "" {
+			return BuiltinToolGuardArgumentRule{}, fmt.Errorf("processor '%s': config.rules[%d].argument_rules[%d].pattern must be a non-empty string", processorName, ruleIndex, index)
+		}
+		rule.Pattern = strings.TrimSpace(pattern)
+		if _, err := regexp.Compile(rule.Pattern); err != nil {
+			return BuiltinToolGuardArgumentRule{}, fmt.Errorf("processor '%s': config.rules[%d].argument_rules[%d].pattern is invalid: %w", processorName, ruleIndex, index, err)
+		}
+	}
+	if rule.Path == "" && rule.Pattern == "" {
+		return BuiltinToolGuardArgumentRule{}, fmt.Errorf("processor '%s': config.rules[%d].argument_rules[%d] requires path or pattern", processorName, ruleIndex, index)
+	}
+	return rule, nil
+}
+
+func requiredRuleString(processorName string, index int, value map[string]interface{}, key string) (string, error) {
+	raw, exists := value[key]
+	if !exists {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].%s is required", processorName, index, key)
+	}
+	text, ok := raw.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("processor '%s': config.rules[%d].%s must be a non-empty string", processorName, index, key)
+	}
+	return strings.TrimSpace(text), nil
 }
 
 // ParseCLIProcessorSettings validates and extracts CLI processor settings.
@@ -1555,6 +2189,35 @@ func processorConfigStringSlice(processorName string, value interface{}) ([]stri
 		args = append(args, argStr)
 	}
 	return args, nil
+}
+
+func processorConfigNamedStringSlice(processorName, fieldName string, value interface{}) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	var rawValues []interface{}
+	switch typed := value.(type) {
+	case []interface{}:
+		rawValues = typed
+	case []string:
+		rawValues = make([]interface{}, 0, len(typed))
+		for _, item := range typed {
+			rawValues = append(rawValues, item)
+		}
+	default:
+		return nil, fmt.Errorf("processor '%s': config.%s must be an array", processorName, fieldName)
+	}
+
+	values := make([]string, 0, len(rawValues))
+	for _, raw := range rawValues {
+		text, ok := raw.(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("processor '%s': config.%s must contain only non-empty strings", processorName, fieldName)
+		}
+		values = append(values, strings.TrimSpace(text))
+	}
+	return values, nil
 }
 
 // ProcessorConfigStringMap converts a config value into a string map.

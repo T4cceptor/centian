@@ -1,3 +1,26 @@
+// Abbreviates a non-negative count with a k/M/B/T suffix and ~3 significant digits
+// (e.g. 1234 -> "1.23k", 4_500_000 -> "4.5M"). Values under 1000 are returned as-is.
+export function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  const abs = Math.abs(value);
+  if (abs < 1000) {
+    return String(Math.round(value));
+  }
+  const units = ["k", "M", "B", "T"];
+  let scaled = value;
+  let unitIndex = -1;
+  while (Math.abs(scaled) >= 1000 && unitIndex < units.length - 1) {
+    scaled /= 1000;
+    unitIndex += 1;
+  }
+  // 3 significant digits: 2 decimals below 10, 1 below 100, none otherwise.
+  const decimals = Math.abs(scaled) < 10 ? 2 : Math.abs(scaled) < 100 ? 1 : 0;
+  const trimmed = Number.parseFloat(scaled.toFixed(decimals));
+  return `${trimmed}${units[unitIndex]}`;
+}
+
 // Formats an API timestamp using the user's locale with date and minute precision.
 export function formatTimestamp(unixMilli: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -28,6 +51,24 @@ export function formatTimestampCompact(unixMilli: number): { date: string; time:
   ].join(":");
 
   return { date, time };
+}
+
+// Formats an API timestamp as a bare HH:MM clock time (used by chart axes).
+export function formatClockTime(unixMilli: number): string {
+  const value = new Date(unixMilli);
+  return `${padTimestampPart(value.getHours())}:${padTimestampPart(value.getMinutes())}`;
+}
+
+// Formats a timestamp as a local "YYYY-MM-DDTHH:mm" value for <input type="datetime-local">.
+export function toDatetimeLocalValue(unixMilli: number): string {
+  const value = new Date(unixMilli);
+  const date = [
+    value.getFullYear(),
+    padTimestampPart(value.getMonth() + 1),
+    padTimestampPart(value.getDate()),
+  ].join("-");
+  const time = [padTimestampPart(value.getHours()), padTimestampPart(value.getMinutes())].join(":");
+  return `${date}T${time}`;
 }
 
 // Renders elapsed time for both finished and still-running task runs.

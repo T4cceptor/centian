@@ -8,8 +8,10 @@ export type EventListFilters = {
   direction?: string;
   messageType?: string;
   success?: boolean;
+  withGovernanceEvent?: boolean;
   requestId?: string;
   sessionId?: string;
+  principal?: string;
   cursor?: string;
   limit?: number;
 };
@@ -67,8 +69,10 @@ function buildQuery(filters: EventListFilters = {}): string {
   if (filters.direction) params.set("direction", filters.direction);
   if (filters.messageType) params.set("messageType", filters.messageType);
   if (typeof filters.success === "boolean") params.set("success", String(filters.success));
+  if (filters.withGovernanceEvent) params.set("withGovernanceEvent", "true");
   if (filters.requestId) params.set("requestId", filters.requestId);
   if (filters.sessionId) params.set("sessionId", filters.sessionId);
+  if (filters.principal) params.set("principal", filters.principal);
   if (filters.cursor) params.set("cursor", filters.cursor);
   if (typeof filters.limit === "number" && Number.isFinite(filters.limit) && filters.limit > 0) {
     params.set("limit", String(filters.limit));

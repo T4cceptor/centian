@@ -64,7 +64,7 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 
 		req := httptest.NewRequest(
 			http.MethodGet,
-			"/api/events?gateway=gw&server=server-a&tool=shell__exec&direction=[CLIENT%20-%3E%20SERVER]&messageType=request&success=true&requestId=req-1&sessionId=sid-1&cursor="+cursor+"&limit=25",
+			"/api/events?gateway=gw&server=server-a&tool=shell__exec&direction=[CLIENT%20-%3E%20SERVER]&messageType=request&success=true&withGovernanceEvent=true&requestId=req-1&sessionId=sid-1&principal=alice&cursor="+cursor+"&limit=25",
 			http.NoBody,
 		)
 		rec := httptest.NewRecorder()
@@ -79,7 +79,9 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 		assert.Equal(t, store.filter.MessageType, "request")
 		assert.Equal(t, store.filter.RequestID, "req-1")
 		assert.Equal(t, store.filter.SessionID, "sid-1")
+		assert.Equal(t, store.filter.Principal, "alice")
 		assert.Equal(t, store.filter.Limit, 25)
+		assert.Equal(t, store.filter.WithGovernanceEvent, true)
 		assert.Assert(t, store.filter.Success != nil)
 		assert.Equal(t, *store.filter.Success, true)
 		assert.Assert(t, store.filter.Cursor != nil)
@@ -129,6 +131,20 @@ func TestEventsHandler_ListEvents(t *testing.T) {
 		handler.RegisterRoutesWithMiddleware(mux, nil)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/events?success=maybe", http.NoBody)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		assert.Equal(t, rec.Code, http.StatusBadRequest)
+		assert.Equal(t, store.calls, 0)
+	})
+
+	t.Run("rejects invalid governance filter values", func(t *testing.T) {
+		store := &stubEventStore{}
+		handler := NewEventsHandler(store)
+		mux := http.NewServeMux()
+		handler.RegisterRoutesWithMiddleware(mux, nil)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/events?withGovernanceEvent=maybe", http.NoBody)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 

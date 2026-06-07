@@ -96,6 +96,16 @@ func DefaultAPIKeysPath() (string, error) {
 	return filepath.Join(configDir, "api_keys.json"), nil
 }
 
+// DefaultPrincipalsDBPath returns the default path to the principals SQLite
+// database (~/.centian/principals.sqlite).
+func DefaultPrincipalsDBPath() (string, error) {
+	configDir, err := config.GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "principals.sqlite"), nil
+}
+
 // LoadDefaultAPIKeys loads API keys from the default path.
 func LoadDefaultAPIKeys() (*APIKeyStore, error) {
 	path, err := DefaultAPIKeysPath()

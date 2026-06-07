@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDuration, formatTaskRunId, formatTimestampCompact } from "./format";
+import { formatCompactNumber, formatDuration, formatTaskRunId, formatTimestampCompact } from "./format";
 
 describe("formatDuration", () => {
   it("uses endedAt for finished runs", () => {
@@ -9,6 +9,20 @@ describe("formatDuration", () => {
 
   it("uses now for active runs", () => {
     expect(formatDuration(1_000, undefined, 7_000)).toBe("6s");
+  });
+});
+
+describe("formatCompactNumber", () => {
+  it("returns small counts verbatim", () => {
+    expect(formatCompactNumber(0)).toBe("0");
+    expect(formatCompactNumber(999)).toBe("999");
+  });
+
+  it("abbreviates thousands and millions with ~3 significant digits", () => {
+    expect(formatCompactNumber(1234)).toBe("1.23k");
+    expect(formatCompactNumber(12_345)).toBe("12.3k");
+    expect(formatCompactNumber(4_500_000)).toBe("4.5M");
+    expect(formatCompactNumber(2_000_000_000)).toBe("2B");
   });
 });
 

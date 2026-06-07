@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/T4cceptor/centian/internal/auth"
+	"github.com/T4cceptor/centian/internal/common"
 )
 
 // AuthData stores raw auth-related references/snapshots for internal use.
@@ -54,4 +55,22 @@ func getAuthData(ctx context.Context) *AuthData {
 	}
 	authData, _ := ctx.Value(authDataKey{}).(*AuthData)
 	return authData
+}
+
+// stampPrincipalMetadata records the resolved principal's id and human name onto
+// an event's metadata. The name is captured as a denormalized fallback so it
+// survives even if the principal id can no longer be resolved to a live principal.
+func stampPrincipalMetadata(entry *common.LogEntry, identityKey string, authData *AuthData) {
+	if entry == nil {
+		return
+	}
+	if entry.Metadata == nil {
+		entry.Metadata = make(map[string]string)
+	}
+	if identityKey != "" {
+		entry.Metadata["principal_id"] = identityKey
+	}
+	if authData != nil && authData.Principal != nil && authData.Principal.DisplayName != "" {
+		entry.Metadata["principal_name"] = authData.Principal.DisplayName
+	}
 }

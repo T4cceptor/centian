@@ -1147,9 +1147,10 @@ func TestListEventsAppliesFiltersAndExposesTaskContext(t *testing.T) {
 		_ = store.Close()
 	})
 
+	runID := identifiers.New(identifiers.KindTaskRun)
 	seedActionContext(t, store, taskverification.ActionEventTaskContext{
 		RequestID:           "req-1",
-		TaskRunID:           identifiers.New(identifiers.KindTaskRun),
+		TaskRunID:           runID,
 		InvocationPhasePath: taskverification.TaskPhasePlanning,
 		InvocationNodeKind:  taskverification.WorkflowNodeKindPlanning,
 		CreatedAtUnixMilli:  3_000,
@@ -1172,6 +1173,29 @@ func TestListEventsAppliesFiltersAndExposesTaskContext(t *testing.T) {
 		IsError:            false,
 		PayloadJSON:        json.RawMessage(`{"arguments":{"command":"pwd"}}`),
 	})
+	err = store.AppendTaskEvent(&taskverification.TaskEvent{
+		ID:                     "task-event-quality",
+		SchemaVersion:          schemaVersion,
+		CreatedAtUnixMilli:     3_100,
+		TaskRunID:              runID,
+		EventType:              taskverification.TaskEventTypeStepCompleted,
+		Outcome:                taskverification.TaskEventOutcomeFailed,
+		RelatedActionRequestID: "req-1",
+		Payload: json.RawMessage(`{
+				"status": "active",
+				"annotations": [
+					{
+						"type": "governance_events",
+						"processor": "centian",
+						"action": "stopped",
+						"category": "quality",
+						"severity": "medium",
+						"message": "Ticket was not updated."
+					}
+				]
+			}`),
+	})
+	assert.NilError(t, err)
 	seedActionEvent(t, store, &ActionEventRecord{
 		ID:                 identifiers.New(identifiers.KindActionEvent),
 		SchemaVersion:      schemaVersion,
@@ -1208,6 +1232,10 @@ func TestListEventsAppliesFiltersAndExposesTaskContext(t *testing.T) {
 	assert.Equal(t, page.Items[0].TaskRunID != "", true)
 	assert.Equal(t, page.Items[0].InvocationPhasePath, string(taskverification.TaskPhasePlanning))
 	assert.Equal(t, page.Items[0].InvocationNodeKind, string(taskverification.WorkflowNodeKindPlanning))
+	assert.Equal(t, len(page.Items[0].Annotations), 1)
+	assert.Equal(t, page.Items[0].Annotations[0].Type, "governance_events")
+	assert.Equal(t, page.Items[0].Annotations[0].Category, "quality")
+	assert.Equal(t, page.Items[0].Annotations[0].Action, "stopped")
 
 	unfiltered, err := store.ListEvents(context.Background(), &EventListFilter{Limit: 10})
 	assert.NilError(t, err)
@@ -1215,6 +1243,13 @@ func TestListEventsAppliesFiltersAndExposesTaskContext(t *testing.T) {
 	assert.Equal(t, unfiltered.Items[0].RequestID, "req-1")
 	assert.Equal(t, unfiltered.Items[1].RequestID, "req-2")
 	assert.Equal(t, unfiltered.Items[1].TaskRunID, "")
+
+	governanceOnly, err := store.ListEvents(context.Background(), &EventListFilter{WithGovernanceEvent: true, Limit: 10})
+	assert.NilError(t, err)
+	assert.Equal(t, len(governanceOnly.Items), 1)
+	assert.Equal(t, governanceOnly.Items[0].RequestID, "req-1")
+	assert.Equal(t, len(governanceOnly.Items[0].Annotations), 1)
+	assert.Equal(t, governanceOnly.Items[0].Annotations[0].Category, "quality")
 }
 
 func TestListEventsPaginatesWithStableCursorOrdering(t *testing.T) {
