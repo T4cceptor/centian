@@ -81,11 +81,30 @@ func (s *Service) ListTemplates() ([]TemplateSummary, error) {
 
 // RegisterTask creates a shell task run from the selected template.
 func (s *Service) RegisterTask(ctx context.Context, templateID string) (*RunState, error) {
-	return s.RegisterTaskWithDescription(ctx, templateID, "")
+	return s.RegisterTaskWithDescription(ctx, templateID, "", "")
 }
 
-// RegisterTaskWithDescription creates a task run with an optional human-facing task description.
-func (s *Service) RegisterTaskWithDescription(ctx context.Context, templateID, taskDescription string) (*RunState, error) {
+// RegisterTaskWithDescription creates a task run with an optional human-facing task
+// description, owned by ownerPrincipalID. When the owner is known, it enforces the
+// one-open-run-per-principal invariant: registering while an active or timed-out run
+// already exists for the principal fails with *OpenTaskExistsError so the caller can
+// require the existing run to be resumed or explicitly failed first.
+func (s *Service) RegisterTaskWithDescription(ctx context.Context, templateID, taskDescription, ownerPrincipalID string) (*RunState, error) {
+	ownerPrincipalID = strings.TrimSpace(ownerPrincipalID)
+	if ownerPrincipalID != "" && s.RunStore != nil {
+		existing, err := s.RunStore.FindOpenRunForPrincipal(ctx, ownerPrincipalID)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return nil, &OpenTaskExistsError{
+				RunID:      existing.RunID,
+				TemplateID: existing.TemplateID,
+				Status:     TaskStatus(existing.Status),
+			}
+		}
+	}
+
 	template, err := s.loadTemplateByID(templateID)
 	if err != nil {
 		return nil, err
@@ -93,6 +112,7 @@ func (s *Service) RegisterTaskWithDescription(ctx context.Context, templateID, t
 
 	run := &RunState{
 		RunID:            newTaskRunID(),
+		OwnerPrincipalID: ownerPrincipalID,
 		TemplateID:       template.Task.ID,
 		TaskDescription:  strings.TrimSpace(taskDescription),
 		SelectedTemplate: *template,

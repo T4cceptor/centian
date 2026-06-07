@@ -396,6 +396,8 @@ type StepState struct {
 type RunState struct {
 	// RunID is the stable identifier for this registered task run.
 	RunID string `json:"taskRunId"`
+	// OwnerPrincipalID is the principal that registered and owns this task run.
+	OwnerPrincipalID string `json:"ownerPrincipalId,omitempty"`
 	// TemplateID is the identifier of the template this run was registered from.
 	TemplateID string `json:"templateId"`
 	// TaskDescription is the user/agent supplied description of this specific task run.

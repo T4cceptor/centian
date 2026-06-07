@@ -3,6 +3,7 @@ package taskruns
 // PersistedRunSnapshot is the latest persisted snapshot of one task run.
 type PersistedRunSnapshot struct {
 	RunID                   string                       `json:"runId"`
+	OwnerPrincipalID        string                       `json:"ownerPrincipalId,omitempty"`
 	TemplateID              string                       `json:"templateId"`
 	TemplateName            string                       `json:"templateName"`
 	TaskDescription         string                       `json:"taskDescription,omitempty"`

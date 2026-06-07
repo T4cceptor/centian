@@ -49,10 +49,12 @@ type taskCompletePlanningArgs struct {
 
 type taskFailArgs struct {
 	Reason string `json:"reason"`
+	RunID  string `json:"runId,omitempty"`
 	TaskToolMetadata
 }
 
 type taskMetadataArgs struct {
+	RunID string `json:"runId,omitempty"`
 	TaskToolMetadata
 }
 
@@ -146,11 +148,16 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskResumeTool,
-		Description: taskToolDescription("Resume a timed-out task verification run without resetting workflow progress."),
+		Description: taskToolDescription("Resume a task verification run without resetting workflow progress. With no runId it resumes the timed-out run in the current session; with a runId it restores a persisted run (active or timed-out) into this session so work can continue across restarts or reconnects."),
 		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
+			"type": "object",
+			"properties": map[string]any{
+				"runId": map[string]any{
+					"type":        "string",
+					"description": "Optional id of a persisted task run to restore into this session. Omit to resume the run already loaded in the current session.",
+				},
+			},
 		}),
 	}, taskResumeTool, p.handleTaskResumeTool)
 
@@ -166,12 +173,16 @@ func (p *CentianEndpoint) registerTaskVerificationTools(session *UpstreamSession
 
 	addTaskTool(&mcp.Tool{
 		Name:        taskFailTool,
-		Description: taskToolDescription("Explicitly fail the active task verification run."),
+		Description: taskToolDescription("Explicitly fail a task verification run. With no runId it fails the active run in the current session; with a runId it fails a persisted run you own, which is how a returning principal abandons a stale run before registering a new task."),
 		Annotations: taskStateTransitionAnnotations(),
 		InputSchema: withTaskToolAnnotationsSchema(map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"reason": map[string]any{"type": "string"},
+				"runId": map[string]any{
+					"type":        "string",
+					"description": "Optional id of a persisted task run to fail. Omit to fail the run already loaded in the current session.",
+				},
 			},
 		}),
 	}, taskFailTool, p.handleTaskFailTool)
@@ -281,6 +292,10 @@ func taskToolAllowedBeforeRegistration(toolName string) bool {
 	switch toolName {
 	case taskListTemplatesTool, taskRegisterTool:
 		return true
+	case taskResumeTool, taskFailTool:
+		// Allowed so a fresh session can restore (resume) or abandon (fail) a
+		// persisted run by runId before any run is loaded in the session.
+		return true
 	default:
 		return false
 	}
@@ -298,6 +313,29 @@ func taskToolRegistrationRequiredResult(toolName, workingDir string) *mcp.CallTo
 		"allowedBeforeRun":   []string{taskListTemplatesTool, taskRegisterTool},
 		"registrationNeeded": true,
 		"nextAction":         "Call centian.task_list_templates, then centian.task_register.",
+	}
+	addWorkspaceContext(structured, workingDir)
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: message},
+		},
+		StructuredContent: structured,
+	}
+}
+
+func taskOpenRunExistsResult(openErr *taskverification.OpenTaskExistsError, workingDir string) *mcp.CallToolResult {
+	message := fmt.Sprintf(
+		"You already have an open task run %q (%s). Resume it with %s {\"runId\":%q} to continue, or abandon it with %s {\"runId\":%q} before registering a new task.",
+		openErr.RunID, openErr.Status, taskResumeTool, openErr.RunID, taskFailTool, openErr.RunID,
+	)
+	structured := map[string]any{
+		"error":            message,
+		"reason":           "open_task_exists",
+		"openTaskRunId":    openErr.RunID,
+		"openTaskStatus":   string(openErr.Status),
+		"openTaskTemplate": openErr.TemplateID,
+		"nextAction":       fmt.Sprintf("Call %s {\"runId\":%q} to continue, or %s {\"runId\":%q} to abandon it.", taskResumeTool, openErr.RunID, taskFailTool, openErr.RunID),
 	}
 	addWorkspaceContext(structured, workingDir)
 	return &mcp.CallToolResult{
@@ -507,8 +545,12 @@ func (p *CentianEndpoint) handleTaskRegisterTool(ctx context.Context, session *U
 		return nil, fmt.Errorf("an active task is already registered for this session")
 	}
 
-	run, err := p.taskVerificationService().RegisterTaskWithDescription(ctx, args.TemplateID, args.TaskDescription)
+	run, err := p.taskVerificationService().RegisterTaskWithDescription(ctx, args.TemplateID, args.TaskDescription, session.identityKey)
 	if err != nil {
+		var openErr *taskverification.OpenTaskExistsError
+		if errors.As(err, &openErr) {
+			return taskOpenRunExistsResult(openErr, p.taskVerificationService().WorkingDir), nil
+		}
 		return nil, err
 	}
 	session.taskRun = run
@@ -830,10 +872,30 @@ func (p *CentianEndpoint) handleTaskResumeTool(ctx context.Context, session *Ups
 		return nil, err
 	}
 	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
+	runID := strings.TrimSpace(args.RunID)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
 
+	// Restore-from-persistence path: a runId is supplied that is not already the
+	// run loaded in this session. Hydrate the persisted snapshot and attach it.
+	if runID != "" && (session.taskRun == nil || session.taskRun.RunID != runID) {
+		if session.taskRun != nil && session.taskRun.Status == taskverification.TaskStatusActive {
+			return nil, fmt.Errorf("an active task is already registered for this session; resume %q in a separate session", runID)
+		}
+		run, err := p.taskVerificationService().RestoreTaskRun(ctx, runID, session.identityKey)
+		if err != nil {
+			return nil, err
+		}
+		session.taskRun = run
+		resultingPhase, resultingNodeKind := taskPhaseSnapshot(run)
+		p.recordTaskEvent(session, run, resultingPhase, resultingNodeKind, resultingPhase, resultingNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeSucceeded, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
+			"restored": true,
+		}))
+		return toolResult("Task restored and resumed.", lifecycleStructuredContent(run, p.taskVerificationService().WorkingDir)), nil
+	}
+
+	// In-session resume path: reactivate the timed-out run already loaded here.
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 	if err := p.taskVerificationService().ResumeTask(ctx, session.taskRun); err != nil {
 		p.recordTaskEvent(session, session.taskRun, sourcePhase, sourceNodeKind, sourcePhase, sourceNodeKind, taskverification.TaskEventTypeResumed, taskverification.TaskEventOutcomeFailed, taskActionRequestIDFromContext(ctx), taskToolEventPayload(args.TaskToolMetadata, map[string]any{
@@ -874,9 +936,24 @@ func (p *CentianEndpoint) handleTaskFailTool(ctx context.Context, session *Upstr
 		return nil, err
 	}
 	args.TaskToolMetadata = taskToolMetadataFromRequest(req)
+	runID := strings.TrimSpace(args.RunID)
 
 	session.taskMu.Lock()
 	defer session.taskMu.Unlock()
+
+	// Fail-by-runId path: a returning principal abandons a stale persisted run that
+	// is not loaded in this session. Hydrate + ownership-check, then fail it.
+	if runID != "" && (session.taskRun == nil || session.taskRun.RunID != runID) {
+		if session.taskRun != nil && session.taskRun.Status == taskverification.TaskStatusActive {
+			return nil, fmt.Errorf("an active task is already registered for this session; fail %q in a separate session", runID)
+		}
+		run, err := p.taskVerificationService().LoadOwnedRun(ctx, runID, session.identityKey)
+		if err != nil {
+			return nil, err
+		}
+		session.taskRun = run
+	}
+
 	sourcePhase, sourceNodeKind := taskPhaseSnapshot(session.taskRun)
 
 	if err := p.taskVerificationService().FailTask(ctx, session.taskRun, args.Reason); err != nil {

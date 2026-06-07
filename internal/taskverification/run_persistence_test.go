@@ -37,6 +37,36 @@ func (s *captureRunStore) latest() *taskruns.PersistedRunSnapshot {
 	return s.snapshots[len(s.snapshots)-1]
 }
 
+// LoadTaskRunSnapshot returns the most recently captured snapshot for runID.
+func (s *captureRunStore) LoadTaskRunSnapshot(_ context.Context, runID string) (*taskruns.PersistedRunSnapshot, error) {
+	for i := len(s.snapshots) - 1; i >= 0; i-- {
+		if s.snapshots[i].RunID == runID {
+			return s.snapshots[i], nil
+		}
+	}
+	//nolint:nilnil // A missing run is represented as an absent snapshot.
+	return nil, nil
+}
+
+// FindOpenRunForPrincipal returns the most recent active/timed-out snapshot owned by principalID.
+func (s *captureRunStore) FindOpenRunForPrincipal(_ context.Context, principalID string) (*taskruns.PersistedRunSnapshot, error) {
+	if principalID == "" {
+		//nolint:nilnil // An empty principal owns no attributable run.
+		return nil, nil
+	}
+	for i := len(s.snapshots) - 1; i >= 0; i-- {
+		snapshot := s.snapshots[i]
+		if snapshot.OwnerPrincipalID != principalID {
+			continue
+		}
+		if snapshot.Status == string(TaskStatusActive) || snapshot.Status == string(TaskStatusTimedOut) {
+			return snapshot, nil
+		}
+	}
+	//nolint:nilnil // No open run for this principal.
+	return nil, nil
+}
+
 func TestRegisterTaskPassesContextToRunStore(t *testing.T) {
 	service := newTemplateTestService(t, `
 version: "0.1"
@@ -55,7 +85,7 @@ workflow:
 
 	key := testRunStoreContextKey{}
 	ctx := context.WithValue(context.Background(), key, "request-scope")
-	run, err := service.RegisterTaskWithDescription(ctx, "simple_tdd", "Resolve payment incident")
+	run, err := service.RegisterTaskWithDescription(ctx, "simple_tdd", "Resolve payment incident", "")
 	assert.NilError(t, err)
 	assert.Equal(t, run.TemplateID, "simple_tdd")
 	assert.Equal(t, run.TaskDescription, "Resolve payment incident")

@@ -10,7 +10,7 @@ func (s *Store) migrateV4ToV5(ctx context.Context) error {
 		name string
 		run  func(context.Context, sqlExecutor) error
 	}{
-		{name: "create task run snapshots", run: createTaskRunSnapshotTables},
+		{name: "create task run snapshots", run: createLegacyTaskRunSnapshotTablesV5},
 		{name: "create task run stats", run: createTaskRunStatsTables},
 		{name: "create benchmark runs", run: createLegacyBenchmarkRunTablesV5},
 		{name: "create benchmark run scores", run: createBenchmarkRunScoreTables},
