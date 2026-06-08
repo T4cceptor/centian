@@ -160,6 +160,12 @@ func TestProcessorE2E(t *testing.T) {
 	// Report, then hold the server open for inspection.
 	t.Logf("UI:  %s", uiURL)
 	t.Logf("MCP: %s", mcpURL)
+	t.Logf("Temp dirs (removed on Ctrl+C):")
+	t.Logf("  fs root (served files): %s", fsRoot)
+	t.Logf("  secret file:            %s", secretFile)
+	t.Logf("  agent artifacts:        %s", artifactRoot)
+	t.Logf("  agent workspace:        %s", workspace)
+	t.Logf("  event store (sqlite):   %s", eventDB)
 	if len(failures) == 0 {
 		t.Logf("ALL ASSERTIONS PASSED")
 	} else {
