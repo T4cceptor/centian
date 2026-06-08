@@ -141,6 +141,17 @@ func TestProcessorE2E(t *testing.T) {
 	mcpURL := fmt.Sprintf("http://%s/%s/mcp/%s/%s", addr, projectSlug, gatewayName, serverName)
 	uiURL := fmt.Sprintf("http://%s/ui/%s/activity?range=live", addr, projectSlug)
 
+	// Print the inspection details up front so they're easy to follow while the
+	// agent run (which can take minutes) is in progress.
+	t.Logf("Centian proxy is up.")
+	t.Logf("  UI:                       %s", uiURL)
+	t.Logf("  MCP:                      %s", mcpURL)
+	t.Logf("  workspace / served files: %s", workspace)
+	t.Logf("  config file:              %s", configFile)
+	t.Logf("  agent artifacts:          %s", artifactRoot)
+	t.Logf("  event store (sqlite):     %s", eventDB)
+	t.Logf("Running agent now; events will populate the UI as it works...")
+
 	project := server.Projects[projectSlug]
 	if project == nil || project.PersistenceStore == nil {
 		t.Fatalf("project %q event store is unavailable", projectSlug)
@@ -172,14 +183,10 @@ func TestProcessorE2E(t *testing.T) {
 	// Then: collect soft assertions (don't abort, so the hold-open still runs).
 	failures := assertRedaction(t, store, result)
 
-	// Report, then hold the server open for inspection.
-	t.Logf("UI:  %s", uiURL)
-	t.Logf("MCP: %s", mcpURL)
-	t.Logf("Temp dirs (removed on Ctrl+C):")
-	t.Logf("  workspace / served files: %s", workspace)
-	t.Logf("  config file:              %s", configFile)
-	t.Logf("  agent artifacts:          %s", artifactRoot)
-	t.Logf("  event store (sqlite):     %s", eventDB)
+	// Report, then hold the server open for inspection. Re-print the URL since
+	// the agent output will have scrolled past the startup banner.
+	t.Logf("Agent run complete. Inspect events at: %s", uiURL)
+	t.Logf("Temp artifacts (removed on Ctrl+C) are under: %s", workspace)
 	if len(failures) == 0 {
 		t.Logf("ALL ASSERTIONS PASSED")
 	} else {
