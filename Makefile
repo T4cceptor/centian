@@ -31,7 +31,7 @@ endif
 # Build flags
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-lint web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
+.PHONY: help build build-go clean test test-integration test-everything test-realworld test-taskverification test-taskverification-blackbox test-processor-e2e benchmark-simple-tdd benchmark-score-latest test-all test-coverage test-coverage-html lint fmt vet tidy run dev web-install web-dev web-build web-stage web-test web-lint web-preview web-clean ensure-web-tooling check-main-branch tag-release release major minor patch
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -107,6 +107,12 @@ test-taskverification-blackbox: ## Run opt-in host-native black-box taskverifica
 		echo "Install with: go install gotest.tools/gotestsum@latest"; \
 		CENTIAN_RUN_TASKVERIFICATION_BLACKBOX=1 GOCACHE=/tmp/go-build go test -v ./tests/integrationtests/taskverification -run TestTaskVerificationBlackBox; \
 	fi
+
+test-processor-e2e: ## Run the interactive processor e2e/demo harness (holds server open; Ctrl+C to stop & clean up)
+	@echo "Running interactive processor e2e/demo harness (agent: $${CENTIAN_E2E_AGENT:-claude})..."
+	@echo "The server stays open after assertions; press Ctrl+C to shut down and remove temp artifacts."
+	CENTIAN_RUN_PROCESSOR_E2E=1 GOCACHE=/tmp/go-build go test -tags e2e -v -timeout 0 \
+		-run TestProcessorE2E ./tests/integrationtests/processore2e/
 
 benchmark-simple-tdd: build-go ## Run one local simple_tdd benchmark case and print newest session
 	@echo "Running benchmark suite $(BENCH_SUITE) with agent $(BENCH_AGENT) and case $(BENCH_CASE)..."
