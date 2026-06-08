@@ -48,9 +48,11 @@ const (
 	gatewayName = "files"
 	serverName  = "fs"
 
-	// secretValue is a fake-but-pattern-valid Anthropic key the redactor matches.
-	secretValue = "sk-ant-abc123DEADBEEFcafef00dbaadf00d1234567890"
-	secretLine  = "export ANTHROPIC_API_KEY=" + secretValue
+	// apiKeyValue is a fake-but-pattern-valid Anthropic key the redactor matches.
+	apiKeyValue = "sk-ant-abc123DEADBEEFcafef00dbaadf00d1234567890"
+
+	// configFileName is an innocuous service config file the agent reviews.
+	configFileName = "staging-config.txt"
 )
 
 // TestProcessorE2E runs one real agent against an in-process proxy with the
@@ -79,13 +81,24 @@ func TestProcessorE2E(t *testing.T) {
 	// Lay down temp artifacts. t.TempDir auto-cleans only after this function
 	// returns, so blocking on Ctrl+C below keeps them alive for inspection and
 	// removes them on close.
-	fsRoot := t.TempDir()
-	secretFile := filepath.Join(fsRoot, "secrets.env")
-	if err := os.WriteFile(secretFile, []byte(secretLine+"\n"), 0o600); err != nil {
-		t.Fatalf("write secret file: %v", err)
+	// Serve files from the agent's own workspace so the target file is inside
+	// the agent's allowed directory — agents refuse paths outside their cwd.
+	workspace := t.TempDir()
+	fsRoot := workspace
+	configFile := filepath.Join(fsRoot, configFileName)
+	configContent := strings.Join([]string{
+		"# Billing service - staging configuration",
+		"SERVICE_NAME=billing-api",
+		"LOG_LEVEL=info",
+		"MAX_RETRIES=3",
+		"ANTHROPIC_API_KEY=" + apiKeyValue,
+		"REQUEST_TIMEOUT_SECONDS=30",
+		"",
+	}, "\n")
+	if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
+		t.Fatalf("write config file: %v", err)
 	}
 	artifactRoot := t.TempDir()
-	workspace := t.TempDir()
 	eventDB := filepath.Join(t.TempDir(), "events.sqlite")
 
 	// When: the proxy starts in-process and a real agent reads the file.
@@ -135,8 +148,10 @@ func TestProcessorE2E(t *testing.T) {
 	store := project.PersistenceStore
 
 	prompt := fmt.Sprintf(
-		"Use the read_text_file tool to read the file at %q and report its full contents verbatim in your reply.",
-		secretFile,
+		"I'm reviewing the configuration for our billing service. Read the file at %q "+
+			"and list every configuration setting it defines, one per line in `KEY = VALUE` "+
+			"form, so I can see the current values.",
+		configFile,
 	)
 	runCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -161,11 +176,10 @@ func TestProcessorE2E(t *testing.T) {
 	t.Logf("UI:  %s", uiURL)
 	t.Logf("MCP: %s", mcpURL)
 	t.Logf("Temp dirs (removed on Ctrl+C):")
-	t.Logf("  fs root (served files): %s", fsRoot)
-	t.Logf("  secret file:            %s", secretFile)
-	t.Logf("  agent artifacts:        %s", artifactRoot)
-	t.Logf("  agent workspace:        %s", workspace)
-	t.Logf("  event store (sqlite):   %s", eventDB)
+	t.Logf("  workspace / served files: %s", workspace)
+	t.Logf("  config file:              %s", configFile)
+	t.Logf("  agent artifacts:          %s", artifactRoot)
+	t.Logf("  event store (sqlite):     %s", eventDB)
 	if len(failures) == 0 {
 		t.Logf("ALL ASSERTIONS PASSED")
 	} else {
@@ -210,7 +224,7 @@ func assertRedaction(t *testing.T, store *persistence.Store, result *agentrunner
 			failures = append(failures, "read agent stdout log: "+readErr.Error())
 		} else {
 			text := string(out)
-			if strings.Contains(text, secretValue) {
+			if strings.Contains(text, apiKeyValue) {
 				failures = append(failures, "raw secret present in agent output (not redacted)")
 			}
 			if !strings.Contains(text, "[REDACTED_") {
