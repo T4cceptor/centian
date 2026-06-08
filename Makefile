@@ -112,7 +112,7 @@ test-processor-e2e: ## Run the interactive processor e2e/demo harness (holds ser
 	@echo "Running interactive processor e2e/demo harness (agent: $${CENTIAN_E2E_AGENT:-claude})..."
 	@echo "The server stays open after assertions; press Ctrl+C to shut down and remove temp artifacts."
 	CENTIAN_RUN_PROCESSOR_E2E=1 GOCACHE=/tmp/go-build go test -tags e2e -v -timeout 0 \
-		-run TestProcessorE2E ./tests/integrationtests/processore2e/
+		-run 'TestProcessorE2E$$' ./tests/integrationtests/processore2e/
 
 benchmark-simple-tdd: build-go ## Run one local simple_tdd benchmark case and print newest session
 	@echo "Running benchmark suite $(BENCH_SUITE) with agent $(BENCH_AGENT) and case $(BENCH_CASE)..."
