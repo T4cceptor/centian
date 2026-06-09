@@ -16,6 +16,7 @@ type processorInputDTO struct {
 	Routing     *RoutingPart        `json:"routing,omitempty"`
 	Auth        *common.AuthContext `json:"auth,omitempty"`
 	Annotations *AnnotationPart     `json:"annotations,omitempty"`
+	ToolSurface *ToolSurfacePart    `json:"tool_surface,omitempty"`
 }
 
 type payloadPartDTO struct {
@@ -40,6 +41,7 @@ func marshalProcessorInput(input *DataContext) ([]byte, error) {
 		Routing:     input.Routing,
 		Auth:        input.Auth,
 		Annotations: input.Annotations,
+		ToolSurface: input.ToolSurface,
 	}
 
 	if input.Payload != nil {

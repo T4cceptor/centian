@@ -52,6 +52,21 @@ func NewToolCallContext(
 	if proxy.server == nil {
 		return nil, fmt.Errorf("server attached to the proxy component is nil (%v)", proxy)
 	}
+	// request holds the current mutable MCP tool name. originalRequest keeps the raw upstream name.
+	originalRequest := deepCloneRequest(req) // cloned here because req may be modified below
+	if req == nil || req.Params == nil {
+		return nil, fmt.Errorf("tool call requires request params")
+	}
+	if route, ok := upstreamSession.toolRoutes[req.Params.Name]; ok {
+		serverName = route.serverName
+		req.Params.Name = route.originalName
+	} else if proxy.isAggregatedProxy {
+		toolName, err := parseAggregatedToolName(req.Params.Name, serverName)
+		if err != nil {
+			return nil, err
+		}
+		req.Params.Name = toolName
+	}
 	// Build routing context
 	routingCtx := buildRoutingContext(proxy, upstreamSession, serverName)
 	// TODO: get headers from ctx
@@ -68,21 +83,6 @@ func NewToolCallContext(
 		WithRequestID(getNewUUIDV7()).
 		WithSessionID(upstreamSession.id).
 		WithServerID(proxy.server.ServerID) // nil check was done above
-
-	// request holds the current mutable MCP tool name. In aggregated mode we
-	// normalize it once before processing so all later code sees the current
-	// downstream tool name directly. originalRequest keeps the raw upstream name.
-	originalRequest := deepCloneRequest(req) // cloned here because req is being modified
-	if proxy.isAggregatedProxy {
-		if req == nil || req.Params == nil {
-			return nil, fmt.Errorf("aggregated tool call requires request params")
-		}
-		toolName, err := parseAggregatedToolName(req.Params.Name, serverName)
-		if err != nil {
-			return nil, err
-		}
-		req.Params.Name = toolName
-	}
 
 	toolCallCtx := &ToolCallContext{
 		proxy:              proxy,

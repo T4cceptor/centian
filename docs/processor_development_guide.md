@@ -27,7 +27,7 @@ Quick-start path:
 
 ## What a Processor Is
 
-A **processor** is a composable unit that intercepts, validates, modifies, rejects, or otherwise processes proxied `tools/call` traffic as it flows through Centian's proxy layer.
+A **processor** is a composable unit that intercepts, validates, modifies, rejects, or otherwise processes proxied MCP data as it flows through Centian's proxy layer. Most processors run on `tools/call` traffic; `tool_surface` processors run earlier, while tools are being registered for upstream clients.
 
 Potential uses:
 
@@ -42,7 +42,7 @@ Processors execute sequentially in configuration order. The full order is:
 1. global `processors`
 2. gateway-level `gateways.<name>.processors`
 
-Processors are currently invoked for proxied `tools/call` traffic only. They are not run for `initialize`, resources, prompts, completions, or other non-tool protocol surfaces.
+Processors are currently invoked for proxied `tools/call` traffic and for the registration-time `tool_surface` part. They are not run for `initialize`, resources, prompts, completions, or other non-tool protocol surfaces.
 
 If a processor execution fails:
 
@@ -137,7 +137,7 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `version` | string | Data contract version. Current value is `"1.0"`. |
+| `version` | string | Data contract version. Current value is `"1.1"`. |
 | `event` | object | MCP event metadata when the `meta` part is enabled. |
 | `payload.request` | object | Current `tools/call` request payload when the `payload` part is enabled. |
 | `payload.original_request` | object | Original upstream request snapshot. |
@@ -146,6 +146,7 @@ CLI processors read it from `stdin`. Webhook processors receive it as the HTTP r
 | `routing` | object | Current and original server/tool routing data. |
 | `auth` | object | Read-only auth context. |
 | `annotations` | object | Processor-supplied reports about the event. Persisted as Centian event annotations, not applied to the MCP request or result payload. |
+| `tool_surface` | object | Registration-time tool catalog data when the `tool_surface` part is enabled. |
 
 Notes:
 
@@ -153,6 +154,8 @@ Notes:
 - for `tools/call`, request parameters are serialized under `payload.request.Params`
 - `event.direction` is `"[CLIENT -> SERVER]"` for request-phase processing and `"[SERVER -> CLIENT]"` for response-phase processing
 - `auth` is informational; it is not a writable control surface
+- `tool_surface` runs when tools are registered or refreshed, not during `tools/call`
+- `tool_surface` may be configured alone or with `annotations`; it cannot be mixed with call-time parts such as `payload`, `meta`, `routing`, or `auth`
 
 ### Output structure
 
@@ -202,6 +205,47 @@ Fields you return are applied back into the current call context according to th
 ### Processor annotations
 
 Use the `annotations` part when a processor needs to tell Centian what it found without changing the MCP call itself. Returned annotation reports are persisted as event annotations and exposed in event APIs, while allowing `payload` to remain unchanged for observe-only processors.
+
+### Tool surface processors
+
+Use `parts: ["tool_surface"]` or `parts: ["tool_surface", "annotations"]` when a processor should alter the tool catalog before an upstream client sees it. Centian invokes these processors once per downstream server catalog during tool registration and refresh.
+
+Input includes `tool_surface.gateway`, `tool_surface.server_name`, and `tool_surface.tools`. Each tool entry contains `original_name`, `default_exposed_name`, current `exposed_name`, a Centian-computed `fingerprint`, and the current exposed MCP `tool` definition. Fingerprints are current-state values only; processors own any previous-baseline storage and decide whether a changed fingerprint should hide, fail, modify, or annotate a tool.
+
+Output uses `tool_surface.decisions`:
+
+```json
+{
+  "tool_surface": {
+    "decisions": [
+      {
+        "tool_name": "read_file",
+        "action": "modify",
+        "exposed_name": "fs_read",
+        "description": "Read a file from the approved filesystem surface."
+      },
+      {
+        "tool_name": "write_file",
+        "action": "hide"
+      }
+    ]
+  },
+  "annotations": {
+    "reports": [
+      {
+        "type": "governance_events",
+        "processor": "tool-surface-policy",
+        "action": "modified",
+        "category": "security",
+        "severity": "medium",
+        "message": "Tool description was rewritten before exposure."
+      }
+    ]
+  }
+}
+```
+
+Supported actions are `modify`, `hide`, and `fail`. Omit a decision to keep the default visible tool definition. `annotations` can represent flag-only findings or explain a `modify`/`hide` decision.
 
 ## Configuration in Centian
 
@@ -326,7 +370,8 @@ Edit `~/.centian/config.json`:
 Important runtime notes:
 
 - supported processor types are `cli`, `webhook`, and `builtin`
-- supported parts are only `payload`, `meta`, `routing`, `auth`, and `annotations`
+- supported call-time parts are `payload`, `meta`, `routing`, `auth`, and `annotations`
+- `tool_surface` is the supported registration-time surface part; `prompt_surface`, `resource_surface`, and `mcp_surface` are reserved for future use
 - webhook `config` only supports `url` and `headers`
 - built-in processors are compiled into Centian and do not require a separate executable
 - `tool_call_guard` presets emit `security` events; custom rules default to `policy` unless configured otherwise
@@ -541,7 +586,7 @@ echo "Exit code: $?"
 
 - confirm the processor is attached to the right scope: global `processors` versus `gateways.<name>.processors`
 - confirm the selected `parts` include the fields you expect to read or mutate
-- remember that processors only run for proxied `tools/call`, not for every MCP method
+- remember that call-time processors only run for proxied `tools/call`; `tool_surface` processors run during tool registration
 
 ## Performance Considerations
 

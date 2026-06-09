@@ -705,7 +705,12 @@ func (p *CentianEndpoint) initEventProcessor() error {
 	if err != nil {
 		return err
 	}
+	surfaceController, err := NewToolSurfaceProcessingController(allProcessors)
+	if err != nil {
+		return err
+	}
 	p.eventProcessor = controller
+	p.surfaceProcessor = surfaceController
 	if len(allProcessors) > 0 {
 		common.LogInfo("ProxyEndpoint[%s]: initialized event processor with %d processors", p.name, len(allProcessors))
 	}

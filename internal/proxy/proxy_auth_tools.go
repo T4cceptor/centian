@@ -127,9 +127,8 @@ func (p *CentianEndpoint) registerStaticProxyTools(session *UpstreamSession, ser
 	session.registeredStaticTools[testNotificationsTool] = struct{}{}
 }
 
-func (p *CentianEndpoint) desiredToolState(session *UpstreamSession) (map[string]*mcp.Tool, map[string]string) {
-	desired := make(map[string]*mcp.Tool)
-	toolServers := make(map[string]string)
+func (p *CentianEndpoint) desiredToolState(session *UpstreamSession) (map[string]toolStateEntry, error) {
+	desired := make(map[string]toolStateEntry)
 	authStates := p.buildAuthToolStates(session)
 
 	for _, entry := range p.sessionConnectionSnapshot(session) {
@@ -146,12 +145,26 @@ func (p *CentianEndpoint) desiredToolState(session *UpstreamSession) (map[string
 				common.LogWarn("ProxyEndpoint[%s]: skipping downstream tool %q on %s; centian.* is reserved", p.name, tool.Name, serverName)
 				continue
 			}
-			upstreamName := tool.Name
-			if p.isAggregatedProxy {
-				upstreamName = fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
+		}
+		processedTools, annotations, err := p.processToolSurface(serverName, conn.Tools())
+		p.logToolSurfaceAnnotations(session, serverName, annotations)
+		if err != nil {
+			return nil, err
+		}
+		for _, processed := range processedTools {
+			if processed == nil || processed.tool == nil {
+				continue
 			}
-			desired[upstreamName] = tool
-			toolServers[upstreamName] = serverName
+			if _, exists := desired[processed.tool.Name]; exists {
+				return nil, fmt.Errorf("duplicate exposed tool name %q", processed.tool.Name)
+			}
+			desired[processed.tool.Name] = toolStateEntry{
+				tool:                  processed.tool,
+				serverName:            processed.serverName,
+				originalName:          processed.originalName,
+				defaultExposedName:    processed.defaultExposedName,
+				definitionFingerprint: processed.definitionFingerprint,
+			}
 		}
 	}
 
@@ -159,7 +172,7 @@ func (p *CentianEndpoint) desiredToolState(session *UpstreamSession) (map[string
 		if state.LoginTool == "" {
 			continue
 		}
-		desired[state.LoginTool] = &mcp.Tool{
+		tool := &mcp.Tool{
 			Name:        state.LoginTool,
 			Description: fmt.Sprintf("Start or resume login for downstream %s.", state.Server),
 			InputSchema: map[string]any{
@@ -167,10 +180,16 @@ func (p *CentianEndpoint) desiredToolState(session *UpstreamSession) (map[string
 				"properties": map[string]any{},
 			},
 		}
-		toolServers[state.LoginTool] = state.Server
+		desired[state.LoginTool] = toolStateEntry{
+			tool:                  tool,
+			serverName:            state.Server,
+			originalName:          state.LoginTool,
+			defaultExposedName:    state.LoginTool,
+			definitionFingerprint: fingerprintToolDefinition(tool),
+		}
 	}
 
-	return desired, toolServers
+	return desired, nil
 }
 
 func (p *CentianEndpoint) currentUpstreamToolNames(session *UpstreamSession) []string {

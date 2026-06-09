@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/T4cceptor/centian/internal/common"
 	centoauth "github.com/T4cceptor/centian/internal/oauth"
@@ -13,6 +14,20 @@ import (
 
 // This file registers upstream tool surfaces and routes proxied tool calls to
 // downstream servers.
+
+type toolRoute struct {
+	serverName   string
+	originalName string
+	exposedName  string
+}
+
+type toolStateEntry struct {
+	tool                  *mcp.Tool
+	serverName            string
+	originalName          string
+	defaultExposedName    string
+	definitionFingerprint string
+}
 
 // newUpstreamServer returns a new upstream-facing MCP server for the given session.
 // The session is captured by the handler closures so that forwarding functions can
@@ -63,14 +78,29 @@ func (p *CentianEndpoint) newUpstreamServer(session *UpstreamSession) *mcp.Serve
 }
 
 func (p *CentianEndpoint) syncAvailableTools(session *UpstreamSession) {
+	if err := p.syncAvailableToolsChecked(session); err != nil {
+		common.LogError("ProxyEndpoint[%s]: failed to sync tool surface for session %s: %v", p.name, sanitizeLogValue(sessionIDForLog(session)), err)
+	}
+}
+
+func (p *CentianEndpoint) syncAvailableToolsChecked(session *UpstreamSession) error {
 	if session == nil || session.upstreamServer == nil {
-		return
+		return nil
 	}
 	if session.registeredTools == nil {
 		session.registeredTools = make(map[string]struct{})
 	}
+	if session.registeredToolFingerprints == nil {
+		session.registeredToolFingerprints = make(map[string]string)
+	}
+	if session.toolRoutes == nil {
+		session.toolRoutes = make(map[string]toolRoute)
+	}
 
-	desiredTools, toolServers := p.desiredToolState(session)
+	desiredTools, err := p.desiredToolState(session)
+	if err != nil {
+		return err
+	}
 
 	staleTools := make([]string, 0)
 	for toolName := range session.registeredTools {
@@ -82,19 +112,31 @@ func (p *CentianEndpoint) syncAvailableTools(session *UpstreamSession) {
 		session.upstreamServer.RemoveTools(staleTools...)
 		for _, toolName := range staleTools {
 			delete(session.registeredTools, toolName)
+			delete(session.registeredToolFingerprints, toolName)
+			delete(session.toolRoutes, toolName)
 		}
 	}
 
-	for upstreamName, tool := range desiredTools {
-		if _, ok := session.registeredTools[upstreamName]; ok {
+	for upstreamName, entry := range desiredTools {
+		nextFingerprint := fingerprintRegisteredTool(entry.tool)
+		if _, ok := session.registeredTools[upstreamName]; ok && session.registeredToolFingerprints[upstreamName] == nextFingerprint {
 			continue
 		}
 		if strings.HasPrefix(upstreamName, loginToolPrefix) {
-			p.registerLoginTool(session, toolServers[upstreamName])
+			p.registerLoginTool(session, entry.serverName)
+			session.registeredToolFingerprints[upstreamName] = nextFingerprint
 			continue
 		}
-		p.registerTool(session, toolServers[upstreamName], tool)
+		if _, ok := session.registeredTools[upstreamName]; ok {
+			session.upstreamServer.RemoveTools(upstreamName)
+			delete(session.registeredTools, upstreamName)
+			delete(session.registeredToolFingerprints, upstreamName)
+			delete(session.toolRoutes, upstreamName)
+		}
+		p.registerTool(session, entry)
+		session.registeredToolFingerprints[upstreamName] = nextFingerprint
 	}
+	return nil
 }
 
 func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
@@ -125,7 +167,9 @@ func (p *CentianEndpoint) registerAvailableTools(session *UpstreamSession) {
 	p.mu.RUnlock()
 
 	p.toolRegMu.Lock()
-	p.syncAvailableTools(session)
+	if err := p.syncAvailableToolsChecked(session); err != nil {
+		common.LogError("ProxyEndpoint[%s]: failed to sync tool surface for session %s: %v", p.name, sanitizeLogValue(session.id), err)
+	}
 	p.toolRegMu.Unlock()
 	p.notifySessionOAuthRequirements(session, pool)
 
@@ -212,35 +256,76 @@ func (p *CentianEndpoint) collectDownstreamToolState(
 }
 
 // registerTool adds one downstream tool to one upstream-facing server instance.
-func (p *CentianEndpoint) registerTool(session *UpstreamSession, serverName string, tool *mcp.Tool) {
+func (p *CentianEndpoint) registerTool(session *UpstreamSession, entry toolStateEntry) {
 	server := session.upstreamServer
 	if session.registeredTools == nil {
 		session.registeredTools = make(map[string]struct{})
 	}
+	if session.toolRoutes == nil {
+		session.toolRoutes = make(map[string]toolRoute)
+	}
+	tool := entry.tool
 	if tool == nil {
 		return
 	}
 	if isProxyToolName(tool.Name) {
-		common.LogWarn("ProxyEndpoint[%s]: skipping downstream tool %q on %s; centian.* is reserved", p.name, tool.Name, serverName)
+		common.LogWarn("ProxyEndpoint[%s]: skipping downstream tool %q on %s; centian.* is reserved", p.name, tool.Name, entry.serverName)
 		return
 	}
 
 	clonedTool := copyToolForRegistration(tool)
 	applyConfiguredToolHintOverrides(clonedTool, p.config)
-	toolServerName := serverName
-	if p.isAggregatedProxy {
-		clonedTool.Name = fmt.Sprintf("%s%s%s", serverName, NamespaceSeparator, tool.Name)
-		clonedTool.Description = fmt.Sprintf("[%s] %s", serverName, tool.Description)
-	}
 
 	if _, exists := session.registeredTools[clonedTool.Name]; exists {
 		return
 	}
 	session.registeredTools[clonedTool.Name] = struct{}{}
+	session.toolRoutes[clonedTool.Name] = toolRoute{
+		serverName:   entry.serverName,
+		originalName: entry.originalName,
+		exposedName:  clonedTool.Name,
+	}
 
 	server.AddTool(clonedTool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return p.handleToolCall(ctx, session, toolServerName, req)
+		return p.handleToolCall(ctx, session, entry.serverName, req)
 	})
+}
+
+func sessionIDForLog(session *UpstreamSession) string {
+	if session == nil {
+		return ""
+	}
+	return session.id
+}
+
+func (p *CentianEndpoint) logToolSurfaceAnnotations(session *UpstreamSession, serverName string, annotations []common.EventAnnotation) {
+	if len(annotations) == 0 {
+		return
+	}
+	logger := p.projectLogger()
+	if logger == nil {
+		return
+	}
+	meta := common.NewMetaContext("surface", common.DirectionSystem, common.MessageTypeSystem).
+		WithRequestID(getNewUUIDV7()).
+		WithSessionID(sessionIDForLog(session))
+	if p.server != nil {
+		meta.WithServerID(p.server.ServerID)
+	}
+	entry := &common.LogEntry{
+		BaseMcpEvent: meta.BaseMcpEvent,
+		Routing: common.RoutingContext{
+			Gateway:    getGatewayFromPath(p.endpoint),
+			ServerName: serverName,
+			Endpoint:   p.endpoint,
+		},
+		Annotations: annotations,
+	}
+	entry.Timestamp = time.Now()
+	entry.Success = true
+	if err := logger.LogMcpEvent(entry); err != nil {
+		common.LogWarn("ProxyEndpoint[%s]: failed to log tool surface annotations: %v", p.name, err)
+	}
 }
 
 // ProcessCall handles the request phase processing using handlers.

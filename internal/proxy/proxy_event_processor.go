@@ -20,6 +20,9 @@ func NewProcessingController(processorConfigs []*config.ProcessorConfig) (*Proce
 		processors: make([]processor.ProcessorInterface, 0),
 	}
 	for _, config := range processorConfigs {
+		if config.IsToolSurfaceProcessor() {
+			continue
+		}
 		p, err := processor.NewProcessor(config)
 		if err == nil {
 			result.processors = append(result.processors, p)

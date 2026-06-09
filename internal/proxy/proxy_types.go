@@ -72,6 +72,8 @@ type UpstreamSession struct {
 	// swapped under CentianEndpoint.mu during session reconciliation.
 	downstreamConns             map[string]DownstreamConnectionInterface
 	registeredTools             map[string]struct{}
+	registeredToolFingerprints  map[string]string
+	toolRoutes                  map[string]toolRoute
 	registeredStaticTools       map[string]struct{}
 	registeredResources         map[string]struct{} // keyed by resource URI
 	registeredResourceTemplates map[string]struct{} // keyed by resource URI template
@@ -188,7 +190,8 @@ type CentianEndpoint struct {
 	project *CentianProject // The project this endpoint belongs to
 	config  *config.GatewayConfig
 
-	eventProcessor ProcessingControllerInterface
+	eventProcessor   ProcessingControllerInterface
+	surfaceProcessor *ToolSurfaceProcessingController
 
 	mu sync.RWMutex
 
