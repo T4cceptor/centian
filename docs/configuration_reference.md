@@ -149,8 +149,8 @@ Each gateway is keyed by its gateway name. Gateway names must be URL-safe: lette
 | --- | --- | --- | --- | --- |
 | `allowDynamic` | boolean | No | `false` | Reserved gateway field. Present in the config model, but current server startup does not branch on it. |
 | `setupGateway` | boolean | No | `false` | Reserved gateway field. Present in the config model, but current server startup does not branch on it. |
-| `forceReadOnlyHints` | boolean | No | `false` | Overrides all registered tool annotations in this gateway to `readOnlyHint=true`. |
-| `forceSafeToolHints` | boolean | No | `false` | Overrides all registered tool annotations in this gateway to conservative safe defaults for upstream MCP clients. Sets `readOnlyHint=true`, `idempotentHint=true`, `destructiveHint=false`, and `openWorldHint=false`. |
+| `forceReadOnlyHints` | boolean | No | `false` | Deprecated. Overrides all registered tool annotations in this gateway to `readOnlyHint=true`. Prefer a `tool_surface` processor for new policy. |
+| `forceSafeToolHints` | boolean | No | `false` | Deprecated. Overrides all registered tool annotations to conservative safe defaults. Prefer a `tool_surface` processor for new policy. |
 | `verificationRequirement` | string | No | `required` when project task verification is enabled, otherwise `off` | Gateway-level task verification mode. Supported values: `off`, `optional`, `required`. |
 | `mcpServers` | object | Yes in strict mode | none | Map of server name to MCP server config. |
 | `processors` | array | No | `[]` | Gateway-level processor chain appended after global processors. |
@@ -161,6 +161,7 @@ Runtime notes:
 - For every active downstream server, Centian also registers `/mcp/{gateway}/{server}`.
 - A gateway must have at least one active server in strict validation.
 - `allowDynamic` and `setupGateway` are currently best treated as reserved fields rather than active runtime controls.
+- Deprecated force-hint settings still run as final registration overrides after tool surface processing.
 - `forceSafeToolHints` changes tool metadata only. It does not add enforcement by itself; it makes tools appear maximally safe to upstream clients.
 - If both `forceSafeToolHints` and `forceReadOnlyHints` are set, `forceSafeToolHints` takes precedence.
 - `verificationRequirement=off` disables task verification on that gateway only. The gateway still exposes downstream tools normally.
@@ -225,15 +226,18 @@ Processor names must be unique within a single processor list.
 | `type` | string | Yes | none | Must be `cli`, `webhook`, or `builtin`. |
 | `enabled` | boolean | Yes | none | Disabled processors are skipped. |
 | `timeout` | integer | No | `15` | Per-invocation timeout in seconds. |
-| `parts` | array of strings | No | `["payload", "meta"]` | Allowed parts: `payload`, `meta`, `routing`, `auth`, `annotations`. |
+| `parts` | array of strings | No | `["payload", "meta"]` | Call-time parts: `payload`, `meta`, `routing`, `auth`, `annotations`. Registration-time part: `tool_surface`, optionally with `annotations`. |
 | `config` | object | Yes | none | Type-specific processor config. |
 | `required` | boolean | No | `false` | Required processor failures stop the chain. |
 
 Runtime notes:
 
-- Processors currently run only for proxied `tools/call` traffic.
+- Processors run for proxied `tools/call` traffic, except `tool_surface` processors, which run while tools are registered/refreshed.
 - Global processors run before gateway-level processors.
 - Non-required processor failures are logged and skipped; later processors still run.
+- `tool_surface` may be configured as `["tool_surface"]` or `["tool_surface", "annotations"]`; mixing it with `payload`, `meta`, `routing`, or `auth` is invalid.
+- `prompt_surface`, `resource_surface`, and `mcp_surface` are reserved for future use.
+- Tool surface processors may return `modify`, `hide`, or `fail` decisions. Centian sends the current tool definition fingerprint, but processors own previous-baseline storage and policy.
 
 ### CLI Processor `config`
 

@@ -8,7 +8,7 @@ import (
 // CurrentDataContextVersion is the data contract version sent to processors.
 // Follows major.minor semantics: a major bump is breaking, a minor bump is additive
 // and backward-compatible (processors that ignore unknown fields remain functional).
-const CurrentDataContextVersion = "1.0"
+const CurrentDataContextVersion = "1.1"
 
 // DataContext is passed to processors as JSON.
 // Holds all relevant information of a CallContext for processors to access and modify.
@@ -21,6 +21,7 @@ type DataContext struct {
 	Routing     *RoutingPart        `json:"routing,omitempty"`
 	Auth        *common.AuthContext `json:"auth,omitempty"` // Auth identity and principal context
 	Annotations *AnnotationPart     `json:"annotations,omitempty"`
+	ToolSurface *ToolSurfacePart    `json:"tool_surface,omitempty"`
 	// Future: Headers, etc.
 }
 
@@ -43,6 +44,34 @@ type RoutingPart struct {
 // AnnotationPart lets processors report findings about an event without modifying the MCP call.
 type AnnotationPart struct {
 	Reports []Report `json:"reports,omitempty"`
+}
+
+// ToolSurfacePart holds registration-time tool catalog information.
+type ToolSurfacePart struct {
+	Gateway    string                `json:"gateway,omitempty"`
+	ServerName string                `json:"server_name,omitempty"`
+	Tools      []ToolSurfaceTool     `json:"tools,omitempty"`
+	Decisions  []ToolSurfaceDecision `json:"decisions,omitempty"`
+}
+
+// ToolSurfaceTool describes one downstream tool as it is being prepared for upstream exposure.
+type ToolSurfaceTool struct {
+	OriginalName       string    `json:"original_name,omitempty"`
+	DefaultExposedName string    `json:"default_exposed_name,omitempty"`
+	ExposedName        string    `json:"exposed_name,omitempty"`
+	Fingerprint        string    `json:"fingerprint,omitempty"`
+	Tool               *mcp.Tool `json:"tool,omitempty"`
+}
+
+// ToolSurfaceDecision describes how a processor wants Centian to handle one tool.
+type ToolSurfaceDecision struct {
+	ToolName    string               `json:"tool_name,omitempty"`
+	Action      string               `json:"action,omitempty"`
+	ExposedName string               `json:"exposed_name,omitempty"`
+	Description *string              `json:"description,omitempty"`
+	Annotations *mcp.ToolAnnotations `json:"annotations,omitempty"`
+	Meta        mcp.Meta             `json:"_meta,omitempty"`
+	Message     string               `json:"message,omitempty"`
 }
 
 // Report describes a processor observation or policy action.

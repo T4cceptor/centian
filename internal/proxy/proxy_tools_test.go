@@ -3,9 +3,13 @@ package proxy
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/T4cceptor/centian/internal/config"
+	"github.com/T4cceptor/centian/internal/logging"
+	"github.com/T4cceptor/centian/internal/persistence"
+	"github.com/T4cceptor/centian/internal/processor"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"gotest.tools/assert"
 )
@@ -33,6 +37,267 @@ func connectUpstreamCapabilityClient(
 		_ = clientSession.Close()
 		_ = serverSession.Close()
 	}
+}
+
+func newToolSurfaceTestProxy(t *testing.T, surfaceProcessor *ToolSurfaceProcessingController) (*CentianEndpoint, *UpstreamSession, *MockDownstreamConnection) {
+	t.Helper()
+
+	t.Setenv("HOME", t.TempDir())
+	logger, err := logging.NewLogger()
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = logger.Close()
+	})
+
+	proxy := &CentianEndpoint{
+		name:            "gateway",
+		endpoint:        "/mcp/gateway",
+		downstreamPools: make(map[string]*DownstreamSessionPool),
+		server: &CentianServer{
+			ServerID: "server-1",
+			Config:   &config.GlobalConfig{Version: "1.0.0"},
+			Logger:   logger,
+		},
+		config:           &config.GatewayConfig{},
+		surfaceProcessor: surfaceProcessor,
+	}
+	downstream := &MockDownstreamConnection{
+		serverName: "server-1",
+		Status:     StatusConnected,
+		cfg:        &config.MCPServerConfig{Command: "node"},
+		tools: []*mcp.Tool{
+			{Name: "read_file", Description: "Read a file", InputSchema: map[string]any{"type": "object"}},
+			{Name: "write_file", Description: "Write a file", InputSchema: map[string]any{"type": "object"}},
+		},
+		ResultToReturn: &mcp.CallToolResult{},
+	}
+	session := &UpstreamSession{
+		id:                         "session-1",
+		registeredTools:            make(map[string]struct{}),
+		registeredToolFingerprints: make(map[string]string),
+		toolRoutes:                 make(map[string]toolRoute),
+		downstreamConns:            map[string]DownstreamConnectionInterface{"server-1": downstream},
+		downstreamSessionKey:       "pool-1",
+		authData:                   &AuthData{},
+	}
+	session.upstreamServer = proxy.newUpstreamServer(session)
+	return proxy, session, downstream
+}
+
+func surfaceMockProcessor(fn func(input *processor.DataContext) (*processor.DataContext, error)) *mockProcessor {
+	return &mockProcessor{
+		cfg: &config.ProcessorConfig{
+			Name:    "surface",
+			Type:    "cli",
+			Enabled: true,
+			Parts:   []string{"tool_surface", "annotations"},
+		},
+		processFn: fn,
+	}
+}
+
+func TestToolSurfaceProcessorRenamesAndRoutesOriginalTool(t *testing.T) {
+	description := "Read from the approved filesystem surface."
+	surface := surfaceMockProcessor(func(input *processor.DataContext) (*processor.DataContext, error) {
+		assert.Assert(t, input.ToolSurface != nil)
+		return &processor.DataContext{
+			ToolSurface: &processor.ToolSurfacePart{
+				Decisions: []processor.ToolSurfaceDecision{
+					{
+						ToolName:    "read_file",
+						Action:      "modify",
+						ExposedName: "fs_read",
+						Description: &description,
+					},
+				},
+			},
+		}, nil
+	})
+	proxy, session, downstream := newToolSurfaceTestProxy(t, &ToolSurfaceProcessingController{
+		processors: []processor.ProcessorInterface{surface},
+	})
+
+	assert.NilError(t, proxy.syncAvailableToolsChecked(session))
+	clientSession, cleanup := connectAuthToolClient(t, session, nil)
+	defer cleanup()
+
+	tools := listToolsByName(t, clientSession)
+	assert.Assert(t, tools["fs_read"] != nil)
+	assert.Equal(t, tools["fs_read"].Description, description)
+	assert.Assert(t, tools["read_file"] == nil)
+
+	_, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{Name: "fs_read"})
+	assert.NilError(t, err)
+	assert.Equal(t, downstream.CapturedToolName, "read_file")
+}
+
+func TestToolSurfaceProcessorHidesAndRemovesStaleTool(t *testing.T) {
+	surface := surfaceMockProcessor(func(_ *processor.DataContext) (*processor.DataContext, error) {
+		return &processor.DataContext{
+			ToolSurface: &processor.ToolSurfacePart{
+				Decisions: []processor.ToolSurfaceDecision{{ToolName: "write_file", Action: "hide"}},
+			},
+		}, nil
+	})
+	proxy, session, _ := newToolSurfaceTestProxy(t, &ToolSurfaceProcessingController{
+		processors: []processor.ProcessorInterface{surface},
+	})
+
+	assert.NilError(t, proxy.syncAvailableToolsChecked(session))
+	_, exists := session.registeredTools["write_file"]
+	assert.Assert(t, !exists)
+	_, exists = session.toolRoutes["write_file"]
+	assert.Assert(t, !exists)
+
+	clientSession, cleanup := connectAuthToolClient(t, session, nil)
+	defer cleanup()
+	tools := listToolsByName(t, clientSession)
+	assert.Assert(t, tools["write_file"] == nil)
+}
+
+func TestToolSurfaceProcessorReregistersWhenDefinitionChanges(t *testing.T) {
+	description := "first"
+	surface := surfaceMockProcessor(func(_ *processor.DataContext) (*processor.DataContext, error) {
+		return &processor.DataContext{
+			ToolSurface: &processor.ToolSurfacePart{
+				Decisions: []processor.ToolSurfaceDecision{
+					{ToolName: "read_file", Action: "modify", Description: &description},
+				},
+			},
+		}, nil
+	})
+	proxy, session, _ := newToolSurfaceTestProxy(t, &ToolSurfaceProcessingController{
+		processors: []processor.ProcessorInterface{surface},
+	})
+
+	assert.NilError(t, proxy.syncAvailableToolsChecked(session))
+	firstFingerprint := session.registeredToolFingerprints["read_file"]
+	description = "second"
+	assert.NilError(t, proxy.syncAvailableToolsChecked(session))
+
+	assert.Assert(t, firstFingerprint != session.registeredToolFingerprints["read_file"])
+	clientSession, cleanup := connectAuthToolClient(t, session, nil)
+	defer cleanup()
+	tools := listToolsByName(t, clientSession)
+	assert.Equal(t, tools["read_file"].Description, "second")
+}
+
+func TestToolSurfaceOptionalProcessorDuplicateFallsBackToDefault(t *testing.T) {
+	surface := surfaceMockProcessor(func(_ *processor.DataContext) (*processor.DataContext, error) {
+		return &processor.DataContext{
+			ToolSurface: &processor.ToolSurfacePart{
+				Decisions: []processor.ToolSurfaceDecision{
+					{ToolName: "read_file", Action: "modify", ExposedName: "same"},
+					{ToolName: "write_file", Action: "modify", ExposedName: "same"},
+				},
+			},
+		}, nil
+	})
+	surface.cfg.Required = false
+	proxy, session, _ := newToolSurfaceTestProxy(t, &ToolSurfaceProcessingController{
+		processors: []processor.ProcessorInterface{surface},
+	})
+
+	assert.NilError(t, proxy.syncAvailableToolsChecked(session))
+	clientSession, cleanup := connectAuthToolClient(t, session, nil)
+	defer cleanup()
+	tools := listToolsByName(t, clientSession)
+	assert.Assert(t, tools["read_file"] != nil)
+	assert.Assert(t, tools["write_file"] != nil)
+	assert.Assert(t, tools["same"] == nil)
+}
+
+func TestToolSurfaceRequiredProcessorDuplicateFailsSync(t *testing.T) {
+	surface := surfaceMockProcessor(func(_ *processor.DataContext) (*processor.DataContext, error) {
+		return &processor.DataContext{
+			ToolSurface: &processor.ToolSurfacePart{
+				Decisions: []processor.ToolSurfaceDecision{
+					{ToolName: "read_file", Action: "modify", ExposedName: "same"},
+					{ToolName: "write_file", Action: "modify", ExposedName: "same"},
+				},
+			},
+		}, nil
+	})
+	surface.cfg.Required = true
+	proxy, session, _ := newToolSurfaceTestProxy(t, &ToolSurfaceProcessingController{
+		processors: []processor.ProcessorInterface{surface},
+	})
+
+	err := proxy.syncAvailableToolsChecked(session)
+	assert.Assert(t, err != nil)
+	assert.Equal(t, len(session.registeredTools), 0)
+}
+
+func TestToolSurfaceAnnotationsPersistAsSurfaceEvent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	logger, err := logging.NewLogger()
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = logger.Close()
+	})
+	store, err := persistence.NewSQLiteStore(filepath.Join(t.TempDir(), "events.sqlite"))
+	assert.NilError(t, err)
+	t.Cleanup(func() {
+		_ = store.Close()
+	})
+	logger.SetActionEventStore(store)
+
+	surface := surfaceMockProcessor(func(_ *processor.DataContext) (*processor.DataContext, error) {
+		return &processor.DataContext{
+			Annotations: &processor.AnnotationPart{
+				Reports: []processor.Report{
+					{
+						Type:      "governance_events",
+						Processor: "surface",
+						Action:    "modified",
+						Category:  "security",
+						Severity:  "medium",
+						Message:   "Tool description was rewritten.",
+					},
+				},
+			},
+		}, nil
+	})
+	proxy, session, _ := newToolSurfaceTestProxy(t, &ToolSurfaceProcessingController{
+		processors: []processor.ProcessorInterface{surface},
+	})
+	proxy.server.Logger = logger
+
+	assert.NilError(t, proxy.syncAvailableToolsChecked(session))
+
+	events, err := store.ActionEvents()
+	assert.NilError(t, err)
+	assert.Equal(t, len(events), 1)
+	page, err := store.ListEvents(context.Background(), &persistence.EventListFilter{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(page.Items), 1)
+	assert.Equal(t, len(page.Items[0].Annotations), 1)
+	assert.Equal(t, page.Items[0].Annotations[0].Message, "Tool description was rewritten.")
+}
+
+func TestToolDefinitionFingerprintChangesForSurfaceFields(t *testing.T) {
+	base := &mcp.Tool{
+		Name:        "read_file",
+		Description: "Read a file",
+		InputSchema: map[string]any{"type": "object"},
+	}
+	same := &mcp.Tool{
+		Name:        "read_file",
+		Description: "Read a file",
+		InputSchema: map[string]any{"type": "object"},
+	}
+	changedDescription := copyToolForRegistration(base)
+	changedDescription.Description = "Read a workspace file"
+	changedAnnotations := copyToolForRegistration(base)
+	changedAnnotations.Annotations = &mcp.ToolAnnotations{ReadOnlyHint: true}
+	changedMeta := copyToolForRegistration(base)
+	changedMeta.Meta = mcp.Meta{"policy": "strict"}
+
+	baseFingerprint := fingerprintToolDefinition(base)
+	assert.Equal(t, baseFingerprint, fingerprintToolDefinition(same))
+	assert.Assert(t, baseFingerprint != fingerprintToolDefinition(changedDescription))
+	assert.Assert(t, baseFingerprint != fingerprintToolDefinition(changedAnnotations))
+	assert.Assert(t, baseFingerprint != fingerprintToolDefinition(changedMeta))
 }
 
 func TestSyncAvailableToolsRemovesStaleTools(t *testing.T) {

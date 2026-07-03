@@ -789,11 +789,22 @@ type BuiltinPathBoundarySettings struct {
 }
 
 var allowedProcessorParts = map[string]bool{
-	"payload":     true,
-	"meta":        true,
-	"routing":     true,
-	"auth":        true,
-	"annotations": true,
+	"payload":      true,
+	"meta":         true,
+	"routing":      true,
+	"auth":         true,
+	"annotations":  true,
+	"tool_surface": true,
+}
+
+var reservedProcessorSurfaceParts = map[string]bool{
+	"prompt_surface":   true,
+	"resource_surface": true,
+	"mcp_surface":      true,
+}
+
+var activeProcessorSurfaceParts = map[string]bool{
+	"tool_surface": true,
 }
 
 var allowedWebhookConfigKeys = map[string]bool{
@@ -808,6 +819,24 @@ func (p *ProcessorConfig) GetParts() []string {
 		return []string{"payload", "meta"}
 	}
 	return p.Parts
+}
+
+// HasPart reports whether this processor is configured with the given context part.
+func (p *ProcessorConfig) HasPart(part string) bool {
+	if p == nil {
+		return false
+	}
+	for _, configuredPart := range p.GetParts() {
+		if configuredPart == part {
+			return true
+		}
+	}
+	return false
+}
+
+// IsToolSurfaceProcessor reports whether this processor runs during tool registration.
+func (p *ProcessorConfig) IsToolSurfaceProcessor() bool {
+	return p.HasPart("tool_surface")
 }
 
 // DefaultConfig returns a default configuration using the legacy flat layout.
@@ -1434,9 +1463,23 @@ func validateProcessor(index int, processor *ProcessorConfig, processorNames map
 }
 
 func validateProcessorParts(processor *ProcessorConfig) error {
+	hasActiveSurfacePart := false
 	for _, part := range processor.GetParts() {
+		if reservedProcessorSurfaceParts[part] {
+			return fmt.Errorf("processor '%s': surface part '%s' is reserved for future use", processor.Name, part)
+		}
 		if !allowedProcessorParts[part] {
-			return fmt.Errorf("processor '%s': unsupported part '%s' (allowed: payload, meta, routing, auth, annotations)", processor.Name, part)
+			return fmt.Errorf("processor '%s': unsupported part '%s' (allowed: payload, meta, routing, auth, annotations, tool_surface)", processor.Name, part)
+		}
+		if activeProcessorSurfaceParts[part] {
+			hasActiveSurfacePart = true
+		}
+	}
+	if hasActiveSurfacePart {
+		for _, part := range processor.GetParts() {
+			if part != "tool_surface" && part != "annotations" {
+				return fmt.Errorf("processor '%s': tool_surface may only be combined with annotations", processor.Name)
+			}
 		}
 	}
 	return nil

@@ -210,6 +210,73 @@ func TestProcessorOutputContractV1(t *testing.T) {
 	}
 }
 
+func TestProcessorToolSurfaceContractV11(t *testing.T) {
+	description := "rewritten description"
+	input := &DataContext{
+		Version: CurrentDataContextVersion,
+		ToolSurface: &ToolSurfacePart{
+			Gateway:    "gateway",
+			ServerName: "server-a",
+			Tools: []ToolSurfaceTool{
+				{
+					OriginalName:       "read_file",
+					DefaultExposedName: "server-a___read_file",
+					ExposedName:        "server-a___read_file",
+					Fingerprint:        "abc123",
+					Tool: &mcp.Tool{
+						Name:        "server-a___read_file",
+						Description: "Read a file",
+						InputSchema: map[string]any{"type": "object"},
+					},
+				},
+			},
+		},
+		Annotations: &AnnotationPart{},
+	}
+
+	serialized, err := marshalProcessorInput(input)
+	if err != nil {
+		t.Fatalf("Failed to serialize tool surface input: %v", err)
+	}
+	var serializedValue map[string]any
+	if err := json.Unmarshal(serialized, &serializedValue); err != nil {
+		t.Fatalf("Failed to parse serialized input: %v", err)
+	}
+	if serializedValue["tool_surface"] == nil {
+		t.Fatal("Expected tool_surface to be present")
+	}
+	if serializedValue["payload"] != nil {
+		t.Fatal("Expected payload to be omitted for tool_surface input")
+	}
+
+	outputJSON, err := json.Marshal(&DataContext{
+		Version: CurrentDataContextVersion,
+		ToolSurface: &ToolSurfacePart{
+			Decisions: []ToolSurfaceDecision{
+				{
+					ToolName:    "read_file",
+					Action:      "modify",
+					ExposedName: "fs_read",
+					Description: &description,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to build output JSON: %v", err)
+	}
+	output, err := unmarshalProcessorOutput(outputJSON)
+	if err != nil {
+		t.Fatalf("Failed to parse tool surface output: %v", err)
+	}
+	if output.ToolSurface == nil || len(output.ToolSurface.Decisions) != 1 {
+		t.Fatal("Expected one tool surface decision")
+	}
+	if output.ToolSurface.Decisions[0].ExposedName != "fs_read" {
+		t.Fatalf("Unexpected exposed name %q", output.ToolSurface.Decisions[0].ExposedName)
+	}
+}
+
 // jsonDeepEqual compares two JSON byte slices for structural equality.
 // Field insertion order is irrelevant — only the logical structure matters.
 func jsonDeepEqual(t *testing.T, a, b []byte) bool {

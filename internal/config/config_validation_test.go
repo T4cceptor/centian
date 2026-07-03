@@ -683,6 +683,35 @@ func TestValidateConfigNonStrict_ValidatesNameConventions(t *testing.T) {
 	})
 }
 
+func TestValidateProcessorPartsToolSurfaceCombinations(t *testing.T) {
+	tests := []struct {
+		name      string
+		parts     []string
+		wantError bool
+	}{
+		{name: "tool surface only", parts: []string{"tool_surface"}},
+		{name: "tool surface with annotations", parts: []string{"tool_surface", "annotations"}},
+		{name: "tool surface with payload rejected", parts: []string{"tool_surface", "payload"}, wantError: true},
+		{name: "tool surface with meta rejected", parts: []string{"tool_surface", "meta"}, wantError: true},
+		{name: "reserved prompt surface rejected", parts: []string{"prompt_surface"}, wantError: true},
+		{name: "reserved resource surface rejected", parts: []string{"resource_surface"}, wantError: true},
+		{name: "reserved mcp surface rejected", parts: []string{"mcp_surface"}, wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := &ProcessorConfig{Name: "surface", Parts: tt.parts}
+			err := validateProcessorParts(processor)
+			if tt.wantError && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tt.wantError && err != nil {
+				t.Fatalf("expected no validation error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateConfig_ValidatesProxyLoggingSettings(t *testing.T) {
 	tests := []struct {
 		name      string
